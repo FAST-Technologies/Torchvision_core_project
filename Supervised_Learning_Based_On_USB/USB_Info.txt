@@ -1,0 +1,1 @@
+Unified Semi-supervised learning Benchmark (USB) is a semi-supervised learning (SSL) framework built upon PyTorch. Based on Datasets and Modules provided by PyTorch, USB becomes a flexible, modular, and easy-to-use framework for semi-supervised learning.
