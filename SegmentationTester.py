@@ -9,16 +9,22 @@ import time
 class SegmentationTester:
     """Класс для тестирования и сравнения методов сегментации"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.methods = {}
         self.results = {}
     
-    def add_method(self, name: str, segmenter: BaseSegmenter):
+    def add_method(self, 
+                   name: str, 
+                   segmenter: BaseSegmenter
+    ) -> None:
         """Добавление метода сегментации"""
         self.methods[name] = segmenter
     
-    def test_single_method(self, image: Union[str, np.ndarray, Image.Image], 
-                          method_name: str, save_path: str = None) -> Dict[str, Any]:
+    def test_single_method(self, 
+                           image: Union[str, np.ndarray, Image.Image], 
+                           method_name: str, 
+                           save_path: str = None
+    ) -> Dict[str, Any]:
         """Тестирование одного метода"""
         if method_name not in self.methods:
             raise ValueError(f"Метод {method_name} не найден")
@@ -49,9 +55,11 @@ class SegmentationTester:
             'mask_percentage': (mask_area / total_pixels) * 100
         }
     
-    def compare_methods(self, image: Union[str, np.ndarray, Image.Image], 
-                       method_names: List[str] = None, 
-                       figsize: Tuple[int, int] = (20, 15)) -> Dict[str, Any]:
+    def compare_methods(self, 
+                        image: Union[str, np.ndarray, Image.Image], 
+                        method_names: List[str] = None, 
+                        figsize: Tuple[int, int] = (20, 15)
+    ) -> Dict[str, Any]:
         """Сравнение нескольких методов"""
         if method_names is None:
             method_names = list(self.methods.keys())
@@ -110,8 +118,10 @@ class SegmentationTester:
         
         return results
     
-    def benchmark_methods(self, image: Union[str, np.ndarray, Image.Image], 
-                         n_runs: int = 3) -> pd.DataFrame:
+    def benchmark_methods(self, 
+                          image: Union[str, np.ndarray, Image.Image], 
+                          n_runs: int = 3
+    ) -> pd.DataFrame:
         """Бенчмарк методов (требует pandas)"""
         import pandas as pd
         
@@ -151,8 +161,10 @@ class SegmentationTester:
         
         return df
     
-    def visualize_comparison(self, results: Dict[str, Dict], 
-                           show_masks: bool = True):
+    def visualize_comparison(self, 
+                             results: Dict[str, Dict], 
+                             show_masks: bool = True
+    ) -> None:
         """Визуализация сравнения результатов"""
         n_methods = len(results)
         
@@ -180,7 +192,10 @@ class SegmentationTester:
         plt.tight_layout()
         plt.show()
     
-    def save_results(self, results: Dict[str, Dict], output_dir: str = "segmentation_results"):
+    def save_results(self, 
+                     results: Dict[str, Dict], 
+                     output_dir: str = "segmentation_results"
+    ) -> None:
         """Сохранение результатов всех методов"""
         import os
         

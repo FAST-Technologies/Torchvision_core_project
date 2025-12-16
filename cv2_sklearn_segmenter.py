@@ -8,13 +8,16 @@ from typing import Union, Tuple
 class CV2SklearnSegmenter(BaseSegmenter):
     """Класс для методов сегментации с использованием CV2 и Sklearn"""
     
-    def __init__(self, method: str = "global_thresholding", **kwargs):
+    def __init__(self, 
+                 method: str = "global_thresholding", 
+                 **kwargs
+    ) -> None:
         super().__init__()
         self.method = method
         self.params = kwargs
         self._setup_method()
     
-    def _setup_method(self):
+    def _setup_method(self) -> None:
         """Настройка выбранного метода"""
         method_map = {
             "global_thresholding": self._global_thresholding,
@@ -36,12 +39,16 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         self._segment_func = method_map[self.method]
     
-    def segment(self, image: Union[str, np.ndarray, Image.Image, torch.Tensor]) -> np.ndarray:
+    def segment(self, 
+                image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    ) -> np.ndarray:
         """Сегментация изображения"""
         img_array = self.preprocess_image(image)
         return self._segment_func(img_array)
     
-    def segment_with_mask(self, image: Union[str, np.ndarray, Image.Image, torch.Tensor]) -> Tuple[np.ndarray, np.ndarray]:
+    def segment_with_mask(self, 
+                          image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Сегментация с возвратом маски и обработанного изображения"""
         img_array = self.preprocess_image(image)
         mask = self._segment_func(img_array)
@@ -58,7 +65,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
     
     # ============ РЕАЛИЗАЦИИ МЕТОДОВ ============
     
-    def _global_thresholding(self, img: np.ndarray) -> np.ndarray:
+    def _global_thresholding(self, 
+                             img: np.ndarray
+    ) -> np.ndarray:
         """Глобальная пороговая обработка"""
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
@@ -69,7 +78,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         _, mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
         return (mask > 0).astype(np.uint8) * 255
     
-    def _adaptive_thresholding(self, img: np.ndarray) -> np.ndarray:
+    def _adaptive_thresholding(self, 
+                               img: np.ndarray
+    ) -> np.ndarray:
         """Адаптивная пороговая обработка"""
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
@@ -86,7 +97,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         )
         return (mask > 0).astype(np.uint8) * 255
     
-    def _otsu_thresholding(self, img: np.ndarray) -> np.ndarray:
+    def _otsu_thresholding(self, 
+                           img: np.ndarray
+    ) -> np.ndarray:
         """Метод Оцу"""
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
@@ -96,7 +109,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         return (mask > 0).astype(np.uint8) * 255
     
-    def _region_growing(self, img: np.ndarray) -> np.ndarray:
+    def _region_growing(self, 
+                        img: np.ndarray
+    ) -> np.ndarray:
         """Region Growing"""
         from collections import deque
         
@@ -142,7 +157,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         return region_mask.astype(np.uint8) * 255
     
-    def _split_and_merge(self, img: np.ndarray) -> np.ndarray:
+    def _split_and_merge(self, 
+                         img: np.ndarray
+    ) -> np.ndarray:
         """Split-and-Merge"""
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
@@ -223,7 +240,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         else:
             return np.zeros_like(gray, dtype=np.uint8)
     
-    def _sobel_edge(self, img: np.ndarray) -> np.ndarray:
+    def _sobel_edge(self, 
+                    img: np.ndarray
+    ) -> np.ndarray:
         """Оператор Собеля"""
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
@@ -237,7 +256,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         mask = (sobel > threshold)
         return mask.astype(np.uint8) * 255
     
-    def _canny_edge(self, img: np.ndarray) -> np.ndarray:
+    def _canny_edge(self, 
+                    img: np.ndarray
+    ) -> np.ndarray:
         """Оператор Кэнни"""
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
@@ -249,7 +270,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         edges = cv2.Canny(gray, low, high)
         return edges
     
-    def _kmeans_segmentation(self, img: np.ndarray) -> np.ndarray:
+    def _kmeans_segmentation(self, 
+                             img: np.ndarray
+    ) -> np.ndarray:
         """K-Means кластеризация"""
         from sklearn.cluster import KMeans
         
@@ -265,7 +288,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         mask = (labels != bg_label)
         return mask.astype(np.uint8) * 255
     
-    def _dbscan_segmentation(self, img: np.ndarray) -> np.ndarray:
+    def _dbscan_segmentation(self, 
+                             img: np.ndarray
+    ) -> np.ndarray:
         """DBSCAN кластеризация"""
         from sklearn.cluster import DBSCAN
         
@@ -281,7 +306,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         mask = (labels != -1) & (labels != 0)
         return mask.astype(np.uint8) * 255
     
-    def _active_contour(self, img: np.ndarray) -> np.ndarray:
+    def _active_contour(self, 
+                        img: np.ndarray
+    ) -> np.ndarray:
         """Active Contour (Snakes)"""
         from skimage import segmentation
         
@@ -317,7 +344,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         except:
             return np.zeros_like(gray, dtype=np.uint8)
     
-    def _gvf_contour(self, img: np.ndarray) -> np.ndarray:
+    def _gvf_contour(self, 
+                     img: np.ndarray
+    ) -> np.ndarray:
         """Gradient Vector Flow"""
         from skimage import feature
         from scipy import ndimage
@@ -333,7 +362,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         return mask.astype(np.uint8) * 255
     
-    def _watershed(self, img: np.ndarray) -> np.ndarray:
+    def _watershed(self, 
+                   img: np.ndarray
+    ) -> np.ndarray:
         """Watershed сегментация"""
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)

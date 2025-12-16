@@ -1,6 +1,6 @@
 
 from base_segmenter import BaseSegmenter
-from cv2_sklearn_segmener import CV2SklearnSegmenter
+from cv2_sklearn_segmenter import CV2SklearnSegmenter
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -12,10 +12,14 @@ def create_segmentation_pipeline():
     class SegmentationPipeline:
         """Пайплайн для последовательного применения методов сегментации"""
         
-        def __init__(self):
+        def __init__(self) -> None:
             self.steps = []
             
-        def add_step(self, name: str, segmenter: BaseSegmenter, params: Dict = None):
+        def add_step(self, 
+                     name: str, 
+                     segmenter: BaseSegmenter, 
+                     params: Dict = None
+        ) -> None:
             """Добавление шага в пайплайн"""
             self.steps.append({
                 'name': name,
@@ -23,8 +27,10 @@ def create_segmentation_pipeline():
                 'params': params or {}
             })
             
-        def run(self, image: Union[str, np.ndarray, Image.Image], 
-                visualize: bool = True) -> Dict[str, Any]:
+        def run(self, 
+                image: Union[str, np.ndarray, Image.Image], 
+                visualize: bool = True
+        ) -> Dict[str, Any]:
             """Запуск пайплайна"""
             results = {}
             current_image = image
@@ -53,7 +59,10 @@ def create_segmentation_pipeline():
             
             return results
         
-        def visualize_results(self, results: Dict[str, Any], original_image):
+        def visualize_results(self, 
+                              results: Dict[str, Any], 
+                              original_image
+        ) -> None:
             """Визуализация результатов пайплайна"""
             n_steps = len(results)
             
@@ -90,7 +99,7 @@ def create_segmentation_pipeline():
 
 
 # Пример создания пайплайна
-def example_pipeline():
+def example_pipeline() -> None:
     """Пример пайплайна сегментации"""
     
     pipeline = create_segmentation_pipeline()

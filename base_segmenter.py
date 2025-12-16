@@ -1,7 +1,6 @@
 import torch
 import cv2
 import numpy as np
-# from torchvision import transforms
 from abc import ABC, abstractmethod
 from PIL import Image
 from typing import Union, Tuple
@@ -10,20 +9,26 @@ from typing import Union, Tuple
 class BaseSegmenter(ABC):
     """Базовый класс для всех методов сегментации"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.name = self.__class__.__name__
         
     @abstractmethod
-    def segment(self, image: Union[str, np.ndarray, Image.Image, torch.Tensor]) -> np.ndarray:
+    def segment(self, 
+                image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    ) -> np.ndarray:
         """Основной метод сегментации"""
         pass
     
     @abstractmethod
-    def segment_with_mask(self, image: Union[str, np.ndarray, Image.Image, torch.Tensor]) -> Tuple[np.ndarray, np.ndarray]:
+    def segment_with_mask(self, 
+                          image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Сегментация с возвратом маски"""
         pass
     
-    def preprocess_image(self, image: Union[str, np.ndarray, Image.Image, torch.Tensor]) -> np.ndarray:
+    def preprocess_image(self, 
+                         image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    ) -> np.ndarray:
         """Предобработка изображения"""
         if isinstance(image, str):
             # Загрузка из файла
@@ -43,16 +48,22 @@ class BaseSegmenter(ABC):
         else:
             raise TypeError(f"Неподдерживаемый тип изображения: {type(image)}")
     
-    def visualize(self, image: np.ndarray, mask: np.ndarray, alpha: float = 0.5, 
-                  overlay_color: Tuple[int, int, int] = (255, 0, 0)) -> Image.Image:
+    def visualize(self, 
+                  image: np.ndarray, 
+                  mask: np.ndarray, 
+                  alpha: float = 0.5, 
+                  overlay_color: Tuple[int, int, int] = (255, 0, 0)
+    ) -> Image.Image:
         """Визуализация результата сегментации"""
         overlay = image.copy()
         overlay[mask > 0] = overlay_color
         result = cv2.addWeighted(image, 1 - alpha, overlay, alpha, 0)
         return Image.fromarray(result)
     
-    def __call__(self, image: Union[str, np.ndarray, Image.Image, torch.Tensor], 
-                 return_mask: bool = False) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+    def __call__(self, 
+                 image: Union[str, np.ndarray, Image.Image, torch.Tensor], 
+                 return_mask: bool = False
+    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """Вызов метода сегментации"""
         if return_mask:
             return self.segment_with_mask(image)

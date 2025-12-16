@@ -11,7 +11,11 @@ from typing import Union, Tuple
 class TorchSegmenter(BaseSegmenter):
     """Класс для методов сегментации с использованием PyTorch"""
     
-    def __init__(self, method: str = "global_thresholding", device: str = None, **kwargs):
+    def __init__(self, 
+                 method: str = "global_thresholding", 
+                 device: str = None, 
+                 **kwargs
+    ) -> None:
         super().__init__()
         self.method = method
         self.params = kwargs
@@ -20,10 +24,10 @@ class TorchSegmenter(BaseSegmenter):
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             self.device = torch.device(device)
-        
+        print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
         self._setup_method()
     
-    def _setup_method(self):
+    def _setup_method(self) -> None:
         """Настройка выбранного метода"""
         method_map = {
             "global_thresholding": self._global_thresholding,
@@ -40,8 +44,7 @@ class TorchSegmenter(BaseSegmenter):
             "watershed": self._watershed,
             "meanshift": self._meanshift,
             "grabcut": self._grabcut,
-            "floodfill": self._floodfill,
-            "segformer": self._segformer,
+            "floodfill": self._floodfill
         }
         
         if self.method not in method_map:
@@ -49,7 +52,9 @@ class TorchSegmenter(BaseSegmenter):
         
         self._segment_func = method_map[self.method]
     
-    def preprocess_image(self, image: Union[str, np.ndarray, Image.Image, torch.Tensor]) -> torch.Tensor:
+    def preprocess_image(self, 
+                         image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    ) -> torch.Tensor:
         """Предобработка изображения для PyTorch"""
         if isinstance(image, str):
             # Загрузка из файла
@@ -68,19 +73,25 @@ class TorchSegmenter(BaseSegmenter):
         else:
             raise TypeError(f"Неподдерживаемый тип изображения: {type(image)}")
     
-    def _pil_to_tensor(self, img: Image.Image) -> torch.Tensor:
+    def _pil_to_tensor(self, 
+                       img: Image.Image
+    ) -> torch.Tensor:
         """Преобразование PIL Image в PyTorch tensor"""
         transform = transforms.ToTensor()
         tensor = transform(img).unsqueeze(0).to(self.device)  # (1, 3, H, W)
         return tensor
     
-    def _tensor_to_numpy(self, tensor: torch.Tensor) -> np.ndarray:
+    def _tensor_to_numpy(self, 
+                         tensor: torch.Tensor
+    ) -> np.ndarray:
         """Преобразование PyTorch tensor в NumPy array"""
         if tensor.dim() == 4:
             tensor = tensor.squeeze(0)
         return tensor.permute(1, 2, 0).cpu().numpy()
     
-    def _to_grayscale(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _to_grayscale(self, 
+                      tensor: torch.Tensor
+    ) -> torch.Tensor:
         """Преобразование RGB в градации серого"""
         if tensor.shape[1] == 3:
             gray = torch.mean(tensor, dim=1, keepdim=True)
@@ -88,7 +99,9 @@ class TorchSegmenter(BaseSegmenter):
             gray = tensor
         return gray
     
-    def segment(self, image: Union[str, np.ndarray, Image.Image, torch.Tensor]) -> np.ndarray:
+    def segment(self, 
+                image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    ) -> np.ndarray:
         """Сегментация изображения"""
         tensor = self.preprocess_image(image)
         mask_tensor = self._segment_func(tensor)
@@ -109,7 +122,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask_np
     
-    def segment_with_mask(self, image: Union[str, np.ndarray, Image.Image, torch.Tensor]) -> Tuple[np.ndarray, np.ndarray]:
+    def segment_with_mask(self, 
+                          image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Сегментация с возвратом маски и обработанного изображения"""
         tensor = self.preprocess_image(image)
         mask_tensor = self._segment_func(tensor)
@@ -148,14 +163,18 @@ class TorchSegmenter(BaseSegmenter):
     
     # ============ РЕАЛИЗАЦИИ МЕТОДОВ ============
     
-    def _global_thresholding(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _global_thresholding(self, 
+                             tensor: torch.Tensor
+    ) -> torch.Tensor:
         """Глобальная пороговая обработка (PyTorch)"""
         gray = self._to_grayscale(tensor)
         threshold = self.params.get('threshold', 0.5)
         mask = (gray > threshold).float()
         return mask
     
-    def _adaptive_thresholding(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _adaptive_thresholding(self, 
+                               tensor: torch.Tensor
+    ) -> torch.Tensor:
         """Адаптивная пороговая обработка (PyTorch)"""
         gray = self._to_grayscale(tensor)
         block_size = self.params.get('block_size', 11)
@@ -166,7 +185,9 @@ class TorchSegmenter(BaseSegmenter):
         mask = (gray > (local_mean - c)).float()
         return mask
     
-    def _otsu_thresholding(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _otsu_thresholding(self, 
+                           tensor: torch.Tensor
+    ) -> torch.Tensor:
         """Метод Оцу (PyTorch)"""
         gray = self._to_grayscale(tensor).squeeze().flatten()
         
@@ -187,7 +208,9 @@ class TorchSegmenter(BaseSegmenter):
         mask = (self._to_grayscale(tensor) > threshold).float()
         return mask
     
-    def _region_growing(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _region_growing(self, 
+                        tensor: torch.Tensor
+    ) -> torch.Tensor:
         """Region Growing (PyTorch)"""
         from collections import deque
         
@@ -213,7 +236,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask.float()
     
-    def _split_and_merge(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _split_and_merge(self, 
+                         tensor: torch.Tensor
+    ) -> torch.Tensor:
         """Split-and-Merge (PyTorch)"""
         h, w = tensor.shape[2], tensor.shape[3]
         min_size = self.params.get('min_size', 50)
@@ -237,7 +262,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask.float()
     
-    def _sobel_edge(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _sobel_edge(self, 
+                    tensor: torch.Tensor
+    ) -> torch.Tensor:
         """Оператор Собеля (PyTorch)"""
         gray = self._to_grayscale(tensor)
         threshold = self.params.get('threshold', 0.1)
@@ -254,7 +281,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask
     
-    def _canny_edge(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _canny_edge(self, 
+                    tensor: torch.Tensor
+    ) -> torch.Tensor:
         """Оператор Кэнни (PyTorch)"""
         gray = self._to_grayscale(tensor)
         low = self.params.get('low', 0.1)
@@ -282,7 +311,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask
     
-    def _kmeans_segmentation(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _kmeans_segmentation(self, 
+                             tensor: torch.Tensor
+    ) -> torch.Tensor:
         """K-Means кластеризация (PyTorch)"""
         k = self.params.get('k', 3)
         h, w = tensor.shape[2], tensor.shape[3]
@@ -305,7 +336,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask.float()
     
-    def _dbscan_segmentation(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _dbscan_segmentation(self, 
+                             tensor: torch.Tensor
+    ) -> torch.Tensor:
         """DBSCAN кластеризация (PyTorch)"""
         from sklearn.cluster import DBSCAN
         
@@ -321,7 +354,9 @@ class TorchSegmenter(BaseSegmenter):
         mask = (labels != -1) & (labels != 0)
         return mask.float()
     
-    def _active_contour(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _active_contour(self, 
+                        tensor: torch.Tensor
+    ) -> torch.Tensor:
         """Active Contour (PyTorch)"""
         gray = self._to_grayscale(tensor).squeeze(0)
         
@@ -337,7 +372,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask
     
-    def _gvf_contour(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _gvf_contour(self, 
+                     tensor: torch.Tensor
+    ) -> torch.Tensor:
         """GVF (PyTorch)"""
         gray = self._to_grayscale(tensor).squeeze(0)
         
@@ -358,7 +395,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask
     
-    def _watershed(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _watershed(self, 
+                   tensor: torch.Tensor
+    ) -> torch.Tensor:
         """Watershed (PyTorch)"""
         from scipy import ndimage
         
@@ -379,7 +418,9 @@ class TorchSegmenter(BaseSegmenter):
         mask = torch.from_numpy(markers > 0).float().to(self.device)
         return mask
     
-    def _meanshift(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _meanshift(self, 
+                   tensor: torch.Tensor
+    ) -> torch.Tensor:
         """MeanShift (PyTorch)"""
         from sklearn.cluster import MeanShift
         
@@ -393,7 +434,9 @@ class TorchSegmenter(BaseSegmenter):
         mask = torch.from_numpy(labels.reshape(h, w)).float().to(self.device)
         return mask
     
-    def _grabcut(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _grabcut(self, 
+                 tensor: torch.Tensor
+    ) -> torch.Tensor:
         """GrabCut (PyTorch)"""
         h, w = tensor.shape[2], tensor.shape[3]
         
@@ -405,7 +448,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask.float()
     
-    def _floodfill(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _floodfill(self, 
+                   tensor: torch.Tensor
+    ) -> torch.Tensor:
         """FloodFill (PyTorch)"""
         from collections import deque
         
@@ -443,33 +488,3 @@ class TorchSegmenter(BaseSegmenter):
                         queue.append((nx, ny))
         
         return mask.float()
-    
-    def _segformer(self, tensor: torch.Tensor) -> torch.Tensor:
-        """SegFormer нейросетевая сегментация"""
-        # Эта функция требует установленных transformers и соответствующих моделей
-        try:
-            from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
-        except ImportError:
-            raise ImportError("Для использования SegFormer установите transformers: pip install transformers")
-        
-        model_name = self.params.get('model_name', "nvidia/segformer-b5-finetuned-ade-640-640")
-        
-        # Инициализация модели (один раз)
-        if not hasattr(self, '_segformer_processor'):
-            self._segformer_processor = SegformerImageProcessor(do_resize=False)
-            self._segformer_model = SegformerForSemanticSegmentation.from_pretrained(model_name)
-            self._segformer_model.to(self.device)
-            self._segformer_model.eval()
-        
-        # Предсказание
-        with torch.no_grad():
-            outputs = self._segformer_model(tensor)
-        
-        # Постобработка
-        seg_map = self._segformer_processor.post_process_semantic_segmentation(
-            outputs, target_sizes=[(tensor.shape[2], tensor.shape[3])]
-        )[0]
-        
-        # Преобразуем в бинарную маску (не фон)
-        mask = (seg_map > 0).float()
-        return mask
