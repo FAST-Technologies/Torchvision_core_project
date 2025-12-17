@@ -1,4 +1,4 @@
-from base_segmenter import BaseSegmenter
+from BaseSegmenter import BaseSegmenter
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt

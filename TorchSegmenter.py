@@ -1,4 +1,4 @@
-from base_segmenter import BaseSegmenter
+from BaseSegmenter import BaseSegmenter
 import torch
 import torch.nn.functional as F
 from torch import nn

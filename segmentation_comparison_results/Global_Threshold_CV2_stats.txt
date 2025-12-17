@@ -1,0 +1,4 @@
+Method: Global_Threshold_CV2
+Execution Time: 0.005s
+Mask Area: 161828 pixels
+Mask Percentage: 46.28%

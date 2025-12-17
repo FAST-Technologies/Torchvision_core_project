@@ -7,12 +7,15 @@ from typing import Union, Tuple, List, Dict, Any, Optional
 import requests
 from io import BytesIO
 import cv2
+import time
 
-from base_segmenter import BaseSegmenter
+from BaseSegmenter import BaseSegmenter
 
 try:
     from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
+    TRANSFORMERS_AVAILABLE = True
 except ImportError:
+    TRANSFORMERS_AVAILABLE = False
     print("Warning: transformers not installed. Install with: pip install transformers")
 
 
@@ -21,9 +24,15 @@ class NeuralSegmenter(BaseSegmenter):
     
     def __init__(self, 
                  model_name: str = "nvidia/segformer-b5-finetuned-ade-640-640",
-                 device: str = None):
+                 device: str = None,
+                 local_path: str = None):
         super().__init__()
+        
+        if not TRANSFORMERS_AVAILABLE:
+            raise ImportError("transformers library is required. Install with: pip install transformers")
+        
         self.model_name = model_name
+        self.local_path = local_path
         
         if device is None:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -31,18 +40,40 @@ class NeuralSegmenter(BaseSegmenter):
             self.device = torch.device(device)
         
         # Инициализация модели и процессора
-        self.processor = SegformerImageProcessor(do_resize=False)
-        self.model = SegformerForSemanticSegmentation.from_pretrained(model_name)
-        print(self.model.config)
-        self.model.to(self.device)
-        self.model.eval()
+        self._initialize_model()
         
         # Палитта ADE20K
         self.palette = self.ade_palette()
         
-        print(f"✅ Нейросетевая модель загружена: {model_name}")
+        print(f"✅ Нейросетевая модель загружена!")
+        print(f"   Источник: {self.model_name if not self.local_path else self.local_path}")
         print(f"   Устройство: {self.device}")
         print(f"   Количество классов: {len(self.model.config.id2label)}")
+    
+    def _initialize_model(self):
+        """Инициализация модели и процессора"""
+        start_time = time.time()
+        
+        try:
+            # Сначала создаем процессор
+            self.processor = SegformerImageProcessor(do_resize=False)
+            
+            # Загружаем модель
+            if self.local_path:
+                print(f"Загрузка модели из локального пути: {self.local_path}")
+                self.model = SegformerForSemanticSegmentation.from_pretrained(self.local_path)
+            else:
+                print(f"Загрузка модели из Hugging Face: {self.model_name}")
+                self.model = SegformerForSemanticSegmentation.from_pretrained(self.model_name)
+            
+            # Переносим модель на устройство
+            self.model.to(self.device)
+            self.model.eval()
+            
+            print(f"Модель загружена за {time.time() - start_time:.2f} секунд")
+            
+        except Exception as e:
+            raise RuntimeError(f"Ошибка загрузки модели: {e}")
     
     @staticmethod
     def ade_palette() -> List[List[int]]:
@@ -105,26 +136,37 @@ class NeuralSegmenter(BaseSegmenter):
                 image: Union[str, Image.Image], 
                 alpha: float = 0.5) -> np.ndarray:
         """Основной метод сегментации (упрощенный вариант)"""
-        return self.segment_image(image, alpha)
+        result_img = self.segment_image(image, alpha)
+        return np.array(result_img)
     
     def segment_with_mask(self, 
                           image: Union[str, Image.Image], 
                           alpha: float = 0.5) -> Tuple[np.ndarray, np.ndarray]:
         """Сегментация с возвратом маски и обработанного изображения"""
-        result_img = self.segment_image(image, alpha)
-        seg_map = self.predict_segmentation_map(image)
+        start_time = time.time()
         
-        # Конвертируем result_img обратно в маску для совместимости
+        # Получаем сегментированное изображение
+        result_img = self.segment_image(image, alpha)
         result_np = np.array(result_img)
         
-        # Создаем бинарную маску (где есть любой цвет кроме оригинального)
-        orig_img = self.load_image(image)
-        orig_np = np.array(orig_img)
+        # Получаем карту сегментации
+        seg_map = self.predict_segmentation_map(image)
         
-        # Простая бинаризация - разница между оригиналом и результатом
-        mask = np.any(result_np != orig_np, axis=2).astype(np.uint8) * 255
+        # Создаем бинарную маску (все, что не фон)
+        mask = (seg_map > 0).astype(np.uint8) * 255
         
-        return result_np, mask
+        # Если нужна визуализация с красным оверлеем (как в других методах)
+        if len(result_np.shape) == 2:
+            result_np = cv2.cvtColor(result_np, cv2.COLOR_GRAY2RGB)
+        
+        overlay = result_np.copy()
+        mask_bool = mask > 0
+        overlay[mask_bool] = [255, 0, 0]
+        result = cv2.addWeighted(result_np, 0.5, overlay, 0.5, 0)
+        
+        print(f"Neural segmentation completed in {time.time() - start_time:.2f}s")
+        
+        return result, mask
     
     def segment_image(self, 
                       input_image: Union[str, Image.Image], 
@@ -142,8 +184,10 @@ class NeuralSegmenter(BaseSegmenter):
         # Load image
         img = self.load_image(input_image)
         
-        # Preprocess and forward pass
+        # Preprocess
         pixel_values = self.processor(img, return_tensors="pt").pixel_values.to(self.device)
+        
+        # Forward pass
         with torch.no_grad():
             outputs = self.model(pixel_values)
         
@@ -169,6 +213,7 @@ class NeuralSegmenter(BaseSegmenter):
         img = self.load_image(input_image)
         
         pixel_values = self.processor(img, return_tensors="pt").pixel_values.to(self.device)
+        
         with torch.no_grad():
             outputs = self.model(pixel_values)
         
@@ -182,14 +227,6 @@ class NeuralSegmenter(BaseSegmenter):
                               input_image: Union[str, Image.Image]) -> Dict[str, Any]:
         """
         Детальная сегментация с возвратом всех промежуточных результатов
-        
-        Returns:
-            Dictionary containing:
-            - 'original': оригинальное изображение
-            - 'segmentation_map': карта сегментации (2D массив с классами)
-            - 'color_seg': цветная сегментация
-            - 'overlay': наложение на оригинал
-            - 'class_distribution': распределение классов
         """
         img = self.load_image(input_image)
         
@@ -200,7 +237,7 @@ class NeuralSegmenter(BaseSegmenter):
         palette_array = np.array(self.palette, dtype=np.uint8)
         color_seg = np.zeros((seg_map.shape[0], seg_map.shape[1], 3), dtype=np.uint8)
         for label, color in enumerate(palette_array):
-            color_seg[seg_map == label, :] = color
+            color_seg[seg_map == label] = color
         
         # Конвертируем из BGR в RGB
         color_seg = color_seg[..., ::-1]
@@ -209,7 +246,7 @@ class NeuralSegmenter(BaseSegmenter):
         orig_arr = np.array(img)
         overlay = orig_arr * 0.5 + color_seg * 0.5
         overlay = overlay.astype(np.uint8)
-        
+
         # Анализ распределения классов
         unique_classes, counts = np.unique(seg_map, return_counts=True)
         class_distribution = {}
@@ -233,177 +270,35 @@ class NeuralSegmenter(BaseSegmenter):
             'total_classes': len(unique_classes)
         }
     
-    def compare_with_ground_truth(self, 
-                                  image_path: str, 
-                                  gt_path: str) -> Dict[str, Any]:
-        """
-        Сравнение предсказания с ground truth
-        
-        Args:
-            image_path: путь к изображению
-            gt_path: путь к ground truth карте сегментации
-        """
-        # Загрузка изображения и ground truth
-        image = Image.open(image_path)
-        gt_map = Image.open(gt_path)
-        
-        # Предсказание
-        pred_result = self.detailed_segmentation(image_path)
-        pred_map = pred_result['segmentation_map']
-        
-        # Конвертируем ground truth
-        gt_array = np.array(gt_map)
-        
-        # Для ADE20K: ground truth начинается с 1, а предсказание с 0
-        if gt_array.min() == 1:
-            gt_array = gt_array - 1
-        
-        # Вычисляем метрики
-        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-        
-        # Выравниваем массивы
-        h, w = min(pred_map.shape[0], gt_array.shape[0]), min(pred_map.shape[1], gt_array.shape[1])
-        pred_flat = pred_map[:h, :w].flatten()
-        gt_flat = gt_array[:h, :w].flatten()
-        
-        # Вычисляем метрики только для общих классов
-        common_classes = np.intersect1d(np.unique(pred_flat), np.unique(gt_flat))
-        
-        if len(common_classes) > 0:
-            accuracy = accuracy_score(gt_flat, pred_flat)
-            precision = precision_score(gt_flat, pred_flat, average='weighted', zero_division=0)
-            recall = recall_score(gt_flat, pred_flat, average='weighted', zero_division=0)
-            f1 = f1_score(gt_flat, pred_flat, average='weighted', zero_division=0)
-        else:
-            accuracy = precision = recall = f1 = 0.0
-        
-        # Визуализация
-        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-        
-        # Оригинальное изображение
-        axes[0, 0].imshow(image)
-        axes[0, 0].set_title("Original Image")
-        axes[0, 0].axis('off')
-        
-        # Предсказание
-        axes[0, 1].imshow(pred_result['overlay'])
-        axes[0, 1].set_title("Neural Segmentation")
-        axes[0, 1].axis('off')
-        
-        # Ground truth
-        gt_color_seg = np.zeros((gt_array.shape[0], gt_array.shape[1], 3), dtype=np.uint8)
-        palette_array = np.array(self.palette, dtype=np.uint8)
-        for label, color in enumerate(palette_array):
-            gt_color_seg[gt_array == label, :] = color
-        gt_color_seg = gt_color_seg[..., ::-1]
-        gt_overlay = np.array(image) * 0.5 + gt_color_seg * 0.5
-        gt_overlay = gt_overlay.astype(np.uint8)
-        
-        axes[1, 0].imshow(gt_overlay)
-        axes[1, 0].set_title("Ground Truth")
-        axes[1, 0].axis('off')
-        
-        # Разность
-        diff = np.abs(pred_map[:h, :w] - gt_array[:h, :w])
-        diff_normalized = diff / diff.max() if diff.max() > 0 else diff
-        
-        axes[1, 1].imshow(diff_normalized, cmap='hot')
-        axes[1, 1].set_title("Difference (Prediction vs Ground Truth)")
-        axes[1, 1].axis('off')
-        
-        plt.suptitle(f"Comparison with Ground Truth\nAccuracy: {accuracy:.3f}, F1: {f1:.3f}", fontsize=14)
-        plt.tight_layout()
-        plt.show()
-        
-        return {
-            'accuracy': accuracy,
-            'precision': precision,
-            'recall': recall,
-            'f1_score': f1,
-            'common_classes': len(common_classes),
-            'prediction': pred_result,
-            'ground_truth': {
-                'map': gt_array,
-                'color_seg': gt_color_seg,
-                'overlay': gt_overlay
+    def get_class_info(self):
+        """Получить информацию о классах модели"""
+        if hasattr(self, 'model') and hasattr(self.model, 'config'):
+            return {
+                'num_classes': self.model.config.num_labels,
+                'id2label': self.model.config.id2label,
+                'label2id': self.model.config.label2id
             }
-        }
+        return None
     
-    def visualize_detailed_segmentation(self, 
-                                        input_image: Union[str, Image.Image],
-                                        figsize: Tuple[int, int] = (15, 10)):
-        """Визуализация детальной сегментации"""
-        result = self.detailed_segmentation(input_image)
+    def visualize_segmentation(self, 
+                               input_image: Union[str, Image.Image],
+                               alpha: float = 0.5,
+                               figsize: Tuple[int, int] = (15, 5)):
+        """Базовая визуализация сегментации"""
+        img = self.load_image(input_image)
+        result_img = self.segment_image(input_image, alpha)
         
-        fig, axes = plt.subplots(2, 3, figsize=figsize)
+        fig, axes = plt.subplots(1, 2, figsize=figsize)
         
-        # Оригинальное изображение
-        axes[0, 0].imshow(result['original'])
-        axes[0, 0].set_title("Original Image")
-        axes[0, 0].axis('off')
+        axes[0].imshow(img)
+        axes[0].set_title("Original Image")
+        axes[0].axis('off')
         
-        # Карта сегментации
-        im1 = axes[0, 1].imshow(result['segmentation_map'], cmap='tab20')
-        axes[0, 1].set_title("Segmentation Map")
-        axes[0, 1].axis('off')
-        plt.colorbar(im1, ax=axes[0, 1], fraction=0.046, pad=0.04)
-        
-        # Цветная сегментация
-        axes[0, 2].imshow(result['color_seg'])
-        axes[0, 2].set_title("Color Segmentation")
-        axes[0, 2].axis('off')
-        
-        # Наложение
-        axes[1, 0].imshow(result['overlay'])
-        axes[1, 0].set_title("Overlay (alpha=0.5)")
-        axes[1, 0].axis('off')
-        
-        # Распределение классов (график)
-        class_dist = result['class_distribution']
-        if class_dist:
-            class_names = list(class_dist.keys())[:10]  # Первые 10 классов
-            percentages = [class_dist[name]['percentage'] for name in class_names]
-            
-            axes[1, 1].barh(class_names, percentages)
-            axes[1, 1].set_title("Top 10 Classes Distribution")
-            axes[1, 1].set_xlabel("Percentage (%)")
-            axes[1, 1].grid(True, alpha=0.3)
-        else:
-            axes[1, 1].text(0.5, 0.5, "No classes detected", 
-                          ha='center', va='center')
-            axes[1, 1].set_title("Class Distribution")
-            axes[1, 1].axis('off')
-        
-        # Информация о модели
-        info_text = f"Model: {self.model_name}\n"
-        info_text += f"Device: {self.device}\n"
-        info_text += f"Total classes: {result['total_classes']}\n"
-        info_text += f"Image size: {result['original'].size}"
-        
-        axes[1, 2].text(0.1, 0.5, info_text, fontsize=10, 
-                       verticalalignment='center', transform=axes[1, 2].transAxes)
-        axes[1, 2].set_title("Model Information")
-        axes[1, 2].axis('off')
+        axes[1].imshow(result_img)
+        axes[1].set_title(f"Neural Segmentation (alpha={alpha})")
+        axes[1].axis('off')
         
         plt.tight_layout()
         plt.show()
         
-        # Выводим статистику в консоль
-        print("=" * 60)
-        print("DETAILED SEGMENTATION ANALYSIS")
-        print("=" * 60)
-        print(f"Model: {self.model_name}")
-        print(f"Total classes detected: {result['total_classes']}")
-        print("\nTop 10 classes by area:")
-        print("-" * 40)
-        
-        sorted_classes = sorted(result['class_distribution'].items(), 
-                               key=lambda x: x[1]['pixel_count'], 
-                               reverse=True)[:10]
-        
-        for i, (class_name, info) in enumerate(sorted_classes, 1):
-            print(f"{i:2}. {class_name:30} {info['percentage']:6.2f}% ({info['pixel_count']} pixels)")
-        
-        print("=" * 60)
-        
-        return result
+        return result_img

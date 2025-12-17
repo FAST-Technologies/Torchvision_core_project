@@ -1,0 +1,4 @@
+Method: KMeans_Torch
+Execution Time: 0.058s
+Mask Area: 210880 pixels
+Mask Percentage: 60.30%

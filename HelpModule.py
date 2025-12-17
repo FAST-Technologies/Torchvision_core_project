@@ -1,5 +1,5 @@
 
-from base_segmenter import BaseSegmenter
+from BaseSegmenter import BaseSegmenter
 from cv2_sklearn_segmenter import CV2SklearnSegmenter
 import numpy as np
 import matplotlib.pyplot as plt
