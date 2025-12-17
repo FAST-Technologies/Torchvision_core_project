@@ -1,4 +1,4 @@
 Method: Global_Threshold_Torch
-Execution Time: 0.019s
+Execution Time: 0.014s
 Mask Area: 170857 pixels
 Mask Percentage: 48.86%

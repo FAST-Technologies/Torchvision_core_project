@@ -2,7 +2,8 @@
 from SegmentationTester import SegmentationTester
 from TorchSegmenter import TorchSegmenter
 from NeuralSegmenter import NeuralSegmenter
-from cv2_sklearn_segmenter import CV2SklearnSegmenter
+from cv2SklearnSegmenter import CV2SklearnSegmenter
+from HelpModule import create_advanced_pipeline_example, analyze_pipeline_results, print_pipeline_analysis
 import pandas as pd
 from typing import Union, Dict, Any
 from huggingface_hub import hf_hub_download
@@ -18,7 +19,7 @@ import traceback
 
 
 def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
-    """Пример использования всех классов"""
+    """Тестирование использования всех классов"""
     
     # Инициализация тестера
     tester = SegmentationTester()
@@ -512,6 +513,28 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
     print(f"✓ Изображение: {local_image_path}")
     print(f"✓ Результаты сохранены в: {output_dir}")
     print("=" * 60)
+
+    pipeline = create_advanced_pipeline_example()
+    
+    print(f"Создан пайплайн с шагами: {pipeline.get_step_names()}")
+    
+    # Запускаем пайплайн на тестовом изображении
+    # (нужно иметь test_image.jpg в директории)
+    try:
+        results = pipeline.run("test_image.jpg", visualize=True)
+        
+        # Анализируем результаты
+        analysis = analyze_pipeline_results(results)
+        print_pipeline_analysis(analysis)
+        
+        # Сохраняем визуализацию
+        pipeline.save_visualization(results, "original_imagge_6.jpg", "advanced_pipeline_results.jpg")
+        
+    except FileNotFoundError:
+        print("⚠️ Файл original_imagge_6.jpg не найден.")
+        print("Создайте тестовое изображение или укажите другой путь.")
+    except Exception as e:
+        print(f"❌ Ошибка выполнения пайплайна: {e}")
     
     return tester, results, df
 
@@ -609,9 +632,9 @@ if __name__ == "__main__":
     tester, results, df = main()
     
     # Дополнительный тест нейросетевых вариантов
-    print("\n\nЗАПУСК ДОПОЛНИТЕЛЬНОГО ТЕСТА НЕЙРОСЕТЕВЫХ ВАРИАНТОВ")
-    print("=" * 60)
-    segmenter, detailed_result = test_neural_segmentation_variants()
+    # print("\n\nЗАПУСК ДОПОЛНИТЕЛЬНОГО ТЕСТА НЕЙРОСЕТЕВЫХ ВАРИАНТОВ")
+    # print("=" * 60)
+    # segmenter, detailed_result = test_neural_segmentation_variants()
 
 
 def compare_with_ground_truth_simple(image_path: str, 

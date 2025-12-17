@@ -1,4 +1,4 @@
 Method: KMeans_CV2
-Execution Time: 0.229s
+Execution Time: 0.233s
 Mask Area: 200186 pixels
 Mask Percentage: 57.25%

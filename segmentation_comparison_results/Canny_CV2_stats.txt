@@ -1,4 +1,4 @@
 Method: Canny_CV2
-Execution Time: 0.003s
+Execution Time: 0.004s
 Mask Area: 47453 pixels
 Mask Percentage: 13.57%
