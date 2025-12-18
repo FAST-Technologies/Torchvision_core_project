@@ -1,4 +1,4 @@
-
+# HelpModule.py
 from BaseSegmenter import BaseSegmenter
 from cv2SklearnSegmenter import CV2SklearnSegmenter
 import numpy as np

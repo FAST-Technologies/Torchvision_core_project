@@ -1,3 +1,4 @@
+# BaseSegmenter.py
 import torch
 import cv2
 import numpy as np
@@ -10,7 +11,7 @@ class BaseSegmenter(ABC):
     """Базовый класс для всех методов сегментации"""
     
     def __init__(self) -> None:
-        self.name = self.__class__.__name__
+        self.name: str = self.__class__.__name__
         
     @abstractmethod
     def segment(self, 
@@ -27,24 +28,41 @@ class BaseSegmenter(ABC):
         pass
     
     def preprocess_image(self, 
-                         image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+                     image: Union[str, np.ndarray, Image.Image, torch.Tensor],
+                     as_gray: bool = False  # Новый параметр!
     ) -> np.ndarray:
         """Предобработка изображения"""
         if isinstance(image, str):
             # Загрузка из файла
-            img = cv2.imread(image)
-            if img is None:
-                raise ValueError(f"Не удалось загрузить изображение: {image}")
-            return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            if as_gray:
+                img = cv2.imread(image, cv2.IMREAD_GRAYSCALE)
+                if img is None:
+                    raise ValueError(f"Не удалось загрузить изображение: {image}")
+                return img  # Уже в GRAY
+            else:
+                img = cv2.imread(image)
+                if img is None:
+                    raise ValueError(f"Не удалось загрузить изображение: {image}")
+                return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # BGR→RGB
         elif isinstance(image, Image.Image):
             # PIL Image
-            return np.array(image)
+            if as_gray:
+                return np.array(image.convert('L'))  # 'L' = grayscale
+            else:
+                return np.array(image.convert('RGB'))
         elif isinstance(image, np.ndarray):
             # NumPy array
+            if as_gray and len(image.shape) == 3:
+                # Конвертируем RGB/BGR в GRAY
+                if image.shape[2] == 3:
+                    return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
             return image.copy()
         elif isinstance(image, torch.Tensor):
             # PyTorch tensor
-            return image.permute(1, 2, 0).cpu().numpy()
+            img_np = image.permute(1, 2, 0).cpu().numpy()
+            if as_gray and img_np.shape[2] == 3:
+                return cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+            return img_np
         else:
             raise TypeError(f"Неподдерживаемый тип изображения: {type(image)}")
     
@@ -55,7 +73,7 @@ class BaseSegmenter(ABC):
                   overlay_color: Tuple[int, int, int] = (255, 0, 0)
     ) -> Image.Image:
         """Визуализация результата сегментации"""
-        overlay = image.copy()
+        overlay: np.ndarray = image.copy()
         overlay[mask > 0] = overlay_color
         result = cv2.addWeighted(image, 1 - alpha, overlay, alpha, 0)
         return Image.fromarray(result)
