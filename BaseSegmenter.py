@@ -6,7 +6,6 @@ from abc import ABC, abstractmethod
 from PIL import Image
 from typing import Union, Tuple
 
-
 class BaseSegmenter(ABC):
     """Базовый класс для всех методов сегментации"""
     
@@ -28,8 +27,8 @@ class BaseSegmenter(ABC):
         pass
     
     def preprocess_image(self, 
-                     image: Union[str, np.ndarray, Image.Image, torch.Tensor],
-                     as_gray: bool = False  # Новый параметр!
+                         image: Union[str, np.ndarray, Image.Image, torch.Tensor],
+                         as_gray: bool = False
     ) -> np.ndarray:
         """Предобработка изображения"""
         if isinstance(image, str):

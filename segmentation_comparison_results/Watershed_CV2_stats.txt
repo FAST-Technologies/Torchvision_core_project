@@ -1,4 +1,0 @@
-Method: Watershed_CV2
-Execution Time: 0.009s
-Mask Area: 22084 pixels
-Mask Percentage: 6.32%

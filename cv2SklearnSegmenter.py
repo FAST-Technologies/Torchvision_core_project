@@ -12,18 +12,23 @@ import warnings
 
 
 class CV2SklearnSegmenter(BaseSegmenter):
-    """Класс для методов сегментации с использованием CV2 и Sklearn"""
+    """
+    Класс для методов сегментации изображений на основе библиотек OpenCV и scikit-learn.
+    Поддерживает как классические методы (пороговые, граничные), так и методы на основе кластеризации,
+    активных контуров и графов.
+    """
     
     def __init__(self, 
                  method: str = "global_thresholding", 
-                 **kwargs
+                 **kwargs: Any
     ) -> None:
         super().__init__()
         self.method: str = method
         self.params: Dict[str, Any] = kwargs
         self._setup_method()
 
-        self._needs_gray = method in [
+        # Определяем, нужны ли изображения в градациях серого для данного метода
+        self._needs_gray: bool = method in [
             "global_thresholding",
             "adaptive_thresholding", 
             "otsu_thresholding",
@@ -37,11 +42,15 @@ class CV2SklearnSegmenter(BaseSegmenter):
             "meanshift",
             "grabcut",
             "floodfill",
-            "morphological_snakes"
+            "morphological_snakes",
+            "chan_vese",
+            "threshold_niblack",
+            "threshold_sauvola",
+            "random_walker"
         ]
     
     def _setup_method(self) -> None:
-        """Настройка выбранного метода"""
+        """Регистрация всех доступных методов сегментации."""
         method_map: Dict[str, Any] = {
             "global_thresholding": self._global_thresholding,
             "adaptive_thresholding": self._adaptive_thresholding,
@@ -61,7 +70,11 @@ class CV2SklearnSegmenter(BaseSegmenter):
             "morphological_snakes": self._morphological_snakes,
             "quickshift": self._quickshift,
             "slic": self._slic,
-            "felzenszwalb": self._felzenszwalb
+            "felzenszwalb": self._felzenszwalb,
+            "chan_vese": self._chan_vese,
+            "threshold_niblack": self._threshold_niblack,
+            "threshold_sauvola": self._threshold_sauvola,
+            "random_walker": self._random_walker
         }
         
         if self.method not in method_map:
@@ -72,7 +85,15 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def segment(self, 
                 image: Union[str, np.ndarray, Image.Image, torch.Tensor]
     ) -> np.ndarray:
-        """Сегментация изображения"""
+        """
+        Выполняет сегментацию изображения и возвращает бинарную маску.
+
+        Args:
+            image: Входное изображение (путь, массив, PIL или тензор).
+
+        Returns:
+            np.ndarray: Бинарная маска (0–255, dtype=np.uint8), где 255 — объект.
+        """
         img_array: np.ndarray = self.preprocess_image(image, 
                                                       as_gray=self._needs_gray)
         return self._segment_func(img_array)
@@ -80,7 +101,17 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def segment_with_mask(self, 
                           image: Union[str, np.ndarray, Image.Image, torch.Tensor]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Сегментация с возвратом маски и обработанного изображения"""
+        """
+        Выполняет сегментацию и возвращает визуализацию + маску.
+
+        Args:
+            image: Входное изображение.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]:
+                - Визуализация: исходное изображение с наложенной красной маской (0–255, RGB).
+                - Маска: бинарная маска (0–255, grayscale).
+        """
         img_array: np.ndarray = self.preprocess_image(image)
         mask = self._segment_func(img_array)
 
@@ -96,8 +127,7 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         overlay = img_array.copy()
         overlay[mask > 0] = [255, 0, 0] # Красный цвет для маски
-        result = cv2.addWeighted(img_array, 0.5, overlay, 0.5, 0)
-        
+        result = cv2.addWeighted(img_array, 0.1, overlay, 0.9, 0)
         return result, mask
     
     # ============ РЕАЛИЗАЦИИ МЕТОДОВ ============
@@ -105,7 +135,18 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _global_thresholding(self, 
                              img: np.ndarray
     ) -> np.ndarray:
-        """Глобальная пороговая обработка - возвращает маску 0-255"""
+        """
+        Глобальная пороговая сегментация.
+
+        Применяет фиксированный порог ко всему изображению.
+        Все пиксели яркостью выше порога становятся белыми (объект), остальные — черными (фон).
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            Бинарная маска (0/255).
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         else:
@@ -118,7 +159,18 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _adaptive_thresholding(self, 
                                img: np.ndarray
     ) -> np.ndarray:
-        """Адаптивная пороговая обработка - возвращает маску 0-255"""
+        """
+        Адаптивная пороговая сегментация (Gaussian).
+
+        Вычисляет локальный порог для каждой области изображения.
+        Особенно эффективна при неравномерном освещении.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         else:
@@ -140,7 +192,17 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _otsu_thresholding(self, 
                            img: np.ndarray
     ) -> np.ndarray:
-        """Метод Оцу"""
+        """
+        Автоматическая бинаризация по методу Оцу.
+
+        Находит оптимальный порог, максимизирующий межклассовую дисперсию между фоном и объектом.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         else:
@@ -152,8 +214,18 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _region_growing(self, 
                         img: np.ndarray
     ) -> np.ndarray:
-        """Region Growing - возвращает маску 0-255"""
-        
+        """
+        Сегментация методом Region Growing (роста регионов).
+
+        Начинает с заданной точки (или центра) и рекурсивно добавляет соседние пиксели,
+        интенсивность которых отличается от средней интенсивности региона не более чем на допуск.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска выращенного региона.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         else:
@@ -173,31 +245,16 @@ class CV2SklearnSegmenter(BaseSegmenter):
         queue = deque([seed])
         
         region_mean = float(gray[seed[1], seed[0]])
-        region_pixels = 1
         
         while queue:
             x, y = queue.popleft()
-            
-            if x < 0 or x >= w or y < 0 or y >= h:
+            if not (0 <= x < w and 0 <= y < h) or visited[y, x]:
                 continue
-            
-            if visited[y, x]:
-                continue
-            
             visited[y, x] = True
             pixel_value = gray[y, x]
             
             # Проверяем сходство со средним значением региона
             if abs(pixel_value - region_mean) <= tolerance:
-                # # Добавляем пиксель в регион
-                # region_mask[y, x] = True
-                # # Обновляем среднее значение региона
-                # region_mean = (region_mean * region_pixels + pixel_value) / (region_pixels + 1)
-                # region_pixels += 1
-                
-                # # Добавляем соседей 4-связности
-                # neighbors = [(x+1, y), (x-1, y), (x, y+1), (x, y-1)]
-                # queue.extend(neighbors)
                 region_mask[y, x] = 255
                 
                 # Добавляем соседей 8-связности
@@ -211,98 +268,22 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         return region_mask
     
-    # def _split_and_merge(self, 
-    #                      img: np.ndarray
-    # ) -> np.ndarray:
-    #     """Split-and-Merge - возвращает маску 0-255"""
-    #     if len(img.shape) == 3:
-    #         gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    #     else:
-    #         gray = img
-        
-    #     min_region_size = self.params.get('min_region_size', 50)
-    #     threshold = self.params.get('threshold', 20)
-        
-    #     h, w = gray.shape
-        
-    #     def region_properties(region):
-    #         if len(region) == 0:
-    #             return 0, 0
-    #         intensities = [gray[y, x] for x, y in region]
-    #         return np.mean(intensities), np.std(intensities)
-        
-    #     def split(region, min_size, thresh):
-    #         if len(region) <= min_size:
-    #             return [region]
-            
-    #         mean_intensity, std_intensity = region_properties(region)
-    #         if std_intensity < thresh:
-    #             return [region]
-            
-    #         x_coords = [p[0] for p in region]
-    #         y_coords = [p[1] for p in region]
-            
-    #         x_mid = (min(x_coords) + max(x_coords)) // 2
-    #         y_mid = (min(y_coords) + max(y_coords)) // 2
-            
-    #         subregions = [
-    #             [(x, y) for x, y in region if x <= x_mid and y <= y_mid],
-    #             [(x, y) for x, y in region if x > x_mid and y <= y_mid],
-    #             [(x, y) for x, y in region if x <= x_mid and y > y_mid],
-    #             [(x, y) for x, y in region if x > x_mid and y > y_mid]
-    #         ]
-            
-    #         result = []
-    #         for subregion in subregions:
-    #             result.extend(split(subregion, min_size, thresh))
-    #         return result
-        
-    #     def merge(regions, thresh):
-    #         merged = []
-    #         used = [False] * len(regions)
-            
-    #         for i, region1 in enumerate(regions):
-    #             if used[i]:
-    #                 continue
-    #             current_merge = region1.copy()
-    #             mean1, std1 = region_properties(region1)
-                
-    #             for j, region2 in enumerate(regions[i+1:], i+1):
-    #                 if used[j]:
-    #                     continue
-    #                 mean2, std2 = region_properties(region2)
-    #                 if abs(mean1 - mean2) < thresh:
-    #                     current_merge.extend(region2)
-    #                     used[j] = True
-                
-    #             merged.append(current_merge)
-    #             used[i] = True
-            
-    #         return merged
-        
-    #     # Начинаем с целого изображения как одного региона
-    #     initial_region = [(x, y) for x in range(w) for y in range(h)]
-        
-    #     # Фаза разделения
-    #     regions = split(initial_region, min_region_size, threshold)
-        
-    #     # Фаза слияния
-    #     regions = merge(regions, threshold)
-        
-    #     # Создаем маску (берем самый большой регион после фона)
-    #     region_sizes = [len(region) for region in regions]
-    #     if len(region_sizes) > 1:
-    #         foreground_idx = np.argsort(region_sizes)[-2]
-    #         mask = np.zeros_like(gray, dtype=bool)
-    #         for x, y in regions[foreground_idx]:
-    #             mask[y, x] = True
-    #         return mask.astype(np.uint8) * 255
-    #     else:
-    #         return np.zeros_like(gray, dtype=np.uint8)
     def _split_and_merge(self, 
                          img: np.ndarray
     ) -> np.ndarray:
-        """Split-and-Merge - возвращает маску 0-255"""
+        """
+        Рекурсивный алгоритм разделения и слияния регионов.
+
+        Рекурсивно делит изображение на квадранты до тех пор, пока дисперсия внутри региона
+        не станет меньше заданного порога. Затем объединяет похожие соседние регионы.
+        Возвращает маску второго по величине региона (предполагаемый объект).
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         else:
@@ -313,91 +294,96 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         h, w = gray.shape
         
-        def recursive_split(region, min_size, thresh):
-            """Рекурсивное разделение региона"""
-            y, x, h_r, w_r = region
-            
-            if h_r <= min_size or w_r <= min_size:
+        def region_properties(region):
+            if len(region) == 0:
+                return 0, 0
+            intensities = [gray[y, x] for x, y in region]
+            return np.mean(intensities), np.std(intensities)
+        
+        def split(region, min_size, thresh):
+            if len(region) <= min_size:
                 return [region]
             
-            region_pixels = gray[y:y+h_r, x:x+w_r]
-            if region_pixels.std() < thresh:
+            mean_intensity, std_intensity = region_properties(region)
+            if std_intensity < thresh:
                 return [region]
             
-            h_half, w_half = h_r // 2, w_r // 2
+            x_coords = [p[0] for p in region]
+            y_coords = [p[1] for p in region]
+            
+            x_mid = (min(x_coords) + max(x_coords)) // 2
+            y_mid = (min(y_coords) + max(y_coords)) // 2
             
             subregions = [
-                (y, x, h_half, w_half),
-                (y, x + w_half, h_half, w_r - w_half),
-                (y + h_half, x, h_r - h_half, w_half),
-                (y + h_half, x + w_half, h_r - h_half, w_r - w_half)
+                [(x, y) for x, y in region if x <= x_mid and y <= y_mid],
+                [(x, y) for x, y in region if x > x_mid and y <= y_mid],
+                [(x, y) for x, y in region if x <= x_mid and y > y_mid],
+                [(x, y) for x, y in region if x > x_mid and y > y_mid]
             ]
             
             result = []
             for subregion in subregions:
-                result.extend(recursive_split(subregion, min_size, thresh))
+                result.extend(split(subregion, min_size, thresh))
             return result
         
-        def merge_regions(regions, thresh):
-            """Объединение похожих регионов"""
-            if len(regions) <= 1:
-                return regions
-            
+        def merge(regions, thresh):
             merged = []
             used = [False] * len(regions)
             
-            for i, (y1, x1, h1, w1) in enumerate(regions):
+            for i, region1 in enumerate(regions):
                 if used[i]:
                     continue
+                current_merge = region1.copy()
+                mean1, std1 = region_properties(region1)
                 
-                current_region = [y1, x1, h1, w1]
-                region1_mean = gray[y1:y1+h1, x1:x1+w1].mean()
-                
-                for j, (y2, x2, h2, w2) in enumerate(regions[i+1:], i+1):
+                for j, region2 in enumerate(regions[i+1:], i+1):
                     if used[j]:
                         continue
-                    
-                    region2_mean = gray[y2:y2+h2, x2:x2+w2].mean()
-                    
-                    if abs(region1_mean - region2_mean) < thresh:
-                        # Объединяем регионы
-                        new_y = min(y1, y2)
-                        new_x = min(x1, x2)
-                        new_h = max(y1+h1, y2+h2) - new_y
-                        new_w = max(x1+w1, x2+w2) - new_x
-                        current_region = [new_y, new_x, new_h, new_w]
+                    mean2, std2 = region_properties(region2)
+                    if abs(mean1 - mean2) < thresh:
+                        current_merge.extend(region2)
                         used[j] = True
                 
-                merged.append(tuple(current_region))
+                merged.append(current_merge)
                 used[i] = True
             
             return merged
         
-        # Начинаем с целого изображения
-        initial_region = (0, 0, h, w)
-        regions = recursive_split(initial_region, min_region_size, threshold)
-        regions = merge_regions(regions, threshold)
+        # Начинаем с целого изображения как одного региона
+        initial_region = [(x, y) for x in range(w) for y in range(h)]
         
-        # Создаем маску (выбираем второй по величине регион)
-        if len(regions) > 1:
-            # Сортируем по размеру
-            region_sizes = [(i, r[2] * r[3]) for i, r in enumerate(regions)]
-            region_sizes.sort(key=lambda x: x[1], reverse=True)
-            
-            # Выбираем второй по величине регион (предположительно объект)
-            idx = region_sizes[1][0]
-            mask = np.zeros((h, w), dtype=np.uint8)
-            y, x, h_r, w_r = regions[idx]
-            mask[y:y+h_r, x:x+w_r] = 255
+        # Фаза разделения
+        regions = split(initial_region, min_region_size, threshold)
+        
+        # Фаза слияния
+        regions = merge(regions, threshold)
+        
+        # Создаем маску (берем самый большой регион после фона)
+        region_sizes = [len(region) for region in regions]
+        if len(region_sizes) > 1:
+            foreground_idx = np.argsort(region_sizes)[-2]
+            mask = np.zeros_like(gray, dtype=bool)
+            for x, y in regions[foreground_idx]:
+                mask[y, x] = True
+            return mask.astype(np.uint8) * 255
         else:
-            mask = np.zeros((h, w), dtype=np.uint8)
-        
-        return mask
+            return np.zeros_like(gray, dtype=np.uint8)
     
     def _sobel_edge(self, 
                     img: np.ndarray
     ) -> np.ndarray:
-        """Оператор Собеля - возвращает маску 0-255"""
+        """
+        Обнаружение границ оператором Собеля.
+
+        Вычисляет градиент интенсивности по горизонтали и вертикали, затем объединяет их.
+        Применяется порог к величине градиента для получения бинарной маски границ.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         else:
@@ -407,17 +393,32 @@ class CV2SklearnSegmenter(BaseSegmenter):
         sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
         sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
         sobel = np.sqrt(sobelx**2 + sobely**2)
-        # mask = (sobel > threshold)
-        # return mask.astype(np.uint8) * 255
         sobel_norm = cv2.normalize(sobel, None, 0, 255, cv2.NORM_MINMAX)
+        # # Оптимальный способ: cv2.magnitude (быстрый и точный)
+        # sobel_mag = cv2.magnitude(sobelx, sobely)
+    
+        # # Нормализация
+        # sobel_norm = cv2.normalize(sobel_mag, None, 0, 255, cv2.NORM_MINMAX)
         _, mask = cv2.threshold(sobel_norm.astype(np.uint8), threshold, 255, cv2.THRESH_BINARY)
+        # Или так - mask = (sobel > threshold)
         
         return mask
     
     def _canny_edge(self, 
                     img: np.ndarray
     ) -> np.ndarray:
-        """Оператор Кэнни - возвращает маску 0-255"""
+        """
+        Обнаружение границ оператором Кэнни.
+
+        Многоэтапный алгоритм: сглаживание, вычисление градиента, подавление немаксимумов,
+        двойная пороговая фильтрация и отслеживание связных границ.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         else:
@@ -431,7 +432,18 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _kmeans_segmentation(self, 
                              img: np.ndarray
     ) -> np.ndarray:
-        """K-Means кластеризация - возвращает маску 0-255"""
+        """
+        Сегментация методом K-Means кластеризации.
+
+        Группирует пиксели по цветовому признаку в K кластеров.
+        Самый крупный кластер считается фоном; остальные — объектами.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         from sklearn.cluster import KMeans
         
         k = self.params.get('k', 3)
@@ -450,7 +462,18 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _dbscan_segmentation(self, 
                              img: np.ndarray
     ) -> np.ndarray:
-        """DBSCAN кластеризация - возвращает маску 0-255"""
+        """
+        Сегментация методом DBSCAN кластеризации.
+
+        Группирует пиксели на основе плотности. Пиксели, не принадлежащие ни одному кластеру (шум),
+        исключаются. Самый крупный кластер считается фоном.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         from sklearn.cluster import DBSCAN
         
         eps = self.params.get('eps', 10)
@@ -498,7 +521,18 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _active_contour(self, 
                         img: np.ndarray
     ) -> np.ndarray:
-        """Active Contour (Snakes) - возвращает маску 0-255"""
+        """
+        Сегментация активными контурами (Snakes).
+
+        Инициализирует замкнутый контур (обычно окружность) и деформирует его под действием
+        внутренних (упругость, жесткость) и внешних (притяжение к границам) сил до равновесия.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) внутри замкнутого контура.
+        """
         from skimage import segmentation
         
         if len(img.shape) == 3:
@@ -557,7 +591,18 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _gvf_contour(self, 
                      img: np.ndarray
     ) -> np.ndarray:
-        """Gradient Vector Flow - возвращает маску 0-255"""
+        """
+        Сегментация на основе Gradient Vector Flow (GVF).
+
+        Вычисляет векторное поле, распространяющее информацию о градиентах по всему изображению.
+        Это позволяет контуру "чувствовать" границы даже на расстоянии. Маска строится по величине GVF.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
@@ -602,7 +647,19 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _watershed(self, 
                    img: np.ndarray
     ) -> np.ndarray:
-        """Watershed сегментация - возвращает маску 0-255"""
+        """
+        Сегментация методом водораздела (Watershed).
+
+        Использует морфологические операции и преобразование расстояния для выделения
+        надежных маркеров переднего плана и фона. Алгоритм "затопляет" изображение от маркеров,
+        формируя границы между объектами.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) всех сегментированных объектов.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         else:
@@ -671,7 +728,18 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _meanshift(self, 
                    img: np.ndarray
     ) -> np.ndarray:
-        """MeanShift сегментация - возвращает маску 0-255"""
+        """
+        Сегментация методом MeanShift.
+
+        Итеративно сдвигает каждый пиксель к локальному центру масс в пространстве признаков
+        (цвет + координаты). Результатом является кластеризация пикселей по плотности.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
+        """
         from sklearn.cluster import MeanShift
         
         # Параметры
@@ -719,7 +787,18 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _grabcut(self, 
                  img: np.ndarray
     ) -> np.ndarray:
-        """GrabCut сегментация - возвращает маску 0-255"""
+        """
+        Интерактивная сегментация GrabCut.
+
+        Использует прямоугольник для инициализации фона и переднего плана.
+        Строит модели цветового распределения (GMM) и уточняет границы итеративно.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) переднего плана.
+        """
         # Параметры
         rect = self.params.get('rect', None)
         iter_count = self.params.get('iterations', 10)
@@ -753,7 +832,18 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _floodfill(self, 
                    img: np.ndarray
     ) -> np.ndarray:
-        """FloodFill сегментация - возвращает маску 0-255"""
+        """
+        Сегментация методом заливки (Flood Fill).
+
+        Начиная с заданной точки, рекурсивно заполняет все связанные пиксели,
+        интенсивность которых отличается от исходной не более чем на допуск.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) залитой области.
+        """
         # Параметры
         seed = self.params.get('seed', None)
         tolerance = self.params.get('tolerance', 20)
@@ -802,7 +892,18 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _morphological_snakes(self, 
                               img: np.ndarray
     ) -> np.ndarray:
-        """Morphological Snakes - возвращает маску 0-255"""
+        """
+        Сегментация морфологическими змеями.
+
+        Итеративно расширяет или сужает бинарную маску на основе величины градиента.
+        Области с низким градиентом "поглощаются", с высоким — отбрасываются.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         try:
             from skimage import morphology
             
@@ -863,7 +964,18 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _quickshift(self, 
                     img: np.ndarray
     ) -> np.ndarray:
-        """Quickshift сегментация - возвращает маску 0-255"""
+        """
+        Сегментация методом Quickshift (реализована через MeanShift как аналог).
+
+        Находит моды в плотности распределения пикселей в пространстве признаков.
+        Группирует пиксели, принадлежащие одной моде.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
+        """
         try:
             from sklearn.cluster import MeanShift  # Используем MeanShift как аналог
             
@@ -892,7 +1004,18 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _slic(self, 
               img: np.ndarray
     ) -> np.ndarray:
-        """SLIC сегментация - возвращает маску 0-255"""
+        """
+        SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.
+
+        Группирует пиксели в компактные, однородные регионы (суперпиксели) на основе пространственной
+        и цветовой близости. Самый крупный суперпиксель считается фоном.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8): 255 — все суперпиксели, кроме фона.
+        """
         try:
             from skimage import segmentation as skseg
             
@@ -919,9 +1042,25 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _felzenszwalb(self, 
                       img: np.ndarray
     ) -> np.ndarray:
-        """Felzenszwalb сегментация - возвращает маску 0-255"""
+        """
+        Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
+
+        Строит сегментацию, начиная с мелких регионов и объединяя их, если внутреннее различие
+        меньше межрегионального. Очень эффективен для выделения объектов разного масштаба.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            Бинарная маска: 255 — все регионы, кроме самого крупного (фона).
+        """
         try:
             from skimage import segmentation as skseg
+
+            if len(img.shape) == 3:
+                img_rgb = img
+            else:
+                img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
             
             # Параметры
             scale = self.params.get('scale', 100)
@@ -929,17 +1068,250 @@ class CV2SklearnSegmenter(BaseSegmenter):
             min_size = self.params.get('min_size', 50)
             
             # Применяем Felzenszwalb
-            segments = skseg.felzenszwalb(img, scale=scale, sigma=sigma, min_size=min_size)
+            segments = skseg.felzenszwalb(img, 
+                                          scale=scale, 
+                                          sigma=sigma, 
+                                          min_size=min_size)
             
             # Находим самый большой сегмент
             unique, counts = np.unique(segments, return_counts=True)
-            bg_segment = unique[np.argmax(counts)]
+            if len(unique) > 0:
+                bg_label = unique[np.argmax(counts)]
+                mask_np = (segments != bg_label).astype(np.uint8) * 255
+            else:
+                mask_np = np.zeros_like(segments, dtype=np.uint8)
+            
+            return mask_np
+            
+        except Exception as e:
+            warnings.warn(f"Felzenszwalb failed: {e}. Using fallback.")
+            return self._kmeans_segmentation(img)
+        
+    def _chan_vese(self, 
+               img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Модель Chan-Vese — активные контуры без градиентов.
+
+        Энергетическая модель, которая разделяет изображение на две области с минимальной
+        внутрирегиональной дисперсией. Подходит для объектов без четких границ.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска: 255 — внутренняя область контура.
+        """
+        try:
+            from skimage.segmentation import chan_vese
+            
+            if len(img.shape) == 3:
+                gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = img
+            
+            # Нормализуем изображение
+            gray_norm = gray.astype(float) / 255.0
+            
+            # Параметры Chan-Vese
+            mu = self.params.get('mu', 0.25)
+            lambda1 = self.params.get('lambda1', 1.0)
+            lambda2 = self.params.get('lambda2', 1.0)
+            tol = self.params.get('tol', 1e-3)
+            max_iter = self.params.get('max_iter', 100)
+            
+            # Инициализируем контур (все изображение)
+            init_level_set = np.ones(gray_norm.shape, dtype=np.float64)
+            
+            # Применяем Chan-Vese
+            segmentation = chan_vese(
+                gray_norm,
+                mu=mu,
+                lambda1=lambda1,
+                lambda2=lambda2,
+                tol=tol,
+                max_num_iter=max_iter,
+                init_level_set=init_level_set
+            )
             
             # Создаем маску
-            mask = (segments != bg_segment).astype(np.uint8) * 255
+            mask = (segmentation > 0.5).astype(np.uint8) * 255
             
             return mask
             
         except Exception as e:
-            warnings.warn(f"Felzenszwalb failed: {e}. Using fallback.")
+            warnings.warn(f"Chan-Vese failed: {e}. Using fallback.")
+            return self._otsu_thresholding(img)
+        
+    def _threshold_niblack(self, 
+                            img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Адаптивная пороговая обработка по Ниблаку.
+
+        Порог вычисляется как: T = μ + k·σ, где μ и σ — локальное среднее и СКО.
+        Хорошо работает на изображениях с шумом и градиентом освещения.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img
+        
+        window_size = self.params.get('window_size', 15)
+        k = self.params.get('k', 0.2)
+        
+        # Вычисляем среднее и стандартное отклонение в окне
+        mean = cv2.blur(gray, (window_size, window_size))
+        std = np.sqrt(cv2.boxFilter(gray.astype(float)**2, -1, (window_size, window_size)) - mean**2)
+        
+        # Вычисляем порог
+        threshold = mean + k * std
+        
+        # Бинаризация
+        mask = (gray > threshold).astype(np.uint8) * 255
+        
+        return mask
+
+    def _threshold_sauvola(self, 
+                        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Улучшенная адаптивная пороговая обработка по Сауволе.
+
+        Порог: T = μ·(1 + k·(σ/R - 1)), где R — динамический диапазон (обычно 128).
+        Лучше Ниблака при очень низком контрасте.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img
+        
+        window_size = self.params.get('window_size', 15)
+        k = self.params.get('k', 0.2)
+        r = self.params.get('r', 128)
+        
+        # Вычисляем среднее и стандартное отклонение в окне
+        mean = cv2.blur(gray, (window_size, window_size))
+        std = np.sqrt(cv2.boxFilter(gray.astype(float)**2, -1, (window_size, window_size)) - mean**2)
+        
+        # Вычисляем порог
+        threshold = mean * (1 + k * (std / r - 1))
+        
+        # Бинаризация
+        mask = (gray > threshold).astype(np.uint8) * 255
+        
+        return mask
+    
+    def _random_walker(self, 
+                   img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Сегментация методом Random Walker.
+
+        На основе маркеров (пользовательских или автоматических) решается задача на графе:
+        каждый пиксель "принадлежит" тому маркеру, до которого "случайное блуждание" короче.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска переднего плана.
+        """
+        try:
+            from skimage.segmentation import random_walker
+            from skimage.feature import canny
+            
+            if len(img.shape) == 3:
+                gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = img
+            
+            # Создаем маркеры
+            markers = np.zeros_like(gray, dtype=np.int8)
+            
+            rect = self.params.get('rect')
+            h, w = gray.shape
+            if rect is not None:
+                x, y, rw, rh = rect
+                markers[y:y+rh, x:x+rw] = 1
+                markers[y+1:y+rh-1, x+1:x+rw-1] = 2
+            else:
+                markers[h//4:3*h//4, w//4:3*w//4] = 2
+                markers[0:h//8, 0:w//8] = 1
+                markers[7*h//8:, 7*w//8:] = 1
+            
+            # Применяем Random Walker
+            labels = random_walker(gray, markers)
+            
+            # Создаем маску (все что не фон)
+            mask = (labels == 2).astype(np.uint8) * 255
+            
+            return mask
+            
+        except Exception as e:
+            warnings.warn(f"Random Walker failed: {e}. Using fallback.")
+            return self._otsu_thresholding(img)
+        
+    def _slic(self, 
+              img: np.ndarray
+    ) -> np.ndarray:
+        """
+        SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.
+
+        Группирует пиксели в компактные, однородные регионы (суперпиксели) на основе пространственной
+        и цветовой близости. Самый крупный суперпиксель считается фоном.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            Бинарная маска: 255 — все суперпиксели, кроме фона.
+        """
+        try:
+            from skimage.segmentation import slic as sk_slic
+            
+            if len(img.shape) == 3:
+                img_rgb = img
+            else:
+                img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+
+            # Параметры
+            n_segments = self.params.get('n_segments', 100)
+            compactness = self.params.get('compactness', 10.0)
+            max_iter = self.params.get('max_iter', 10)
+
+            # Применяем SLIC
+            segments = sk_slic(
+                img_rgb,
+                n_segments=n_segments,
+                compactness=compactness,
+                max_num_iter=max_iter,
+                enforce_connectivity=True,
+                start_label=0
+            )
+
+            # Находим самый большой сегмент — считаем его фоном
+            unique, counts = np.unique(segments, return_counts=True)
+            if len(unique) > 0:
+                bg_label = unique[np.argmax(counts)]
+                mask_np = (segments != bg_label).astype(np.uint8) * 255
+            else:
+                mask_np = np.zeros_like(segments, dtype=np.uint8)
+
+            return mask_np
+
+        except Exception as e:
+            warnings.warn(f"SLIC failed: {e}. Using fallback to KMeans.")
             return self._kmeans_segmentation(img)

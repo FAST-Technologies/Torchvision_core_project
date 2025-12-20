@@ -3,7 +3,7 @@ from SegmentationTester import SegmentationTester
 from TorchSegmenter import TorchSegmenter
 from NeuralSegmenter import NeuralSegmenter
 from cv2SklearnSegmenter import CV2SklearnSegmenter
-from HelpModule import create_advanced_pipeline_example, analyze_pipeline_results, print_pipeline_analysis
+from HelpModule import create_advanced_pipeline_example, analyze_pipeline_results, print_pipeline_analysis, compare_segmentation_methods_with_timing, original_compare_segmentation_methods
 import pandas as pd
 from typing import Union, Dict, Any
 from huggingface_hub import hf_hub_download
@@ -45,13 +45,17 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
         "Active_Contour_CV2": CV2SklearnSegmenter("active_contour", alpha=0.01, beta=0.1, gamma=0.001, max_iterations=2000),
         "GVF_Contour_CV2": CV2SklearnSegmenter("gvf_contour", mu=0.2, iterations=100),
         "Watershed_CV2": CV2SklearnSegmenter("watershed"),
-        "Meanshift_CV2": CV2SklearnSegmenter("meanshift", bandwidth=0.5),
+        # "Meanshift_CV2": CV2SklearnSegmenter("meanshift", bandwidth=0.5),
         "GrabCut_CV2": CV2SklearnSegmenter("grabcut", iterations=10),
         "FloodFill_CV2": CV2SklearnSegmenter("floodfill", seed=(100, 100), tolerance=20),
         "Morphological_Snakes_CV2": CV2SklearnSegmenter("morphological_snakes", iterations=100, smoothing=1, threshold=0.5),
         # "Quickshift_CV2": CV2SklearnSegmenter("quickshift", bandwidth=0.5),
         "Slic_CV2": CV2SklearnSegmenter("slic", n_segments=100, compactness=10.0),
         "Felzenszwalb_CV2": CV2SklearnSegmenter("felzenszwalb", scale=100, sigma=0.8, min_size=50),
+        "Chan_Vese_CV2": CV2SklearnSegmenter("chan_vese", mu=0.25, lambda1=1.0, lambda2=1.0, tol=1e-3, max_iter=100),
+        "Threshold_Niblack_CV2": CV2SklearnSegmenter("threshold_niblack", window_size=15, k=0.2),
+        "Threshold_Sauvola_CV2": CV2SklearnSegmenter("threshold_sauvola", window_size=15, k=0.2, r=128),
+        "Random_Walker_CV2": CV2SklearnSegmenter("random_walker", scale=100, sigma=0.8, min_size=50),
     }
     
     for name, segmenter in cv2_methods.items():
@@ -65,7 +69,7 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
         "Adaptive_Threshold_Torch": TorchSegmenter("adaptive_thresholding", block_size=11, C=2),
         "Otsu_Torch": TorchSegmenter("otsu_thresholding"),
         # "Region_Growing_Torch": TorchSegmenter("region_growing", seed=(100, 100), tolerance=0.1),
-        # "Split_and_Merge_Torch": TorchSegmenter("split_and_merge", min_size=50),
+        "Split_and_Merge_Torch": TorchSegmenter("split_and_merge", min_size=50),
         "Sobel_Torch": TorchSegmenter("sobel_edge", threshold=0.1),
         "Canny_Torch": TorchSegmenter("canny_edge", low=0.1, high=0.3),
         "KMeans_Torch": TorchSegmenter("kmeans_segmentation", k=3),
@@ -73,7 +77,7 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
         # "Active_Contour_Torch": TorchSegmenter("active_contour"),
         # "GVF_Contour_Torch": TorchSegmenter("gvf_contour"),
         "Watershed_Torch": TorchSegmenter("watershed"),
-        "Meanshift_Torch": TorchSegmenter("meanshift", bandwidth=0.5, spatial_radius=35, color_radius=60),
+        # "Meanshift_Torch": TorchSegmenter("meanshift", bandwidth=0.5, spatial_radius=35, color_radius=60),
         "Grabcut_Torch": TorchSegmenter("grabcut", rect=(100, 100, 200, 200), num_iterations=5),
         "FloodFill_Torch": TorchSegmenter("floodfill", tolerance=0.15),
     }
@@ -511,6 +515,8 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
             # ============ ДОПОЛНИТЕЛЬНЫЕ СОХРАНЕНИЯ ============
             
             print("\n4. Дополнительные сохранения...")
+            import os
+            import shutil
             
             # Сохраняем оригинальное изображение
             image.save("original_image.jpg")
@@ -691,7 +697,7 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
             
         except Exception as e:
             print(f"❌ Ошибка тестирования нейросетевой сегментации: {e}")
-            print(traceback.format_exc())
+            # print(traceback.format_exc())
                 
     else:
         print("⚠️ Нейросетевая сегментация не доступна")
@@ -716,18 +722,22 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
         "Active_Contour_CV2",
         "GVF_Contour_CV2",
         "Watershed_CV2",
-        "Meanshift_CV2",
+        # "Meanshift_CV2",
         "GrabCut_CV2",
         "FloodFill_CV2",
         "Morphological_Snakes_CV2",
         # "Quickshift_CV2",
         "Slic_CV2",
         "Felzenszwalb_CV2",
+        "Chan_Vese_CV2",
+        "Threshold_Niblack_CV2",
+        "Threshold_Sauvola_CV2",
+        "Random_Walker_CV2",
         "Global_Threshold_Torch",
         "Adaptive_Threshold_Torch",
         "Otsu_Torch",
         # "Region_Growing_Torch",
-        # "Split_and_Merge_Torch",
+        "Split_and_Merge_Torch",
         "Sobel_Torch",
         "Canny_Torch",
         "KMeans_Torch",
@@ -735,7 +745,7 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
         # "Active_Contour_Torch",
         # "GVF_Contour_Torch",
         "Watershed_Torch",
-        "Meanshift_Torch",
+        # "Meanshift_Torch",
         "Grabcut_Torch",
         "FloodFill_Torch",
     ]
@@ -841,6 +851,52 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
         results_4 = {}
         results_5 = {}
         results_6 = {}
+
+     # ============ Сравнение с таймингом ============
+    print("\n" + "=" * 60)
+    print("ТЕСТИРОВАНИЕ СРАВНЕНИЯ МЕТОДОВ С ТАЙМИНГОМ")
+    print("=" * 60)
+    
+    try:
+        # Тестируем на последнем изображении
+        print(f"Тестируем на изображении (0): {local_image_path}")
+        
+        # Запускаем сравнение с таймингом
+        methods_00, results_00, masks_00, times_00 = compare_segmentation_methods_with_timing(local_image_path)
+        dict_compare_00 = original_compare_segmentation_methods(local_image_path)
+
+        print(f"Тестируем на изображении (1): {local_image_path_1}")
+        methods_01, results_01, masks_01, times_01 = compare_segmentation_methods_with_timing(local_image_path_1)
+        dict_compare_01 = original_compare_segmentation_methods(local_image_path_1)
+
+        print(f"Тестируем на изображении (2): {local_image_path_2}")
+        methods_02, results_02, masks_02, times_02 = compare_segmentation_methods_with_timing(local_image_path_2)
+        dict_compare_02 = original_compare_segmentation_methods(local_image_path_2)
+
+        print(f"Тестируем на изображении (3): {local_image_path_3}")
+        methods_03, results_03, masks_03, times_03 = compare_segmentation_methods_with_timing(local_image_path_3)
+        dict_compare_03 = original_compare_segmentation_methods(local_image_path_3)
+
+        print(f"Тестируем на изображении (4): {local_image_path_4}")
+        methods_04, results_04, masks_04, times_04 = compare_segmentation_methods_with_timing(local_image_path_4)
+        dict_compare_04 = original_compare_segmentation_methods(local_image_path_4)
+
+        print(f"Тестируем на изображении (5): {local_image_path_5}")
+        methods_05, results_05, masks_05, times_05 = compare_segmentation_methods_with_timing(local_image_path_5)
+        dict_compare_05 = original_compare_segmentation_methods(local_image_path_5)
+
+        print(f"Тестируем на изображении (6): {local_image_path_6}")
+        methods_06, results_06, masks_06, times_06 = compare_segmentation_methods_with_timing(local_image_path_6)
+        dict_compare_06 = original_compare_segmentation_methods(local_image_path_6)
+        
+        print("\n" + "=" * 60)
+        print("ТЕСТИРОВАНИЕ С ТАЙМИНГОМ ЗАВЕРШЕНО")
+        print("=" * 60)
+        
+    except Exception as e:
+        print(f"❌ Ошибка при тестировании с таймингом: {e}")
+        import traceback
+        traceback.print_exc()
     
     # ============ БЕНЧМАРК ПРОИЗВОДИТЕЛЬНОСТИ ============
     
@@ -904,7 +960,7 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
         df_5 = pd.DataFrame()
     
     try:
-        df_6 = tester.benchmark_methods(local_image_path_5, 
+        df_6 = tester.benchmark_methods(local_image_path_6, 
                                         n_runs=2,
                                         test_name="performance_test_6",
                                         save_results=True)
@@ -1009,20 +1065,26 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
     # Запускаем пайплайн на тестовом изображении
     # (нужно иметь test_image.jpg в директории)
     try:
-        results = pipeline.run("test_image_6.jpg", visualize=True)
+        results = pipeline.run("test_image_download_6.jpg", visualize=True)
         
         # Анализируем результаты
         analysis = analyze_pipeline_results(results)
         print_pipeline_analysis(analysis)
         
         # Сохраняем визуализацию
-        pipeline.save_visualization(results, "original_imagge_6.jpg", "advanced_pipeline_results.jpg")
+        pipeline.save_visualization(results, "test_image_download_6.jpg", "advanced_pipeline_results.jpg")
         
     except FileNotFoundError:
-        print("⚠️ Файл original_imagge_6.jpg не найден.")
-        print("Создайте тестовое изображение или укажите другой путь.")
+        print("⚠️ Файл test_image_download_6.jpg не найден.")
+        print("Доступные файлы:")
+        import os
+        files = [f for f in os.listdir('.') if f.endswith('.jpg')]
+        for f in files:
+            print(f"  - {f}")
     except Exception as e:
         print(f"❌ Ошибка выполнения пайплайна: {e}")
+        import traceback
+        traceback.print_exc()
     
     return tester, results, df
 

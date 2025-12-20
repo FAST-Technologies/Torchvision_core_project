@@ -1,4 +1,0 @@
-Method: Otsu_CV2
-Execution Time: 0.006s
-Mask Area: 213818 pixels
-Mask Percentage: 61.14%

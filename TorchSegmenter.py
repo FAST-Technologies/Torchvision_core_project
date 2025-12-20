@@ -351,8 +351,6 @@ class TorchSegmenter(BaseSegmenter):
         """Глобальная пороговая обработка (PyTorch)"""
         gray = self._to_grayscale(tensor) # (1, 1, H, W)
         threshold = self.params.get('threshold', 0.5)
-        # if gray.max() > 1.0:
-        #     threshold = threshold * 255  # Конвертируем 0.5 → 127.5
         mask = (gray > threshold).float()
         return mask
     
@@ -686,7 +684,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask
     
     def _watershed(self, 
-                         tensor: torch.Tensor
+                   tensor: torch.Tensor
     ) -> torch.Tensor:
         """Watershed сегментация (PyTorch реализация)"""
         try:
@@ -705,214 +703,236 @@ class TorchSegmenter(BaseSegmenter):
             return (gray > threshold).float()
     
     def _watershed_segmentation_torch(self, 
-                                      tensor: torch.Tensor
+                                  tensor: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Вспомогательная функция для Watershed"""
-        # Convert to grayscale if needed
-        if tensor.shape[1] == 3:
-            grayscale = self._to_grayscale(tensor)
+        """Вспомогательная функция для Watershed - ПОЛНАЯ РЕАЛИЗАЦИЯ"""
+        # Проверяем размерность тензора
+        if tensor.dim() == 4:  # (B, C, H, W)
+            tensor_for_processing = tensor[0].unsqueeze(0)
         else:
-            grayscale = tensor
-        
+            tensor_for_processing = tensor.unsqueeze(0)
+
+        # Convert to grayscale if needed
+        if tensor_for_processing.shape[1] == 3:
+            grayscale = 0.2989 * tensor_for_processing[:, 0:1, :, :] + \
+                        0.5870 * tensor_for_processing[:, 1:2, :, :] + \
+                        0.1140 * tensor_for_processing[:, 2:3, :, :]
+        else:
+            grayscale = tensor_for_processing
+
         # Compute gradients (edge detection)
-        kernel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], 
-                               dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self.device)
-        kernel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], 
-                               dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self.device)
-        
+        kernel_x = torch.tensor([[-1, 0, 1], 
+                                [-2, 0, 2], 
+                                [-1, 0, 1]], 
+                            dtype=torch.float32, 
+                            device=self.device).unsqueeze(0).unsqueeze(0)
+        kernel_y = torch.tensor([[-1, -2, -1], 
+                                [0, 0, 0], 
+                                [1, 2, 1]], 
+                            dtype=torch.float32, 
+                            device=self.device).unsqueeze(0).unsqueeze(0)
         grad_x = F.conv2d(grayscale, kernel_x, padding=1)
         grad_y = F.conv2d(grayscale, kernel_y, padding=1)
-        
-        gradient_magnitude = torch.sqrt(grad_x**2 + grad_y**2)
-        
+        gradient_magnitude = torch.sqrt(grad_x**2 + grad_y**2 + 1e-8)
+
         # Get markers if not provided
         markers = self.params.get('markers', None)
-        
         if markers is None:
             # Simple thresholding to get foreground/background
             threshold = torch.mean(grayscale)
             binary = (grayscale > threshold).float()
-            
+
             # Distance transform using scipy
-            binary_np = binary.squeeze().cpu().numpy()
-            distance = ndimage.distance_transform_edt(binary_np)
-            markers_np = ndimage.label(distance > distance.max() * 0.5)[0]
-            markers = torch.from_numpy(markers_np).float().to(self.device)
-        
-        return gradient_magnitude.squeeze(), markers
+            try:
+                binary_np = binary.squeeze().cpu().numpy()
+                if binary_np.ndim != 2:
+                    binary_np = binary_np.squeeze()
+                distance = ndimage.distance_transform_edt(binary_np)
+                markers_np = ndimage.label(distance > distance.max() * 0.5)[0]
+                markers = torch.from_numpy(markers_np).float().to(self.device)
+                if markers.dim() == 2:
+                    markers = markers.unsqueeze(0).unsqueeze(0)
+            except Exception as e:
+                warnings.warn(f"Distance transform failed: {e}")
+                markers = binary.clone()
+
+        # --- НОВЫЙ КОД: Реализация самого алгоритма Watershed ---
+        # Преобразуем данные в нужный формат
+        h, w = gradient_magnitude.shape[2], gradient_magnitude.shape[3]
+        # Маркеры должны быть целыми числами
+        markers_int = markers.long().squeeze(0).squeeze(0)  # (H, W)
+        # Градиент должен быть положительным и нормализованным
+        gradient_flat = gradient_magnitude.squeeze(0).squeeze(0).clone()  # (H, W)
+
+        # Создаем структуру данных для алгоритма
+        # Будем использовать очередь (heapq) для обработки пикселей по возрастанию высоты
+        import heapq
+
+        # Инициализируем результат
+        result_labels = torch.zeros_like(markers_int, dtype=torch.int64)  # (H, W)
+        # Маска для посещенных пикселей
+        visited = torch.zeros_like(markers_int, dtype=torch.bool)  # (H, W)
+
+        # Список всех пикселей, отсортированных по высоте (градиенту)
+        pixel_queue = []
+
+        # Заполняем очередь начальными маркерами
+        for y in range(h):
+            for x in range(w):
+                marker_val = markers_int[y, x].item()
+                if marker_val > 0:  # Это маркер
+                    # Добавляем пиксель в очередь с его высотой
+                    heapq.heappush(pixel_queue, (gradient_flat[y, x].item(), y, x, marker_val))
+                    result_labels[y, x] = marker_val
+                    visited[y, x] = True
+
+        # Основной цикл алгоритма
+        while pixel_queue:
+            current_height, y, x, label = heapq.heappop(pixel_queue)
+
+            # Проверяем соседей (4-связность)
+            neighbors = [(x+1, y), (x-1, y), (x, y+1), (x, y-1)]
+            for nx, ny in neighbors:
+                if 0 <= nx < w and 0 <= ny < h and not visited[ny, nx]:
+                    neighbor_height = gradient_flat[ny, nx].item()
+                    # Если соседний пиксель ниже или равен текущему, он "затопляется"
+                    if neighbor_height <= current_height:
+                        result_labels[ny, nx] = label
+                        visited[ny, nx] = True
+                        heapq.heappush(pixel_queue, (neighbor_height, ny, nx, label))
+                    else:
+                        # Если соседний пиксель выше, мы не можем его затопить прямо сейчас.
+                        # Но если это маркер, мы добавим его в очередь.
+                        if markers_int[ny, nx] > 0:
+                            heapq.heappush(pixel_queue, (neighbor_height, ny, nx, markers_int[ny, nx].item()))
+                            result_labels[ny, nx] = markers_int[ny, nx].item()
+                            visited[ny, nx] = True
+                        else:
+                            # Просто добавляем в очередь для будущей обработки
+                            heapq.heappush(pixel_queue, (neighbor_height, ny, nx, label))
+
+        # Конвертируем результат обратно в тензор
+        result_labels = result_labels.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+        # Для маски используем все, что не является фоном (маркер 0)
+        mask = (result_labels > 0).float()
+
+        return gradient_magnitude.squeeze(), mask
     
     def _watershed_torch_visualization(self, 
-                                       tensor: torch.Tensor
+                                   tensor: torch.Tensor
     ) -> Tuple[np.ndarray, torch.Tensor]:
-        """Визуализация для Watershed"""
-        # Получаем градиент и маркеры
-        gradient, markers = self._watershed_segmentation_torch(tensor)
-        
-        # Создаем цветную визуализацию маркеров
-        img_np = self._tensor_to_numpy(tensor)
-        markers_np = markers.cpu().numpy()
-        
-        # Нормализуем маркеры для визуализации
-        if markers_np.max() > 0:
-            markers_np = (markers_np / markers_np.max() * 255).astype(np.uint8)
-        
-        # Создаем цветную карту маркеров
-        from matplotlib.cm import tab20
-        cmap = tab20
-        markers_colored = cmap(markers_np % 20)[:, :, :3]
-        markers_colored = (markers_colored * 255).astype(np.uint8)
-        
-        # Смешиваем с оригиналом
-        alpha = 0.6
-        result = (img_np * (1 - alpha) + markers_colored * alpha).astype(np.uint8)
-        
-        # Маска - все ненулевые маркеры
-        mask = (markers > 0).float()
-        
-        return result, mask
-    
-    # def _meanshift(self, 
-    #                tensor: torch.Tensor
-    # ) -> torch.Tensor:
-    #     """MeanShift (PyTorch)"""
-    #     from sklearn.cluster import MeanShift
-        
-    #     h, w = tensor.shape[2], tensor.shape[3]
-    #     pixels = tensor.squeeze(0).permute(1, 2, 0).reshape(-1, 3).cpu().numpy()
-        
-    #     bandwidth = self.params.get('bandwidth', 0.5)
-    #     meanshift = MeanShift(bandwidth=bandwidth)
-    #     labels = meanshift.fit_predict(pixels)
-        
-    #     mask = torch.from_numpy(labels.reshape(h, w)).float().to(self.device)
-    #     return mask
-    # def _meanshift(self, 
-    #                tensor: torch.Tensor
-    # ) -> torch.Tensor:
-    #     """MeanShift сегментация - используем проверенную реализацию"""
-    #     from collections import deque
-        
-    #     try:
-    #         # Преобразуем в numpy для обработки
-    #         img_np = self._tensor_to_numpy(tensor)
-    #         if img_np.max() <= 1.0:
-    #             img_np = (img_np * 255).astype(np.uint8)
+        """Визуализация для Watershed - теперь как в CV2"""
+        try:
+            # Получаем градиент и маску
+            gradient, mask = self._watershed_segmentation_torch(tensor)
             
-    #         h, w = img_np.shape[:2]
-            
-    #         # Используем проверенную реализацию MeanShift
-    #         class MeanShiftTorch:
-    #             def __init__(self, bandwidth=0.5, max_iter=300):
-    #                 self.bandwidth = bandwidth
-    #                 self.max_iter = max_iter
-    #                 # self.clustering = SkMeanShift(bandwidth=bandwidth, max_iter=max_iter)
+            # Создаем визуализацию
+            img_np = self._tensor_to_numpy(tensor)
+            if len(img_np.shape) == 2:
+                img_np = cv2.cvtColor(img_np, cv2.COLOR_GRAY2RGB)
                 
-    #             def segment_image(self, image_np, spatial_radius=35, color_radius=60):
-    #                 h, w, c = image_np.shape
-                    
-    #                 # Создаем пространство признаков: координаты + цвет
-    #                 y_coords, x_coords = np.mgrid[0:h, 0:w]
-    #                 spatial_features = np.stack([x_coords / spatial_radius,
-    #                                            y_coords / spatial_radius], axis=-1)
-                    
-    #                 # Нормализуем цветовые признаки
-    #                 color_features = image_np / color_radius
-                    
-    #                 # Объединяем признаки
-    #                 features = np.concatenate([spatial_features, color_features], axis=-1)
-    #                 features_flat = features.reshape(-1, features.shape[-1])
-                    
-    #                 # Применяем MeanShift
-    #                 try:
-    #                     meanshift = MeanShift(bandwidth=self.bandwidth, n_jobs=-1, max_iter=self.max_iter)
-    #                     labels = meanshift.fit_predict(features_flat)
-    #                     labels_2d = labels.reshape(h, w)
-    #                 except:
-    #                     # Если не хватает памяти, используем KMeans
-    #                     from sklearn.cluster import KMeans
-    #                     kmeans = KMeans(n_clusters=5, random_state=42)
-    #                     labels = kmeans.fit_predict(features_flat)
-    #                     labels_2d = labels.reshape(h, w)
-                    
-    #                 return labels_2d
+            # Создаем красную маску
+            red_mask = np.zeros_like(img_np)
+            # Преобразуем маску в numpy
+            mask_np = mask.squeeze().cpu().numpy()
+            if mask_np.max() <= 1.0:
+                mask_np = (mask_np * 255).astype(np.uint8)
+            else:
+                mask_np = mask_np.astype(np.uint8)
+                
+            # Применяем маску к красному каналу
+            mask_bool = mask_np > 127
+            red_mask[mask_bool, 0] = 255  # Красный
+            red_mask[mask_bool, 1] = 0    # Зеленый
+            red_mask[mask_bool, 2] = 0    # Синий
             
-    #         # Параметры
-    #         bandwidth = self.params.get('bandwidth', 0.5)
-    #         spatial_radius = self.params.get('spatial_radius', 35)
-    #         color_radius = self.params.get('color_radius', 60)
+            # Смешиваем с оригиналом
+            alpha = 0.6
+            result = cv2.addWeighted(img_np, 1.0 - alpha, red_mask, alpha, 0)
             
-    #         # Применяем MeanShift
-    #         meanshift = MeanShiftTorch(bandwidth=bandwidth)
-    #         labels = meanshift.segment_image(img_np, spatial_radius, color_radius)
+            # Возвращаем результат и маску
+            mask_tensor = mask.to(self.device)  # Уже в нужном формате
+            return result, mask_tensor
             
-    #         # Находим самый большой кластер (предположительно фон)
-    #         unique, counts = np.unique(labels, return_counts=True)
-    #         bg_label = unique[np.argmax(counts)]
-            
-    #         # Создаем маску
-    #         mask_np = (labels != bg_label).astype(np.float32)
-    #         mask = torch.from_numpy(mask_np).to(self.device)
-            
-    #         return mask.unsqueeze(0).unsqueeze(0)
-            
-    #     except Exception as e:
-    #         warnings.warn(f"MeanShift failed: {e}. Using fallback.")
-    #         return self._kmeans_segmentation(tensor)
+        except Exception as e:
+            warnings.warn(f"Watershed visualization failed: {e}")
+            img_np = self._tensor_to_numpy(tensor)
+            h, w = img_np.shape[:2]
+            mask = torch.zeros((h, w), device=self.device)
+            return img_np, mask
+    
     def _meanshift(self, 
-                         tensor: torch.Tensor
+                   tensor: torch.Tensor
     ) -> torch.Tensor:
         """MeanShift сегментация (PyTorch реализация)"""
         try:
-            # Преобразуем в numpy для обработки
-            img_np = self._tensor_to_numpy(tensor)
-            h, w = img_np.shape[:2]
+            # Убираем batch dimension если есть
+            if tensor.dim() == 4:
+                tensor = tensor.squeeze(0)  # (C, H, W)
             
-            # Используем MeanShift из sklearn
+            # Конвертируем в numpy как в старом коде
+            image_np = tensor.permute(1, 2, 0).cpu().numpy()  # (H, W, C)
+            h, w, c = image_np.shape
+            
+            # Используем параметры как в старом коде
             bandwidth = self.params.get('bandwidth', 0.5)
             spatial_radius = self.params.get('spatial_radius', 35)
             color_radius = self.params.get('color_radius', 60)
             
-            # Создаем пространство признаков
+            # Создаем пространство признаков - точно как в старом коде
             y_coords, x_coords = np.mgrid[0:h, 0:w]
             spatial_features = np.stack([x_coords / spatial_radius,
-                                       y_coords / spatial_radius], axis=-1)
+                                    y_coords / spatial_radius], axis=-1)
             
             # Нормализуем цветовые признаки
-            color_features = img_np / color_radius
+            color_features = image_np / color_radius
             
             # Объединяем признаки
             features = np.concatenate([spatial_features, color_features], axis=-1)
             features_flat = features.reshape(-1, features.shape[-1])
             
-            # Применяем MeanShift
-            meanshift = SkMeanShift(bandwidth=bandwidth, max_iter=100, n_jobs=-1)
+            # Применяем MeanShift с bin_seeding для ускорения
+            meanshift = SkMeanShift(
+                bandwidth=bandwidth, 
+                max_iter=100, 
+                n_jobs=-1,
+                bin_seeding=True  # Важно для производительности
+            )
             labels = meanshift.fit_predict(features_flat)
             labels_2d = labels.reshape(h, w)
             
             # Находим самый большой кластер (предположительно фон)
             unique, counts = np.unique(labels, return_counts=True)
-            bg_label = unique[np.argmax(counts)]
             
-            # Создаем маску
-            mask_np = (labels_2d != bg_label).astype(np.float32)
+            # Создаем маску (все кроме фона)
+            mask_np = np.ones_like(labels_2d, dtype=np.float32)
+            if len(unique) > 0:
+                bg_label = unique[np.argmax(counts)]
+                mask_np = (labels_2d != bg_label).astype(np.float32)
+            
             mask = torch.from_numpy(mask_np).to(self.device)
             
             return mask
             
         except Exception as e:
             warnings.warn(f"MeanShift failed: {e}")
+            # Fallback на KMeans как в старом коде
             return self._kmeans_segmentation(tensor)
-    
+
     def _meanshift_torch_visualization(self, 
-                                       tensor: torch.Tensor
+                                    tensor: torch.Tensor
     ) -> Tuple[np.ndarray, torch.Tensor]:
-        """Визуализация для MeanShift"""
+        """Визуализация для MeanShift - как в старом коде"""
         try:
-            # Преобразуем в numpy для обработки
-            img_np = self._tensor_to_numpy(tensor)
-            h, w, c = img_np.shape
+            # Убираем batch dimension если есть
+            if tensor.dim() == 4:
+                tensor = tensor.squeeze(0)
             
-            # Используем MeanShift
+            # Конвертируем в numpy
+            image_np = tensor.permute(1, 2, 0).cpu().numpy()  # (H, W, C)
+            h, w, c = image_np.shape
+            
+            # Используем параметры
             bandwidth = self.params.get('bandwidth', 0.5)
             spatial_radius = self.params.get('spatial_radius', 35)
             color_radius = self.params.get('color_radius', 60)
@@ -920,43 +940,153 @@ class TorchSegmenter(BaseSegmenter):
             # Создаем пространство признаков
             y_coords, x_coords = np.mgrid[0:h, 0:w]
             spatial_features = np.stack([x_coords / spatial_radius,
-                                       y_coords / spatial_radius], axis=-1)
+                                    y_coords / spatial_radius], axis=-1)
             
-            color_features = img_np / color_radius
+            color_features = image_np / color_radius
             features = np.concatenate([spatial_features, color_features], axis=-1)
             features_flat = features.reshape(-1, features.shape[-1])
             
             # Применяем MeanShift
-            meanshift = SkMeanShift(bandwidth=bandwidth, max_iter=100, n_jobs=-1)
+            meanshift = SkMeanShift(
+                bandwidth=bandwidth, 
+                max_iter=100, 
+                n_jobs=-1,
+                bin_seeding=True
+            )
             labels = meanshift.fit_predict(features_flat)
             labels_2d = labels.reshape(h, w)
             
-            # Создаем сегментированное изображение
-            segmented = np.zeros_like(img_np)
+            # Создаем сегментированное изображение - как в старом коде
+            segmented = np.zeros_like(image_np)
             unique_labels = np.unique(labels_2d)
             
             for label in unique_labels:
                 mask = labels_2d == label
                 if np.any(mask):
-                    segmented[mask] = np.mean(img_np[mask], axis=0)
+                    # Берем средний цвет региона
+                    segmented[mask] = np.mean(image_np[mask], axis=0)
             
-            # Смешиваем с оригиналом
-            alpha = 0.6
-            result = (img_np * (1 - alpha) + segmented * alpha).astype(np.uint8)
+            # Конвертируем обратно в torch для единообразия
+            segmented_tensor = torch.from_numpy(segmented).permute(2, 0, 1).to(self.device)
+            result_np = self._tensor_to_numpy(segmented_tensor)
             
             # Находим фон и создаем маску
             unique, counts = np.unique(labels, return_counts=True)
-            bg_label = unique[np.argmax(counts)]
-            mask_np = (labels_2d != bg_label).astype(np.float32)
+            mask_np = np.ones_like(labels_2d, dtype=np.float32)
+            if len(unique) > 0:
+                bg_label = unique[np.argmax(counts)]
+                mask_np = (labels_2d != bg_label).astype(np.float32)
+            
             mask = torch.from_numpy(mask_np).to(self.device)
             
-            return result, mask
+            return result_np, mask
             
         except Exception as e:
             warnings.warn(f"MeanShift visualization failed: {e}")
-            mask = self._meanshift(tensor)
+            # Fallback: возвращаем оригинал
             img_np = self._tensor_to_numpy(tensor)
+            h, w = img_np.shape[:2]
+            mask = torch.zeros((h, w), device=self.device)
             return img_np, mask
+    # def _meanshift(self, 
+    #                      tensor: torch.Tensor
+    # ) -> torch.Tensor:
+    #     """MeanShift сегментация (PyTorch реализация)"""
+    #     try:
+    #         # Преобразуем в numpy для обработки
+    #         img_np = self._tensor_to_numpy(tensor)
+    #         h, w = img_np.shape[:2]
+            
+    #         # Используем MeanShift из sklearn
+    #         bandwidth = self.params.get('bandwidth', 0.5)
+    #         spatial_radius = self.params.get('spatial_radius', 35)
+    #         color_radius = self.params.get('color_radius', 60)
+            
+    #         # Создаем пространство признаков
+    #         y_coords, x_coords = np.mgrid[0:h, 0:w]
+    #         spatial_features = np.stack([x_coords / spatial_radius,
+    #                                    y_coords / spatial_radius], axis=-1)
+            
+    #         # Нормализуем цветовые признаки
+    #         color_features = img_np / color_radius
+            
+    #         # Объединяем признаки
+    #         features = np.concatenate([spatial_features, color_features], axis=-1)
+    #         features_flat = features.reshape(-1, features.shape[-1])
+            
+    #         # Применяем MeanShift
+    #         meanshift = SkMeanShift(bandwidth=bandwidth, max_iter=100, n_jobs=-1)
+    #         labels = meanshift.fit_predict(features_flat)
+    #         labels_2d = labels.reshape(h, w)
+            
+    #         # Находим самый большой кластер (предположительно фон)
+    #         unique, counts = np.unique(labels, return_counts=True)
+    #         bg_label = unique[np.argmax(counts)]
+            
+    #         # Создаем маску
+    #         mask_np = (labels_2d != bg_label).astype(np.float32)
+    #         mask = torch.from_numpy(mask_np).to(self.device)
+            
+    #         return mask
+            
+    #     except Exception as e:
+    #         warnings.warn(f"MeanShift failed: {e}")
+    #         return self._kmeans_segmentation(tensor)
+    
+    # def _meanshift_torch_visualization(self, 
+    #                                    tensor: torch.Tensor
+    # ) -> Tuple[np.ndarray, torch.Tensor]:
+    #     """Визуализация для MeanShift"""
+    #     try:
+    #         # Преобразуем в numpy для обработки
+    #         img_np = self._tensor_to_numpy(tensor)
+    #         h, w, c = img_np.shape
+            
+    #         # Используем MeanShift
+    #         bandwidth = self.params.get('bandwidth', 0.5)
+    #         spatial_radius = self.params.get('spatial_radius', 35)
+    #         color_radius = self.params.get('color_radius', 60)
+            
+    #         # Создаем пространство признаков
+    #         y_coords, x_coords = np.mgrid[0:h, 0:w]
+    #         spatial_features = np.stack([x_coords / spatial_radius,
+    #                                    y_coords / spatial_radius], axis=-1)
+            
+    #         color_features = img_np / color_radius
+    #         features = np.concatenate([spatial_features, color_features], axis=-1)
+    #         features_flat = features.reshape(-1, features.shape[-1])
+            
+    #         # Применяем MeanShift
+    #         meanshift = SkMeanShift(bandwidth=bandwidth, max_iter=100, n_jobs=-1)
+    #         labels = meanshift.fit_predict(features_flat)
+    #         labels_2d = labels.reshape(h, w)
+            
+    #         # Создаем сегментированное изображение
+    #         segmented = np.zeros_like(img_np)
+    #         unique_labels = np.unique(labels_2d)
+            
+    #         for label in unique_labels:
+    #             mask = labels_2d == label
+    #             if np.any(mask):
+    #                 segmented[mask] = np.mean(img_np[mask], axis=0)
+            
+    #         # Смешиваем с оригиналом
+    #         alpha = 0.6
+    #         result = (img_np * (1 - alpha) + segmented * alpha).astype(np.uint8)
+            
+    #         # Находим фон и создаем маску
+    #         unique, counts = np.unique(labels, return_counts=True)
+    #         bg_label = unique[np.argmax(counts)]
+    #         mask_np = (labels_2d != bg_label).astype(np.float32)
+    #         mask = torch.from_numpy(mask_np).to(self.device)
+            
+    #         return result, mask
+            
+    #     except Exception as e:
+    #         warnings.warn(f"MeanShift visualization failed: {e}")
+    #         mask = self._meanshift(tensor)
+    #         img_np = self._tensor_to_numpy(tensor)
+    #         return img_np, mask
         
     # GMM для GrabCut
     class GaussianMixtureModel(nn.Module):
@@ -1063,46 +1193,6 @@ class TorchSegmenter(BaseSegmenter):
             img_np = self._tensor_to_numpy(tensor)
             return img_np, mask
     
-    # def _floodfill(self, 
-    #                tensor: torch.Tensor
-    # ) -> torch.Tensor:
-    #     """FloodFill (PyTorch)"""
-    #     from collections import deque
-        
-    #     h, w = tensor.shape[2], tensor.shape[3]
-        
-    #     seed = self.params.get('seed', (w//2, h//2))
-    #     tolerance = self.params.get('tolerance', 0.1)
-        
-    #     gray = self._to_grayscale(tensor).squeeze(0)
-    #     visited = torch.zeros(h, w, dtype=torch.bool, device=self.device)
-    #     mask = torch.zeros(h, w, dtype=torch.bool, device=self.device)
-        
-    #     start_x, start_y = int(seed[0]), int(seed[1])
-    #     target_color = gray[start_y, start_x]
-        
-    #     queue = deque([(start_x, start_y)])
-    #     visited[start_y, start_x] = True
-    #     mask[start_y, start_x] = True
-        
-    #     directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
-        
-    #     while queue:
-    #         x, y = queue.popleft()
-            
-    #         for dx, dy in directions:
-    #             nx, ny = x + dx, y + dy
-                
-    #             if 0 <= nx < w and 0 <= ny < h and not visited[ny, nx]:
-    #                 pixel_color = gray[ny, nx]
-    #                 color_diff = torch.abs(pixel_color - target_color)
-                    
-    #                 if color_diff <= tolerance:
-    #                     visited[ny, nx] = True
-    #                     mask[ny, nx] = True
-    #                     queue.append((nx, ny))
-        
-    #     return mask.float()
     def _floodfill(self, 
                    tensor: torch.Tensor
     ) -> torch.Tensor:

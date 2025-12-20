@@ -1,0 +1,7 @@
+Method,Time (s),Success,Mask Area,Mask Shape,Error
+KMeans,0.04253077507019043,True,417023,"(1104, 736)",
+Neural,0.394284725189209,False,0,N/A,"NVML_SUCCESS == DriverAPI::get()->nvmlInit_v2_() INTERNAL ASSERT FAILED at ""../c10/cuda/CUDACachingAllocator.cpp"":963, please report a bug to PyTorch. "
+FloodFill,17.97830843925476,True,28674,"(1104, 736)",
+GrabCut,31.14496898651123,True,221445,"(1104, 736)",
+MeanShift,52.489160776138306,True,811797,"(1104, 736)",
+Watershed,721.6379020214081,True,726293,"(1104, 736)",

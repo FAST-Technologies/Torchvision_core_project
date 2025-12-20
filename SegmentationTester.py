@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from PIL import Image
+import cv2
 from typing import Union, Tuple, List, Dict, Any, Optional
 import time
 import json
@@ -118,14 +119,23 @@ class SegmentationTester:
             # Сохраняем наложение (overlay)
             try:
                 # Создаем overlay (50% оригинал + 50% результат)
-                overlay = img_array * 0.5 + result * 0.5
+                # Создаем BRIGHT overlay (30% оригинал + 70% результат) - БОЛЬШЕ контраста!
+                overlay_alpha = 0.7  # Яркость наложения
+                original_alpha = 0.3  # Прозрачность оригинала
+                
+                # Если результат уже цветной (скорее всего, так и есть)
+                overlay = (img_array * original_alpha + result * overlay_alpha).astype(np.uint8)
                 overlay = overlay.astype(np.uint8)
                 overlay_path: str = os.path.join(output_dir, "images", f"{method_name}_overlay.jpg")
                 overlay_pil: Image.Image = Image.fromarray(overlay)
                 overlay_pil.save(overlay_path)
                 
                 result_data['overlay_path'] = overlay_path
-            except:
+                bright_overlay = cv2.addWeighted(img_array, 0.1, result, 0.9, 0)
+                bright_overlay_path: str = os.path.join(output_dir, "images", f"{method_name}_bright_overlay.jpg")
+                Image.fromarray(bright_overlay.astype(np.uint8)).save(bright_overlay_path)
+            except Exception as e:
+                print(f"⚠️ Ошибка создания overlay для {method_name}: {e}")
                 pass
             
             result_data['result_path'] = result_path
@@ -277,24 +287,90 @@ class SegmentationTester:
         return results
     
     def _save_statistics(self, 
-                         stats: List[Dict], 
-                         output_dir: str
+                     stats: List[Dict], 
+                        output_dir: str
     ) -> None:
         """Сохраняет статистику тестирования"""
         
+        # Функция для конвертации numpy типов в стандартные Python типы
+        def convert_numpy_types(obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, tuple):
+                return list(obj)
+            elif isinstance(obj, dict):
+                return {key: convert_numpy_types(value) for key, value in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(item) for item in obj]
+            else:
+                return obj
+        
+        # Конвертируем все numpy типы перед сохранением в JSON
+        serializable_stats = convert_numpy_types(stats)
+        
         # Сохраняем как JSON
         stats_json_path: str = os.path.join(output_dir, "statistics", "statistics.json")
-        with open(stats_json_path, 'w', encoding='utf-8') as f:
-            json.dump(stats, f, indent=2, ensure_ascii=False)
+        try:
+            with open(stats_json_path, 'w', encoding='utf-8') as f:
+                json.dump(serializable_stats, f, indent=2, ensure_ascii=False, default=str)
+            print(f"📊 Статистика сохранена (JSON): {stats_json_path}")
+        except Exception as e:
+            print(f"⚠️ Ошибка сохранения JSON статистики: {e}")
+            # Пробуем сохранить с обработкой всех типов
+            try:
+                # Пытаемся сериализовать все что можно
+                def default_serializer(o):
+                    if isinstance(o, np.integer):
+                        return int(o)
+                    elif isinstance(o, np.floating):
+                        return float(o)
+                    elif isinstance(o, np.ndarray):
+                        return o.tolist()
+                    elif hasattr(o, 'tolist'):  # Для других numpy типов
+                        return o.tolist()
+                    elif hasattr(o, '__dict__'):
+                        return str(o)
+                    else:
+                        return str(o)
+                
+                with open(stats_json_path, 'w', encoding='utf-8') as f:
+                    json.dump(stats, f, indent=2, ensure_ascii=False, default=default_serializer)
+            except Exception as e2:
+                print(f"❌ Критическая ошибка сохранения JSON: {e2}")
+                # Сохраняем как текстовый файл в крайнем случае
+                with open(stats_json_path.replace('.json', '_fallback.txt'), 'w', encoding='utf-8') as f:
+                    f.write(str(stats))
         
         # Сохраняем как CSV (если pandas доступен)
         try:
-            df: pd.DataFrame = pd.DataFrame(stats)
+            # Создаем DataFrame из сериализуемых данных
+            df_stats = []
+            for stat in stats:
+                # Конвертируем каждый словарь отдельно
+                row = {}
+                for key, value in stat.items():
+                    if isinstance(value, np.integer):
+                        row[key] = int(value)
+                    elif isinstance(value, np.floating):
+                        row[key] = float(value)
+                    elif isinstance(value, np.ndarray):
+                        row[key] = str(value.tolist())
+                    elif isinstance(value, tuple):
+                        row[key] = str(value)
+                    else:
+                        row[key] = value
+                df_stats.append(row)
+            
+            df: pd.DataFrame = pd.DataFrame(df_stats)
             stats_csv_path: str = os.path.join(output_dir, "statistics", "statistics.csv")
             df.to_csv(stats_csv_path, index=False)
             print(f"📈 Статистика сохранена (CSV): {stats_csv_path}")
-        except:
-            pass
+        except Exception as e:
+            print(f"⚠️ Ошибка сохранения CSV: {e}")
         
         # Создаем текстовый отчет
         report_path: str = os.path.join(output_dir, "statistics", "test_report.txt")
@@ -313,11 +389,17 @@ class SegmentationTester:
                 f.write("-"*40 + "\n")
                 for stat in successful:
                     f.write(f"{stat['method']}:\n")
-                    f.write(f"  Время: {stat['time_seconds']:.3f} сек\n")
-                    f.write(f"  Площадь маски: {stat['mask_area_pixels']:,} пикселей\n")
-                    f.write(f"  Процент покрытия: {stat['mask_percentage']:.2f}%\n")
+                    f.write(f"  Время: {float(stat.get('time_seconds', 0)):.3f} сек\n")
+                    f.write(f"  Площадь маски: {int(stat.get('mask_area_pixels', 0)):,} пикселей\n")
+                    f.write(f"  Процент покрытия: {float(stat.get('mask_percentage', 0)):.2f}%\n")
                     if 'image_shape' in stat:
-                        f.write(f"  Размер результата: {stat['image_shape']}\n")
+                        shape = stat['image_shape']
+                        if isinstance(shape, tuple):
+                            f.write(f"  Размер результата: {shape}\n")
+                        elif isinstance(shape, np.ndarray):
+                            f.write(f"  Размер результата: {tuple(shape)}\n")
+                        else:
+                            f.write(f"  Размер результата: {shape}\n")
                     f.write("\n")
             
             # Методы с ошибками
@@ -326,16 +408,33 @@ class SegmentationTester:
                 f.write("МЕТОДЫ С ОШИБКАМИ:\n")
                 f.write("-"*40 + "\n")
                 for stat in failed:
-                    f.write(f"{stat['method']}: {stat['error']}\n")
+                    f.write(f"{stat['method']}: {stat.get('error', 'Unknown error')}\n")
         
         print(f"📋 Текстовый отчет сохранен: {report_path}")
     
     def _save_results_summary(self, 
-                              results: Dict, 
-                              output_dir: str
+                          results: Dict, 
+                          output_dir: str
     ) -> None:
-        """Сохраняет сводку результатов"""
+        """Сохраняет сводку результатов с конвертацией numpy типов"""
         summary_path: str = os.path.join(output_dir, "statistics", "results_summary.json")
+        
+        # Функция для рекурсивной конвертации numpy типов
+        def convert_for_json(obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, tuple):
+                return list(obj)
+            elif isinstance(obj, dict):
+                return {key: convert_for_json(value) for key, value in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_for_json(item) for item in obj]
+            else:
+                return obj
         
         # Подготовка данных для сохранения
         summary_data: Dict[str, Any] = {
@@ -346,22 +445,44 @@ class SegmentationTester:
         }
         
         for method_name, result in results.items():
-            method_data: Dict[str, Any] = {
-                'time': result['time'],
-                'mask_area': result['mask_area'],
-                'mask_percentage': result['mask_percentage'],
-                'image_shape': result['image_shape']
-            }
+            # Конвертируем значения в result
+            method_data: Dict[str, Any] = {}
+            for key, value in result.items():
+                if key == 'result' or key == 'mask':
+                    # Пропускаем большие массивы
+                    continue
+                elif key == 'image_shape':
+                    if isinstance(value, np.ndarray):
+                        method_data[key] = value.tolist()
+                    elif isinstance(value, tuple):
+                        method_data[key] = list(value)
+                    else:
+                        method_data[key] = value
+                else:
+                    method_data[key] = convert_for_json(value)
             
             # Добавляем пути к файлам, если они есть
             for key in ['result_path', 'mask_path', 'overlay_path', 'original_path']:
                 if key in result:
-                    method_data[key] = result[key]
+                    method_data[key] = str(result[key])
             
             summary_data['methods'][method_name] = method_data
         
-        with open(summary_path, 'w', encoding='utf-8') as f:
-            json.dump(summary_data, f, indent=2, ensure_ascii=False)
+        # Сохраняем с обработкой типов
+        try:
+            with open(summary_path, 'w', encoding='utf-8') as f:
+                json.dump(summary_data, f, indent=2, ensure_ascii=False, default=str)
+            print(f"📋 Сводка результатов сохранена: {summary_path}")
+        except Exception as e:
+            print(f"⚠️ Ошибка сохранения сводки результатов: {e}")
+            # Альтернативное сохранение
+            with open(summary_path.replace('.json', '_simple.txt'), 'w', encoding='utf-8') as f:
+                for method_name, method_data in summary_data['methods'].items():
+                    f.write(f"\n{'='*40}\n")
+                    f.write(f"Метод: {method_name}\n")
+                    f.write(f"{'='*40}\n")
+                    for key, value in method_data.items():
+                        f.write(f"{key}: {value}\n")
     
     def benchmark_methods(self, 
                           image: Union[str, np.ndarray, Image.Image], 
@@ -445,9 +566,9 @@ class SegmentationTester:
                     mask_pil: Image.Image = Image.fromarray(mask.astype(np.uint8))
                     mask_pil.save(mask_path)
                     
-                    # Сохраняем overlay (50% оригинал + 90% результат)
+                    # Сохраняем overlay (30% оригинал + 70% результат)
                     if image_array is not None:
-                        overlay: np.ndarray = image_array * 0.5 + result_img * 0.9
+                        overlay: np.ndarray = image_array * 0.3 + result_img * 0.7
                         overlay: np.ndarray = overlay.astype(np.uint8)
                         overlay_path: str = os.path.join(bench_dir, "images", f"{method_name}_overlay.jpg")
                         overlay_pil: Image.Image = Image.fromarray(overlay)

@@ -1,4 +1,0 @@
-Method: Canny_Torch
-Execution Time: 0.084s
-Mask Area: 73799 pixels
-Mask Percentage: 21.10%
