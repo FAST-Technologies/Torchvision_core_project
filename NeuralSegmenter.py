@@ -320,3 +320,116 @@ class NeuralSegmenter(BaseSegmenter):
         plt.show()
         
         return result_img
+    
+    def segment_and_evaluate(self, 
+                        image: Union[str, np.ndarray, Image.Image],
+                        ground_truth: np.ndarray,
+                        threshold: float = 0.5) -> Tuple[Dict[str, float], np.ndarray]:
+        """
+        Сегментирует изображение и вычисляет метрики относительно ground truth.
+        
+        Args:
+            image: Входное изображение
+            ground_truth: Ground truth маска
+            threshold: Порог для метрик
+            
+        Returns:
+            Tuple[Dict[str, float], np.ndarray]: (метрики, предсказанная маска)
+        """
+        # Получаем сегментированное изображение и маску
+        result_img, pred_mask = self.segment_with_mask(image)
+        
+        # Для нейросетевого сегментатора: получаем карту сегментации
+        seg_map = self.predict_segmentation_map(image)
+        
+        # Определяем фон как самый частый класс
+        unique_classes, counts = np.unique(seg_map, return_counts=True)
+        if len(unique_classes) > 0:
+            bg_class = unique_classes[np.argmax(counts)]
+            # Создаем бинарную маску (все не-фоновые классы = объект)
+            pred_mask_binary = (seg_map != bg_class).astype(np.uint8) * 255
+        else:
+            pred_mask_binary = np.zeros_like(seg_map, dtype=np.uint8)
+        
+        # Приводим к одинаковому размеру с ground truth
+        h, w = min(pred_mask_binary.shape[0], ground_truth.shape[0]), \
+            min(pred_mask_binary.shape[1], ground_truth.shape[1])
+        
+        pred_mask_resized = pred_mask_binary[:h, :w]
+        gt_mask_resized = ground_truth[:h, :w]
+        
+        # Вычисляем метрики
+        metrics = self._calculate_segmentation_metrics(pred_mask_resized, gt_mask_resized)
+        
+        return metrics, pred_mask_binary
+
+    def _calculate_segmentation_metrics(self, 
+                                    pred_mask: np.ndarray, 
+                                    gt_mask: np.ndarray) -> Dict[str, float]:
+        """Вычисляет метрики качества сегментации"""
+        # Бинаризация
+        pred_bin = (pred_mask > 127).astype(np.uint8).flatten()
+        gt_bin = (gt_mask > 127).astype(np.uint8).flatten()
+        
+        # Вычисляем базовые метрики
+        from sklearn.metrics import confusion_matrix
+        
+        try:
+            tn, fp, fn, tp = confusion_matrix(gt_bin, pred_bin, labels=[0, 1]).ravel()
+        except ValueError:
+            # Если только один класс присутствует
+            if np.all(pred_bin == 0) and np.all(gt_bin == 0):
+                tn, fp, fn, tp = len(pred_bin), 0, 0, 0
+            elif np.all(pred_bin == 1) and np.all(gt_bin == 1):
+                tn, fp, fn, tp = 0, 0, 0, len(pred_bin)
+            else:
+                tn, fp, fn, tp = 0, 0, 0, 0
+        
+        metrics = {}
+        
+        # Accuracy
+        metrics['accuracy'] = (tp + tn) / (tp + tn + fp + fn + 1e-8)
+        
+        # Precision
+        metrics['precision'] = tp / (tp + fp + 1e-8)
+        
+        # Recall
+        metrics['recall'] = tp / (tp + fn + 1e-8)
+        
+        # F1 Score
+        if metrics['precision'] + metrics['recall'] > 0:
+            metrics['f1_score'] = 2 * (metrics['precision'] * metrics['recall']) / \
+                                (metrics['precision'] + metrics['recall'] + 1e-8)
+        else:
+            metrics['f1_score'] = 0.0
+        
+        # IoU (Jaccard)
+        intersection = np.sum(pred_bin & gt_bin)
+        union = np.sum(pred_bin | gt_bin)
+        metrics['iou'] = intersection / (union + 1e-8)
+        
+        # Dice Coefficient
+        metrics['dice'] = (2 * intersection) / (np.sum(pred_bin) + np.sum(gt_bin) + 1e-8)
+        
+        # Pixel Accuracy
+        metrics['pixel_accuracy'] = np.sum(pred_bin == gt_bin) / len(pred_bin)
+        
+        # MAE
+        if pred_mask.max() > 1:
+            pred_norm = pred_mask.astype(float) / 255.0
+        else:
+            pred_norm = pred_mask.astype(float)
+        
+        if gt_mask.max() > 1:
+            gt_norm = gt_mask.astype(float) / 255.0
+        else:
+            gt_norm = gt_mask.astype(float)
+        
+        metrics['mae'] = np.abs(pred_norm - gt_norm).mean()
+        
+        # Area metrics
+        metrics['predicted_area'] = float(np.sum(pred_bin))
+        metrics['ground_truth_area'] = float(np.sum(gt_bin))
+        metrics['area_difference'] = abs(metrics['predicted_area'] - metrics['ground_truth_area'])
+        
+        return metrics

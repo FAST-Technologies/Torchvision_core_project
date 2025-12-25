@@ -7,4 +7,4 @@ F1-Score:  0.9208
 Common Classes: 7
 Image: test_image.jpg
 Model: nvidia/segformer-b5-finetuned-ade-640-640
-Date: 2025-12-19 15:02:30
+Date: 2025-12-25 01:47:41

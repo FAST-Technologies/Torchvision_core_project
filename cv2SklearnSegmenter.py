@@ -799,35 +799,50 @@ class CV2SklearnSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8) переднего плана.
         """
-        # Параметры
         rect = self.params.get('rect', None)
         iter_count = self.params.get('iterations', 10)
         
-        # Создаем маску и модель
-        mask = np.zeros(img.shape[:2], dtype=np.uint8)
+        # Конвертируем в BGR для OpenCV
+        if len(img.shape) == 3 and img.shape[2] == 3:
+            img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        else:
+            # Если grayscale, конвертируем в BGR
+            if len(img.shape) == 2:
+                img_bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            else:
+                img_bgr = img
+        
+        # Создаем маску
+        mask = np.zeros(img_bgr.shape[:2], dtype=np.uint8)
         bgd_model = np.zeros((1, 65), dtype=np.float64)
         fgd_model = np.zeros((1, 65), dtype=np.float64)
         
         # Если прямоугольник не задан, используем центральную часть
         if rect is None:
-            h, w = img.shape[:2]
+            h, w = img_bgr.shape[:2]
             rect = (int(w*0.25), int(h*0.25), int(w*0.5), int(h*0.5))
         
         # Применяем GrabCut
-        mask, bgd_model, fgd_model = cv2.grabCut(
-            img, mask, rect, bgd_model, fgd_model, 
-            iter_count, cv2.GC_INIT_WITH_RECT
-        )
-        
-        # Создаем финальную маску (0-255)
-        mask_final = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
-        
-        # Опционально: применение морфологических операций для улучшения результата
-        kernel = np.ones((3, 3), np.uint8)
-        mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_CLOSE, kernel, iterations=2)
-        mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_OPEN, kernel, iterations=2)
-        
-        return mask_final
+        try:
+            mask, bgd_model, fgd_model = cv2.grabCut(
+                img_bgr, mask, rect, bgd_model, fgd_model, 
+                iter_count, cv2.GC_INIT_WITH_RECT
+            )
+            
+            # Создаем финальную маску
+            mask_final = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
+            
+            return mask_final
+            
+        except Exception as e:
+            warnings.warn(f"GrabCut failed: {e}. Using fallback.")
+            # Резервный вариант
+            if len(img.shape) == 3:
+                gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = img
+            _, mask = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+            return mask
     
     def _floodfill(self, 
                    img: np.ndarray
@@ -1315,3 +1330,4 @@ class CV2SklearnSegmenter(BaseSegmenter):
         except Exception as e:
             warnings.warn(f"SLIC failed: {e}. Using fallback to KMeans.")
             return self._kmeans_segmentation(img)
+        

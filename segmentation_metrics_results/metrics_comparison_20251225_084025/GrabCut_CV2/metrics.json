@@ -1,0 +1,13 @@
+{
+  "iou": 0.0,
+  "dice": 4.1342814617110017e-11,
+  "precision": 0.0,
+  "recall": 0.0,
+  "f1_score": 0.0,
+  "pixel_accuracy": 0.930831350658858,
+  "mae": 0.08414497971534729,
+  "hausdorff_distance": Infinity,
+  "predicted_area": 24188.0,
+  "ground_truth_area": 0.0,
+  "area_difference": 24188.0
+}

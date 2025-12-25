@@ -4,7 +4,8 @@ import cv2
 import numpy as np
 from abc import ABC, abstractmethod
 from PIL import Image
-from typing import Union, Tuple
+from typing import Union, Tuple, Dict
+from segmentation_metrics import SegmentationMetrics
 
 class BaseSegmenter(ABC):
     """Базовый класс для всех методов сегментации"""
@@ -76,6 +77,52 @@ class BaseSegmenter(ABC):
         overlay[mask > 0] = overlay_color
         result = cv2.addWeighted(image, 1 - alpha, overlay, alpha, 0)
         return Image.fromarray(result)
+    
+    def evaluate_metrics(self, 
+                         pred_mask: np.ndarray, 
+                         gt_mask: np.ndarray,
+                         threshold: float = 0.5) -> Dict[str, float]:
+        """
+        Оценка качества сегментации с помощью различных метрик
+        
+        Args:
+            pred_mask: Предсказанная маска
+            gt_mask: Ground truth маска
+            threshold: Порог для бинаризации
+            
+        Returns:
+            Словарь с метриками
+        """
+        return SegmentationMetrics.calculate_all_metrics(pred_mask, gt_mask, threshold)
+    
+    def segment_and_evaluate(self,
+                            image: Union[str, np.ndarray, Image.Image, torch.Tensor],
+                            gt_mask: np.ndarray,
+                            threshold: float = 0.5) -> Tuple[Dict[str, float], np.ndarray]:
+        """
+        Выполняет сегментацию и сразу оценивает результат
+        
+        Args:
+            image: Входное изображение
+            gt_mask: Ground truth маска
+            threshold: Порог для бинаризации
+            
+        Returns:
+            (метрики, предсказанная маска)
+        """
+        pred_mask = self.segment(image)
+        
+        # Конвертируем в uint8 если нужно
+        if pred_mask.dtype != np.uint8:
+            if pred_mask.max() <= 1.0:
+                pred_mask = (pred_mask * 255).astype(np.uint8)
+            else:
+                pred_mask = pred_mask.astype(np.uint8)
+        
+        metrics = self.evaluate_metrics(pred_mask, gt_mask, threshold)
+        
+        return metrics, pred_mask
+    
     
     def __call__(self, 
                  image: Union[str, np.ndarray, Image.Image, torch.Tensor], 

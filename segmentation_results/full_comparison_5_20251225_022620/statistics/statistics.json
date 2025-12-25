@@ -1,0 +1,343 @@
+[
+  {
+    "method": "Global_Threshold_CV2",
+    "time_seconds": 0.0069468021392822266,
+    "mask_area_pixels": 184873,
+    "mask_percentage": 22.752367871770637,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Adaptive_Threshold_CV2",
+    "time_seconds": 0.013395071029663086,
+    "mask_area_pixels": 548883,
+    "mask_percentage": 67.55117261342156,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Otsu_CV2",
+    "time_seconds": 0.009348154067993164,
+    "mask_area_pixels": 390110,
+    "mask_percentage": 48.01093848456207,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Region_Growing_CV2",
+    "time_seconds": 0.3416328430175781,
+    "mask_area_pixels": 124332,
+    "mask_percentage": 15.301571361058603,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Split_and_Merge_CV2",
+    "time_seconds": 2.0525200366973877,
+    "mask_area_pixels": 268260,
+    "mask_percentage": 33.01482750472589,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Sobel_CV2",
+    "time_seconds": 0.011123418807983398,
+    "mask_area_pixels": 47882,
+    "mask_percentage": 5.892850110270952,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Canny_CV2",
+    "time_seconds": 0.007053375244140625,
+    "mask_area_pixels": 103187,
+    "mask_percentage": 12.699250748267172,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "KMeans_CV2",
+    "time_seconds": 0.2478954792022705,
+    "mask_area_pixels": 417100,
+    "mask_percentage": 51.332604757403914,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Active_Contour_CV2",
+    "time_seconds": 0.32419514656066895,
+    "mask_area_pixels": 94252,
+    "mask_percentage": 11.599617989918084,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "GVF_Contour_CV2",
+    "time_seconds": 0.6841130256652832,
+    "mask_area_pixels": 129,
+    "mask_percentage": 0.015876063327032137,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Watershed_CV2",
+    "time_seconds": 0.026668071746826172,
+    "mask_area_pixels": 348996,
+    "mask_percentage": 42.95102788279773,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "GrabCut_CV2",
+    "time_seconds": 11.228196144104004,
+    "mask_area_pixels": 107037,
+    "mask_percentage": 13.173071242911153,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "FloodFill_CV2",
+    "time_seconds": 0.022283554077148438,
+    "mask_area_pixels": 83825,
+    "mask_percentage": 10.31636440611216,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Morphological_Snakes_CV2",
+    "time_seconds": 1.9103977680206299,
+    "mask_area_pixels": 812536,
+    "mask_percentage": 99.99901543793321,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Slic_CV2",
+    "time_seconds": 0.44934678077697754,
+    "mask_area_pixels": 777823,
+    "mask_percentage": 95.72687755986138,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Felzenszwalb_CV2",
+    "time_seconds": 0.7171893119812012,
+    "mask_area_pixels": 771212,
+    "mask_percentage": 94.91326008191557,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Chan_Vese_CV2",
+    "time_seconds": 0.0984954833984375,
+    "mask_area_pixels": 812544,
+    "mask_percentage": 100.0,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Threshold_Niblack_CV2",
+    "time_seconds": 0.010399580001831055,
+    "mask_area_pixels": 78618,
+    "mask_percentage": 9.67553757088847,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Threshold_Sauvola_CV2",
+    "time_seconds": 0.01610088348388672,
+    "mask_area_pixels": 517793,
+    "mask_percentage": 63.72491828134845,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Random_Walker_CV2",
+    "time_seconds": 10.01546335220337,
+    "mask_area_pixels": 690866,
+    "mask_percentage": 85.02505710459988,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Global_Threshold_Torch",
+    "time_seconds": 0.0382082462310791,
+    "mask_area_pixels": 184873,
+    "mask_percentage": 22.752367871770637,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Adaptive_Threshold_Torch",
+    "time_seconds": 0.037491559982299805,
+    "mask_area_pixels": 548145,
+    "mask_percentage": 67.46034676275993,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Otsu_Torch",
+    "time_seconds": 0.026391267776489258,
+    "mask_area_pixels": 391161,
+    "mask_percentage": 48.14028532608695,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Split_and_Merge_Torch",
+    "time_seconds": 0.022778034210205078,
+    "mask_area_pixels": 12696,
+    "mask_percentage": 1.5625,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Sobel_Torch",
+    "time_seconds": 0.022776365280151367,
+    "mask_area_pixels": 118185,
+    "mask_percentage": 14.545058482986766,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Canny_Torch",
+    "time_seconds": 0.023521900177001953,
+    "mask_area_pixels": 155051,
+    "mask_percentage": 19.082166627284185,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "KMeans_Torch",
+    "time_seconds": 0.0333561897277832,
+    "mask_area_pixels": 467685,
+    "mask_percentage": 57.55811377599244,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Watershed_Torch",
+    "time_seconds": 713.3045134544373,
+    "mask_area_pixels": 726293,
+    "mask_percentage": 89.38506714713296,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Grabcut_Torch",
+    "time_seconds": 31.018707036972046,
+    "mask_area_pixels": 221445,
+    "mask_percentage": 27.253293360113425,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "FloodFill_Torch",
+    "time_seconds": 45.74790954589844,
+    "mask_area_pixels": 326958,
+    "mask_percentage": 40.23880552930057,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  },
+  {
+    "method": "Neural_SegFormer",
+    "time_seconds": 0.5198063850402832,
+    "mask_area_pixels": 812544,
+    "mask_percentage": 100.0,
+    "image_shape": [
+      1104,
+      736,
+      3
+    ]
+  }
+]

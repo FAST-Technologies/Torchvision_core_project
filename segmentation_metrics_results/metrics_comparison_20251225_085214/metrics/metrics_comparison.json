@@ -1,0 +1,17 @@
+[
+  {
+    "accuracy": 0.38751086658124806,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1_score": 0.0,
+    "iou": 0.0,
+    "dice": 0.0,
+    "pixel_accuracy": 0.38751086658125916,
+    "mae": 0.6054811529296932,
+    "predicted_area": 214185.0,
+    "ground_truth_area": 0.0,
+    "area_difference": 214185.0,
+    "method": "Neural_SegFormer",
+    "time": 0.6141023635864258
+  }
+]

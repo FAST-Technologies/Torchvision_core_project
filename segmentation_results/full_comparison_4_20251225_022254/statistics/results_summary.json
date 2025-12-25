@@ -1,0 +1,503 @@
+{
+  "test_id": "full_comparison_4_20251225_022254",
+  "timestamp": "2025-12-25T02:26:13.175870",
+  "total_methods": 31,
+  "methods": {
+    "Global_Threshold_CV2": {
+      "method": "Global_Threshold_CV2",
+      "time": 0.0016231536865234375,
+      "mask_area": 80923,
+      "mask_percentage": 62.44058641975309,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:54.403596",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Global_Threshold_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Global_Threshold_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Global_Threshold_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Adaptive_Threshold_CV2": {
+      "method": "Adaptive_Threshold_CV2",
+      "time": 0.0021300315856933594,
+      "mask_area": 105337,
+      "mask_percentage": 81.27854938271605,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:54.411433",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Adaptive_Threshold_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Adaptive_Threshold_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Adaptive_Threshold_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Otsu_CV2": {
+      "method": "Otsu_CV2",
+      "time": 0.0014317035675048828,
+      "mask_area": 62730,
+      "mask_percentage": 48.40277777777778,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:54.422018",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Otsu_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Otsu_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Otsu_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Region_Growing_CV2": {
+      "method": "Region_Growing_CV2",
+      "time": 0.12219929695129395,
+      "mask_area": 48101,
+      "mask_percentage": 37.11496913580247,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:54.548922",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Region_Growing_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Region_Growing_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Region_Growing_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Split_and_Merge_CV2": {
+      "method": "Split_and_Merge_CV2",
+      "time": 0.23969507217407227,
+      "mask_area": 26552,
+      "mask_percentage": 20.487654320987655,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:54.792816",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Split_and_Merge_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Split_and_Merge_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Split_and_Merge_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Sobel_CV2": {
+      "method": "Sobel_CV2",
+      "time": 0.0017409324645996094,
+      "mask_area": 8838,
+      "mask_percentage": 6.819444444444445,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:54.799112",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Sobel_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Sobel_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Sobel_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Canny_CV2": {
+      "method": "Canny_CV2",
+      "time": 0.0011222362518310547,
+      "mask_area": 8844,
+      "mask_percentage": 6.824074074074074,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:54.808191",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Canny_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Canny_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Canny_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "KMeans_CV2": {
+      "method": "KMeans_CV2",
+      "time": 0.15771818161010742,
+      "mask_area": 69744,
+      "mask_percentage": 53.81481481481482,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:54.971832",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/KMeans_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/KMeans_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/KMeans_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Active_Contour_CV2": {
+      "method": "Active_Contour_CV2",
+      "time": 0.10291910171508789,
+      "mask_area": 8799,
+      "mask_percentage": 6.789351851851852,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:55.079914",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Active_Contour_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Active_Contour_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Active_Contour_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "GVF_Contour_CV2": {
+      "method": "GVF_Contour_CV2",
+      "time": 0.08572077751159668,
+      "mask_area": 7,
+      "mask_percentage": 0.005401234567901235,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:55.170845",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/GVF_Contour_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/GVF_Contour_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/GVF_Contour_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Watershed_CV2": {
+      "method": "Watershed_CV2",
+      "time": 0.0043697357177734375,
+      "mask_area": 47073,
+      "mask_percentage": 36.32175925925926,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:55.179213",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Watershed_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Watershed_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Watershed_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "GrabCut_CV2": {
+      "method": "GrabCut_CV2",
+      "time": 0.4268167018890381,
+      "mask_area": 9396,
+      "mask_percentage": 7.249999999999999,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:55.610520",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/GrabCut_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/GrabCut_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/GrabCut_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "FloodFill_CV2": {
+      "method": "FloodFill_CV2",
+      "time": 0.003551006317138672,
+      "mask_area": 44559,
+      "mask_percentage": 34.38194444444444,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:55.618601",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/FloodFill_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/FloodFill_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/FloodFill_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Morphological_Snakes_CV2": {
+      "method": "Morphological_Snakes_CV2",
+      "time": 0.3007781505584717,
+      "mask_area": 129600,
+      "mask_percentage": 100.0,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:55.924576",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Morphological_Snakes_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Morphological_Snakes_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Morphological_Snakes_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Slic_CV2": {
+      "method": "Slic_CV2",
+      "time": 0.06401419639587402,
+      "mask_area": 124199,
+      "mask_percentage": 95.83256172839506,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:55.992643",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Slic_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Slic_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Slic_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Felzenszwalb_CV2": {
+      "method": "Felzenszwalb_CV2",
+      "time": 0.0823357105255127,
+      "mask_area": 106376,
+      "mask_percentage": 82.08024691358024,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:56.079388",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Felzenszwalb_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Felzenszwalb_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Felzenszwalb_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Chan_Vese_CV2": {
+      "method": "Chan_Vese_CV2",
+      "time": 0.011332511901855469,
+      "mask_area": 129600,
+      "mask_percentage": 100.0,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:56.095420",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Chan_Vese_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Chan_Vese_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Chan_Vese_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Threshold_Niblack_CV2": {
+      "method": "Threshold_Niblack_CV2",
+      "time": 0.0014388561248779297,
+      "mask_area": 4365,
+      "mask_percentage": 3.3680555555555554,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:56.100881",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Threshold_Niblack_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Threshold_Niblack_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Threshold_Niblack_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Threshold_Sauvola_CV2": {
+      "method": "Threshold_Sauvola_CV2",
+      "time": 0.0019876956939697266,
+      "mask_area": 44848,
+      "mask_percentage": 34.604938271604944,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:56.107817",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Threshold_Sauvola_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Threshold_Sauvola_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Threshold_Sauvola_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Random_Walker_CV2": {
+      "method": "Random_Walker_CV2",
+      "time": 0.5998592376708984,
+      "mask_area": 114154,
+      "mask_percentage": 88.0817901234568,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:56.714293",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Random_Walker_CV2_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Random_Walker_CV2_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Random_Walker_CV2_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Global_Threshold_Torch": {
+      "method": "Global_Threshold_Torch",
+      "time": 0.03239178657531738,
+      "mask_area": 80923,
+      "mask_percentage": 62.44058641975309,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:56.752149",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Global_Threshold_Torch_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Global_Threshold_Torch_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Global_Threshold_Torch_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Adaptive_Threshold_Torch": {
+      "method": "Adaptive_Threshold_Torch",
+      "time": 0.031667470932006836,
+      "mask_area": 104578,
+      "mask_percentage": 80.6929012345679,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:56.790009",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Adaptive_Threshold_Torch_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Adaptive_Threshold_Torch_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Adaptive_Threshold_Torch_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Otsu_Torch": {
+      "method": "Otsu_Torch",
+      "time": 0.02735304832458496,
+      "mask_area": 62839,
+      "mask_percentage": 48.48688271604939,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:56.825738",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Otsu_Torch_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Otsu_Torch_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Otsu_Torch_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Split_and_Merge_Torch": {
+      "method": "Split_and_Merge_Torch",
+      "time": 0.008682727813720703,
+      "mask_area": 8160,
+      "mask_percentage": 6.296296296296296,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:56.840304",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Split_and_Merge_Torch_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Split_and_Merge_Torch_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Split_and_Merge_Torch_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Sobel_Torch": {
+      "method": "Sobel_Torch",
+      "time": 0.004110574722290039,
+      "mask_area": 14416,
+      "mask_percentage": 11.123456790123457,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:56.848816",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Sobel_Torch_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Sobel_Torch_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Sobel_Torch_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Canny_Torch": {
+      "method": "Canny_Torch",
+      "time": 0.004166364669799805,
+      "mask_area": 18393,
+      "mask_percentage": 14.19212962962963,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:56.858737",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Canny_Torch_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Canny_Torch_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Canny_Torch_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "KMeans_Torch": {
+      "method": "KMeans_Torch",
+      "time": 0.010071277618408203,
+      "mask_area": 71213,
+      "mask_percentage": 54.948302469135804,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:22:56.874876",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/KMeans_Torch_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/KMeans_Torch_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/KMeans_Torch_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Watershed_Torch": {
+      "method": "Watershed_Torch",
+      "time": 186.33211874961853,
+      "mask_area": 122958,
+      "mask_percentage": 94.875,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:26:03.211601",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Watershed_Torch_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Watershed_Torch_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Watershed_Torch_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Grabcut_Torch": {
+      "method": "Grabcut_Torch",
+      "time": 0.011360645294189453,
+      "mask_area": 64395,
+      "mask_percentage": 49.6875,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:26:03.231357",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Grabcut_Torch_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Grabcut_Torch_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Grabcut_Torch_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "FloodFill_Torch": {
+      "method": "FloodFill_Torch",
+      "time": 8.561708688735962,
+      "mask_area": 54738,
+      "mask_percentage": 42.236111111111114,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:26:11.798498",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/FloodFill_Torch_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/FloodFill_Torch_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/FloodFill_Torch_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    },
+    "Neural_SegFormer": {
+      "method": "Neural_SegFormer",
+      "time": 0.07375884056091309,
+      "mask_area": 129600,
+      "mask_percentage": 100.0,
+      "image_shape": [
+        270,
+        480,
+        3
+      ],
+      "timestamp": "2025-12-25T02:26:11.877514",
+      "overlay_path": "segmentation_results/full_comparison_4_20251225_022254/images/Neural_SegFormer_overlay.jpg",
+      "result_path": "segmentation_results/full_comparison_4_20251225_022254/images/Neural_SegFormer_result.jpg",
+      "mask_path": "segmentation_results/full_comparison_4_20251225_022254/masks/Neural_SegFormer_mask.png",
+      "original_path": "segmentation_results/full_comparison_4_20251225_022254/images/original.jpg"
+    }
+  }
+}
