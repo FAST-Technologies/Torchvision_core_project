@@ -2,6 +2,7 @@
 Модуль для расчёта метрик качества сегментации
 """
 
+# Импорт основных библиотек
 import numpy as np
 from typing import Tuple, Dict, List, Optional, Union
 import warnings
@@ -15,9 +16,11 @@ class SegmentationMetrics:
     """
     
     @staticmethod
-    def calculate_iou(pred_mask: np.ndarray, 
-                      gt_mask: np.ndarray, 
-                      threshold: float = 0.5) -> float:
+    def calculate_iou(
+        pred_mask: np.ndarray, 
+        gt_mask: np.ndarray, 
+        threshold: float = 0.5
+    ) -> float:
         """
         Intersection over Union (IoU) / Jaccard Index
         
@@ -52,10 +55,12 @@ class SegmentationMetrics:
         return float(iou)
     
     @staticmethod
-    def calculate_dice_coefficient(pred_mask: np.ndarray, 
-                                   gt_mask: np.ndarray, 
-                                   threshold: float = 0.5,
-                                   smooth: float = 1e-6) -> float:
+    def calculate_dice_coefficient(
+        pred_mask: np.ndarray, 
+        gt_mask: np.ndarray, 
+        threshold: float = 0.5,
+        smooth: float = 1e-6
+    ) -> float:
         """
         Dice Coefficient / F1 Score для сегментации
         
@@ -85,9 +90,11 @@ class SegmentationMetrics:
         return float(dice)
     
     @staticmethod
-    def calculate_precision_recall(pred_mask: np.ndarray, 
-                                   gt_mask: np.ndarray, 
-                                   threshold: float = 0.5) -> Tuple[float, float]:
+    def calculate_precision_recall(
+        pred_mask: np.ndarray, 
+        gt_mask: np.ndarray, 
+        threshold: float = 0.5
+    ) -> Tuple[float, float]:
         """
         Precision и Recall для бинарной сегментации
         
@@ -119,9 +126,11 @@ class SegmentationMetrics:
         return float(precision), float(recall)
     
     @staticmethod
-    def calculate_f1_score(pred_mask: np.ndarray, 
-                           gt_mask: np.ndarray, 
-                           threshold: float = 0.5) -> float:
+    def calculate_f1_score(
+        pred_mask: np.ndarray, 
+        gt_mask: np.ndarray, 
+        threshold: float = 0.5
+    ) -> float:
         """
         F1 Score (среднее гармоническое precision и recall)
         
@@ -144,9 +153,11 @@ class SegmentationMetrics:
         return float(f1)
     
     @staticmethod
-    def calculate_mae(pred_mask: np.ndarray, 
-                      gt_mask: np.ndarray, 
-                      normalize: bool = True) -> float:
+    def calculate_mae(
+        pred_mask: np.ndarray, 
+        gt_mask: np.ndarray, 
+        normalize: bool = True
+    ) -> float:
         """
         Mean Absolute Error (Средняя абсолютная погрешность)
         
@@ -178,9 +189,11 @@ class SegmentationMetrics:
         return float(mae)
     
     @staticmethod
-    def calculate_hausdorff_distance(pred_mask: np.ndarray, 
-                                     gt_mask: np.ndarray, 
-                                     threshold: float = 0.5) -> float:
+    def calculate_hausdorff_distance(
+        pred_mask: np.ndarray, 
+        gt_mask: np.ndarray, 
+        threshold: float = 0.5
+    ) -> float:
         """
         Hausdorff Distance (Расстояние Хаусдорфа)
         
@@ -220,9 +233,11 @@ class SegmentationMetrics:
         return float(hausdorff_dist)
     
     @staticmethod
-    def calculate_pixel_accuracy(pred_mask: np.ndarray, 
-                                 gt_mask: np.ndarray, 
-                                 threshold: float = 0.5) -> float:
+    def calculate_pixel_accuracy(
+        pred_mask: np.ndarray, 
+        gt_mask: np.ndarray, 
+        threshold: float = 0.5
+    ) -> float:
         """
         Pixel Accuracy (Пиксельная точность)
         
@@ -250,10 +265,12 @@ class SegmentationMetrics:
         return float(accuracy)
     
     @staticmethod
-    def calculate_all_metrics(pred_mask: np.ndarray, 
-                              gt_mask: np.ndarray, 
-                              threshold: float = 0.5,
-                              include_hausdorff: bool = True) -> Dict[str, float]:
+    def calculate_all_metrics(
+        pred_mask: np.ndarray, 
+        gt_mask: np.ndarray, 
+        threshold: float = 0.5,
+        include_hausdorff: bool = True
+    ) -> Dict[str, float]:
         """
         Вычисляет все метрики качества сегментации
         
@@ -301,9 +318,11 @@ class SegmentationMetrics:
         return metrics
     
     @staticmethod
-    def evaluate_multiple_masks(pred_masks: List[np.ndarray],
-                                gt_masks: List[np.ndarray],
-                                threshold: float = 0.5) -> Dict[str, Dict[str, float]]:
+    def evaluate_multiple_masks(
+        pred_masks: List[np.ndarray],
+        gt_masks: List[np.ndarray],
+        threshold: float = 0.5
+    ) -> Dict[str, Dict[str, float]]:
         """
         Оценка нескольких масок с вычислением средних метрик
         

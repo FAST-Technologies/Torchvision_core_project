@@ -1,4 +1,6 @@
 # main.py
+
+# Импорт основных библиотек
 from SegmentationTester import SegmentationTester
 from TorchSegmenter import TorchSegmenter
 from NeuralSegmenter import NeuralSegmenter
@@ -86,6 +88,14 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
         # "Meanshift_Torch": TorchSegmenter("meanshift", bandwidth=0.5, spatial_radius=35, color_radius=60),
         "Grabcut_Torch": TorchSegmenter("grabcut", rect=(100, 100, 200, 200), num_iterations=5),
         "FloodFill_Torch": TorchSegmenter("floodfill", tolerance=0.15),
+    #     "Morphological_Snakes_Torch": TorchSegmenter("morphological_snakes", iterations=100, smoothing=1, threshold=0.5),
+    #     # "Quickshift_Torch": TorchSegmenter("quickshift", bandwidth=0.5),
+    #     "Slic_Torch": TorchSegmenter("slic", n_segments=100, compactness=10.0),
+    #     "Felzenszwalb_Torch": TorchSegmenter("felzenszwalb", scale=100, sigma=0.8, min_size=50),
+    #     "Chan_Vese_Torch": TorchSegmenter("chan_vese", mu=0.25, lambda1=1.0, lambda2=1.0, tol=1e-3, max_iter=100),
+    #     "Threshold_Niblack_Torch": TorchSegmenter("threshold_niblack", window_size=15, k=0.2),
+    #     "Threshold_Sauvola_Torch": TorchSegmenter("threshold_sauvola", window_size=15, k=0.2, r=128),
+    #     "Random_Walker_Torch": TorchSegmenter("random_walker", scale=100, sigma=0.8, min_size=50),
     }
     
     for name, segmenter in torch_methods.items():
@@ -95,7 +105,6 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
     # 3. Нейросетевая сегментация
     print("\n3. Загрузка нейросетевых методов...")
     try:
-        # Используйте локальный путь к модели
         neural_segmenter = NeuralSegmenter(
             local_path="/home/yamshchikov/models/segformer-b5-ready"
         )
@@ -115,17 +124,17 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
     
     # Загрузка тестового изображения
     try:
-        repo_id = "hf-internal-testing/fixtures_ade20k"
+        repo_id: str = "hf-internal-testing/fixtures_ade20k"
         print(f"Загрузка из репозитория: {repo_id}")
         
-        image_path = hf_hub_download(
+        image_path: str = hf_hub_download(
             repo_id=repo_id, 
             filename="ADE_val_00000001.jpg", 
             repo_type="dataset"
         )
         image = Image.open(image_path)
         
-        segmentation_map_path = hf_hub_download(
+        segmentation_map_path: str = hf_hub_download(
             repo_id=repo_id, 
             filename="ADE_val_00000001.png", 
             repo_type="dataset"
@@ -137,13 +146,13 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
         print(f"✅ Ground truth загружен: {segmentation_map_path}")
         
         # Сохраняем локально для тестов
-        local_image_path = "test_image.jpg"
+        local_image_path: str = "test_image.jpg"
         image.save(local_image_path)
         print(f"✅ Изображение сохранено локально: {local_image_path}")
 
         print("Для дополнительных тестов Используем тестовое изображение по умолчанию...")
-        img_url_1 = "https://i.pinimg.com/736x/17/e7/fc/17e7fc299466b2afd989e709fe7c9815.jpg"
-        local_image_path_1 = "test_image_download_1.jpg"
+        img_url_1: str = "https://i.pinimg.com/736x/17/e7/fc/17e7fc299466b2afd989e709fe7c9815.jpg"
+        local_image_path_1: str = "test_image_download_1.jpg"
         try:
             response_1 = requests.get(img_url_1)
             image_1 = Image.open(BytesIO(response_1.content))
@@ -154,8 +163,8 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
             print(f"❌ Ошибка загрузки из URL: {e1}")
             raise
 
-        img_url_2 = "https://www.shutterstock.com/shutterstock/videos/1106252821/thumb/1.jpg?ip=x480"
-        local_image_path_2 = "test_image_download_2.jpg"
+        img_url_2: str = "https://www.shutterstock.com/shutterstock/videos/1106252821/thumb/1.jpg?ip=x480"
+        local_image_path_2: str = "test_image_download_2.jpg"
         
         try:
             response_2 = requests.get(img_url_2)
@@ -167,8 +176,8 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
             print(f"❌ Ошибка загрузки из URL: {e2}")
             raise
 
-        img_url_3 = "https://i.pinimg.com/736x/86/f6/07/86f60748d5d9ae4cb9092018d1321648.jpg"
-        local_image_path_3 = "test_image_download_3.jpg"
+        img_url_3: str = "https://i.pinimg.com/736x/86/f6/07/86f60748d5d9ae4cb9092018d1321648.jpg"
+        local_image_path_3: str = "test_image_download_3.jpg"
         
         try:
             response_3 = requests.get(img_url_3)
@@ -180,8 +189,8 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
             print(f"❌ Ошибка загрузки из URL: {e3}")
             raise
 
-        img_url_4 = "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg"
-        local_image_path_4 = "test_image_download_4.jpg"
+        img_url_4: str = "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg"
+        local_image_path_4: str = "test_image_download_4.jpg"
         
         try:
             response_4 = requests.get(img_url_4)
@@ -193,8 +202,8 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
             print(f"❌ Ошибка загрузки из URL: {e4}")
             raise
 
-        img_url_5 = "https://i.pinimg.com/736x/17/66/c4/1766c4f667af39f91172ef8eb21ab18a.jpg"
-        local_image_path_5 = "test_image_download_5.jpg"
+        img_url_5: str = "https://i.pinimg.com/736x/17/66/c4/1766c4f667af39f91172ef8eb21ab18a.jpg"
+        local_image_path_5: str = "test_image_download_5.jpg"
         
         try:
             response_5 = requests.get(img_url_5)
@@ -206,8 +215,8 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
             print(f"❌ Ошибка загрузки из URL: {e5}")
             raise
 
-        img_url_6 = "https://i.pinimg.com/736x/f7/5a/f2/f75af26820b50c24600f50f3998eb02f.jpg"
-        local_image_path_6 = "test_image_download_6.jpg"
+        img_url_6: str = "https://i.pinimg.com/736x/f7/5a/f2/f75af26820b50c24600f50f3998eb02f.jpg"
+        local_image_path_6: str = "test_image_download_6.jpg"
         
         try:
             response_6 = requests.get(img_url_6)
@@ -224,8 +233,8 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
         print("Используем тестовое изображение по умолчанию...")
         
         # Альтернативный URL
-        img_url = "https://i.pinimg.com/736x/17/e7/fc/1D7oZ9cqSef531ErnBAai8ZivwSPyqMCcs.jpg"
-        local_image_path = "test_image_default.jpg"
+        img_url: str = "https://i.pinimg.com/736x/17/e7/fc/1D7oZ9cqSef531ErnBAai8ZivwSPyqMCcs.jpg"
+        local_image_path: str = "test_image_default.jpg"
         
         try:
             response = requests.get(img_url)
@@ -255,32 +264,32 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
             simple_result.save("neural_segmentation_result.jpg")
             print(f"✅ Результат сохранен: neural_segmentation_result.jpg")
 
-            segmented_image_path_1 = "test_segmented_image_1.jpg"
+            segmented_image_path_1: str = "test_segmented_image_1.jpg"
             simple_result_1 = neural_segmenter.segment_image(local_image_path_1, alpha=0.5)
             simple_result_1.save(segmented_image_path_1)
             print(f"✅ Результат сохранен: {segmented_image_path_1}")
 
-            segmented_image_path_2 = "test_segmented_image_2.jpg"
+            segmented_image_path_2: str = "test_segmented_image_2.jpg"
             simple_result_2 = neural_segmenter.segment_image(local_image_path_2, alpha=0.5)
             simple_result_2.save(segmented_image_path_2)
             print(f"✅ Результат сохранен: {segmented_image_path_2}")
 
-            segmented_image_path_3 = "test_segmented_image_3.jpg"
+            segmented_image_path_3: str = "test_segmented_image_3.jpg"
             simple_result_3 = neural_segmenter.segment_image(local_image_path_3, alpha=0.5)
             simple_result_3.save(segmented_image_path_3)
             print(f"✅ Результат сохранен: {segmented_image_path_3}")
 
-            segmented_image_path_4 = "test_segmented_image_4.jpg"
+            segmented_image_path_4: str = "test_segmented_image_4.jpg"
             simple_result_4 = neural_segmenter.segment_image(local_image_path_4, alpha=0.5)
             simple_result_4.save(segmented_image_path_4)
             print(f"✅ Результат сохранен: {segmented_image_path_4}")
 
-            segmented_image_path_5 = "test_segmented_image_5.jpg"
+            segmented_image_path_5: str = "test_segmented_image_5.jpg"
             simple_result_5 = neural_segmenter.segment_image(local_image_path_5, alpha=0.5)
             simple_result_5.save(segmented_image_path_5)
             print(f"✅ Результат сохранен: {segmented_image_path_5}")
 
-            segmented_image_path_6 = "test_segmented_image_6.jpg"
+            segmented_image_path_6: str = "test_segmented_image_6.jpg"
             simple_result_6 = neural_segmenter.segment_image(local_image_path_6, alpha=0.5)
             simple_result_6.save(segmented_image_path_6)
             print(f"✅ Результат сохранен: {segmented_image_path_6}")
@@ -291,11 +300,11 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
             
             # Получаем палитру из нейросетевого сегментатора
             palette = neural_segmenter.palette
-            palette_array = np.array(palette, dtype=np.uint8)
+            palette_array: np.ndarray = np.array(palette, dtype=np.uint8)
             
             # 2.1 Ground Truth визуализация (как в оригинальном коде)
             print("\n  2.1 Визуализация Ground Truth...")
-            ground_truth_seg = np.array(segmentation_map)  # 2D ground truth segmentation map
+            ground_truth_seg: np.ndarray = np.array(segmentation_map)  # 2D ground truth segmentation map
             
             ground_truth_color_seg = np.zeros(
                 (ground_truth_seg.shape[0], ground_truth_seg.shape[1], 3), 
@@ -308,19 +317,19 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
                 ground_truth_color_seg[ground_truth_seg - 1 == label, :] = color
             
             # Конвертируем из BGR в RGB (если нужно)
-            ground_truth_color_seg = ground_truth_color_seg[..., ::-1]
+            ground_truth_color_seg: np.ndarray = ground_truth_color_seg[..., ::-1]
             
             # Создаем наложение ground truth на оригинал
-            ground_truth_overlay = np.array(image) * 0.5 + ground_truth_color_seg * 0.5
+            ground_truth_overlay: np.ndarray = np.array(image) * 0.5 + ground_truth_color_seg * 0.5
             ground_truth_overlay = ground_truth_overlay.astype(np.uint8)
 
             # Сохраняем ground truth overlay
-            ground_truth_overlay_img = Image.fromarray(ground_truth_overlay)
+            ground_truth_overlay_img: Image = Image.fromarray(ground_truth_overlay)
             ground_truth_overlay_img.save("ground_truth_overlay.jpg")
             print(f"✅ Ground Truth Overlay сохранен: ground_truth_overlay.jpg")
             
             # Сохраняем цветную сегментацию ground truth
-            ground_truth_color_img = Image.fromarray(ground_truth_color_seg)
+            ground_truth_color_img: Image = Image.fromarray(ground_truth_color_seg)
             ground_truth_color_img.save("ground_truth_color.jpg")
             print(f"✅ Ground Truth Color Map сохранен: ground_truth_color.jpg")
             
@@ -391,45 +400,45 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
             pred_seg_map_6 = neural_segmenter.predict_segmentation_map(local_image_path_6)
             
             # Сохраняем карту сегментации
-            predicted_segmentation_map_0 = "prediction_segmentation_map.png"
+            predicted_segmentation_map_0: str = "prediction_segmentation_map.png"
             pred_seg_map_normalized = (pred_seg_map / pred_seg_map.max() * 255).astype(np.uint8)
-            pred_seg_map_img = Image.fromarray(pred_seg_map_normalized)
+            pred_seg_map_img: Image = Image.fromarray(pred_seg_map_normalized)
             pred_seg_map_img.save(predicted_segmentation_map_0)
             print(f"✅ Карта сегментации сохранена: {predicted_segmentation_map_0}")
 
-            predicted_segmentation_map_1 = "prediction_segmentation_map_1.png"
+            predicted_segmentation_map_1: str = "prediction_segmentation_map_1.png"
             pred_seg_map_normalized_1 = (pred_seg_map_1 / pred_seg_map_1.max() * 255).astype(np.uint8)
-            pred_seg_map_img_1 = Image.fromarray(pred_seg_map_normalized_1)
+            pred_seg_map_img_1: Image = Image.fromarray(pred_seg_map_normalized_1)
             pred_seg_map_img_1.save(predicted_segmentation_map_1)
             print(f"✅ Карта сегментации сохранена: {predicted_segmentation_map_1}")
 
-            predicted_segmentation_map_2 = "prediction_segmentation_map_2.png"
+            predicted_segmentation_map_2: str = "prediction_segmentation_map_2.png"
             pred_seg_map_normalized_2 = (pred_seg_map_2 / pred_seg_map_2.max() * 255).astype(np.uint8)
-            pred_seg_map_img_2 = Image.fromarray(pred_seg_map_normalized_2)
+            pred_seg_map_img_2: Image = Image.fromarray(pred_seg_map_normalized_2)
             pred_seg_map_img_2.save(predicted_segmentation_map_2)
             print(f"✅ Карта сегментации сохранена: {predicted_segmentation_map_2}")
 
-            predicted_segmentation_map_3 = "prediction_segmentation_map_3.png"
+            predicted_segmentation_map_3: str = "prediction_segmentation_map_3.png"
             pred_seg_map_normalized_3 = (pred_seg_map_3 / pred_seg_map_3.max() * 255).astype(np.uint8)
-            pred_seg_map_img_3 = Image.fromarray(pred_seg_map_normalized_3)
+            pred_seg_map_img_3: Image = Image.fromarray(pred_seg_map_normalized_3)
             pred_seg_map_img_3.save(predicted_segmentation_map_3)
             print(f"✅ Карта сегментации сохранена: {predicted_segmentation_map_3}")
 
-            predicted_segmentation_map_4 = "prediction_segmentation_map_4.png"
+            predicted_segmentation_map_4: str = "prediction_segmentation_map_4.png"
             pred_seg_map_normalized_4 = (pred_seg_map_4 / pred_seg_map_4.max() * 255).astype(np.uint8)
-            pred_seg_map_img_4 = Image.fromarray(pred_seg_map_normalized_4)
+            pred_seg_map_img_4: Image = Image.fromarray(pred_seg_map_normalized_4)
             pred_seg_map_img_4.save(predicted_segmentation_map_4)
             print(f"✅ Карта сегментации сохранена: {predicted_segmentation_map_4}")
 
-            predicted_segmentation_map_5 = "prediction_segmentation_map_5.png"
+            predicted_segmentation_map_5: str = "prediction_segmentation_map_5.png"
             pred_seg_map_normalized_5 = (pred_seg_map_5 / pred_seg_map_5.max() * 255).astype(np.uint8)
-            pred_seg_map_img_5 = Image.fromarray(pred_seg_map_normalized_5)
+            pred_seg_map_img_5: Image = Image.fromarray(pred_seg_map_normalized_5)
             pred_seg_map_img_5.save(predicted_segmentation_map_5)
             print(f"✅ Карта сегментации сохранена: {predicted_segmentation_map_5}")
 
-            predicted_segmentation_map_6 = "prediction_segmentation_map_6.png"
+            predicted_segmentation_map_6: str = "prediction_segmentation_map_6.png"
             pred_seg_map_normalized_6 = (pred_seg_map_6 / pred_seg_map_6.max() * 255).astype(np.uint8)
-            pred_seg_map_img_6 = Image.fromarray(pred_seg_map_normalized_6)
+            pred_seg_map_img_6: Image = Image.fromarray(pred_seg_map_normalized_6)
             pred_seg_map_img_6.save(predicted_segmentation_map_6)
             print(f"✅ Карта сегментации сохранена: {predicted_segmentation_map_6}")
             
@@ -438,7 +447,7 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
                 min(pred_seg_map.shape[1], ground_truth_seg.shape[1])
             
             pred_flat = pred_seg_map[:h, :w].flatten()
-            gt_flat = (ground_truth_seg[:h, :w] - 1).flatten()  # -1 для соответствия
+            gt_flat: np.ndarray = (ground_truth_seg[:h, :w] - 1).flatten()  # -1 для соответствия
             
             # Вычисляем метрики
             try:
@@ -448,10 +457,10 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
                 common_classes = np.intersect1d(np.unique(pred_flat), np.unique(gt_flat))
                 
                 if len(common_classes) > 0:
-                    accuracy = accuracy_score(gt_flat, pred_flat)
-                    precision = precision_score(gt_flat, pred_flat, average='weighted', zero_division=0)
-                    recall = recall_score(gt_flat, pred_flat, average='weighted', zero_division=0)
-                    f1 = f1_score(gt_flat, pred_flat, average='weighted', zero_division=0)
+                    accuracy: float = accuracy_score(gt_flat, pred_flat)
+                    precision: float = precision_score(gt_flat, pred_flat, average='weighted', zero_division=0)
+                    recall: float = recall_score(gt_flat, pred_flat, average='weighted', zero_division=0)
+                    f1: float = f1_score(gt_flat, pred_flat, average='weighted', zero_division=0)
                     
                     print(f"\n   Метрики качества:")
                     print(f"   - Accuracy:  {accuracy:.4f}")
@@ -461,7 +470,7 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
                     print(f"   - Общих классов: {len(common_classes)}")
                     
                     # Сохраняем метрики в файл
-                    metrics_file = "segmentation_metrics.txt"
+                    metrics_file: str = "segmentation_metrics.txt"
                     with open(metrics_file, 'w') as f:
                         f.write("Segmentation Metrics\n")
                         f.write("="*50 + "\n")
@@ -507,7 +516,7 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
                     
                     # Сохраняем разность как изображение
                     diff_normalized = (diff / diff.max() * 255).astype(np.uint8) if diff.max() > 0 else diff.astype(np.uint8)
-                    diff_img = Image.fromarray(diff_normalized)
+                    diff_img: Image = Image.fromarray(diff_normalized)
                     diff_img.save("segmentation_difference.png")
                     print(f"✅ Карта разности сохранена: segmentation_difference.png")
                     
@@ -537,7 +546,7 @@ def main() -> Union[SegmentationTester, Dict[str, Any], pd.DataFrame]:
             os.makedirs(results_dir, exist_ok=True)
             
             # Перемещаем все файлы в папку
-            files_to_move = [
+            files_to_move: List[str] = [
                 "neural_segmentation_result.jpg",
                 "neural_segmentation_alpha_0.5.jpg",
                 "ground_truth_overlay.jpg",

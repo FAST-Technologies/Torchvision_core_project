@@ -1,4 +1,6 @@
 # TorchSegmenter.py
+
+# Импорт основных библиотек
 from BaseSegmenter import BaseSegmenter
 import torch
 import torch.nn.functional as F
@@ -20,10 +22,11 @@ from sklearn.cluster import MeanShift as SkMeanShift
 class TorchSegmenter(BaseSegmenter):
     """Класс для методов сегментации с использованием PyTorch"""
     
-    def __init__(self, 
-                 method: str = "global_thresholding", 
-                 device: str = None, 
-                 **kwargs
+    def __init__(
+        self, 
+        method: str = "global_thresholding", 
+        device: str = None, 
+        **kwargs
     ) -> None:
         super().__init__()
         self.method = method
@@ -75,8 +78,9 @@ class TorchSegmenter(BaseSegmenter):
         
         self._segment_func = method_map[self.method]
     
-    def preprocess_image(self, 
-                         image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    def preprocess_image(
+        self, 
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor]
     ) -> torch.Tensor:
         """Предобработка изображения для PyTorch"""
         if isinstance(image, str):
@@ -97,11 +101,12 @@ class TorchSegmenter(BaseSegmenter):
         else:
             raise TypeError(f"Неподдерживаемый тип изображения: {type(image)}")
     
-    def _pil_to_tensor(self, 
-                      img: Image.Image, 
-                      normalize: bool = True,
-                      add_batch: bool = True
-                     ) -> torch.Tensor:
+    def _pil_to_tensor(
+        self, 
+        img: Image.Image, 
+        normalize: bool = True,
+        add_batch: bool = True
+    ) -> torch.Tensor:
         """
         Универсальное преобразование PIL -> Tensor
         
@@ -127,9 +132,10 @@ class TorchSegmenter(BaseSegmenter):
         except Exception as e:
             raise ValueError(f"Ошибка преобразования PIL->Tensor: {e}")
     
-    def _tensor_to_numpy(self, 
-                         tensor: torch.Tensor,
-                         denormalize: bool = True
+    def _tensor_to_numpy(
+        self, 
+        tensor: torch.Tensor,
+        denormalize: bool = True
     ) -> np.ndarray:
         """Преобразование PyTorch tensor в NumPy array"""
         if tensor.dim() == 4:
@@ -142,9 +148,10 @@ class TorchSegmenter(BaseSegmenter):
         
         return result
     
-    def _tensor_to_pil(self, 
-                       tensor: torch.Tensor,
-                       squeeze: bool = True
+    def _tensor_to_pil(
+        self, 
+        tensor: torch.Tensor,
+        squeeze: bool = True
     ) -> Image.Image:
         """
         Преобразование torch.Tensor в PIL.Image
@@ -165,8 +172,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return TF.to_pil_image(tensor)
     
-    def _to_grayscale(self, 
-                      tensor: torch.Tensor
+    def _to_grayscale(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """Преобразование RGB в градации серого"""
         if tensor.shape[1] == 3:
@@ -176,24 +184,27 @@ class TorchSegmenter(BaseSegmenter):
             gray = tensor
         return gray
     
-    def _normalize_to_255(self,
-                          img: Image.Image | np.ndarray
+    def _normalize_to_255(
+        self,
+        img: Image.Image | np.ndarray
     ) -> Image.Image | np.ndarray:
         """Метод нормализации изобраажения"""
         if img.dtype != np.uint8:
             img = ((img - img.min()) / (img.max() - img.min()) * 255).astype(np.uint8)
         return img
     
-    def _normalize_tensor(self,
-                          tensor: torch.Tensor
+    def _normalize_tensor(
+        self,
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """Нормализация тензора к [0, 1]"""
         min_val: torch.Tensor = tensor.min()
         max_val: torch.Tensor = tensor.max()
         return (tensor - min_val) / (max_val - min_val + 1e-8)
     
-    def segment(self, 
-                image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    def segment(
+        self, 
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor]
     ) -> np.ndarray:
         """Сегментация изображения - возвращает маску 0-255"""
         try:
@@ -236,8 +247,9 @@ class TorchSegmenter(BaseSegmenter):
             
             return np.zeros((h, w), dtype=np.uint8)
     
-    def segment_with_mask(self, 
-                          image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    def segment_with_mask(
+        self, 
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Сегментация с возвратом маски (0-255) и визуализации"""
         try:
@@ -288,8 +300,9 @@ class TorchSegmenter(BaseSegmenter):
             mask_np = np.zeros(img_np.shape[:2], dtype=np.uint8)
             return img_np, mask_np
         
-    def _segment_with_visualization(self, 
-                            tensor: torch.Tensor
+    def _segment_with_visualization(
+        self, 
+        tensor: torch.Tensor
     ) -> Tuple[Union[torch.Tensor, np.ndarray], torch.Tensor]:
         """Сегментация с визуализацией для конкретного метода"""
         if self.method == "watershed":
@@ -345,8 +358,9 @@ class TorchSegmenter(BaseSegmenter):
             return result, mask_tensor
     # ============ РЕАЛИЗАЦИИ МЕТОДОВ ============
     
-    def _global_thresholding(self, 
-                             tensor: torch.Tensor
+    def _global_thresholding(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """Глобальная пороговая обработка (PyTorch)"""
         gray = self._to_grayscale(tensor) # (1, 1, H, W)
@@ -354,8 +368,9 @@ class TorchSegmenter(BaseSegmenter):
         mask = (gray > threshold).float()
         return mask
     
-    def _adaptive_thresholding(self, 
-                               tensor: torch.Tensor
+    def _adaptive_thresholding(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """Адаптивная пороговая обработка (PyTorch)"""
         gray = self._to_grayscale(tensor) # (1,1,H,W)
@@ -370,8 +385,9 @@ class TorchSegmenter(BaseSegmenter):
         mask = (gray > (local_mean - c/255.0)).float()
         return mask
     
-    def _otsu_thresholding(self, 
-                           tensor: torch.Tensor
+    def _otsu_thresholding(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """Метод Оцу (PyTorch)"""
         gray = self._to_grayscale(tensor).squeeze()
@@ -402,8 +418,9 @@ class TorchSegmenter(BaseSegmenter):
         mask = (gray > best_threshold).float()
         return mask.unsqueeze(0).unsqueeze(0)
     
-    def _region_growing(self, 
-                        tensor: torch.Tensor
+    def _region_growing(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """Region Growing (PyTorch)"""
         from collections import deque
@@ -467,8 +484,9 @@ class TorchSegmenter(BaseSegmenter):
     #             mask[y:y+min_size, x:x+min_size] = True
         
     #     return mask.float()
-    def _split_and_merge(self, 
-                         tensor: torch.Tensor
+    def _split_and_merge(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """Split-and-Merge (PyTorch) - упрощенная реализация"""
         try:
@@ -523,8 +541,9 @@ class TorchSegmenter(BaseSegmenter):
             warnings.warn(f"Split-and-merge failed: {e}. Using fallback.")
             return self._kmeans_segmentation(tensor)
     
-    def _sobel_edge(self, 
-                    tensor: torch.Tensor
+    def _sobel_edge(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """Оператор Собеля (PyTorch)"""
         gray = self._to_grayscale(tensor)
@@ -544,8 +563,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask
     
-    def _canny_edge(self, 
-                    tensor: torch.Tensor
+    def _canny_edge(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """Оператор Кэнни (PyTorch)"""
         gray = self._to_grayscale(tensor)
@@ -574,8 +594,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask
     
-    def _kmeans_segmentation(self, 
-                             tensor: torch.Tensor
+    def _kmeans_segmentation(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """K-Means кластеризация (PyTorch)"""
         k = self.params.get('k', 3)
@@ -599,8 +620,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask.float()
     
-    def _dbscan_segmentation(self, 
-                             tensor: torch.Tensor
+    def _dbscan_segmentation(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """DBSCAN кластеризация (PyTorch)"""
         try:
@@ -642,8 +664,9 @@ class TorchSegmenter(BaseSegmenter):
             warnings.warn(f"DBSCAN failed: {e}. Using fallback.")
             return self._kmeans_segmentation(tensor)
     
-    def _active_contour(self, 
-                        tensor: torch.Tensor
+    def _active_contour(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """Active Contour (PyTorch)"""
         gray = self._to_grayscale(tensor).squeeze(0)
@@ -660,8 +683,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask
     
-    def _gvf_contour(self, 
-                     tensor: torch.Tensor
+    def _gvf_contour(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """GVF (PyTorch)"""
         gray = self._to_grayscale(tensor).squeeze(0)
@@ -683,8 +707,9 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask
     
-    def _watershed(self, 
-                   tensor: torch.Tensor
+    def _watershed(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """Watershed сегментация (PyTorch реализация)"""
         try:
@@ -702,8 +727,9 @@ class TorchSegmenter(BaseSegmenter):
             threshold = torch.mean(gray)
             return (gray > threshold).float()
     
-    def _watershed_segmentation_torch(self, 
-                                  tensor: torch.Tensor
+    def _watershed_segmentation_torch(
+        self, 
+        tensor: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Вспомогательная функция для Watershed - ПОЛНАЯ РЕАЛИЗАЦИЯ"""
         # Проверяем размерность тензора
@@ -818,8 +844,9 @@ class TorchSegmenter(BaseSegmenter):
 
         return gradient_magnitude.squeeze(), mask
     
-    def _watershed_torch_visualization(self, 
-                                   tensor: torch.Tensor
+    def _watershed_torch_visualization(
+        self, 
+        tensor: torch.Tensor
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для Watershed - теперь как в CV2"""
         try:
@@ -861,8 +888,9 @@ class TorchSegmenter(BaseSegmenter):
             mask = torch.zeros((h, w), device=self.device)
             return img_np, mask
     
-    def _meanshift(self, 
-                   tensor: torch.Tensor
+    def _meanshift(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """MeanShift сегментация (PyTorch реализация)"""
         try:
@@ -919,8 +947,9 @@ class TorchSegmenter(BaseSegmenter):
             # Fallback на KMeans как в старом коде
             return self._kmeans_segmentation(tensor)
 
-    def _meanshift_torch_visualization(self, 
-                                    tensor: torch.Tensor
+    def _meanshift_torch_visualization(
+        self, 
+        tensor: torch.Tensor
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для MeanShift - как в старом коде"""
         try:
@@ -1107,8 +1136,9 @@ class TorchSegmenter(BaseSegmenter):
             
             return torch.stack(probs, dim=-1).sum(dim=-1)
     
-    def _grabcut(self, 
-                       tensor: torch.Tensor
+    def _grabcut(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """GrabCut сегментация (упрощенная PyTorch реализация)"""
         try:
@@ -1158,8 +1188,9 @@ class TorchSegmenter(BaseSegmenter):
             h, w = tensor.shape[2], tensor.shape[3]
             return torch.ones(h, w, device=self.device) * 0.5
     
-    def _grabcut_torch_visualization(self, 
-                                     tensor: torch.Tensor
+    def _grabcut_torch_visualization(
+        self, 
+        tensor: torch.Tensor
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для GrabCut"""
         try:
@@ -1193,8 +1224,9 @@ class TorchSegmenter(BaseSegmenter):
             img_np = self._tensor_to_numpy(tensor)
             return img_np, mask
     
-    def _floodfill(self, 
-                   tensor: torch.Tensor
+    def _floodfill(
+        self, 
+        tensor: torch.Tensor
     ) -> torch.Tensor:
         """FloodFill сегментация (PyTorch реализация)"""
         try:
@@ -1226,8 +1258,9 @@ class TorchSegmenter(BaseSegmenter):
             warnings.warn(f"FloodFill failed: {e}")
             return self._region_growing(tensor)
     
-    def _floodfill_torch_visualization(self, 
-                                       tensor: torch.Tensor
+    def _floodfill_torch_visualization(
+        self, 
+        tensor: torch.Tensor
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для FloodFill"""
         try:
@@ -1265,10 +1298,11 @@ class TorchSegmenter(BaseSegmenter):
             img_np = self._tensor_to_numpy(tensor)
             return img_np, mask
     
-    def _flood_fill_single(self, 
-                           tensor: torch.Tensor, 
-                           start_point: Tuple[int, int], 
-                           tolerance: float = 0.1
+    def _flood_fill_single(
+        self, 
+        tensor: torch.Tensor, 
+        start_point: Tuple[int, int], 
+        tolerance: float = 0.1
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """FloodFill из одной точки"""
         c, h, w = tensor.shape[1], tensor.shape[2], tensor.shape[3]
@@ -1308,10 +1342,11 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask
     
-    def _multi_point_floodfill(self, 
-                               tensor: torch.Tensor, 
-                               points: List[Tuple[int, int]], 
-                               tolerance: float = 0.1
+    def _multi_point_floodfill(
+        self, 
+        tensor: torch.Tensor, 
+        points: List[Tuple[int, int]], 
+        tolerance: float = 0.1
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """FloodFill из нескольких точек"""
         c, h, w = tensor.shape[1], tensor.shape[2], tensor.shape[3]

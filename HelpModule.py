@@ -1,4 +1,6 @@
 # HelpModule.py
+
+# Импорт основных библиотек
 import os
 import warnings
 from BaseSegmenter import BaseSegmenter
@@ -50,10 +52,11 @@ def create_segmentation_pipeline():
         def __init__(self) -> None:
             self.steps: List[Dict[str, Any]] = []
             
-        def add_step(self, 
-                     name: str, 
-                     segmenter: BaseSegmenter, 
-                     params: Optional[Dict[str, Any]]  = None
+        def add_step(
+            self, 
+            name: str, 
+            segmenter: BaseSegmenter, 
+            params: Optional[Dict[str, Any]]  = None
         ) -> None:
             """Добавление шага в пайплайн"""
             self.steps.append({
@@ -62,9 +65,10 @@ def create_segmentation_pipeline():
                 'params': params or {}
             })
             
-        def run(self, 
-                image: Union[str, np.ndarray, Image.Image], 
-                visualize: bool = True
+        def run(
+            self, 
+            image: Union[str, np.ndarray, Image.Image], 
+            visualize: bool = True
         ) -> Dict[str, Dict[str, Any]]:
             """Запуск пайплайна"""
             results: Dict[str, Dict[str, Any]] = {}
@@ -136,9 +140,10 @@ def create_segmentation_pipeline():
             
             return results
         
-        def visualize_results(self, 
-                      results: Dict[str, Dict[str, Any]], 
-                      original_image: np.ndarray
+        def visualize_results(
+            self, 
+            results: Dict[str, Dict[str, Any]], 
+            original_image: np.ndarray
         ) -> None:
             """Визуализация результатов пайплайна"""
             n_steps: int = len(results)
@@ -201,14 +206,20 @@ def create_segmentation_pipeline():
             """Получить имена всех шагов в пайплайне"""
             return [step['name'] for step in self.steps]
         
-        def get_step(self, name: str) -> Optional[Dict[str, Any]]:
+        def get_step(
+            self, 
+            name: str
+        ) -> Optional[Dict[str, Any]]:
             """Получить информацию о конкретном шаге по имени"""
             for step in self.steps:
                 if step['name'] == name:
                     return step
             return None
         
-        def remove_step(self, name: str) -> bool:
+        def remove_step(
+            self, 
+            name: str
+        ) -> bool:
             """Удалить шаг из пайплайна по имени"""
             for i, step in enumerate(self.steps):
                 if step['name'] == name:
@@ -220,10 +231,11 @@ def create_segmentation_pipeline():
             """Очистить весь пайплайн"""
             self.steps = []
         
-        def save_visualization(self, 
-                               results: Dict[str, Dict[str, Any]], 
-                               original_image: Union[str, np.ndarray, Image.Image],
-                               save_path: str = "pipeline_results.jpg"
+        def save_visualization(
+            self, 
+            results: Dict[str, Dict[str, Any]], 
+            original_image: Union[str, np.ndarray, Image.Image],
+            save_path: str = "pipeline_results.jpg"
         ) -> None:
             """Сохранить визуализацию результатов пайплайна"""
             n_steps: int = len(results)
@@ -419,11 +431,12 @@ def print_pipeline_analysis(analysis: Dict[str, Any]) -> None:
         print(f"{step_name}: {info['segmenter_type']} ({info['segmenter_name']})")
 
 
-def apply_torch_method(image_path: str, 
-                       method: str, 
-                       method_name: str = None, 
-                       save_dir: str = "results", 
-                       **kwargs
+def apply_torch_method(
+    image_path: str, 
+    method: str, 
+    method_name: str = None, 
+    save_dir: str = "results", 
+    **kwargs
 ) -> Tuple[Dict[str, Any], Image.Image, np.ndarray, float]:
     """
     Применяет метод PyTorch сегментации с сохранением результатов
@@ -544,8 +557,9 @@ def create_torch_segmenter(method: str, **kwargs) -> TorchSegmenter:
     """Создает сегментатор PyTorch с указанными параметрами"""
     return TorchSegmenter(method=method, **kwargs)
 
-def apply_neural_segmentation(image_path: str, 
-                              save_dir: str = "results"
+def apply_neural_segmentation(
+    image_path: str, 
+    save_dir: str = "results"
 ) -> Tuple[Dict[str, Any], Image.Image, np.ndarray, float]:
     """
     Применяет нейросетевую сегментацию с замером времени
@@ -630,8 +644,9 @@ def apply_neural_segmentation(image_path: str,
         }
         return result_dict, original_img, mask, execution_time
 
-def original_compare_segmentation_methods(image_path: str, 
-                                         save_dir: str = "legacy_comparison"
+def original_compare_segmentation_methods(
+    image_path: str, 
+    save_dir: str = "legacy_comparison"
 ) -> Dict[str, Any]:
     """
     ОРИГИНАЛЬНАЯ функция сравнения основных методов сегментации 
@@ -839,7 +854,10 @@ def original_compare_segmentation_methods(image_path: str,
         'failed_methods': failed_methods
     }
 
-def compare_cv2_torch_methods(image_path: str, save_dir: str = "cv2_vs_torch") -> Dict[str, Any]:
+def compare_cv2_torch_methods(
+    image_path: str, 
+    save_dir: str = "cv2_vs_torch"
+) -> Dict[str, Any]:
     """
     Сравнение методов CV2 и PyTorch реализаций
     """
@@ -1580,9 +1598,14 @@ def compare_segmentation_methods_with_timing(image_path: str) -> Tuple[List[str]
 
 # ============ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ВИЗУАЛИЗАЦИИ И СОХРАНЕНИЯ ============
 
-def create_timing_comparison_visualization(methods: List[str], results: List[Image.Image], 
-                                         masks: List[np.ndarray], times: List[float],
-                                         original_img: Image.Image, image_path: str) -> None:
+def create_timing_comparison_visualization(
+    methods: List[str], 
+    results: List[Image.Image], 
+    masks: List[np.ndarray], 
+    times: List[float],
+    original_img: Image.Image, 
+    image_path: str
+) -> None:
     """Создает визуализацию сравнения с таймингом"""
     
     n_methods = len(methods)
@@ -1651,8 +1674,12 @@ def create_timing_comparison_visualization(methods: List[str], results: List[Ima
     
     plt.show()
 
-def save_timing_comparison_results(methods: List[str], results_dicts: List[Dict], 
-                                 times: List[float], image_path: str) -> None:
+def save_timing_comparison_results(
+    methods: List[str], 
+    results_dicts: List[Dict], 
+    times: List[float], 
+    image_path: str
+) -> None:
     """Сохраняет результаты сравнения с таймингом"""
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

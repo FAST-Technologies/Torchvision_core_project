@@ -1,4 +1,6 @@
 # NeuralSegmenter.py
+
+# Импорт основных библиотек
 import torch
 import numpy as np
 from PIL import Image
@@ -22,10 +24,11 @@ except ImportError:
 class NeuralSegmenter(BaseSegmenter):
     """Класс для нейросетевой сегментации"""
     
-    def __init__(self, 
-                 model_name: str = "nvidia/segformer-b5-finetuned-ade-640-640",
-                 device: str = None,
-                 local_path: str = None
+    def __init__(
+        self, 
+        model_name: str = "nvidia/segformer-b5-finetuned-ade-640-640",
+        device: str = None,
+        local_path: str = None
     ) -> None:
         super().__init__()
         
@@ -68,7 +71,7 @@ class NeuralSegmenter(BaseSegmenter):
                 self.model = SegformerForSemanticSegmentation.from_pretrained(self.model_name)
             self.model.to(self.device)
             self.model.eval()
-            print(f"Модель загружена за {time.time() - start_time:.2f} секунд")
+            print(f"Модель загружена за {time.time() - start_time:.4f} секунд")
             print(f"Текущая конфигурация модели: {self.model.config}")
         except Exception as e:
             raise RuntimeError(f"Ошибка загрузки модели: {e}")
@@ -115,8 +118,9 @@ class NeuralSegmenter(BaseSegmenter):
             [184, 255, 0], [0, 133, 255], [255, 214, 0], [25, 194, 194],
             [102, 255, 0], [92, 0, 255]]
     
-    def load_image(self, 
-                   input_image: Union[str, Image.Image]
+    def load_image(
+        self, 
+        input_image: Union[str, Image.Image]
     ) -> Image.Image:
         """Загрузка изображения из различных источников"""
         img: Image.Image
@@ -132,17 +136,19 @@ class NeuralSegmenter(BaseSegmenter):
             raise ValueError("Unsupported input type. Provide a file path, URL, or PIL.Image.")
         return img
     
-    def segment(self, 
-                image: Union[str, Image.Image], 
-                alpha: float = 0.5
+    def segment(
+        self, 
+        image: Union[str, Image.Image], 
+        alpha: float = 0.5
     ) -> np.ndarray:
         """Основной метод сегментации"""
         result_img: Image.Image = self.segment_image(image, alpha)
         return np.array(result_img)
     
-    def segment_with_mask(self, 
-                          image: Union[str, Image.Image], 
-                          alpha: float = 0.5
+    def segment_with_mask(
+        self, 
+        image: Union[str, Image.Image], 
+        alpha: float = 0.5
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Сегментация с возвратом маски и обработанного изображения"""
         start_time: float = time.time()
@@ -177,9 +183,10 @@ class NeuralSegmenter(BaseSegmenter):
         
         return result, mask
     
-    def segment_image(self, 
-                      input_image: Union[str, Image.Image], 
-                      alpha: float = 0.5
+    def segment_image(
+        self, 
+        input_image: Union[str, Image.Image], 
+        alpha: float = 0.5
     ) -> Image.Image:
         """
         Performs semantic segmentation on an image and returns an overlay mask.
@@ -207,8 +214,9 @@ class NeuralSegmenter(BaseSegmenter):
         overlay = (orig_arr * (1 - alpha) + color_mask * alpha).astype(np.uint8)
         return Image.fromarray(overlay)
     
-    def predict_segmentation_map(self, 
-                                 input_image: Union[str, Image.Image]
+    def predict_segmentation_map(
+        self, 
+        input_image: Union[str, Image.Image]
     ) -> np.ndarray:
         """Предсказание карты сегментации"""
         # Load image
@@ -238,8 +246,9 @@ class NeuralSegmenter(BaseSegmenter):
         
         return seg_map
     
-    def detailed_segmentation(self, 
-                              input_image: Union[str, Image.Image]
+    def detailed_segmentation(
+        self, 
+        input_image: Union[str, Image.Image]
     ) -> Dict[str, Any]:
         """
         Детальная сегментация с возвратом всех промежуточных результатов
@@ -297,10 +306,11 @@ class NeuralSegmenter(BaseSegmenter):
                 'label2id': self.model.config.label2id
             }
     
-    def visualize_segmentation(self, 
-                               input_image: Union[str, Image.Image],
-                               alpha: float = 0.5,
-                               figsize: Tuple[int, int] = (15, 5)
+    def visualize_segmentation(
+        self, 
+        input_image: Union[str, Image.Image],
+        alpha: float = 0.5,
+        figsize: Tuple[int, int] = (15, 5)
     ) -> Image.Image:
         """Базовая визуализация сегментации"""
         img: Image.Image = self.load_image(input_image)
@@ -321,10 +331,12 @@ class NeuralSegmenter(BaseSegmenter):
         
         return result_img
     
-    def segment_and_evaluate(self, 
-                        image: Union[str, np.ndarray, Image.Image],
-                        ground_truth: np.ndarray,
-                        threshold: float = 0.5) -> Tuple[Dict[str, float], np.ndarray]:
+    def segment_and_evaluate(
+        self, 
+        image: Union[str, np.ndarray, Image.Image],
+        ground_truth: np.ndarray,
+        threshold: float = 0.5
+    ) -> Tuple[Dict[str, float], np.ndarray]:
         """
         Сегментирует изображение и вычисляет метрики относительно ground truth.
         
@@ -363,9 +375,11 @@ class NeuralSegmenter(BaseSegmenter):
         
         return metrics, pred_mask_binary
 
-    def _calculate_segmentation_metrics(self, 
-                                    pred_mask: np.ndarray, 
-                                    gt_mask: np.ndarray) -> Dict[str, float]:
+    def _calculate_segmentation_metrics(
+        self, 
+        pred_mask: np.ndarray, 
+        gt_mask: np.ndarray
+    ) -> Dict[str, float]:
         """Вычисляет метрики качества сегментации"""
         # Бинаризация
         pred_bin = (pred_mask > 127).astype(np.uint8).flatten()

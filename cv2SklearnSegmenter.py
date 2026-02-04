@@ -1,4 +1,6 @@
 # cv2SklearnSegmenter.py
+
+# Импорт основных библиотек
 from BaseSegmenter import BaseSegmenter
 import torch
 import cv2
@@ -18,9 +20,10 @@ class CV2SklearnSegmenter(BaseSegmenter):
     активных контуров и графов.
     """
     
-    def __init__(self, 
-                 method: str = "global_thresholding", 
-                 **kwargs: Any
+    def __init__(
+        self, 
+        method: str = "global_thresholding", 
+        **kwargs: Any
     ) -> None:
         super().__init__()
         self.method: str = method
@@ -82,8 +85,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         self._segment_func = method_map[self.method]
     
-    def segment(self, 
-                image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    def segment(
+        self, 
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor]
     ) -> np.ndarray:
         """
         Выполняет сегментацию изображения и возвращает бинарную маску.
@@ -98,8 +102,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
                                                       as_gray=self._needs_gray)
         return self._segment_func(img_array)
     
-    def segment_with_mask(self, 
-                          image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    def segment_with_mask(
+        self, 
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Выполняет сегментацию и возвращает визуализацию + маску.
@@ -132,8 +137,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
     
     # ============ РЕАЛИЗАЦИИ МЕТОДОВ ============
     
-    def _global_thresholding(self, 
-                             img: np.ndarray
+    def _global_thresholding(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Глобальная пороговая сегментация.
@@ -156,8 +162,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         _, mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
         return mask
     
-    def _adaptive_thresholding(self, 
-                               img: np.ndarray
+    def _adaptive_thresholding(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Адаптивная пороговая сегментация (Gaussian).
@@ -189,8 +196,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         )
         return mask
     
-    def _otsu_thresholding(self, 
-                           img: np.ndarray
+    def _otsu_thresholding(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Автоматическая бинаризация по методу Оцу.
@@ -211,8 +219,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         return mask
     
-    def _region_growing(self, 
-                        img: np.ndarray
+    def _region_growing(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Сегментация методом Region Growing (роста регионов).
@@ -268,8 +277,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         return region_mask
     
-    def _split_and_merge(self, 
-                         img: np.ndarray
+    def _split_and_merge(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Рекурсивный алгоритм разделения и слияния регионов.
@@ -369,8 +379,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         else:
             return np.zeros_like(gray, dtype=np.uint8)
     
-    def _sobel_edge(self, 
-                    img: np.ndarray
+    def _sobel_edge(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Обнаружение границ оператором Собеля.
@@ -404,8 +415,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         return mask
     
-    def _canny_edge(self, 
-                    img: np.ndarray
+    def _canny_edge(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Обнаружение границ оператором Кэнни.
@@ -429,8 +441,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         edges = cv2.Canny(gray, low, high)
         return edges
     
-    def _kmeans_segmentation(self, 
-                             img: np.ndarray
+    def _kmeans_segmentation(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Сегментация методом K-Means кластеризации.
@@ -459,8 +472,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         mask = (labels != bg_label).astype(np.uint8) * 255
         return mask
     
-    def _dbscan_segmentation(self, 
-                             img: np.ndarray
+    def _dbscan_segmentation(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Сегментация методом DBSCAN кластеризации.
@@ -518,8 +532,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         return mask
     
-    def _active_contour(self, 
-                        img: np.ndarray
+    def _active_contour(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Сегментация активными контурами (Snakes).
@@ -588,8 +603,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
             return mask
             # return np.zeros_like(gray, dtype=np.uint8)
     
-    def _gvf_contour(self, 
-                     img: np.ndarray
+    def _gvf_contour(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Сегментация на основе Gradient Vector Flow (GVF).
@@ -644,8 +660,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         return mask
     
-    def _watershed(self, 
-                   img: np.ndarray
+    def _watershed(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Сегментация методом водораздела (Watershed).
@@ -725,8 +742,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         return mask
     
-    def _meanshift(self, 
-                   img: np.ndarray
+    def _meanshift(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Сегментация методом MeanShift.
@@ -784,8 +802,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         return mask
     
-    def _grabcut(self, 
-                 img: np.ndarray
+    def _grabcut(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Интерактивная сегментация GrabCut.
@@ -844,8 +863,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
             _, mask = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
             return mask
     
-    def _floodfill(self, 
-                   img: np.ndarray
+    def _floodfill(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Сегментация методом заливки (Flood Fill).
@@ -904,8 +924,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
             _, mask = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
             return mask
     
-    def _morphological_snakes(self, 
-                              img: np.ndarray
+    def _morphological_snakes(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Сегментация морфологическими змеями.
@@ -976,8 +997,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
             _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
             return mask
     
-    def _quickshift(self, 
-                    img: np.ndarray
+    def _quickshift(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Сегментация методом Quickshift (реализована через MeanShift как аналог).
@@ -1016,8 +1038,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
             warnings.warn(f"Quickshift failed: {e}. Using fallback.")
             return self._kmeans_segmentation(img)
     
-    def _slic(self, 
-              img: np.ndarray
+    def _slic(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.
@@ -1054,8 +1077,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
             warnings.warn(f"SLIC failed: {e}. Using fallback.")
             return self._kmeans_segmentation(img)
     
-    def _felzenszwalb(self, 
-                      img: np.ndarray
+    def _felzenszwalb(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
@@ -1102,8 +1126,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
             warnings.warn(f"Felzenszwalb failed: {e}. Using fallback.")
             return self._kmeans_segmentation(img)
         
-    def _chan_vese(self, 
-               img: np.ndarray
+    def _chan_vese(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Модель Chan-Vese — активные контуры без градиентов.
@@ -1158,8 +1183,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
             warnings.warn(f"Chan-Vese failed: {e}. Using fallback.")
             return self._otsu_thresholding(img)
         
-    def _threshold_niblack(self, 
-                            img: np.ndarray
+    def _threshold_niblack(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Адаптивная пороговая обработка по Ниблаку.
@@ -1193,8 +1219,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         return mask
 
-    def _threshold_sauvola(self, 
-                        img: np.ndarray
+    def _threshold_sauvola(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Улучшенная адаптивная пороговая обработка по Сауволе.
@@ -1229,8 +1256,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         return mask
     
-    def _random_walker(self, 
-                   img: np.ndarray
+    def _random_walker(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         Сегментация методом Random Walker.
@@ -1279,8 +1307,9 @@ class CV2SklearnSegmenter(BaseSegmenter):
             warnings.warn(f"Random Walker failed: {e}. Using fallback.")
             return self._otsu_thresholding(img)
         
-    def _slic(self, 
-              img: np.ndarray
+    def _slic(
+        self, 
+        img: np.ndarray
     ) -> np.ndarray:
         """
         SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.

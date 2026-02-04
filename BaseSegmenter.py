@@ -1,4 +1,6 @@
 # BaseSegmenter.py
+
+# Импорт основных библиотек
 import torch
 import cv2
 import numpy as np
@@ -14,22 +16,25 @@ class BaseSegmenter(ABC):
         self.name: str = self.__class__.__name__
         
     @abstractmethod
-    def segment(self, 
-                image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    def segment(
+        self, 
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor]
     ) -> np.ndarray:
         """Основной метод сегментации"""
         pass
     
     @abstractmethod
-    def segment_with_mask(self, 
-                          image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+    def segment_with_mask(
+        self, 
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Сегментация с возвратом маски"""
         pass
     
-    def preprocess_image(self, 
-                         image: Union[str, np.ndarray, Image.Image, torch.Tensor],
-                         as_gray: bool = False
+    def preprocess_image(
+        self, 
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor],
+        as_gray: bool = False
     ) -> np.ndarray:
         """Предобработка изображения"""
         if isinstance(image, str):
@@ -66,11 +71,12 @@ class BaseSegmenter(ABC):
         else:
             raise TypeError(f"Неподдерживаемый тип изображения: {type(image)}")
     
-    def visualize(self, 
-                  image: np.ndarray, 
-                  mask: np.ndarray, 
-                  alpha: float = 0.5, 
-                  overlay_color: Tuple[int, int, int] = (255, 0, 0)
+    def visualize(
+        self, 
+        image: np.ndarray, 
+        mask: np.ndarray, 
+        alpha: float = 0.5, 
+        overlay_color: Tuple[int, int, int] = (255, 0, 0)
     ) -> Image.Image:
         """Визуализация результата сегментации"""
         overlay: np.ndarray = image.copy()
@@ -78,10 +84,12 @@ class BaseSegmenter(ABC):
         result = cv2.addWeighted(image, 1 - alpha, overlay, alpha, 0)
         return Image.fromarray(result)
     
-    def evaluate_metrics(self, 
-                         pred_mask: np.ndarray, 
-                         gt_mask: np.ndarray,
-                         threshold: float = 0.5) -> Dict[str, float]:
+    def evaluate_metrics(
+        self, 
+        pred_mask: np.ndarray, 
+        gt_mask: np.ndarray,
+        threshold: float = 0.5
+    ) -> Dict[str, float]:
         """
         Оценка качества сегментации с помощью различных метрик
         
@@ -95,10 +103,12 @@ class BaseSegmenter(ABC):
         """
         return SegmentationMetrics.calculate_all_metrics(pred_mask, gt_mask, threshold)
     
-    def segment_and_evaluate(self,
-                            image: Union[str, np.ndarray, Image.Image, torch.Tensor],
-                            gt_mask: np.ndarray,
-                            threshold: float = 0.5) -> Tuple[Dict[str, float], np.ndarray]:
+    def segment_and_evaluate(
+        self,
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor],
+        gt_mask: np.ndarray,
+        threshold: float = 0.5
+    ) -> Tuple[Dict[str, float], np.ndarray]:
         """
         Выполняет сегментацию и сразу оценивает результат
         
@@ -124,9 +134,10 @@ class BaseSegmenter(ABC):
         return metrics, pred_mask
     
     
-    def __call__(self, 
-                 image: Union[str, np.ndarray, Image.Image, torch.Tensor], 
-                 return_mask: bool = False
+    def __call__(
+        self, 
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor], 
+        return_mask: bool = False
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """Вызов метода сегментации"""
         if return_mask:

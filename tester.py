@@ -1,4 +1,6 @@
 # segmentation_comparator_extended.py
+
+# Импорт основных библиотек
 from SegmentationComparator import SegmentationComparator
 import numpy as np
 from typing import Union, Tuple, Dict, Any, List, Optional
@@ -16,13 +18,15 @@ class ExtendedSegmentationComparator(SegmentationComparator):
     Расширенный компаратор с матричным сравнением всех методов.
     """
     
-    def matrix_comparison(self,
-                         image: np.ndarray,
-                         methods_config: List[Dict[str, Any]],
-                         reference_method: Optional[str] = None,
-                         comparison_type: str = "all_vs_all",  # "all_vs_all", "all_vs_ref", "pairwise"
-                         save_results: bool = True,
-                         output_dir: str = "matrix_comparison_results") -> Dict[str, Any]:
+    def matrix_comparison(
+        self,
+        image: np.ndarray,
+        methods_config: List[Dict[str, Any]],
+        reference_method: Optional[str] = None,
+        comparison_type: str = "all_vs_all",  # "all_vs_all", "all_vs_ref", "pairwise"
+        save_results: bool = True,
+        output_dir: str = "matrix_comparison_results"
+    ) -> Dict[str, Any]:
         """
         Матричное сравнение всех методов между собой.
         
@@ -194,13 +198,15 @@ class ExtendedSegmentationComparator(SegmentationComparator):
             'method_infos': method_infos
         }
     
-    def _save_matrix_results(self,
-                            df_comparisons: pd.DataFrame,
-                            masks: Dict[str, np.ndarray],
-                            method_infos: Dict[str, Any],
-                            output_dir: str,
-                            comparison_type: str,
-                            reference_method: Optional[str] = None):
+    def _save_matrix_results(
+        self,
+        df_comparisons: pd.DataFrame,
+        masks: Dict[str, np.ndarray],
+        method_infos: Dict[str, Any],
+        output_dir: str,
+        comparison_type: str,
+        reference_method: Optional[str] = None
+    ):
         """Сохраняет результаты матричного сравнения."""
         
         # 1. Сохраняем DataFrame
@@ -291,9 +297,11 @@ class ExtendedSegmentationComparator(SegmentationComparator):
         self._create_html_report(df_comparisons, masks, method_infos, 
                                 output_dir, comparison_type, reference_method)
     
-    def _visualize_all_masks(self,
-                            masks: Dict[str, np.ndarray],
-                            output_dir: str):
+    def _visualize_all_masks(
+        self,
+        masks: Dict[str, np.ndarray],
+        output_dir: str
+    ):
         """Визуализирует все маски в одной фигуре."""
         methods = list(masks.keys())
         n_methods = len(methods)
@@ -324,13 +332,15 @@ class ExtendedSegmentationComparator(SegmentationComparator):
         
         print(f"🖼️ Все маски: {all_masks_path}")
     
-    def _create_html_report(self,
-                           df_comparisons: pd.DataFrame,
-                           masks: Dict[str, np.ndarray],
-                           method_infos: Dict[str, Any],
-                           output_dir: str,
-                           comparison_type: str,
-                           reference_method: Optional[str] = None):
+    def _create_html_report(
+        self,
+        df_comparisons: pd.DataFrame,
+        masks: Dict[str, np.ndarray],
+        method_infos: Dict[str, Any],
+        output_dir: str,
+        comparison_type: str,
+        reference_method: Optional[str] = None
+    ):
         """Создает HTML отчет с результатами."""
         
         html_path = os.path.join(output_dir, "report.html")
@@ -562,9 +572,11 @@ def comprehensive_comparison_example():
 
 
 # Функция для быстрого сравнения
-def quick_comparison(image: np.ndarray, 
-                    methods_list: List[str] = None,
-                    output_dir: str = "quick_comparison"):
+def quick_comparison(
+    image: np.ndarray, 
+    methods_list: List[str] = None,
+    output_dir: str = "quick_comparison"
+):
     """
     Быстрое сравнение популярных методов.
     

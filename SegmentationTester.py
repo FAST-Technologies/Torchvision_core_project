@@ -1,4 +1,6 @@
 # SegmentationTester.py
+
+# Импорт основных библиотек
 from BaseSegmenter import BaseSegmenter
 from segmentation_metrics import SegmentationMetrics
 import os
@@ -15,9 +17,10 @@ from datetime import datetime
 class SegmentationTester:
     """Класс для тестирования и сравнения методов сегментации"""
     
-    def __init__(self,
-                 base_output_dir: str = "segmentation_results",
-                 ground_truth_path: Optional[str] = None
+    def __init__(
+        self,
+        base_output_dir: str = "segmentation_results",
+        ground_truth_path: Optional[str] = None
     ) -> None:
         self.methods = {}
         self.results = {}
@@ -29,7 +32,10 @@ class SegmentationTester:
         if ground_truth_path:
             self.load_ground_truth(ground_truth_path)
 
-    def load_ground_truth(self, gt_path: str) -> None:
+    def load_ground_truth(
+        self, 
+        gt_path: str
+    ) -> None:
         """Загрузка ground truth маски"""
         try:
             if gt_path.endswith(('.png', '.jpg', '.jpeg', '.bmp')):
@@ -44,8 +50,9 @@ class SegmentationTester:
             print(f"❌ Ошибка загрузки ground truth: {e}")
             self.ground_truth_mask = None
 
-    def _create_test_directory(self, 
-                               test_name: str = None
+    def _create_test_directory(
+        self, 
+        test_name: str = None
     ) -> str:
         """Создает уникальную директорию для теста"""
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -68,18 +75,20 @@ class SegmentationTester:
         print(f"📁 Создана директория для теста: {full_path}")
         return full_path
     
-    def add_method(self, 
-                   name: str, 
-                   segmenter: BaseSegmenter
+    def add_method(
+        self, 
+        name: str, 
+        segmenter: BaseSegmenter
     ) -> None:
         """Добавление метода сегментации"""
         self.methods[name] = segmenter
     
-    def test_single_method(self, 
-                           image: Union[str, np.ndarray, Image.Image], 
-                           method_name: str, 
-                           save_path: Optional[str] = None,
-                           output_dir: Optional[str] = None
+    def test_single_method(
+        self, 
+        image: Union[str, np.ndarray, Image.Image], 
+        method_name: str, 
+        save_path: Optional[str] = None,
+        output_dir: Optional[str] = None
     ) -> Dict[str, Any]:
         """Тестирование одного метода с сохранением результатов"""
         if method_name not in self.methods:
@@ -175,10 +184,12 @@ class SegmentationTester:
         
         return result_data
     
-    def _save_overlay_image(self, 
-                          result_data: Dict[str, Any], 
-                          method_dir: str, 
-                          method_name: str) -> None:
+    def _save_overlay_image(
+        self, 
+        result_data: Dict[str, Any], 
+        method_dir: str, 
+        method_name: str
+    ) -> None:
         """
         Сохраняет наложение маски на оригинальное изображение.
         """
@@ -245,10 +256,12 @@ class SegmentationTester:
         except Exception as e:
             print(f"    ⚠️ Ошибка создания overlay для {method_name}: {e}")
     
-    def _save_metrics_file(self, 
-                         result_data: Dict[str, Any], 
-                         method_dir: str, 
-                         method_name: str) -> None:
+    def _save_metrics_file(
+        self, 
+        result_data: Dict[str, Any], 
+        method_dir: str, 
+        method_name: str
+    ) -> None:
         """
         Сохраняет метрики в JSON и текстовый файл.
         """
@@ -292,10 +305,12 @@ class SegmentationTester:
         
         print(f"    📊 Метрики сохранены для {method_name}")
     
-    def _save_method_info(self, 
-                        result_data: Dict[str, Any], 
-                        method_dir: str, 
-                        method_name: str) -> None:
+    def _save_method_info(
+        self, 
+        result_data: Dict[str, Any], 
+        method_dir: str, 
+        method_name: str
+    ) -> None:
         """
         Сохраняет информацию о методе и параметрах.
         """
@@ -355,10 +370,12 @@ class SegmentationTester:
         except Exception as e:
             print(f"    ⚠️ Ошибка сохранения информации о методе {method_name}: {e}")
     
-    def _save_method_results(self, 
-                           result_data: Dict[str, Any], 
-                           output_dir: str, 
-                           method_name: str) -> None:
+    def _save_method_results(
+        self, 
+        result_data: Dict[str, Any], 
+        output_dir: str, 
+        method_name: str
+    ) -> None:
         """
         Сохраняет результаты одного метода в указанную директорию.
         
@@ -410,12 +427,14 @@ class SegmentationTester:
         # Сохраняем информацию о методе
         self._save_method_info(result_data, method_dir, method_name)
     
-    def test_single_method_with_metrics(self, 
-                                        image: Union[str, np.ndarray, Image.Image],
-                                        method_name: str,
-                                        ground_truth: Optional[np.ndarray] = None,
-                                        threshold: float = 0.5,
-                                        output_dir: Optional[str] = None) -> Dict[str, Any]:
+    def test_single_method_with_metrics(
+        self, 
+        image: Union[str, np.ndarray, Image.Image],
+        method_name: str,
+        ground_truth: Optional[np.ndarray] = None,
+        threshold: float = 0.5,
+        output_dir: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Тестирование метода с расчётом метрик
         
@@ -520,9 +539,11 @@ class SegmentationTester:
         
         return result_data
     
-    def _calculate_segmentation_metrics(self, 
-                                   pred_mask: np.ndarray, 
-                                   gt_mask: np.ndarray) -> Dict[str, float]:
+    def _calculate_segmentation_metrics(
+        self, 
+        pred_mask: np.ndarray, 
+        gt_mask: np.ndarray
+    ) -> Dict[str, float]:
         """Вычисляет метрики качества сегментации"""
         from sklearn.metrics import confusion_matrix
         
@@ -574,13 +595,14 @@ class SegmentationTester:
         
         return metrics
     
-    def compare_methods(self, 
-                        image: Union[str, np.ndarray, Image.Image], 
-                        method_names: List[str] = None, 
-                        figsize: Tuple[int, int] = (20, 15),
-                        save_comparison: bool = True,
-                        test_name: str = None,
-                        show_plots: bool = True
+    def compare_methods(
+        self, 
+        image: Union[str, np.ndarray, Image.Image], 
+        method_names: List[str] = None, 
+        figsize: Tuple[int, int] = (20, 15),
+        save_comparison: bool = True,
+        test_name: str = None,
+        show_plots: bool = True
     ) -> Dict[str, Any]:
         """Сравнение нескольких методов"""
         if method_names is None:
@@ -707,16 +729,16 @@ class SegmentationTester:
         
         return results
     
-
-
-    def compare_methods_with_metrics(self,
-                                     image: Union[str, np.ndarray, Image.Image],
-                                     method_names: List[str] = None,
-                                     ground_truth: Optional[np.ndarray] = None,
-                                     threshold: float = 0.5,
-                                     figsize: Tuple[int, int] = (20, 15),
-                                     test_name: str = None,
-                                     show_plots: bool = True) -> Dict[str, Dict[str, Any]]:
+    def compare_methods_with_metrics(
+        self,
+        image: Union[str, np.ndarray, Image.Image],
+        method_names: List[str] = None,
+        ground_truth: Optional[np.ndarray] = None,
+        threshold: float = 0.5,
+        figsize: Tuple[int, int] = (20, 15),
+        test_name: str = None,
+        show_plots: bool = True
+    ) -> Dict[str, Dict[str, Any]]:
         """
         Сравнение методов с метриками качества
         
@@ -840,9 +862,10 @@ class SegmentationTester:
         self.results[test_dir] = results
         return results
     
-    def _save_statistics(self, 
-                     stats: List[Dict], 
-                        output_dir: str
+    def _save_statistics(
+        self, 
+        stats: List[Dict], 
+        output_dir: str
     ) -> None:
         """Сохраняет статистику тестирования"""
         
@@ -966,9 +989,11 @@ class SegmentationTester:
         
         print(f"📋 Текстовый отчет сохранен: {report_path}")
 
-    def _save_metrics_comparison(self, 
-                                metrics_data: List[Dict[str, float]], 
-                                output_dir: str) -> None:
+    def _save_metrics_comparison(
+        self, 
+        metrics_data: List[Dict[str, float]], 
+        output_dir: str
+    ) -> None:
         """
         Сохраняет сравнение метрик в различных форматах
         """
@@ -1003,7 +1028,11 @@ class SegmentationTester:
         except ImportError:
             print("⚠️ Pandas не установлен. Пропускаем создание CSV и графиков.")
     
-    def _create_metrics_table_image(self, df, metrics_dir):
+    def _create_metrics_table_image(
+        self, 
+        df, 
+        metrics_dir
+    ):
         """Создает изображение со сводной таблицей метрик"""
         try:
             # Создаем таблицу в виде изображения
@@ -1046,9 +1075,10 @@ class SegmentationTester:
         except Exception as e:
             print(f"⚠️ Ошибка создания таблицы метрик: {e}")
     
-    def _save_results_summary(self, 
-                          results: Dict, 
-                          output_dir: str
+    def _save_results_summary(
+        self, 
+        results: Dict, 
+        output_dir: str
     ) -> None:
         """Сохраняет сводку результатов с конвертацией numpy типов"""
         summary_path: str = os.path.join(output_dir, "statistics", "results_summary.json")
@@ -1118,12 +1148,13 @@ class SegmentationTester:
                     for key, value in method_data.items():
                         f.write(f"{key}: {value}\n")
     
-    def benchmark_methods(self, 
-                          image: Union[str, np.ndarray, Image.Image], 
-                          n_runs: int = 3,
-                          save_benchmark: bool = True,
-                          test_name: str = None,
-                          save_results: bool = True
+    def benchmark_methods(
+        self, 
+        image: Union[str, np.ndarray, Image.Image], 
+        n_runs: int = 3,
+        save_benchmark: bool = True,
+        test_name: str = None,
+        save_results: bool = True
     ) -> pd.DataFrame:
         """Бенчмарк методов (требует pandas) с сохранением результатов"""
         
@@ -1242,9 +1273,10 @@ class SegmentationTester:
         
         return df
     
-    def _save_benchmark_results(self, 
-                                df: pd.DataFrame, 
-                                output_dir: str
+    def _save_benchmark_results(
+        self, 
+        df: pd.DataFrame, 
+        output_dir: str
     ) -> None:
         """Сохраняет результаты бенчмарка"""
         bench_stats_dir: str = os.path.join(output_dir, "statistics")
@@ -1305,9 +1337,10 @@ class SegmentationTester:
         # Визуализация результатов бенчмарка
         self._plot_benchmark_results(df, output_dir)
     
-    def _plot_benchmark_results(self, 
-                                df: pd.DataFrame, 
-                                output_dir: str
+    def _plot_benchmark_results(
+        self, 
+        df: pd.DataFrame, 
+        output_dir: str
     ) -> None:
         """Создает графики результатов бенчмарка"""
         
@@ -1369,7 +1402,11 @@ class SegmentationTester:
         
         print(f"📈 Графики бенчмарка сохранены в {output_dir}/comparisons/")
 
-    def _create_metrics_plots(self, df, metrics_dir):
+    def _create_metrics_plots(
+        self, 
+        df, 
+        metrics_dir
+    ):
         """Создает графики сравнения метрик"""
         try:
             # График 1: Барчарт основных метрик
@@ -1439,10 +1476,11 @@ class SegmentationTester:
         except Exception as e:
             print(f"⚠️ Ошибка создания графиков метрик: {e}")
 
-    def _create_benchmark_preview(self, 
-                                  df: pd.DataFrame, 
-                                  output_dir: str, 
-                                  comp_dir: str
+    def _create_benchmark_preview(
+        self, 
+        df: pd.DataFrame, 
+        output_dir: str, 
+        comp_dir: str
     ) -> None:
         """Создает превью результатов всех методов"""
         
@@ -1500,12 +1538,13 @@ class SegmentationTester:
         plt.savefig(preview_path, dpi=150, bbox_inches='tight')
         plt.close()
     
-    def visualize_comparison(self, 
-                             results: Dict[str, Dict], 
-                             show_masks: bool = True,
-                             save_visualization: bool = True,
-                             output_dir: str = None,
-                             show_plots: bool = True
+    def visualize_comparison(
+        self, 
+        results: Dict[str, Dict], 
+        show_masks: bool = True,
+        save_visualization: bool = True,
+        output_dir: str = None,
+        show_plots: bool = True
     ) -> None:
         """Визуализация сравнения результатов с сохранением"""
         output_dir: str
@@ -1578,9 +1617,10 @@ class SegmentationTester:
         else:
             plt.close()
     
-    def save_results(self, 
-                     results: Dict[str, Dict], 
-                     output_dir: str = "segmentation_results"
+    def save_results(
+        self, 
+        results: Dict[str, Dict], 
+        output_dir: str = "segmentation_results"
     ) -> None:
         """Сохранение результатов всех методов"""
     

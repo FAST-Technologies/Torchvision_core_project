@@ -1,4 +1,6 @@
 # segmentation_comparator.py
+
+# Импорт основных библиотек
 import numpy as np
 from typing import Union, Tuple, Dict, Any, List
 from PIL import Image
@@ -47,10 +49,12 @@ class SegmentationComparator:
         self.metrics_history = {}
         self.reference_methods = {}
         
-    def segment_with_sklearn(self, 
-                           image: np.ndarray,
-                           method: str,
-                           **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def segment_with_sklearn(
+        self, 
+        image: np.ndarray,
+        method: str,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Сегментация с использованием scikit-learn методов.
         
@@ -73,10 +77,12 @@ class SegmentationComparator:
         else:
             raise ValueError(f"Неизвестный sklearn метод: {method}")
     
-    def segment_with_skimage(self,
-                           image: np.ndarray,
-                           method: str,
-                           **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def segment_with_skimage(
+        self,
+        image: np.ndarray,
+        method: str,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Сегментация с использованием scikit-image методов.
         
@@ -111,10 +117,12 @@ class SegmentationComparator:
     
     # ============ SKLEARN МЕТОДЫ ============
     
-    def _sklearn_kmeans(self,
-                       image: np.ndarray,
-                       n_clusters: int = 3,
-                       **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _sklearn_kmeans(
+        self,
+        image: np.ndarray,
+        n_clusters: int = 3,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """KMeans кластеризация с sklearn"""
         h, w = image.shape[:2]
         
@@ -146,11 +154,13 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _sklearn_dbscan(self,
-                       image: np.ndarray,
-                       eps: float = 0.5,
-                       min_samples: int = 5,
-                       **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _sklearn_dbscan(
+        self,
+        image: np.ndarray,
+        eps: float = 0.5,
+        min_samples: int = 5,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """DBSCAN кластеризация с sklearn"""
         h, w = image.shape[:2]
         
@@ -193,10 +203,12 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _sklearn_meanshift(self,
-                          image: np.ndarray,
-                          bandwidth: float = None,
-                          **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _sklearn_meanshift(
+        self,
+        image: np.ndarray,
+        bandwidth: float = None,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """MeanShift кластеризация с sklearn"""
         h, w = image.shape[:2]
         
@@ -244,10 +256,12 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _sklearn_gmm(self,
-                    image: np.ndarray,
-                    n_components: int = 3,
-                    **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _sklearn_gmm(
+        self,
+        image: np.ndarray,
+        n_components: int = 3,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Gaussian Mixture Models с sklearn"""
         h, w = image.shape[:2]
         
@@ -283,12 +297,14 @@ class SegmentationComparator:
     
     # ============ SKIMAGE МЕТОДЫ ============
     
-    def _skimage_felzenszwalb(self,
-                             image: np.ndarray,
-                             scale: float = 100,
-                             sigma: float = 0.8,
-                             min_size: int = 50,
-                             **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _skimage_felzenszwalb(
+        self,
+        image: np.ndarray,
+        scale: float = 100,
+        sigma: float = 0.8,
+        min_size: int = 50,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Алгоритм Felzenszwalb"""
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -320,11 +336,13 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _skimage_slic(self,
-                     image: np.ndarray,
-                     n_segments: int = 100,
-                     compactness: float = 10.0,
-                     **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _skimage_slic(
+        self,
+        image: np.ndarray,
+        n_segments: int = 100,
+        compactness: float = 10.0,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """SLIC суперпиксели"""
         if len(image.shape) == 2:
             image_rgb = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
@@ -355,12 +373,14 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _skimage_quickshift(self,
-                           image: np.ndarray,
-                           kernel_size: float = 3,
-                           max_dist: float = 6,
-                           ratio: float = 0.5,
-                           **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _skimage_quickshift(
+        self,
+        image: np.ndarray,
+        kernel_size: float = 3,
+        max_dist: float = 6,
+        ratio: float = 0.5,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Quickshift сегментация"""
         if len(image.shape) == 2:
             image_rgb = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
@@ -392,11 +412,13 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _skimage_watershed(self,
-                          image: np.ndarray,
-                          markers: int = 10,
-                          compactness: float = 0.001,
-                          **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _skimage_watershed(
+        self,
+        image: np.ndarray,
+        markers: int = 10,
+        compactness: float = 0.001,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Watershed сегментация"""
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -440,11 +462,13 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _skimage_random_walker(self,
-                              image: np.ndarray,
-                              markers: np.ndarray = None,
-                              beta: float = 130,
-                              **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _skimage_random_walker(
+        self,
+        image: np.ndarray,
+        markers: np.ndarray = None,
+        beta: float = 130,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Random Walker сегментация"""
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -477,14 +501,16 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _skimage_chan_vese(self,
-                          image: np.ndarray,
-                          mu: float = 0.25,
-                          lambda1: float = 1.0,
-                          lambda2: float = 1.0,
-                          tol: float = 1e-3,
-                          max_iter: int = 100,
-                          **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _skimage_chan_vese(
+        self,
+        image: np.ndarray,
+        mu: float = 0.25,
+        lambda1: float = 1.0,
+        lambda2: float = 1.0,
+        tol: float = 1e-3,
+        max_iter: int = 100,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Chan-Vese активные контуры"""
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -518,15 +544,17 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _skimage_active_contour(self,
-                               image: np.ndarray,
-                               alpha: float = 0.01,
-                               beta: float = 0.1,
-                               gamma: float = 0.001,
-                               w_edge: float = 1,
-                               w_line: float = 0,
-                               max_iter: int = 1000,
-                               **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _skimage_active_contour(
+        self,
+        image: np.ndarray,
+        alpha: float = 0.01,
+        beta: float = 0.1,
+        gamma: float = 0.001,
+        w_edge: float = 1,
+        w_line: float = 0,
+        max_iter: int = 1000,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Активные контуры"""
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -581,12 +609,14 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _skimage_morphological_snakes(self,
-                                     image: np.ndarray,
-                                     iterations: int = 100,
-                                     smoothing: int = 1,
-                                     threshold: float = 0.5,
-                                     **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _skimage_morphological_snakes(
+        self,
+        image: np.ndarray,
+        iterations: int = 100,
+        smoothing: int = 1,
+        threshold: float = 0.5,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Морфологические змеи"""
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -635,9 +665,11 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _skimage_threshold_otsu(self,
-                               image: np.ndarray,
-                               **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _skimage_threshold_otsu(
+        self,
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Порог Оцу"""
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -658,11 +690,13 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _skimage_threshold_niblack(self,
-                                  image: np.ndarray,
-                                  window_size: int = 15,
-                                  k: float = 0.2,
-                                  **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _skimage_threshold_niblack(
+        self,
+        image: np.ndarray,
+        window_size: int = 15,
+        k: float = 0.2,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Порог Ниблака"""
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -685,12 +719,14 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _skimage_threshold_sauvola(self,
-                                  image: np.ndarray,
-                                  window_size: int = 15,
-                                  k: float = 0.2,
-                                  r: float = 128,
-                                  **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _skimage_threshold_sauvola(
+        self,
+        image: np.ndarray,
+        window_size: int = 15,
+        k: float = 0.2,
+        r: float = 128,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Порог Сауволы"""
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -714,10 +750,12 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _skimage_sobel(self,
-                      image: np.ndarray,
-                      threshold: float = 0.1,
-                      **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _skimage_sobel(
+        self,
+        image: np.ndarray,
+        threshold: float = 0.1,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Детектор границ Собеля"""
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -740,12 +778,14 @@ class SegmentationComparator:
         
         return mask, info
     
-    def _skimage_canny(self,
-                      image: np.ndarray,
-                      sigma: float = 1.0,
-                      low_threshold: float = 0.1,
-                      high_threshold: float = 0.2,
-                      **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _skimage_canny(
+        self,
+        image: np.ndarray,
+        sigma: float = 1.0,
+        low_threshold: float = 0.1,
+        high_threshold: float = 0.2,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Детектор границ Кэнни"""
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -778,11 +818,13 @@ class SegmentationComparator:
     
     # ============ МЕТРИКИ КАЧЕСТВА ============
     
-    def compute_metrics(self,
-                       mask1: np.ndarray,
-                       mask2: np.ndarray,
-                       method1_name: str = "Method1",
-                       method2_name: str = "Method2") -> Dict[str, float]:
+    def compute_metrics(
+        self,
+        mask1: np.ndarray,
+        mask2: np.ndarray,
+        method1_name: str = "Method1",
+        method2_name: str = "Method2"
+    ) -> Dict[str, float]:
         """
         Вычисляет метрики сходства между двумя масками.
         
@@ -843,16 +885,18 @@ class SegmentationComparator:
         
         return metrics
     
-    def compare_methods(self,
-                       image: np.ndarray,
-                       method1: str,
-                       method2: str,
-                       method1_type: str = "skimage",  # "skimage" или "sklearn"
-                       method2_type: str = "sklearn",
-                       method1_params: Dict[str, Any] = None,
-                       method2_params: Dict[str, Any] = None,
-                       save_comparison: bool = True,
-                       output_path: str = None) -> Dict[str, Any]:
+    def compare_methods(
+        self,
+        image: np.ndarray,
+        method1: str,
+        method2: str,
+        method1_type: str = "skimage",  # "skimage" или "sklearn"
+        method2_type: str = "sklearn",
+        method1_params: Dict[str, Any] = None,
+        method2_params: Dict[str, Any] = None,
+        save_comparison: bool = True,
+        output_path: str = None
+    ) -> Dict[str, Any]:
         """
         Сравнивает две реализации методов сегментации.
         
@@ -914,16 +958,18 @@ class SegmentationComparator:
         
         return self.results[result_key]
     
-    def visualize_comparison(self,
-                           image: np.ndarray,
-                           mask1: np.ndarray,
-                           mask2: np.ndarray,
-                           info1: Dict[str, Any],
-                           info2: Dict[str, Any],
-                           metrics: Dict[str, float],
-                           method1_name: str = "Method 1",
-                           method2_name: str = "Method 2",
-                           output_path: str = None):
+    def visualize_comparison(
+        self,
+        image: np.ndarray,
+        mask1: np.ndarray,
+        mask2: np.ndarray,
+        info1: Dict[str, Any],
+        info2: Dict[str, Any],
+        metrics: Dict[str, float],
+        method1_name: str = "Method 1",
+        method2_name: str = "Method 2",
+        output_path: str = None
+    ) -> None:
         """
         Визуализирует сравнение двух методов.
         """
@@ -1014,12 +1060,14 @@ class SegmentationComparator:
         
         plt.show()
     
-    def batch_comparison(self,
-                        image: np.ndarray,
-                        methods_config: List[Dict[str, Any]],
-                        reference_method: str = "skimage_felzenszwalb",
-                        save_results: bool = True,
-                        output_dir: str = "comparison_results") -> pd.DataFrame:
+    def batch_comparison(
+        self,
+        image: np.ndarray,
+        methods_config: List[Dict[str, Any]],
+        reference_method: str = "skimage_felzenszwalb",
+        save_results: bool = True,
+        output_dir: str = "comparison_results"
+    ) -> pd.DataFrame:
         """
         Пакетное сравнение нескольких методов с референсным.
         
@@ -1105,9 +1153,11 @@ class SegmentationComparator:
         
         return df
     
-    def _create_summary_visualization(self,
-                                    df: pd.DataFrame,
-                                    output_dir: str):
+    def _create_summary_visualization(
+        self,
+        df: pd.DataFrame,
+        output_dir: str
+    ) -> None:
         """Создает сводную визуализацию результатов сравнения."""
         if df.empty:
             return
@@ -1177,7 +1227,7 @@ class SegmentationComparator:
 
 
 # Пример использования
-def example_usage():
+def example_usage() -> Tuple[SegmentationComparator, pd.DataFrame]:
     """Пример использования класса для сравнения методов"""
     import cv2
     from PIL import Image
@@ -1238,13 +1288,15 @@ def example_usage():
 
 
 # Интеграция с вашими классами
-def compare_with_custom_method(custom_segmenter, 
-                              comparator: SegmentationComparator,
-                              image: np.ndarray,
-                              custom_method_name: str = "Custom",
-                              reference_method: str = "felzenszwalb",
-                              reference_type: str = "skimage",
-                              save_results: bool = True):
+def compare_with_custom_method(
+    custom_segmenter, 
+    comparator: SegmentationComparator,
+    image: np.ndarray,
+    custom_method_name: str = "Custom",
+    reference_method: str = "felzenszwalb",
+    reference_type: str = "skimage",
+    save_results: bool = True
+) -> Dict[str, Any]:
     """
     Сравнение кастомного сегментатора с референсным методом.
     
