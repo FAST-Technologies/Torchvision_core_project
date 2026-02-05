@@ -12,7 +12,6 @@ from scipy import ndimage
 from skimage import segmentation, feature, measure
 import warnings
 
-
 class CV2SklearnSegmenter(BaseSegmenter):
     """
     Класс для методов сегментации изображений на основе библиотек OpenCV и scikit-learn.
@@ -77,7 +76,8 @@ class CV2SklearnSegmenter(BaseSegmenter):
             "chan_vese": self._chan_vese,
             "threshold_niblack": self._threshold_niblack,
             "threshold_sauvola": self._threshold_sauvola,
-            "random_walker": self._random_walker
+            "random_walker": self._random_walker,
+            "gmm": self._gmm
         }
         
         if self.method not in method_map:
@@ -98,8 +98,10 @@ class CV2SklearnSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска (0–255, dtype=np.uint8), где 255 — объект.
         """
-        img_array: np.ndarray = self.preprocess_image(image, 
-                                                      as_gray=self._needs_gray)
+        img_array: np.ndarray = self.preprocess_image(
+            image, 
+            as_gray=self._needs_gray
+        )
         return self._segment_func(img_array)
     
     def segment_with_mask(
@@ -190,9 +192,12 @@ class CV2SklearnSegmenter(BaseSegmenter):
             block_size += 1
         
         mask = cv2.adaptiveThreshold(
-            gray, 255,
+            gray, 
+            255,
             cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, block_size, c
+            cv2.THRESH_BINARY, 
+            block_size, 
+            c
         )
         return mask
     
@@ -249,8 +254,8 @@ class CV2SklearnSegmenter(BaseSegmenter):
         if seed is None or not (0 <= seed[0] < w and 0 <= seed[1] < h):
             seed = (w // 2, h // 2) # (x, y)
         
-        region_mask = np.zeros_like(gray, dtype=bool)
-        visited = np.zeros_like(gray, dtype=bool)
+        region_mask: np.ndarray = np.zeros_like(gray, dtype=bool)
+        visited: np.ndarray = np.zeros_like(gray, dtype=bool)
         queue = deque([seed])
         
         region_mean = float(gray[seed[1], seed[0]])

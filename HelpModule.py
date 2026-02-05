@@ -86,7 +86,7 @@ def create_segmentation_pipeline():
             else:
                 raise TypeError(f"Неподдерживаемый тип изображения: {type(image)}")
             
-            current_input = original_np  # Всегда работаем с изображением оригинального размера
+            current_input: np.ndarray = original_np  # Всегда работаем с изображением оригинального размера
             
             for step in self.steps:
                 print(f"Выполнение шага: {step['name']}")

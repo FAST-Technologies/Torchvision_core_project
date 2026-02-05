@@ -46,8 +46,8 @@ class ExtendedSegmentationComparator(SegmentationComparator):
         """
         if save_results:
             os.makedirs(output_dir, exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = os.path.join(output_dir, f"comparison_{timestamp}")
+            timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir: str = os.path.join(output_dir, f"comparison_{timestamp}")
             os.makedirs(output_dir, exist_ok=True)
         
         # Генерируем имена методов для удобства
@@ -59,7 +59,7 @@ class ExtendedSegmentationComparator(SegmentationComparator):
             method_type = config.get('type', 'skimage')
             method_params = config.get('params', {})
             
-            full_name = f"{method_type}_{method_name}"
+            full_name: str = f"{method_type}_{method_name}"
             method_names.append(full_name)
             method_objects[full_name] = {
                 'type': method_type,

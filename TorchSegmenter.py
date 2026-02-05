@@ -18,6 +18,7 @@ import warnings
 import time
 from scipy import ndimage
 from sklearn.cluster import MeanShift as SkMeanShift
+import traceback
 
 class TorchSegmenter(BaseSegmenter):
     """Класс для методов сегментации с использованием PyTorch"""
@@ -29,11 +30,11 @@ class TorchSegmenter(BaseSegmenter):
         **kwargs
     ) -> None:
         super().__init__()
-        self.method = method
-        self.params = kwargs
-        self.model_name = f"Torch_{method}"
+        self.method: str = method
+        self.params: Dict[str, Any] = kwargs
+        self.model_name: str = f"Torch_{method}"
 
-        self._needs_normalization = method in [
+        self._needs_normalization: bool = method in [
             "global_thresholding",    # Работает с [0, 1]
             "adaptive_thresholding",  # Работает с [0, 1]
             "otsu_thresholding",      # Работает с [0, 1]
@@ -55,7 +56,7 @@ class TorchSegmenter(BaseSegmenter):
     
     def _setup_method(self) -> None:
         """Настройка выбранного метода"""
-        method_map = {
+        method_map: Dict[str, torch.Tensor] = {
             "global_thresholding": self._global_thresholding,
             "adaptive_thresholding": self._adaptive_thresholding,
             "otsu_thresholding": self._otsu_thresholding,
@@ -119,6 +120,8 @@ class TorchSegmenter(BaseSegmenter):
             torch.Tensor на нужном устройстве
         """
         try:
+            tensor: torch.Tensor
+            np_img: np.ndarray
             if normalize:
                 tensor = TF.to_tensor(img)  # Автоматически нормализует к [0, 1]
             else:
@@ -141,7 +144,7 @@ class TorchSegmenter(BaseSegmenter):
         if tensor.dim() == 4:
             tensor = tensor.squeeze(0)
         
-        result = tensor.permute(1, 2, 0).cpu().numpy()
+        result: np.ndarray = tensor.permute(1, 2, 0).cpu().numpy()
         
         if denormalize and result.max() <= 1.0:
             result = (result * 255).astype(np.uint8)
@@ -177,6 +180,7 @@ class TorchSegmenter(BaseSegmenter):
         tensor: torch.Tensor
     ) -> torch.Tensor:
         """Преобразование RGB в градации серого"""
+        gray: torch.Tensor
         if tensor.shape[1] == 3:
             # gray = torch.mean(tensor, dim=1, keepdim=True) # (B, 1, H, W)
             gray = 0.2989 * tensor[:, 0:1, :, :] + 0.5870 * tensor[:, 1:2, :, :] + 0.1140 * tensor[:, 2:3, :, :]
@@ -208,7 +212,7 @@ class TorchSegmenter(BaseSegmenter):
     ) -> np.ndarray:
         """Сегментация изображения - возвращает маску 0-255"""
         try:
-            tensor = self.preprocess_image(image)
+            tensor: torch.Tensor = self.preprocess_image(image)
             mask_tensor = self._segment_func(tensor)
             
             # Преобразуем маску в numpy
@@ -217,7 +221,7 @@ class TorchSegmenter(BaseSegmenter):
             if mask_tensor.dim() == 3 and mask_tensor.shape[0] == 1:
                 mask_tensor = mask_tensor.squeeze(0)
             
-            mask_np = mask_tensor.cpu().numpy()
+            mask_np: np.ndarray = mask_tensor.cpu().numpy()
             
             # Конвертируем в uint8 0-255 если нужно
             if mask_np.dtype != np.uint8:
@@ -232,9 +236,10 @@ class TorchSegmenter(BaseSegmenter):
             
         except Exception as e:
             warnings.warn(f"Ошибка в методе {self.method}: {e}")
-            import traceback
             traceback.print_exc()
             # Возвращаем пустую маску в случае ошибки
+            h: int
+            w: int
             if isinstance(image, str):
                 img = Image.open(image).convert('RGB')
                 h, w = img.size[1], img.size[0]
@@ -282,7 +287,6 @@ class TorchSegmenter(BaseSegmenter):
             
         except Exception as e:
             warnings.warn(f"Ошибка в методе {self.method} (segment_with_mask): {e}")
-            import traceback
             traceback.print_exc()
             
             if isinstance(image, str):
@@ -363,7 +367,7 @@ class TorchSegmenter(BaseSegmenter):
         tensor: torch.Tensor
     ) -> torch.Tensor:
         """Глобальная пороговая обработка (PyTorch)"""
-        gray = self._to_grayscale(tensor) # (1, 1, H, W)
+        gray: torch.Tensor = self._to_grayscale(tensor) # (1, 1, H, W)
         threshold = self.params.get('threshold', 0.5)
         mask = (gray > threshold).float()
         return mask
@@ -373,7 +377,7 @@ class TorchSegmenter(BaseSegmenter):
         tensor: torch.Tensor
     ) -> torch.Tensor:
         """Адаптивная пороговая обработка (PyTorch)"""
-        gray = self._to_grayscale(tensor) # (1,1,H,W)
+        gray: torch.Tensor = self._to_grayscale(tensor) # (1,1,H,W)
         block_size = self.params.get('block_size', 11)
         c = self.params.get('C', 2)
 
