@@ -1,0 +1,14 @@
+Результаты валидации: canny_edge
+Референсная библиотека: sklearn
+Статус: FAIL
+==================================================
+iou: 0.396824
+dice: 0.568181
+precision: 0.482021
+recall: 0.691845
+f1_score: 0.568181
+pixel_accuracy: 0.815439
+mae: 0.184561
+predicted_area: 154767.000000
+ground_truth_area: 107829.000000
+area_difference: 46938.000000

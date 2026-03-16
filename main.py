@@ -2384,7 +2384,7 @@
 from TorchSegmenter import TorchSegmenter
 from SklearnSegmenter import SklearnSegmenter
 from OpenCVSegmenter import OpenCVSegmenter
-from segmentation_metrics import SegmentationMetrics
+from SegmentationMetrics import SegmentationMetrics
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -2392,6 +2392,8 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import cv2
 from PIL import Image
+
+# main.py - исправленная часть класса TorchImplementationValidator
 
 class TorchImplementationValidator:
     """
@@ -2408,7 +2410,9 @@ class TorchImplementationValidator:
         self.threshold_methods = [
             "global_thresholding",
             "otsu_thresholding",
-            "adaptive_thresholding"
+            "adaptive_thresholding",
+            "threshold_niblack",
+            "threshold_sauvola"
         ]
         
         self.edge_methods = [
@@ -2423,6 +2427,22 @@ class TorchImplementationValidator:
             'pixel_accuracy': 0.95  # Pixel Accuracy > 0.95
         }
     
+    def _load_image(self, image_path: str) -> np.ndarray:
+        """
+        Универсальная загрузка изображения для всех сегментаторов.
+        Возвращает numpy array в формате RGB.
+        """
+        if isinstance(image_path, str) and os.path.exists(image_path):
+            # Загружаем через PIL для единообразия
+            img = Image.open(image_path).convert('RGB')
+            return np.array(img)
+        elif isinstance(image_path, np.ndarray):
+            return image_path
+        elif isinstance(image_path, Image.Image):
+            return np.array(image_path.convert('RGB'))
+        else:
+            raise ValueError(f"Неподдерживаемый тип изображения: {type(image_path)}")
+    
     def validate_threshold_methods(
         self,
         image_path: str,
@@ -2430,13 +2450,6 @@ class TorchImplementationValidator:
     ) -> Dict:
         """
         Валидация пороговых методов
-        
-        Args:
-            image_path: Путь к тестовому изображению
-            reference: Какая библиотека используется как референс
-            
-        Returns:
-            Словарь с результатами валидации
         """
         print(f"\n{'='*60}")
         print(f"ВАЛИДАЦИЯ ПОРОГОВЫХ МЕТОДОВ")
@@ -2445,13 +2458,16 @@ class TorchImplementationValidator:
         
         results = {}
         
+        # Загружаем изображение ОДИН РАЗ
+        img_array = self._load_image(image_path)
+        
         for method in self.threshold_methods:
             print(f"\n📊 Метод: {method}")
             
             try:
-                # 1. Torch реализация
+                # 1. Torch реализация - передаём numpy array
                 torch_segmenter = TorchSegmenter(method=method)
-                torch_mask = torch_segmenter.segment(image_path)
+                torch_mask = torch_segmenter.segment(img_array)  # ✅ Передаём array, не путь!
                 
                 # 2. Референсная реализация
                 if reference == "sklearn":
@@ -2459,7 +2475,7 @@ class TorchImplementationValidator:
                 else:  # opencv
                     ref_segmenter = OpenCVSegmenter(method=method)
                 
-                ref_mask = ref_segmenter.segment(image_path)
+                ref_mask = ref_segmenter.segment(img_array)  # ✅ Передаём array, не путь!
                 
                 # 3. Вычисляем метрики соответствия
                 metrics = SegmentationMetrics.calculate_all_metrics(
@@ -2487,6 +2503,8 @@ class TorchImplementationValidator:
                 
             except Exception as e:
                 print(f"   ❌ Ошибка: {e}")
+                import traceback
+                traceback.print_exc()
                 results[method] = {
                     'success': False,
                     'error': str(e),
@@ -2495,7 +2513,7 @@ class TorchImplementationValidator:
         
         # Сохраняем результаты
         self._save_validation_results(results, "threshold_validation", reference)
-        self._visualize_validation(results, image_path, "threshold", reference)
+        self._visualize_validation(results, img_array, "threshold", reference)
         
         return results
     
@@ -2506,13 +2524,6 @@ class TorchImplementationValidator:
     ) -> Dict:
         """
         Валидация операторов границ
-        
-        Args:
-            image_path: Путь к тестовому изображению
-            reference: Какая библиотека используется как референс
-            
-        Returns:
-            Словарь с результатами валидации
         """
         print(f"\n{'='*60}")
         print(f"ВАЛИДАЦИЯ ОПЕРАТОРОВ ГРАНИЦ")
@@ -2521,13 +2532,16 @@ class TorchImplementationValidator:
         
         results = {}
         
+        # Загружаем изображение ОДИН РАЗ
+        img_array = self._load_image(image_path)
+        
         for method in self.edge_methods:
             print(f"\n📊 Метод: {method}")
             
             try:
                 # 1. Torch реализация
                 torch_segmenter = TorchSegmenter(method=method)
-                torch_mask = torch_segmenter.segment(image_path)
+                torch_mask = torch_segmenter.segment(img_array)
                 
                 # 2. Референсная реализация
                 if reference == "sklearn":
@@ -2535,7 +2549,7 @@ class TorchImplementationValidator:
                 else:  # opencv
                     ref_segmenter = OpenCVSegmenter(method=method)
                 
-                ref_mask = ref_segmenter.segment(image_path)
+                ref_mask = ref_segmenter.segment(img_array)
                 
                 # 3. Вычисляем метрики соответствия
                 metrics = SegmentationMetrics.calculate_all_metrics(
@@ -2563,6 +2577,8 @@ class TorchImplementationValidator:
                 
             except Exception as e:
                 print(f"   ❌ Ошибка: {e}")
+                import traceback
+                traceback.print_exc()
                 results[method] = {
                     'success': False,
                     'error': str(e),
@@ -2571,19 +2587,83 @@ class TorchImplementationValidator:
         
         # Сохраняем результаты
         self._save_validation_results(results, "edge_validation", reference)
-        self._visualize_validation(results, image_path, "edge", reference)
+        self._visualize_validation(results, img_array, "edge", reference)
+        
+        return results
+
+    def validate_edge_methods_enhanced(
+        self,
+        image_path: str,
+        reference: str = "opencv"  # Для edge методов лучше OpenCV
+    ) -> Dict:
+        """
+        Валидация операторов границ
+        """
+        print(f"\n{'='*60}")
+        print(f"ВАЛИДАЦИЯ ОПЕРАТОРОВ ГРАНИЦ")
+        print(f"Референс: {reference.upper()}")
+        print(f"{'='*60}")
+        
+        results = {}
+        
+        # Загружаем изображение ОДИН РАЗ
+        img_array = self._load_image(image_path)
+        
+        for method in self.edge_methods:
+            print(f"\n📊 Метод: {method}")
+            
+            try:
+                # 1. Torch реализация
+                torch_segmenter = OpenCVSegmenter(method=method)
+                torch_mask = torch_segmenter.segment(img_array)
+                
+                # 2. Референсная реализация
+                ref_segmenter = SklearnSegmenter(method=method)
+                
+                ref_mask = ref_segmenter.segment(img_array)
+                
+                # 3. Вычисляем метрики соответствия
+                metrics = SegmentationMetrics.calculate_all_metrics(
+                    torch_mask, ref_mask, threshold=0.5, include_hausdorff=False
+                )
+                
+                # 4. Определяем статус валидации
+                validation_status = self._check_validation_status(metrics)
+                
+                results[method] = {
+                    'torch_mask': torch_mask,
+                    'reference_mask': ref_mask,
+                    'metrics': metrics,
+                    'validation_status': validation_status,
+                    'success': True,
+                    'reference_library': reference
+                }
+                
+                # Вывод результатов
+                status_icon = "✅" if validation_status == "PASS" else "⚠️"
+                print(f"   {status_icon} IoU: {metrics['iou']:.4f}")
+                print(f"   {status_icon} Dice: {metrics['dice']:.4f}")
+                print(f"   {status_icon} Pixel Accuracy: {metrics['pixel_accuracy']:.4f}")
+                print(f"   Статус: {validation_status}")
+                
+            except Exception as e:
+                print(f"   ❌ Ошибка: {e}")
+                import traceback
+                traceback.print_exc()
+                results[method] = {
+                    'success': False,
+                    'error': str(e),
+                    'reference_library': reference
+                }
+        
+        # Сохраняем результаты
+        self._save_validation_results(results, "edge_validation", reference)
+        self._visualize_validation_enhanced(results, img_array, "edge", reference)
         
         return results
     
     def _check_validation_status(self, metrics: Dict) -> str:
-        """
-        Определяет статус валидации на основе метрик
-        
-        Returns:
-            "PASS" - все метрики выше порога
-            "WARNING" - некоторые метрики ниже порога
-            "FAIL" - большинство метрик ниже порога
-        """
+        """Определяет статус валидации на основе метрик"""
         passed = 0
         total = 3
         
@@ -2640,18 +2720,18 @@ class TorchImplementationValidator:
     def _visualize_validation(
         self,
         results: Dict,
-        image_path: str,
+        image_array: np.ndarray,  # ✅ Теперь принимаем array, не путь!
         validation_type: str,
         reference: str
     ):
         """Визуализация результатов валидации"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Загружаем оригинальное изображение
-        original = np.array(Image.open(image_path).convert('RGB'))
+        original = image_array  # Уже загружено
         
         n_methods = len([r for r in results.values() if r.get('success')])
         if n_methods == 0:
+            print("⚠️ Нет успешных результатов для визуализации")
             return
         
         fig, axes = plt.subplots(n_methods, 4, figsize=(20, 5*n_methods))
@@ -2694,6 +2774,74 @@ class TorchImplementationValidator:
             row += 1
         
         plt.suptitle(f"{validation_type.title()} Validation (Torch vs {reference.upper()})", fontsize=16)
+        plt.tight_layout()
+        
+        viz_path = os.path.join(
+            self.output_dir,
+            f"{validation_type}_validation_{reference}_{timestamp}.jpg"
+        )
+        plt.savefig(viz_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        print(f"📊 Визуализация: {viz_path}")
+
+    def _visualize_validation_enhanced(
+        self,
+        results: Dict,
+        image_array: np.ndarray,  # ✅ Теперь принимаем array, не путь!
+        validation_type: str,
+        reference: str
+    ):
+        """Визуализация результатов валидации"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        original = image_array  # Уже загружено
+        
+        n_methods = len([r for r in results.values() if r.get('success')])
+        if n_methods == 0:
+            print("⚠️ Нет успешных результатов для визуализации")
+            return
+        
+        fig, axes = plt.subplots(n_methods, 4, figsize=(20, 5*n_methods))
+        if n_methods == 1:
+            axes = axes.reshape(1, -1)
+        
+        row = 0
+        for method, data in results.items():
+            if not data.get('success'):
+                continue
+            
+            torch_mask = data['torch_mask']
+            ref_mask = data['reference_mask']
+            metrics = data['metrics']
+            status = data['validation_status']
+            
+            # Оригинальное изображение
+            axes[row, 0].imshow(original)
+            axes[row, 0].set_title(f"Original Image")
+            axes[row, 0].axis('off')
+            
+            # Torch маска
+            axes[row, 1].imshow(torch_mask, cmap='gray')
+            axes[row, 1].set_title(f"OpenCV {method}\nIoU: {metrics['iou']:.3f}")
+            axes[row, 1].axis('off')
+            
+            # Reference маска
+            axes[row, 2].imshow(ref_mask, cmap='gray')
+            axes[row, 2].set_title(f"{reference.upper()} {method}")
+            axes[row, 2].axis('off')
+            
+            # Разность
+            diff = np.abs(torch_mask.astype(float) - ref_mask.astype(float))
+            im = axes[row, 3].imshow(diff, cmap='hot')
+            status_color = 'green' if status == 'PASS' else 'orange' if status == 'WARNING' else 'red'
+            axes[row, 3].set_title(f"Difference\nStatus: {status}", color=status_color)
+            axes[row, 3].axis('off')
+            plt.colorbar(im, ax=axes[row, 3], fraction=0.046)
+            
+            row += 1
+        
+        plt.suptitle(f"{validation_type.title()} Validation (OpenCV vs {reference.upper()})", fontsize=16)
         plt.tight_layout()
         
         viz_path = os.path.join(
@@ -2754,9 +2902,15 @@ class TorchImplementationValidator:
         report_lines.append("СВОДНАЯ СТАТИСТИКА")
         report_lines.append("="*60)
         report_lines.append(f"Всего методов: {total_methods}")
-        report_lines.append(f"✅ PASS: {passed_methods} ({passed_methods/total_methods*100:.1f}%)")
-        report_lines.append(f"⚠️ WARNING: {warning_methods} ({warning_methods/total_methods*100:.1f}%)")
-        report_lines.append(f"❌ FAIL: {failed_methods} ({failed_methods/total_methods*100:.1f}%)")
+        
+        # ✅ ИСПРАВЛЕНИЕ: проверка на деление на ноль
+        if total_methods > 0:
+            report_lines.append(f"✅ PASS: {passed_methods} ({passed_methods/total_methods*100:.1f}%)")
+            report_lines.append(f"⚠️ WARNING: {warning_methods} ({warning_methods/total_methods*100:.1f}%)")
+            report_lines.append(f"❌ FAIL: {failed_methods} ({failed_methods/total_methods*100:.1f}%)")
+        else:
+            report_lines.append("⚠️ Нет данных для статистики (все методы не прошли)")
+        
         report_lines.append("="*60)
         
         report = "\n".join(report_lines)
@@ -2785,7 +2939,7 @@ def main():
     )
     
     # Загрузка тестового изображения
-    test_image_path = "./data/test_image.jpg"
+    test_image_path = "./data/test_image_6.jpg"
     
     # Проверка наличия изображения
     if not os.path.exists(test_image_path):
@@ -2835,6 +2989,13 @@ def main():
         reference="sklearn"
     )
     all_results['edge_sklearn'] = edge_results_sklearn
+
+    # 4. Валидация операторов границ (референс: scikit-learn/scikit-image)
+    edge_results_enhanced = validator.validate_edge_methods_enhanced(
+        test_image_path,
+        reference="sklearn"
+    )
+    all_results['edge_custom'] = edge_results_enhanced
     
     # 5. Генерация сводного отчёта
     validator.generate_validation_report(all_results)

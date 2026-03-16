@@ -1,0 +1,14 @@
+Результаты валидации: adaptive_thresholding
+Референсная библиотека: opencv
+Статус: WARNING
+==================================================
+iou: 0.914793
+dice: 0.955501
+precision: 0.948871
+recall: 0.962223
+f1_score: 0.955501
+pixel_accuracy: 0.935561
+mae: 0.064439
+predicted_area: 254963.000000
+ground_truth_area: 251425.000000
+area_difference: 3538.000000

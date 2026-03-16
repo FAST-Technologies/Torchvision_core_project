@@ -1,0 +1,14 @@
+Результаты валидации: threshold_sauvola
+Референсная библиотека: opencv
+Статус: PASS
+==================================================
+iou: 0.950729
+dice: 0.974742
+precision: 1.000000
+recall: 0.950729
+f1_score: 0.974742
+pixel_accuracy: 0.951597
+mae: 0.048403
+predicted_area: 121044.000000
+ground_truth_area: 127317.000000
+area_difference: 6273.000000

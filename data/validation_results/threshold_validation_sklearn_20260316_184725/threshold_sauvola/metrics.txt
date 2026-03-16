@@ -1,0 +1,14 @@
+Результаты валидации: threshold_sauvola
+Референсная библиотека: sklearn
+Статус: WARNING
+==================================================
+iou: 0.943011
+dice: 0.970670
+precision: 1.000000
+recall: 0.943011
+f1_score: 0.970670
+pixel_accuracy: 0.943557
+mae: 0.056443
+predicted_area: 121044.000000
+ground_truth_area: 128359.000000
+area_difference: 7315.000000

@@ -1,0 +1,14 @@
+Результаты валидации: canny_edge
+Референсная библиотека: opencv
+Статус: FAIL
+==================================================
+iou: 0.364978
+dice: 0.534775
+precision: 0.387691
+recall: 0.861687
+f1_score: 0.534775
+pixel_accuracy: 0.804072
+mae: 0.195928
+predicted_area: 236013.000000
+ground_truth_area: 106187.000000
+area_difference: 129826.000000

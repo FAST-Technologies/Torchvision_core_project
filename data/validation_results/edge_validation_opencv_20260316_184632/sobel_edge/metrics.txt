@@ -1,0 +1,14 @@
+Результаты валидации: sobel_edge
+Референсная библиотека: opencv
+Статус: FAIL
+==================================================
+iou: 0.281592
+dice: 0.439440
+precision: 0.281592
+recall: 1.000000
+f1_score: 0.439440
+pixel_accuracy: 0.749035
+mae: 0.250965
+predicted_area: 156624.000000
+ground_truth_area: 44104.000000
+area_difference: 112520.000000

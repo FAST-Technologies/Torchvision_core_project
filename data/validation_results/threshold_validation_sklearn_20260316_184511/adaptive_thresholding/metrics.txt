@@ -1,0 +1,14 @@
+Результаты валидации: adaptive_thresholding
+Референсная библиотека: sklearn
+Статус: WARNING
+==================================================
+iou: 0.880413
+dice: 0.936404
+precision: 0.926985
+recall: 0.946016
+f1_score: 0.936404
+pixel_accuracy: 0.908197
+mae: 0.091803
+predicted_area: 254963.000000
+ground_truth_area: 249834.000000
+area_difference: 5129.000000

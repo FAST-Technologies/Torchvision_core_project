@@ -1,0 +1,45 @@
+============================================================
+ОТЧЁТ ПО ВАЛИДАЦИИ TORCH РЕАЛИЗАЦИЙ
+============================================================
+Дата: 2026-03-16 18:48:24
+
+
+THRESHOLD_SKLEARN
+----------------------------------------
+✅ global_thresholding: IoU=0.875, Dice=0.933, Acc=0.970 [PASS]
+✅ otsu_thresholding: IoU=0.979, Dice=0.989, Acc=0.990 [PASS]
+❌ adaptive_thresholding: IoU=0.816, Dice=0.899, Acc=0.864 [FAIL]
+❌ threshold_niblack: IoU=0.440, Dice=0.611, Acc=0.674 [FAIL]
+⚠️ threshold_sauvola: IoU=0.877, Dice=0.934, Acc=0.880 [WARNING]
+
+THRESHOLD_OPENCV
+----------------------------------------
+❌ global_thresholding: IoU=0.775, Dice=0.873, Acc=0.937 [FAIL]
+✅ otsu_thresholding: IoU=0.968, Dice=0.984, Acc=0.984 [PASS]
+⚠️ adaptive_thresholding: IoU=0.879, Dice=0.935, Acc=0.913 [WARNING]
+✅ threshold_niblack: IoU=0.954, Dice=0.977, Acc=0.973 [PASS]
+⚠️ threshold_sauvola: IoU=0.886, Dice=0.940, Acc=0.890 [WARNING]
+
+EDGE_OPENCV
+----------------------------------------
+❌ sobel_edge: IoU=0.398, Dice=0.570, Acc=0.912 [FAIL]
+❌ canny_edge: IoU=0.441, Dice=0.612, Acc=0.877 [FAIL]
+
+EDGE_SKLEARN
+----------------------------------------
+✅ sobel_edge: IoU=0.879, Dice=0.935, Acc=0.980 [PASS]
+❌ canny_edge: IoU=0.336, Dice=0.503, Acc=0.865 [FAIL]
+
+EDGE_CUSTOM
+----------------------------------------
+❌ sobel_edge: IoU=0.369, Dice=0.539, Acc=0.901 [FAIL]
+❌ canny_edge: IoU=0.379, Dice=0.550, Acc=0.907 [FAIL]
+
+============================================================
+СВОДНАЯ СТАТИСТИКА
+============================================================
+Всего методов: 16
+✅ PASS: 5 (31.2%)
+⚠️ WARNING: 3 (18.8%)
+❌ FAIL: 8 (50.0%)
+============================================================

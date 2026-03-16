@@ -1,0 +1,14 @@
+Результаты валидации: sobel_edge
+Референсная библиотека: sklearn
+Статус: FAIL
+==================================================
+iou: 0.540230
+dice: 0.701493
+precision: 1.000000
+recall: 0.540230
+f1_score: 0.701493
+pixel_accuracy: 0.910054
+mae: 0.089946
+predicted_area: 13697.000000
+ground_truth_area: 25354.000000
+area_difference: 11657.000000

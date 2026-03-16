@@ -1,0 +1,14 @@
+Результаты валидации: global_thresholding
+Референсная библиотека: sklearn
+Статус: PASS
+==================================================
+iou: 0.938989
+dice: 0.968535
+precision: 0.969875
+recall: 0.967198
+f1_score: 0.968535
+pixel_accuracy: 0.970838
+mae: 0.029162
+predicted_area: 161828.000000
+ground_truth_area: 162276.000000
+area_difference: 448.000000
