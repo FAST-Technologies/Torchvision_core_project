@@ -1,16 +1,28 @@
 # cv2SklearnSegmenter.py
 
 # Импорт основных библиотек
+
 from BaseSegmenter import BaseSegmenter
-import torch
-import cv2
+
+from typing import (
+    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    Literal, Protocol, runtime_checkable, overload
+)
 import numpy as np
 from PIL import Image
-from typing import Union, Tuple, Dict, Any
 from collections import deque
 from scipy import ndimage
-from skimage import segmentation, feature, measure
 import warnings
+
+import torch
+import cv2
+
+from skimage import segmentation, feature, measure, morphology
+from skimage import segmentation as skseg
+from sklearn.cluster import KMeans, DBSCAN, MeanShift
+from skimage.draw import polygon
+from skimage.feature import canny
+from skimage.segmentation import chan_vese, random_walker, slic as sk_slic
 
 class CV2SklearnSegmenter(BaseSegmenter):
     """
@@ -18,7 +30,6 @@ class CV2SklearnSegmenter(BaseSegmenter):
     Поддерживает как классические методы (пороговые, граничные), так и методы на основе кластеризации,
     активных контуров и графов.
     """
-    
     def __init__(
         self, 
         method: str = "global_thresholding", 
@@ -54,30 +65,45 @@ class CV2SklearnSegmenter(BaseSegmenter):
     def _setup_method(self) -> None:
         """Регистрация всех доступных методов сегментации."""
         method_map: Dict[str, Any] = {
+            # ============ ПОРОГОВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ ============
             "global_thresholding": self._global_thresholding,
             "adaptive_thresholding": self._adaptive_thresholding,
             "otsu_thresholding": self._otsu_thresholding,
-            "region_growing": self._region_growing,
-            "split_and_merge": self._split_and_merge,
+            "threshold_niblack": self._threshold_niblack,
+            "threshold_sauvola": self._threshold_sauvola,
+
+            # ============ КРАЕВЫЕ СЕГМЕНТАЦИОННЫЕ МЕТОДЫ ============
             "sobel_edge": self._sobel_edge,
             "canny_edge": self._canny_edge,
+
+            # ============ РЕГИОНАЛЬНЫЕ СЕГМЕНТАЦИОННЫЕ МЕТОДЫ ============
+            "region_growing": self._region_growing,
+            "split_and_merge": self._split_and_merge,
+            "floodfill": self._floodfill,
+
+            # ============ КЛАСТЕРИЗАЦИЯ ============
             "kmeans_segmentation": self._kmeans_segmentation,
             "dbscan_segmentation": self._dbscan_segmentation,
+            "meanshift": self._meanshift,
+
+            # ============ АКТИВНЫЕ КОНТУРЫ ============
             "active_contour": self._active_contour,
             "gvf_contour": self._gvf_contour,
-            "watershed": self._watershed,
-            "meanshift": self._meanshift,
-            "grabcut": self._grabcut,
-            "floodfill": self._floodfill,
             "morphological_snakes": self._morphological_snakes,
+            "chan_vese": self._chan_vese,
+
+            # ============ WATERSHED И ГРАФОВЫЕ ============
+            "watershed": self._watershed,
+            "random_walker": self._random_walker,
+
+            # ============ SUPER-PIXEL МЕТОДЫ ===========
             "quickshift": self._quickshift,
             "slic": self._slic,
             "felzenszwalb": self._felzenszwalb,
-            "chan_vese": self._chan_vese,
-            "threshold_niblack": self._threshold_niblack,
-            "threshold_sauvola": self._threshold_sauvola,
-            "random_walker": self._random_walker,
-            "gmm": self._gmm
+
+            # ============ ИНТЕРАКТИВНЫЕ МЕТОДЫ ============
+            "grabcut": self._grabcut,
+            # "gmm": self._gmm
         }
         
         if self.method not in method_map:
@@ -98,6 +124,10 @@ class CV2SklearnSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска (0–255, dtype=np.uint8), где 255 — объект.
         """
+        img_array: np.ndarray = self.preprocess_image(
+            image, 
+            as_gray=self._needs_gray
+        )
         img_array: np.ndarray = self.preprocess_image(
             image, 
             as_gray=self._needs_gray
@@ -138,6 +168,7 @@ class CV2SklearnSegmenter(BaseSegmenter):
         return result, mask
     
     # ============ РЕАЛИЗАЦИИ МЕТОДОВ ============
+    # ============ ПОРОГОВЫЕ МЕТОДЫ ============
     
     def _global_thresholding(
         self, 
@@ -223,6 +254,144 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         return mask
+    
+    def _threshold_niblack(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Адаптивная пороговая обработка по Ниблаку.
+
+        Порог вычисляется как: T = μ + k·σ, где μ и σ — локальное среднее и СКО.
+        Хорошо работает на изображениях с шумом и градиентом освещения.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img
+        
+        window_size = self.params.get('window_size', 15)
+        k = self.params.get('k', 0.2)
+        
+        # Вычисляем среднее и стандартное отклонение в окне
+        mean = cv2.blur(gray, (window_size, window_size))
+        std = np.sqrt(cv2.boxFilter(gray.astype(float)**2, -1, (window_size, window_size)) - mean**2)
+        
+        # Вычисляем порог
+        threshold = mean + k * std
+        
+        # Бинаризация
+        mask = (gray > threshold).astype(np.uint8) * 255
+        
+        return mask
+
+    def _threshold_sauvola(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Улучшенная адаптивная пороговая обработка по Сауволе.
+
+        Порог: T = μ·(1 + k·(σ/R - 1)), где R — динамический диапазон (обычно 128).
+        Лучше Ниблака при очень низком контрасте.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img
+        
+        window_size = self.params.get('window_size', 15)
+        k = self.params.get('k', 0.2)
+        r = self.params.get('r', 128)
+        
+        # Вычисляем среднее и стандартное отклонение в окне
+        mean = cv2.blur(gray, (window_size, window_size))
+        std = np.sqrt(cv2.boxFilter(gray.astype(float)**2, -1, (window_size, window_size)) - mean**2)
+        
+        # Вычисляем порог
+        threshold = mean * (1 + k * (std / r - 1))
+        
+        # Бинаризация
+        mask = (gray > threshold).astype(np.uint8) * 255
+        
+        return mask
+    
+    # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
+    def _sobel_edge(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Обнаружение границ оператором Собеля.
+
+        Вычисляет градиент интенсивности по горизонтали и вертикали, затем объединяет их.
+        Применяется порог к величине градиента для получения бинарной маски границ.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img
+        
+        threshold = self.params.get('threshold', 50)
+        sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+        sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+        sobel = np.sqrt(sobelx**2 + sobely**2)
+        sobel_norm = cv2.normalize(sobel, None, 0, 255, cv2.NORM_MINMAX)
+        # # Оптимальный способ: cv2.magnitude (быстрый и точный)
+        # sobel_mag = cv2.magnitude(sobelx, sobely)
+    
+        # # Нормализация
+        # sobel_norm = cv2.normalize(sobel_mag, None, 0, 255, cv2.NORM_MINMAX)
+        _, mask = cv2.threshold(sobel_norm.astype(np.uint8), threshold, 255, cv2.THRESH_BINARY)
+        # Или так - mask = (sobel > threshold)
+        
+        return mask
+    
+    def _canny_edge(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Обнаружение границ оператором Кэнни.
+
+        Многоэтапный алгоритм: сглаживание, вычисление градиента, подавление немаксимумов,
+        двойная пороговая фильтрация и отслеживание связных границ.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img
+        
+        low = self.params.get('low', 50)
+        high = self.params.get('high', 150)
+        edges = cv2.Canny(gray, low, high)
+        return edges
+    
+    # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============
     
     def _region_growing(
         self, 
@@ -383,68 +552,69 @@ class CV2SklearnSegmenter(BaseSegmenter):
             return mask.astype(np.uint8) * 255
         else:
             return np.zeros_like(gray, dtype=np.uint8)
-    
-    def _sobel_edge(
+        
+    def _floodfill(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
         """
-        Обнаружение границ оператором Собеля.
+        Сегментация методом заливки (Flood Fill).
 
-        Вычисляет градиент интенсивности по горизонтали и вертикали, затем объединяет их.
-        Применяется порог к величине градиента для получения бинарной маски границ.
-
-        Args:
-            img: Входное изображение (RGB или grayscale).
-
-        Returns:
-            np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
-        """
-        if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-        else:
-            gray = img
-        
-        threshold = self.params.get('threshold', 50)
-        sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-        sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-        sobel = np.sqrt(sobelx**2 + sobely**2)
-        sobel_norm = cv2.normalize(sobel, None, 0, 255, cv2.NORM_MINMAX)
-        # # Оптимальный способ: cv2.magnitude (быстрый и точный)
-        # sobel_mag = cv2.magnitude(sobelx, sobely)
-    
-        # # Нормализация
-        # sobel_norm = cv2.normalize(sobel_mag, None, 0, 255, cv2.NORM_MINMAX)
-        _, mask = cv2.threshold(sobel_norm.astype(np.uint8), threshold, 255, cv2.THRESH_BINARY)
-        # Или так - mask = (sobel > threshold)
-        
-        return mask
-    
-    def _canny_edge(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """
-        Обнаружение границ оператором Кэнни.
-
-        Многоэтапный алгоритм: сглаживание, вычисление градиента, подавление немаксимумов,
-        двойная пороговая фильтрация и отслеживание связных границ.
+        Начиная с заданной точки, рекурсивно заполняет все связанные пиксели,
+        интенсивность которых отличается от исходной не более чем на допуск.
 
         Args:
-            img: Входное изображение (RGB или grayscale).
+            img: Входное изображение (RGB).
 
         Returns:
-            np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) залитой области.
         """
-        if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-        else:
-            gray = img
+        # Параметры
+        seed = self.params.get('seed', None)
+        tolerance = self.params.get('tolerance', 20)
         
-        low = self.params.get('low', 50)
-        high = self.params.get('high', 150)
-        edges = cv2.Canny(gray, low, high)
-        return edges
+        h, w = img.shape[:2]
+        
+        # Если seed не указан, используем центр изображения
+        if seed is None:
+            seed = (w // 2, h // 2)  # (x, y)
+        
+        # Создаем маску для floodfill
+        mask = np.zeros((h+2, w+2), dtype=np.uint8)
+        
+        # Определяем цвет заполнения
+        new_val = (255, 255, 255)
+        
+        # Параметры floodfill
+        lo_diff = (tolerance, tolerance, tolerance)
+        up_diff = (tolerance, tolerance, tolerance)
+        
+        # Применяем floodfill
+        flags = 4 | (255 << 8) | cv2.FLOODFILL_FIXED_RANGE
+        
+        try:
+            # Создаем копию изображения
+            img_copy = img.copy()
+            
+            # Запускаем floodfill
+            cv2.floodFill(img_copy, mask, seed, new_val, lo_diff, up_diff, flags)
+            
+            # Извлекаем маску
+            mask_final = mask[1:-1, 1:-1] * 255
+            
+            # Опционально: заполняем дыры
+            mask_final = ndimage.binary_fill_holes(mask_final > 0).astype(np.uint8) * 255
+            
+            return mask_final
+            
+        except Exception as e:
+            warnings.warn(f"FloodFill failed: {e}. Using fallback.")
+            # Резервный вариант
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            _, mask = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+            return mask
+        
+    # ============ КЛАСТЕРИЗАЦИЯ ============
     
     def _kmeans_segmentation(
         self, 
@@ -462,8 +632,6 @@ class CV2SklearnSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
         """
-        from sklearn.cluster import KMeans
-        
         k = self.params.get('k', 3)
         h, w = img.shape[:2]
         pixels = img.reshape(-1, 3)
@@ -493,8 +661,6 @@ class CV2SklearnSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
         """
-        from sklearn.cluster import DBSCAN
-        
         eps = self.params.get('eps', 10)
         min_samples = self.params.get('min_samples', 100)
         
@@ -537,6 +703,67 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         return mask
     
+    def _meanshift(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Сегментация методом MeanShift.
+
+        Итеративно сдвигает каждый пиксель к локальному центру масс в пространстве признаков
+        (цвет + координаты). Результатом является кластеризация пикселей по плотности.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
+        """
+        
+        # Параметры
+        bandwidth = self.params.get('bandwidth', 0.5)
+        
+        h, w = img.shape[:2]
+        
+        # Уменьшаем разрешение для скорости
+        scale = 0.5
+        if h * w > 100000:
+            small_h, small_w = int(h * scale), int(w * scale)
+            img_small = cv2.resize(img, (small_w, small_h), interpolation=cv2.INTER_AREA)
+            pixels = img_small.reshape(-1, 3)
+        else:
+            pixels = img.reshape(-1, 3)
+        
+        try:
+            # Применяем MeanShift
+            meanshift = MeanShift(bandwidth=bandwidth, n_jobs=-1)
+            labels = meanshift.fit_predict(pixels)
+            
+            if h * w > 100000:
+                # Интерполируем обратно
+                labels_2d = labels.reshape(small_h, small_w)
+                labels_2d = cv2.resize(labels_2d.astype(np.float32), (w, h), 
+                                      interpolation=cv2.INTER_NEAREST)
+            else:
+                labels_2d = labels.reshape(h, w)
+            
+            # Находим самый большой кластер (предположительно фон)
+            unique, counts = np.unique(labels, return_counts=True)
+            bg_label = unique[np.argmax(counts)]
+            
+            # Создаем маску
+            mask = (labels_2d != bg_label).astype(np.uint8) * 255
+            
+        except Exception as e:
+            warnings.warn(f"MeanShift failed: {e}. Using fallback.")
+            # Резервный вариант
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            _, mask = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+        
+        return mask
+    
+
+    # ============ АКТИВНЫЕ КОНТУРЫ ============
     def _active_contour(
         self, 
         img: np.ndarray
@@ -553,8 +780,6 @@ class CV2SklearnSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8) внутри замкнутого контура.
         """
-        from skimage import segmentation
-        
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         else:
@@ -592,7 +817,6 @@ class CV2SklearnSegmenter(BaseSegmenter):
             )
             # Создаем маску из контура
             mask = np.zeros_like(gray, dtype=np.uint8)
-            from skimage.draw import polygon
             # Заполняем контур
             rr, cc = polygon(snake[:, 0], snake[:, 1], gray.shape)
             mask[rr, cc] = 255
@@ -664,7 +888,134 @@ class CV2SklearnSegmenter(BaseSegmenter):
         mask = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
         
         return mask
-    
+
+    def _morphological_snakes(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Сегментация морфологическими змеями.
+
+        Итеративно расширяет или сужает бинарную маску на основе величины градиента.
+        Области с низким градиентом "поглощаются", с высоким — отбрасываются.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
+        try:
+            if len(img.shape) == 3:
+                gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = img
+            
+            # Создаем начальную маску (окружность в центре)
+            h, w = gray.shape
+            center_y, center_x = h // 2, w // 2
+            radius = min(center_x, center_y) // 2
+            
+            # Создаем начальную маску
+            mask = np.zeros((h, w), dtype=bool)
+            y, x = np.ogrid[:h, :w]
+            dist_from_center = np.sqrt((x - center_x)**2 + (y - center_y)**2)
+            mask[dist_from_center <= radius] = True
+            
+            # Параметры morphological snakes
+            iterations = self.params.get('iterations', 100)
+            smoothing = self.params.get('smoothing', 1)
+            threshold = self.params.get('threshold', 0.5)
+            
+            # Применяем morphological snakes
+            for _ in range(iterations):
+                # Вычисляем градиент
+                grad_y, grad_x = np.gradient(gray.astype(float))
+                grad_mag = np.sqrt(grad_x**2 + grad_y**2)
+                
+                # Нормализуем градиент
+                grad_mag = grad_mag / (grad_mag.max() + 1e-8)
+                
+                # Расширяем или сужаем маску в зависимости от градиента
+                expansion = grad_mag < threshold
+                erosion = grad_mag > threshold
+                
+                mask[expansion] = True
+                mask[erosion] = False
+                
+                # Сглаживание маски
+                if smoothing > 0:
+                    mask = morphology.binary_closing(mask, morphology.disk(smoothing))
+                    mask = morphology.binary_opening(mask, morphology.disk(smoothing))
+            
+            return mask.astype(np.uint8) * 255
+            
+        except Exception as e:
+            warnings.warn(f"Morphological snakes failed: {e}. Using fallback.")
+            # Резервный вариант
+            if len(img.shape) == 3:
+                gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = img
+            _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            return mask
+        
+    def _chan_vese(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Модель Chan-Vese — активные контуры без градиентов.
+
+        Энергетическая модель, которая разделяет изображение на две области с минимальной
+        внутрирегиональной дисперсией. Подходит для объектов без четких границ.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска: 255 — внутренняя область контура.
+        """
+        try:
+            if len(img.shape) == 3:
+                gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = img
+            
+            # Нормализуем изображение
+            gray_norm = gray.astype(float) / 255.0
+            
+            # Параметры Chan-Vese
+            mu = self.params.get('mu', 0.25)
+            lambda1 = self.params.get('lambda1', 1.0)
+            lambda2 = self.params.get('lambda2', 1.0)
+            tol = self.params.get('tol', 1e-3)
+            max_iter = self.params.get('max_iter', 100)
+            
+            # Инициализируем контур (все изображение)
+            init_level_set = np.ones(gray_norm.shape, dtype=np.float64)
+            
+            # Применяем Chan-Vese
+            segmentation = chan_vese(
+                gray_norm,
+                mu=mu,
+                lambda1=lambda1,
+                lambda2=lambda2,
+                tol=tol,
+                max_num_iter=max_iter,
+                init_level_set=init_level_set
+            )
+            
+            # Создаем маску
+            mask = (segmentation > 0.5).astype(np.uint8) * 255
+            
+            return mask
+            
+        except Exception as e:
+            warnings.warn(f"Chan-Vese failed: {e}. Using fallback.")
+            return self._otsu_thresholding(img)
+        
+    # ============ WATERSHED И ГРАФОВЫЕ ============
     def _watershed(
         self, 
         img: np.ndarray
@@ -747,261 +1098,56 @@ class CV2SklearnSegmenter(BaseSegmenter):
         
         return mask
     
-    def _meanshift(
+    def _random_walker(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
         """
-        Сегментация методом MeanShift.
+        Сегментация методом Random Walker.
 
-        Итеративно сдвигает каждый пиксель к локальному центру масс в пространстве признаков
-        (цвет + координаты). Результатом является кластеризация пикселей по плотности.
-
-        Args:
-            img: Входное изображение (RGB).
-
-        Returns:
-            np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
-        """
-        from sklearn.cluster import MeanShift
-        
-        # Параметры
-        bandwidth = self.params.get('bandwidth', 0.5)
-        
-        h, w = img.shape[:2]
-        
-        # Уменьшаем разрешение для скорости
-        scale = 0.5
-        if h * w > 100000:
-            small_h, small_w = int(h * scale), int(w * scale)
-            img_small = cv2.resize(img, (small_w, small_h), interpolation=cv2.INTER_AREA)
-            pixels = img_small.reshape(-1, 3)
-        else:
-            pixels = img.reshape(-1, 3)
-        
-        try:
-            # Применяем MeanShift
-            meanshift = MeanShift(bandwidth=bandwidth, n_jobs=-1)
-            labels = meanshift.fit_predict(pixels)
-            
-            if h * w > 100000:
-                # Интерполируем обратно
-                labels_2d = labels.reshape(small_h, small_w)
-                labels_2d = cv2.resize(labels_2d.astype(np.float32), (w, h), 
-                                      interpolation=cv2.INTER_NEAREST)
-            else:
-                labels_2d = labels.reshape(h, w)
-            
-            # Находим самый большой кластер (предположительно фон)
-            unique, counts = np.unique(labels, return_counts=True)
-            bg_label = unique[np.argmax(counts)]
-            
-            # Создаем маску
-            mask = (labels_2d != bg_label).astype(np.uint8) * 255
-            
-        except Exception as e:
-            warnings.warn(f"MeanShift failed: {e}. Using fallback.")
-            # Резервный вариант
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-            _, mask = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
-        
-        return mask
-    
-    def _grabcut(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """
-        Интерактивная сегментация GrabCut.
-
-        Использует прямоугольник для инициализации фона и переднего плана.
-        Строит модели цветового распределения (GMM) и уточняет границы итеративно.
+        На основе маркеров (пользовательских или автоматических) решается задача на графе:
+        каждый пиксель "принадлежит" тому маркеру, до которого "случайное блуждание" короче.
 
         Args:
-            img: Входное изображение (RGB).
+            img: Входное изображение.
 
         Returns:
-            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) переднего плана.
-        """
-        rect = self.params.get('rect', None)
-        iter_count = self.params.get('iterations', 10)
-        
-        # Конвертируем в BGR для OpenCV
-        if len(img.shape) == 3 and img.shape[2] == 3:
-            img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        else:
-            # Если grayscale, конвертируем в BGR
-            if len(img.shape) == 2:
-                img_bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-            else:
-                img_bgr = img
-        
-        # Создаем маску
-        mask = np.zeros(img_bgr.shape[:2], dtype=np.uint8)
-        bgd_model = np.zeros((1, 65), dtype=np.float64)
-        fgd_model = np.zeros((1, 65), dtype=np.float64)
-        
-        # Если прямоугольник не задан, используем центральную часть
-        if rect is None:
-            h, w = img_bgr.shape[:2]
-            rect = (int(w*0.25), int(h*0.25), int(w*0.5), int(h*0.5))
-        
-        # Применяем GrabCut
-        try:
-            mask, bgd_model, fgd_model = cv2.grabCut(
-                img_bgr, mask, rect, bgd_model, fgd_model, 
-                iter_count, cv2.GC_INIT_WITH_RECT
-            )
-            
-            # Создаем финальную маску
-            mask_final = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
-            
-            return mask_final
-            
-        except Exception as e:
-            warnings.warn(f"GrabCut failed: {e}. Using fallback.")
-            # Резервный вариант
-            if len(img.shape) == 3:
-                gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-            else:
-                gray = img
-            _, mask = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
-            return mask
-    
-    def _floodfill(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """
-        Сегментация методом заливки (Flood Fill).
-
-        Начиная с заданной точки, рекурсивно заполняет все связанные пиксели,
-        интенсивность которых отличается от исходной не более чем на допуск.
-
-        Args:
-            img: Входное изображение (RGB).
-
-        Returns:
-            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) залитой области.
-        """
-        # Параметры
-        seed = self.params.get('seed', None)
-        tolerance = self.params.get('tolerance', 20)
-        
-        h, w = img.shape[:2]
-        
-        # Если seed не указан, используем центр изображения
-        if seed is None:
-            seed = (w // 2, h // 2)  # (x, y)
-        
-        # Создаем маску для floodfill
-        mask = np.zeros((h+2, w+2), dtype=np.uint8)
-        
-        # Определяем цвет заполнения
-        new_val = (255, 255, 255)
-        
-        # Параметры floodfill
-        lo_diff = (tolerance, tolerance, tolerance)
-        up_diff = (tolerance, tolerance, tolerance)
-        
-        # Применяем floodfill
-        flags = 4 | (255 << 8) | cv2.FLOODFILL_FIXED_RANGE
-        
-        try:
-            # Создаем копию изображения
-            img_copy = img.copy()
-            
-            # Запускаем floodfill
-            cv2.floodFill(img_copy, mask, seed, new_val, lo_diff, up_diff, flags)
-            
-            # Извлекаем маску
-            mask_final = mask[1:-1, 1:-1] * 255
-            
-            # Опционально: заполняем дыры
-            mask_final = ndimage.binary_fill_holes(mask_final > 0).astype(np.uint8) * 255
-            
-            return mask_final
-            
-        except Exception as e:
-            warnings.warn(f"FloodFill failed: {e}. Using fallback.")
-            # Резервный вариант
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-            _, mask = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
-            return mask
-    
-    def _morphological_snakes(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """
-        Сегментация морфологическими змеями.
-
-        Итеративно расширяет или сужает бинарную маску на основе величины градиента.
-        Области с низким градиентом "поглощаются", с высоким — отбрасываются.
-
-        Args:
-            img: Входное изображение (RGB или grayscale).
-
-        Returns:
-            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+            Бинарная маска переднего плана.
         """
         try:
-            from skimage import morphology
             
             if len(img.shape) == 3:
                 gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
             else:
                 gray = img
             
-            # Создаем начальную маску (окружность в центре)
+            # Создаем маркеры
+            markers = np.zeros_like(gray, dtype=np.int8)
+            
+            rect = self.params.get('rect')
             h, w = gray.shape
-            center_y, center_x = h // 2, w // 2
-            radius = min(center_x, center_y) // 2
+            if rect is not None:
+                x, y, rw, rh = rect
+                markers[y:y+rh, x:x+rw] = 1
+                markers[y+1:y+rh-1, x+1:x+rw-1] = 2
+            else:
+                markers[h//4:3*h//4, w//4:3*w//4] = 2
+                markers[0:h//8, 0:w//8] = 1
+                markers[7*h//8:, 7*w//8:] = 1
             
-            # Создаем начальную маску
-            mask = np.zeros((h, w), dtype=bool)
-            y, x = np.ogrid[:h, :w]
-            dist_from_center = np.sqrt((x - center_x)**2 + (y - center_y)**2)
-            mask[dist_from_center <= radius] = True
+            # Применяем Random Walker
+            labels = random_walker(gray, markers)
             
-            # Параметры morphological snakes
-            iterations = self.params.get('iterations', 100)
-            smoothing = self.params.get('smoothing', 1)
-            threshold = self.params.get('threshold', 0.5)
+            # Создаем маску (все что не фон)
+            mask = (labels == 2).astype(np.uint8) * 255
             
-            # Применяем morphological snakes
-            for _ in range(iterations):
-                # Вычисляем градиент
-                grad_y, grad_x = np.gradient(gray.astype(float))
-                grad_mag = np.sqrt(grad_x**2 + grad_y**2)
-                
-                # Нормализуем градиент
-                grad_mag = grad_mag / (grad_mag.max() + 1e-8)
-                
-                # Расширяем или сужаем маску в зависимости от градиента
-                expansion = grad_mag < threshold
-                erosion = grad_mag > threshold
-                
-                mask[expansion] = True
-                mask[erosion] = False
-                
-                # Сглаживание маски
-                if smoothing > 0:
-                    mask = morphology.binary_closing(mask, morphology.disk(smoothing))
-                    mask = morphology.binary_opening(mask, morphology.disk(smoothing))
-            
-            return mask.astype(np.uint8) * 255
+            return mask
             
         except Exception as e:
-            warnings.warn(f"Morphological snakes failed: {e}. Using fallback.")
-            # Резервный вариант
-            if len(img.shape) == 3:
-                gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-            else:
-                gray = img
-            _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            return mask
-    
+            warnings.warn(f"Random Walker failed: {e}. Using fallback.")
+            return self._otsu_thresholding(img)
+        
+    # ============ SUPER-PIXEL МЕТОДЫ ============
     def _quickshift(
         self, 
         img: np.ndarray
@@ -1019,8 +1165,6 @@ class CV2SklearnSegmenter(BaseSegmenter):
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
         """
         try:
-            from sklearn.cluster import MeanShift  # Используем MeanShift как аналог
-            
             h, w = img.shape[:2]
             pixels = img.reshape(-1, 3)
             
@@ -1060,8 +1204,6 @@ class CV2SklearnSegmenter(BaseSegmenter):
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8): 255 — все суперпиксели, кроме фона.
         """
         try:
-            from skimage import segmentation as skseg
-            
             # Параметры SLIC
             n_segments = self.params.get('n_segments', 100)
             compactness = self.params.get('compactness', 10.0)
@@ -1081,236 +1223,6 @@ class CV2SklearnSegmenter(BaseSegmenter):
         except Exception as e:
             warnings.warn(f"SLIC failed: {e}. Using fallback.")
             return self._kmeans_segmentation(img)
-    
-    def _felzenszwalb(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """
-        Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
-
-        Строит сегментацию, начиная с мелких регионов и объединяя их, если внутреннее различие
-        меньше межрегионального. Очень эффективен для выделения объектов разного масштаба.
-
-        Args:
-            img: Входное изображение (RGB).
-
-        Returns:
-            Бинарная маска: 255 — все регионы, кроме самого крупного (фона).
-        """
-        try:
-            from skimage import segmentation as skseg
-
-            if len(img.shape) == 3:
-                img_rgb = img
-            else:
-                img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-            
-            # Параметры
-            scale = self.params.get('scale', 100)
-            sigma = self.params.get('sigma', 0.8)
-            min_size = self.params.get('min_size', 50)
-            
-            # Применяем Felzenszwalb
-            segments = skseg.felzenszwalb(img, 
-                                          scale=scale, 
-                                          sigma=sigma, 
-                                          min_size=min_size)
-            
-            # Находим самый большой сегмент
-            unique, counts = np.unique(segments, return_counts=True)
-            if len(unique) > 0:
-                bg_label = unique[np.argmax(counts)]
-                mask_np = (segments != bg_label).astype(np.uint8) * 255
-            else:
-                mask_np = np.zeros_like(segments, dtype=np.uint8)
-            
-            return mask_np
-            
-        except Exception as e:
-            warnings.warn(f"Felzenszwalb failed: {e}. Using fallback.")
-            return self._kmeans_segmentation(img)
-        
-    def _chan_vese(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """
-        Модель Chan-Vese — активные контуры без градиентов.
-
-        Энергетическая модель, которая разделяет изображение на две области с минимальной
-        внутрирегиональной дисперсией. Подходит для объектов без четких границ.
-
-        Args:
-            img: Входное изображение.
-
-        Returns:
-            Бинарная маска: 255 — внутренняя область контура.
-        """
-        try:
-            from skimage.segmentation import chan_vese
-            
-            if len(img.shape) == 3:
-                gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-            else:
-                gray = img
-            
-            # Нормализуем изображение
-            gray_norm = gray.astype(float) / 255.0
-            
-            # Параметры Chan-Vese
-            mu = self.params.get('mu', 0.25)
-            lambda1 = self.params.get('lambda1', 1.0)
-            lambda2 = self.params.get('lambda2', 1.0)
-            tol = self.params.get('tol', 1e-3)
-            max_iter = self.params.get('max_iter', 100)
-            
-            # Инициализируем контур (все изображение)
-            init_level_set = np.ones(gray_norm.shape, dtype=np.float64)
-            
-            # Применяем Chan-Vese
-            segmentation = chan_vese(
-                gray_norm,
-                mu=mu,
-                lambda1=lambda1,
-                lambda2=lambda2,
-                tol=tol,
-                max_num_iter=max_iter,
-                init_level_set=init_level_set
-            )
-            
-            # Создаем маску
-            mask = (segmentation > 0.5).astype(np.uint8) * 255
-            
-            return mask
-            
-        except Exception as e:
-            warnings.warn(f"Chan-Vese failed: {e}. Using fallback.")
-            return self._otsu_thresholding(img)
-        
-    def _threshold_niblack(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """
-        Адаптивная пороговая обработка по Ниблаку.
-
-        Порог вычисляется как: T = μ + k·σ, где μ и σ — локальное среднее и СКО.
-        Хорошо работает на изображениях с шумом и градиентом освещения.
-
-        Args:
-            img: Входное изображение.
-
-        Returns:
-            Бинарная маска.
-        """
-        if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-        else:
-            gray = img
-        
-        window_size = self.params.get('window_size', 15)
-        k = self.params.get('k', 0.2)
-        
-        # Вычисляем среднее и стандартное отклонение в окне
-        mean = cv2.blur(gray, (window_size, window_size))
-        std = np.sqrt(cv2.boxFilter(gray.astype(float)**2, -1, (window_size, window_size)) - mean**2)
-        
-        # Вычисляем порог
-        threshold = mean + k * std
-        
-        # Бинаризация
-        mask = (gray > threshold).astype(np.uint8) * 255
-        
-        return mask
-
-    def _threshold_sauvola(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """
-        Улучшенная адаптивная пороговая обработка по Сауволе.
-
-        Порог: T = μ·(1 + k·(σ/R - 1)), где R — динамический диапазон (обычно 128).
-        Лучше Ниблака при очень низком контрасте.
-
-        Args:
-            img: Входное изображение.
-
-        Returns:
-            Бинарная маска.
-        """
-        if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-        else:
-            gray = img
-        
-        window_size = self.params.get('window_size', 15)
-        k = self.params.get('k', 0.2)
-        r = self.params.get('r', 128)
-        
-        # Вычисляем среднее и стандартное отклонение в окне
-        mean = cv2.blur(gray, (window_size, window_size))
-        std = np.sqrt(cv2.boxFilter(gray.astype(float)**2, -1, (window_size, window_size)) - mean**2)
-        
-        # Вычисляем порог
-        threshold = mean * (1 + k * (std / r - 1))
-        
-        # Бинаризация
-        mask = (gray > threshold).astype(np.uint8) * 255
-        
-        return mask
-    
-    def _random_walker(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """
-        Сегментация методом Random Walker.
-
-        На основе маркеров (пользовательских или автоматических) решается задача на графе:
-        каждый пиксель "принадлежит" тому маркеру, до которого "случайное блуждание" короче.
-
-        Args:
-            img: Входное изображение.
-
-        Returns:
-            Бинарная маска переднего плана.
-        """
-        try:
-            from skimage.segmentation import random_walker
-            from skimage.feature import canny
-            
-            if len(img.shape) == 3:
-                gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-            else:
-                gray = img
-            
-            # Создаем маркеры
-            markers = np.zeros_like(gray, dtype=np.int8)
-            
-            rect = self.params.get('rect')
-            h, w = gray.shape
-            if rect is not None:
-                x, y, rw, rh = rect
-                markers[y:y+rh, x:x+rw] = 1
-                markers[y+1:y+rh-1, x+1:x+rw-1] = 2
-            else:
-                markers[h//4:3*h//4, w//4:3*w//4] = 2
-                markers[0:h//8, 0:w//8] = 1
-                markers[7*h//8:, 7*w//8:] = 1
-            
-            # Применяем Random Walker
-            labels = random_walker(gray, markers)
-            
-            # Создаем маску (все что не фон)
-            mask = (labels == 2).astype(np.uint8) * 255
-            
-            return mask
-            
-        except Exception as e:
-            warnings.warn(f"Random Walker failed: {e}. Using fallback.")
-            return self._otsu_thresholding(img)
         
     def _slic(
         self, 
@@ -1329,7 +1241,6 @@ class CV2SklearnSegmenter(BaseSegmenter):
             Бинарная маска: 255 — все суперпиксели, кроме фона.
         """
         try:
-            from skimage.segmentation import slic as sk_slic
             
             if len(img.shape) == 3:
                 img_rgb = img
@@ -1364,4 +1275,98 @@ class CV2SklearnSegmenter(BaseSegmenter):
         except Exception as e:
             warnings.warn(f"SLIC failed: {e}. Using fallback to KMeans.")
             return self._kmeans_segmentation(img)
+    
+    def _felzenszwalb(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
+
+        Строит сегментацию, начиная с мелких регионов и объединяя их, если внутреннее различие
+        меньше межрегионального. Очень эффективен для выделения объектов разного масштаба.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            Бинарная маска: 255 — все регионы, кроме самого крупного (фона).
+        """
+        try:
+
+            if len(img.shape) == 3:
+                img_rgb = img
+            else:
+                img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+            
+            # Параметры
+            scale = self.params.get('scale', 100)
+            sigma = self.params.get('sigma', 0.8)
+            min_size = self.params.get('min_size', 50)
+            
+            # Применяем Felzenszwalb
+            segments = skseg.felzenszwalb(img, 
+                                          scale=scale, 
+                                          sigma=sigma, 
+                                          min_size=min_size)
+            
+            # Находим самый большой сегмент
+            unique, counts = np.unique(segments, return_counts=True)
+            if len(unique) > 0:
+                bg_label = unique[np.argmax(counts)]
+                mask_np = (segments != bg_label).astype(np.uint8) * 255
+            else:
+                mask_np = np.zeros_like(segments, dtype=np.uint8)
+            
+            return mask_np
+            
+        except Exception as e:
+            warnings.warn(f"Felzenszwalb failed: {e}. Using fallback.")
+            return self._kmeans_segmentation(img)
+
+    # ============ ИНТЕРАКТИВНЫЕ МЕТОДЫ ============
+    def _grabcut(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Интерактивная сегментация GrabCut.
+
+        Использует прямоугольник для инициализации фона и переднего плана.
+        Строит модели цветового распределения (GMM) и уточняет границы итеративно.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) переднего плана.
+        """
+        # Параметры
+        rect = self.params.get('rect', None)
+        iter_count = self.params.get('iterations', 10)
         
+        # Создаем маску и модель
+        mask = np.zeros(img.shape[:2], dtype=np.uint8)
+        bgd_model = np.zeros((1, 65), dtype=np.float64)
+        fgd_model = np.zeros((1, 65), dtype=np.float64)
+        
+        # Если прямоугольник не задан, используем центральную часть
+        if rect is None:
+            h, w = img.shape[:2]
+            rect = (int(w*0.25), int(h*0.25), int(w*0.5), int(h*0.5))
+        
+        # Применяем GrabCut
+        mask, bgd_model, fgd_model = cv2.grabCut(
+            img, mask, rect, bgd_model, fgd_model, 
+            iter_count, cv2.GC_INIT_WITH_RECT
+        )
+        
+        # Создаем финальную маску (0-255)
+        mask_final = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
+        
+        # Опционально: применение морфологических операций для улучшения результата
+        kernel = np.ones((3, 3), np.uint8)
+        mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_CLOSE, kernel, iterations=2)
+        mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_OPEN, kernel, iterations=2)
+        
+        return mask_final

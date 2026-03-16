@@ -1,20 +1,32 @@
-# segmentation_comparator.py
+# SegmentationComparator.py
 
 # Импорт основных библиотек
-import numpy as np
-from typing import Union, Tuple, Dict, Any, List
-from PIL import Image
-import cv2
+
+import os
+import time
 import warnings
+from PIL import Image
+import requests
+from io import BytesIO
+from typing import (
+    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+)
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy import ndimage
+from scipy import ndimage as ndi
+
+import cv2
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     jaccard_score, confusion_matrix
 )
 from sklearn.cluster import KMeans, DBSCAN, MeanShift
 from sklearn.mixture import GaussianMixture
-import matplotlib.pyplot as plt
-import seaborn as sns
-from scipy import ndimage
 from skimage import (
     segmentation as skseg,
     filters,
@@ -22,20 +34,17 @@ from skimage import (
     measure,
     morphology
 )
-from skimage.segmentation import (
-    felzenszwalb, slic, quickshift, watershed,
-    random_walker, chan_vese, morphological_geodesic_active_contour
-)
+from skimage.color import label2rgb
+from skimage.draw import polygon
 from skimage.filters import (
     threshold_otsu, threshold_niblack, threshold_sauvola,
     sobel, scharr, prewitt, roberts
 )
-from skimage.feature import canny
-from skimage.color import label2rgb
-import pandas as pd
-import time
-import os
-
+from skimage.feature import canny, peak_local_max
+from skimage.segmentation import (
+    felzenszwalb, slic, quickshift, watershed,
+    random_walker, chan_vese, morphological_geodesic_active_contour
+)
 
 class SegmentationComparator:
     """
@@ -431,8 +440,6 @@ class SegmentationComparator:
         start_time = time.time()
         
         # Автоматические маркеры
-        from skimage.feature import peak_local_max
-        from scipy import ndimage as ndi
         
         # Расстояние до фона
         distance = ndi.distance_transform_edt(gray > filters.threshold_otsu(gray))
@@ -585,7 +592,6 @@ class SegmentationComparator:
             
             # Создаем маску из контура
             mask = np.zeros_like(gray, dtype=np.uint8)
-            from skimage.draw import polygon
             rr, cc = polygon(snake[:, 0], snake[:, 1], gray.shape)
             mask[rr, cc] = 255
             
@@ -1066,7 +1072,7 @@ class SegmentationComparator:
         methods_config: List[Dict[str, Any]],
         reference_method: str = "skimage_felzenszwalb",
         save_results: bool = True,
-        output_dir: str = "comparison_results"
+        output_dir: str = "./data/comparison_results"
     ) -> pd.DataFrame:
         """
         Пакетное сравнение нескольких методов с референсным.
@@ -1081,7 +1087,6 @@ class SegmentationComparator:
         Returns:
             pd.DataFrame: DataFrame с результатами сравнения
         """
-        import os
         
         if save_results:
             os.makedirs(output_dir, exist_ok=True)
@@ -1229,10 +1234,6 @@ class SegmentationComparator:
 # Пример использования
 def example_usage() -> Tuple[SegmentationComparator, pd.DataFrame]:
     """Пример использования класса для сравнения методов"""
-    import cv2
-    from PIL import Image
-    import requests
-    from io import BytesIO
     
     # Загрузка тестового изображения
     url = "https://i.pinimg.com/736x/f7/5a/f2/f75af26820b50c24600f50f3998eb02f.jpg"
@@ -1276,7 +1277,7 @@ def example_usage() -> Tuple[SegmentationComparator, pd.DataFrame]:
         img_np,
         methods_config=methods_config,
         reference_method="felzenszwalb",
-        output_dir="batch_comparison_results"
+        output_dir="./data/batch_comparison_results"
     )
     
     # Выводим результаты
@@ -1342,7 +1343,7 @@ def compare_with_custom_method(
     
     # Визуализируем сравнение
     if save_results:
-        output_path = f"custom_vs_{reference_method}.jpg"
+        output_path = f"./data/custom_vs_{reference_method}.jpg"
         comparator.visualize_comparison(
             image, ref_mask, custom_mask,
             ref_info, custom_info, metrics,

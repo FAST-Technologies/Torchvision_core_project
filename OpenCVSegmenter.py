@@ -1,9 +1,13 @@
-# opencv_segmenter.py
+# OpenCVSegmenter.py
 
 # Импорт основных библиотек
+
 import cv2
 import numpy as np
-from typing import Union, Tuple, Dict, Any, List
+from typing import (
+    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+)
 import warnings
 from collections import deque
 from scipy import ndimage
@@ -473,6 +477,26 @@ class OpenCVSegmenter:
         
         return mask
     
+    def _opencv_meanshift(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """MeanShift сегментация"""
+        spatial_radius = self.params.get('spatial_radius', 60)
+        color_radius = self.params.get('color_radius', 60)
+        max_level = self.params.get('max_level', 1)
+        
+        # Применяем MeanShift
+        shifted = cv2.pyrMeanShiftFiltering(img, spatial_radius, color_radius, max_level)
+        
+        # Конвертируем в grayscale и пороговую обработку
+        gray = cv2.cvtColor(shifted, cv2.COLOR_BGR2GRAY)
+        _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        return mask
+    
+    # ============ АКТИВНЫЕ КОНТУРЫ ============
+    
     def _opencv_active_contour(
         self, 
         img: np.ndarray
@@ -542,6 +566,83 @@ class OpenCVSegmenter:
         _, mask = cv2.threshold(gvf_mag, 50, 255, cv2.THRESH_BINARY)
         return mask
     
+    def _opencv_morphological_snakes(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """Морфологические змеи"""
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img
+        
+        h, w = gray.shape
+        
+        # Начальная маска (окружность в центре)
+        mask = np.zeros((h, w), np.uint8)
+        cv2.circle(mask, (w//2, h//2), min(w, h)//4, 255, -1)
+        
+        iterations = self.params.get('iterations', 50)
+        kernel = np.ones((3, 3), np.uint8)
+        
+        for _ in range(iterations):
+            # Градиент изображения
+            grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+            grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+            grad_mag = np.sqrt(grad_x**2 + grad_y**2)
+            grad_mag = np.uint8(255 * grad_mag / np.max(grad_mag))
+            
+            _, grad_binary = cv2.threshold(grad_mag, 50, 255, cv2.THRESH_BINARY)
+            
+            # Расширение/сужение на основе градиента
+            mask = cv2.bitwise_and(mask, cv2.bitwise_not(grad_binary))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        
+        return mask
+    
+    def _opencv_chan_vese(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """Chan-Vese активные контуры без градиентов"""
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img
+        
+        h, w = gray.shape
+        
+        # Начальная маска (центральная область)
+        mask = np.zeros((h, w), np.uint8)
+        cv2.rectangle(mask, (w//4, h//4), (3*w//4, 3*h//4), 255, -1)
+        
+        iterations = self.params.get('iterations', 100)
+        mu = self.params.get('mu', 0.25)
+        
+        for _ in range(iterations):
+            # Вычисляем средние значения внутри и снаружи маски
+            inside_mean = np.mean(gray[mask > 0]) if np.any(mask > 0) else 0
+            outside_mean = np.mean(gray[mask == 0]) if np.any(mask == 0) else 0
+            
+            # Обновляем маску на основе разности с средними
+            diff_inside = np.abs(gray.astype(float) - inside_mean)
+            diff_outside = np.abs(gray.astype(float) - outside_mean)
+            
+            new_mask = np.zeros_like(mask)
+            new_mask[diff_inside < diff_outside] = 255
+            
+            # Сглаживание
+            kernel = np.ones((3, 3), np.uint8)
+            new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_CLOSE, kernel)
+            new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_OPEN, kernel)
+            
+            mask = new_mask
+        
+        return mask
+
+    # ============ WATERSHED И ГРАФОВЫЕ ============
+    
     def _opencv_watershed(
         self, 
         img: np.ndarray
@@ -584,56 +685,11 @@ class OpenCVSegmenter:
         mask = (markers > 1).astype(np.uint8) * 255
         return mask
     
-    def _opencv_meanshift(
+    def _opencv_random_walker(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """MeanShift сегментация"""
-        spatial_radius = self.params.get('spatial_radius', 60)
-        color_radius = self.params.get('color_radius', 60)
-        max_level = self.params.get('max_level', 1)
-        
-        # Применяем MeanShift
-        shifted = cv2.pyrMeanShiftFiltering(img, spatial_radius, color_radius, max_level)
-        
-        # Конвертируем в grayscale и пороговую обработку
-        gray = cv2.cvtColor(shifted, cv2.COLOR_BGR2GRAY)
-        _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        
-        return mask
-    
-    def _opencv_grabcut(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """GrabCut сегментация"""
-        h, w = img.shape[:2]
-        
-        # Создаем маску
-        mask = np.zeros((h, w), np.uint8)
-        
-        # Прямоугольник для инициализации (центр изображения)
-        rect = self.params.get('rect', (w//4, h//4, w//2, h//2))
-        
-        # Временные массивы
-        bgd_model = np.zeros((1, 65), np.float64)
-        fgd_model = np.zeros((1, 65), np.float64)
-        
-        # Применяем GrabCut
-        cv2.grabCut(img, mask, rect, bgd_model, fgd_model, 
-                   self.params.get('iterations', 5), cv2.GC_INIT_WITH_RECT)
-        
-        # Создаем финальную маску
-        mask2 = np.where((mask == 2) | (mask == 0), 0, 1).astype('uint8')
-        result_mask = mask2 * 255
-        
-        return result_mask
-    
-    def _opencv_morphological_snakes(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """Морфологические змеи"""
+        """Random Walker (упрощенная версия)"""
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -641,29 +697,30 @@ class OpenCVSegmenter:
         
         h, w = gray.shape
         
-        # Начальная маска (окружность в центре)
-        mask = np.zeros((h, w), np.uint8)
-        cv2.circle(mask, (w//2, h//2), min(w, h)//4, 255, -1)
+        # Создаем маркеры
+        markers = np.zeros((h, w), dtype=np.int32)
         
-        iterations = self.params.get('iterations', 50)
-        kernel = np.ones((3, 3), np.uint8)
+        # Центральная область - объект
+        cv2.rectangle(markers, (w//4, h//4), (3*w//4, 3*h//4), 2, -1)
         
-        for _ in range(iterations):
-            # Градиент изображения
-            grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-            grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-            grad_mag = np.sqrt(grad_x**2 + grad_y**2)
-            grad_mag = np.uint8(255 * grad_mag / np.max(grad_mag))
-            
-            _, grad_binary = cv2.threshold(grad_mag, 50, 255, cv2.THRESH_BINARY)
-            
-            # Расширение/сужение на основе градиента
-            mask = cv2.bitwise_and(mask, cv2.bitwise_not(grad_binary))
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        # Углы - фон
+        corner_size = min(h, w) // 8
+        cv2.rectangle(markers, (0, 0), (corner_size, corner_size), 1, -1)
+        cv2.rectangle(markers, (w-corner_size, 0), (w, corner_size), 1, -1)
+        cv2.rectangle(markers, (0, h-corner_size), (corner_size, h), 1, -1)
+        cv2.rectangle(markers, (w-corner_size, h-corner_size), (w, h), 1, -1)
         
+        # Применяем Watershed с маркерами
+        if len(img.shape) == 3:
+            markers = cv2.watershed(img, markers)
+        else:
+            color_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            markers = cv2.watershed(color_img, markers)
+        
+        mask = (markers == 2).astype(np.uint8) * 255
         return mask
-    
+
+    # ============ SUPER-PIXEL МЕТОДЫ ============
     def _opencv_quickshift(
         self, 
         img: np.ndarray
@@ -729,77 +786,30 @@ class OpenCVSegmenter:
         
         return combined
     
-    def _opencv_chan_vese(
+    # ============ ИНТЕРАКТИВНЫЕ МЕТОДЫ ============
+    def _opencv_grabcut(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Chan-Vese активные контуры без градиентов"""
-        if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = img
+        """GrabCut сегментация"""
+        h, w = img.shape[:2]
         
-        h, w = gray.shape
-        
-        # Начальная маска (центральная область)
+        # Создаем маску
         mask = np.zeros((h, w), np.uint8)
-        cv2.rectangle(mask, (w//4, h//4), (3*w//4, 3*h//4), 255, -1)
         
-        iterations = self.params.get('iterations', 100)
-        mu = self.params.get('mu', 0.25)
+        # Прямоугольник для инициализации (центр изображения)
+        rect = self.params.get('rect', (w//4, h//4, w//2, h//2))
         
-        for _ in range(iterations):
-            # Вычисляем средние значения внутри и снаружи маски
-            inside_mean = np.mean(gray[mask > 0]) if np.any(mask > 0) else 0
-            outside_mean = np.mean(gray[mask == 0]) if np.any(mask == 0) else 0
-            
-            # Обновляем маску на основе разности с средними
-            diff_inside = np.abs(gray.astype(float) - inside_mean)
-            diff_outside = np.abs(gray.astype(float) - outside_mean)
-            
-            new_mask = np.zeros_like(mask)
-            new_mask[diff_inside < diff_outside] = 255
-            
-            # Сглаживание
-            kernel = np.ones((3, 3), np.uint8)
-            new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_CLOSE, kernel)
-            new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_OPEN, kernel)
-            
-            mask = new_mask
+        # Временные массивы
+        bgd_model = np.zeros((1, 65), np.float64)
+        fgd_model = np.zeros((1, 65), np.float64)
         
-        return mask
-    
-    def _opencv_random_walker(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """Random Walker (упрощенная версия)"""
-        if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = img
+        # Применяем GrabCut
+        cv2.grabCut(img, mask, rect, bgd_model, fgd_model, 
+                   self.params.get('iterations', 5), cv2.GC_INIT_WITH_RECT)
         
-        h, w = gray.shape
+        # Создаем финальную маску
+        mask2 = np.where((mask == 2) | (mask == 0), 0, 1).astype('uint8')
+        result_mask = mask2 * 255
         
-        # Создаем маркеры
-        markers = np.zeros((h, w), dtype=np.int32)
-        
-        # Центральная область - объект
-        cv2.rectangle(markers, (w//4, h//4), (3*w//4, 3*h//4), 2, -1)
-        
-        # Углы - фон
-        corner_size = min(h, w) // 8
-        cv2.rectangle(markers, (0, 0), (corner_size, corner_size), 1, -1)
-        cv2.rectangle(markers, (w-corner_size, 0), (w, corner_size), 1, -1)
-        cv2.rectangle(markers, (0, h-corner_size), (corner_size, h), 1, -1)
-        cv2.rectangle(markers, (w-corner_size, h-corner_size), (w, h), 1, -1)
-        
-        # Применяем Watershed с маркерами
-        if len(img.shape) == 3:
-            markers = cv2.watershed(img, markers)
-        else:
-            color_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-            markers = cv2.watershed(color_img, markers)
-        
-        mask = (markers == 2).astype(np.uint8) * 255
-        return mask
+        return result_mask

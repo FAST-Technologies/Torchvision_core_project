@@ -86,7 +86,7 @@ def create_segmentation_pipeline():
             else:
                 raise TypeError(f"Неподдерживаемый тип изображения: {type(image)}")
             
-            current_input: np.ndarray = original_np  # Всегда работаем с изображением оригинального размера
+            current_input = original_np  # Всегда работаем с изображением оригинального размера
             
             for step in self.steps:
                 print(f"Выполнение шага: {step['name']}")
@@ -235,7 +235,7 @@ def create_segmentation_pipeline():
             self, 
             results: Dict[str, Dict[str, Any]], 
             original_image: Union[str, np.ndarray, Image.Image],
-            save_path: str = "pipeline_results.jpg"
+            save_path: str = "./data/pipeline_results.jpg"
         ) -> None:
             """Сохранить визуализацию результатов пайплайна"""
             n_steps: int = len(results)
@@ -304,7 +304,7 @@ def example_pipeline() -> Tuple[Any, Dict[str, Dict[str, Any]]]:
     )
     
     # Запуск пайплайна
-    image_path = "test_image.jpg"
+    image_path = "./data/test_image.jpg"
     results = pipeline.run(image_path)
     
     return pipeline, results
@@ -559,7 +559,7 @@ def create_torch_segmenter(method: str, **kwargs) -> TorchSegmenter:
 
 def apply_neural_segmentation(
     image_path: str, 
-    save_dir: str = "results"
+    save_dir: str = "./data/results"
 ) -> Tuple[Dict[str, Any], Image.Image, np.ndarray, float]:
     """
     Применяет нейросетевую сегментацию с замером времени
@@ -646,7 +646,7 @@ def apply_neural_segmentation(
 
 def original_compare_segmentation_methods(
     image_path: str, 
-    save_dir: str = "legacy_comparison"
+    save_dir: str = "./data/legacy_comparison"
 ) -> Dict[str, Any]:
     """
     ОРИГИНАЛЬНАЯ функция сравнения основных методов сегментации 
@@ -854,10 +854,7 @@ def original_compare_segmentation_methods(
         'failed_methods': failed_methods
     }
 
-def compare_cv2_torch_methods(
-    image_path: str, 
-    save_dir: str = "cv2_vs_torch"
-) -> Dict[str, Any]:
+def compare_cv2_torch_methods(image_path: str, save_dir: str = "./data/cv2_vs_torch") -> Dict[str, Any]:
     """
     Сравнение методов CV2 и PyTorch реализаций
     """
@@ -1668,7 +1665,7 @@ def create_timing_comparison_visualization(
     
     # Сохраняем график
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path = f"methods_comparison_timing_{timestamp}.jpg"
+    save_path = f"./data/methods_comparison_timing_{timestamp}.jpg"
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     print(f"\n📊 График сравнения сохранен: {save_path}")
     
@@ -1898,5 +1895,3 @@ def interactive_floodfill_demo(image_path):
 
     plt.tight_layout()
     plt.show()
-
-

@@ -1,17 +1,24 @@
 # NeuralSegmenter.py
 
 # Импорт основных библиотек
-import torch
-import numpy as np
-from PIL import Image
-import matplotlib.pyplot as plt
-from typing import Union, Tuple, List, Dict, Any, Optional
-import requests
-from io import BytesIO
-import cv2
-import time
 
 from BaseSegmenter import BaseSegmenter
+
+from typing import (
+    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+)
+import time
+import requests
+from io import BytesIO
+from PIL import Image
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+import torch
+import cv2
+from sklearn.metrics import confusion_matrix
 
 try:
     from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
@@ -19,7 +26,6 @@ try:
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
     print("Warning: transformers not installed. Install with: pip install transformers")
-
 
 class NeuralSegmenter(BaseSegmenter):
     """Класс для нейросетевой сегментации"""
@@ -71,6 +77,7 @@ class NeuralSegmenter(BaseSegmenter):
                 self.model = SegformerForSemanticSegmentation.from_pretrained(self.model_name)
             self.model.to(self.device)
             self.model.eval()
+            print(f"Модель загружена за {time.time() - start_time:.4f} секунд")
             print(f"Модель загружена за {time.time() - start_time:.4f} секунд")
             print(f"Текущая конфигурация модели: {self.model.config}")
         except Exception as e:
@@ -182,7 +189,7 @@ class NeuralSegmenter(BaseSegmenter):
         print(f"Neural segmentation completed in {time.time() - start_time:.2f}s")
         
         return result, mask
-    
+
     def segment_image(
         self, 
         input_image: Union[str, Image.Image], 
@@ -386,7 +393,6 @@ class NeuralSegmenter(BaseSegmenter):
         gt_bin = (gt_mask > 127).astype(np.uint8).flatten()
         
         # Вычисляем базовые метрики
-        from sklearn.metrics import confusion_matrix
         
         try:
             tn, fp, fn, tp = confusion_matrix(gt_bin, pred_bin, labels=[0, 1]).ravel()

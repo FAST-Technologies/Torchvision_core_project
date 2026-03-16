@@ -1,8 +1,12 @@
-# sklearn_segmenter.py
+# SklearnSegmenter.py
 
 # Импорт основных библиотек
+
+from typing import (
+    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+)
 import numpy as np
-from typing import Union, Tuple, Dict, Any, List
 import warnings
 from collections import deque
 import math
@@ -17,31 +21,33 @@ from sklearn.cluster import (
     AgglomerativeClustering, SpectralClustering, 
     Birch, MiniBatchKMeans
 )
-from sklearn.mixture import GaussianMixture, BayesianGaussianMixture
-from sklearn.ensemble import IsolationForest, RandomForestClassifier
-from sklearn.svm import SVC, OneClassSVM
-from sklearn.neighbors import LocalOutlierFactor, KNeighborsClassifier, NearestNeighbors
-from sklearn.decomposition import PCA, NMF, FastICA
-from sklearn.manifold import TSNE, Isomap, SpectralEmbedding
-from sklearn.preprocessing import (
-    StandardScaler, MinMaxScaler, RobustScaler,
-    PolynomialFeatures
-)
 from sklearn.covariance import EllipticEnvelope
-from sklearn.neural_network import MLPClassifier
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.decomposition import PCA, NMF, FastICA
 from sklearn.discriminant_analysis import (
     LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
 )
-from sklearn.naive_bayes import GaussianNB
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.feature_selection import SelectKBest, f_classif
-from sklearn.pipeline import make_pipeline
-
+from sklearn.linear_model import LogisticRegression
+from sklearn.manifold import TSNE, Isomap, SpectralEmbedding
 from sklearn.metrics import (
     silhouette_score, calinski_harabasz_score, davies_bouldin_score,
     pairwise_distances
 )
+from sklearn.mixture import GaussianMixture, BayesianGaussianMixture
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import LocalOutlierFactor, KNeighborsClassifier, KNeighborsRegressor, NearestNeighbors
+from sklearn.neural_network import MLPClassifier
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import (
+    StandardScaler, MinMaxScaler, RobustScaler,
+    PolynomialFeatures
+)
+from sklearn.svm import SVC, OneClassSVM
+from sklearn.tree import DecisionTreeClassifier
+
+from scipy import ndimage, signal, sparse
+from scipy.sparse.linalg import eigsh
 
 try:
     import skimage
@@ -50,34 +56,31 @@ try:
         feature, color, exposure, transform, util,
         restoration, graph, draw
     )
-    from skimage.segmentation import (
-        felzenszwalb, slic, quickshift, watershed,
-        random_walker, active_contour, morphological_chan_vese,
-        morphological_geodesic_active_contour, mark_boundaries
-    )
+    from skimage.color import label2rgb
+    from skimage.draw import polygon
+    from skimage.feature import canny
     from skimage.filters import (
         threshold_otsu, threshold_local, threshold_niblack,
         threshold_sauvola, gaussian, sobel, prewitt, roberts,
         scharr, laplace, farid, butterworth
     )
-    from skimage.feature import canny
+    from skimage.future import graph
+    from skimage.measure import label, regionprops
     from skimage.morphology import (
         disk, square, dilation, erosion, opening, closing,
         white_tophat, black_tophat, skeletonize, thin,
         remove_small_objects, remove_small_holes
     )
-    from skimage.measure import label, regionprops
-    from skimage.color import label2rgb
-    from skimage.future import graph
+    from skimage.segmentation import (
+        felzenszwalb, slic, quickshift, watershed,
+        random_walker, active_contour, morphological_chan_vese,
+        morphological_geodesic_active_contour, mark_boundaries
+    )
     from skimage.util import img_as_ubyte, img_as_float
     SKIMAGE_AVAILABLE = True
 except ImportError:
     SKIMAGE_AVAILABLE = False
     print("Warning: scikit-image not available. Some methods will not work.")
-
-# Импорт scipy для дополнительных операций
-from scipy import ndimage, signal, sparse
-from scipy.sparse.linalg import eigsh
 
 class SklearnSegmenter:
     """
@@ -205,23 +208,32 @@ class SklearnSegmenter:
             "affinity_propagation": self._sklearn_affinity_propagation,
         }
 
-        if not SKIMAGE_AVAILABLE:
-            # Убираем методы, требующие scikit-image
-            methods_to_remove = [
-                "global_thresholding", "adaptive_thresholding", "otsu_thresholding",
-                "threshold_niblack", "threshold_sauvola", "sobel_edge", "canny_edge",
-                "watershed", "random_walker", "quickshift", "slic", "felzenszwalb",
-                "active_contour", "chan_vese"
-            ]
-            for method in methods_to_remove:
-                if method in self.methods:
-                    del self.methods[method]
+        # if not SKIMAGE_AVAILABLE:
+        #     # Убираем методы, требующие scikit-image
+        #     methods_to_remove = [
+        #         "global_thresholding", "adaptive_thresholding", "otsu_thresholding",
+        #         "threshold_niblack", "threshold_sauvola", "sobel_edge", "canny_edge",
+        #         "watershed", "random_walker", "quickshift", "slic", "felzenszwalb",
+        #         "active_contour", "chan_vese"
+        #     ]
+        #     for method in methods_to_remove:
+        #         if method in self.methods:
+        #             del self.methods[method]
         
         self.methods: Dict[str, callable] = self.methods
         
         if self.method not in self.methods:
             raise ValueError(f"Неизвестный метод: {self.method}. "
                            f"Доступные методы: {list(self.methods.keys())}")
+
+    def _normalize_image(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """Нормализация изображения к [0, 1] для skimage"""
+        if img.dtype == np.uint8:
+            return img.astype(np.float32) / 255.0
+        return img.astype(np.float32)
     
     def segment(
         self, 
@@ -254,9 +266,11 @@ class SklearnSegmenter:
                 mask = (mask * 255).astype(np.uint8)
             else:
                 mask = mask.astype(np.uint8)
-        if self.params.get('postprocess', True):
+        if self.method in ['canny_edge', 'sobel_edge']:
+            pass  # Не применяем постобработку
+        elif self.params.get('postprocess', True):
             mask = self._postprocess_mask(mask)
-        
+            
         return mask
     
     def segment_with_mask(
@@ -425,7 +439,6 @@ class SklearnSegmenter:
             binary = opening(binary, selem)
         else:
             # Простая реализация на numpy
-            from scipy import ndimage
             # Удаление мелких объектов
             labeled, num_features = ndimage.label(binary)
             sizes = ndimage.sum(binary, labeled, range(1, num_features + 1))
@@ -435,6 +448,7 @@ class SklearnSegmenter:
         
         return binary.astype(np.uint8) * 255
     
+    # ============ РЕАЛИЗАЦИИ МЕТОДОВ ============
     # ============ ПОРОГОВЫЕ МЕТОДЫ ============
     
     def _sklearn_global_thresholding(
@@ -446,11 +460,12 @@ class SklearnSegmenter:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         threshold = self.params.get('threshold', 0.5)
         mask = gray > threshold
         
-        return mask.astype(np.uint8)
+        return (mask * 255).astype(np.uint8)
     
     def _sklearn_adaptive_thresholding(
         self, 
@@ -461,13 +476,14 @@ class SklearnSegmenter:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         block_size = self.params.get('block_size', 11)
         C = self.params.get('C', 2)
         adaptive_thresh = threshold_local(gray, block_size=block_size, offset=C/255.0)
         mask = gray > adaptive_thresh
         
-        return mask.astype(np.uint8)
+        return (mask * 255).astype(np.uint8)
     
     def _sklearn_otsu_thresholding(
         self, 
@@ -478,11 +494,12 @@ class SklearnSegmenter:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         thresh = threshold_otsu(gray)
         mask = gray > thresh
         
-        return mask.astype(np.uint8)
+        return (mask * 255).astype(np.uint8)
     
     def _sklearn_threshold_niblack(
         self, 
@@ -493,12 +510,13 @@ class SklearnSegmenter:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         window_size = self.params.get('window_size', 15)
         k = self.params.get('k', -0.2)
         thresh = threshold_niblack(gray, window_size=window_size, k=k)
         mask = gray > thresh
-        return mask.astype(np.uint8)
+        return (mask * 255).astype(np.uint8)
     
     def _sklearn_threshold_sauvola(
         self, 
@@ -509,6 +527,7 @@ class SklearnSegmenter:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         window_size = self.params.get('window_size', 15)
         k = self.params.get('k', 0.5)
@@ -517,7 +536,7 @@ class SklearnSegmenter:
         thresh = threshold_sauvola(gray, window_size=window_size, k=k)
         mask = gray > thresh
         
-        return mask.astype(np.uint8)
+        return (mask * 255).astype(np.uint8)
     
     # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
     
@@ -530,6 +549,7 @@ class SklearnSegmenter:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         threshold = self.params.get('threshold', 0.1)
         edges = sobel(gray)
@@ -540,7 +560,7 @@ class SklearnSegmenter:
         
         mask = edges > threshold
         
-        return mask.astype(np.uint8)
+        return (mask * 255).astype(np.uint8)
     
     def _sklearn_canny_edge(
         self, 
@@ -552,18 +572,31 @@ class SklearnSegmenter:
         else:
             gray = img
         
+        # 1. Нормализация к [0, 1]
+        # gray = self._normalize_image(gray)
+        if gray.dtype == np.uint8:
+            gray = gray.astype(np.float32) / 255.0
+        
         sigma = self.params.get('sigma', 1.0)
         low_threshold = self.params.get('low', 0.1)
-        high_threshold = self.params.get('high', 0.2)
-        mask = canny(
+        high_threshold = self.params.get('high', 0.3)
+        use_quantiles = self.params.get('use_quantiles', False)
+        
+        # 3. Включаем квантили!
+        use_quantiles = False 
+        
+        mask = feature.canny(
             gray, 
             sigma=sigma, 
             low_threshold=low_threshold, 
-            high_threshold=high_threshold
+            high_threshold=high_threshold,
+            use_quantiles=use_quantiles  # ← Ключевой параметр
         )
+        print(f"DEBUG: sigma={sigma}, low={low_threshold}, high={high_threshold}, quantiles={use_quantiles}")
+        print(f"DEBUG: Image range: [{gray.min():.4f}, {gray.max():.4f}]")
         
-        return mask.astype(np.uint8)
-    
+        return (mask * 255).astype(np.uint8)
+        
     # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============
     
     def _sklearn_region_growing(
@@ -793,6 +826,23 @@ class SklearnSegmenter:
         
         return mask.astype(np.uint8)
     
+    def _sklearn_kmeans(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """K-Means из sklearn с извлечением признаков."""
+        features = self._extract_features(img)
+        h, w = img.shape[:2]
+        
+        n_clusters = self.params.get('n_clusters', 3)
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+        labels = kmeans.fit_predict(features)
+        
+        # Создаем маску
+        mask = self._create_mask_from_labels(labels, (h, w))
+        
+        return mask.astype(np.uint8)
+    
     def _sklearn_dbscan_segmentation(
         self, 
         img: np.ndarray
@@ -821,6 +871,25 @@ class SklearnSegmenter:
         labels = dbscan.fit_predict(features)
         
         # Создаем маску (исключаем шум -1)
+        mask = (labels != -1).reshape(h, w)
+        
+        return mask.astype(np.uint8)
+    
+    def _sklearn_dbscan(
+        self, 
+        img: np.ndarray
+    ) -> np.ndarray:
+        """DBSCAN из sklearn."""
+        features = self._extract_features(img)
+        h, w = img.shape[:2]
+        
+        eps = self.params.get('eps', 0.5)
+        min_samples = self.params.get('min_samples', 5)
+        
+        dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+        labels = dbscan.fit_predict(features)
+        
+        # Создаем маску (исключаем шум)
         mask = (labels != -1).reshape(h, w)
         
         return mask.astype(np.uint8)
@@ -876,6 +945,60 @@ class SklearnSegmenter:
         
         return mask.astype(np.uint8)
     
+    def _sklearn_meanshift(
+        self, 
+        image: np.ndarray
+    ) -> np.ndarray:
+        """
+        MeanShift кластеризация для сегментации.
+        
+        Args:
+            image: Входное изображение
+        
+        Returns:
+            Бинарная маска сегментации
+        """
+        features = self._extract_features(image)
+        h, w = image.shape[:2]
+        
+        # Ограничиваем размер для производительности
+        max_samples = 5000
+        if features.shape[0] > max_samples:
+            indices = np.random.choice(features.shape[0], max_samples, replace=False)
+            sample_features = features[indices]
+            use_sampling = True
+        else:
+            sample_features = features
+            use_sampling = False
+        
+        # Параметры MeanShift
+        bandwidth = self.params.get('bandwidth', None)
+        if bandwidth is None:
+            # Автоматическая оценка bandwidth
+            bandwidth = self._estimate_meanshift_bandwidth(sample_features)
+        
+        # Применяем MeanShift
+        meanshift = MeanShift(
+            bandwidth=bandwidth,
+            bin_seeding=True,
+            min_bin_freq=1,
+            cluster_all=True,
+            n_jobs=-1
+        )
+        
+        if use_sampling:
+            meanshift.fit(sample_features)
+            # Предсказываем для всех точек
+            labels = meanshift.predict(features)
+        else:
+            labels = meanshift.fit_predict(features)
+        
+        # Создаем маску
+        mask = self._create_mask_from_labels(labels, (h, w))
+        mask = self._postprocess_mask(mask)
+        
+        return mask
+    
     # ============ АКТИВНЫЕ КОНТУРЫ ============
     
     def _active_contour(self, img: np.ndarray) -> np.ndarray:
@@ -906,7 +1029,6 @@ class SklearnSegmenter:
         
         # Создаем маску из контура
         mask = np.zeros((h, w), dtype=bool)
-        from skimage.draw import polygon
         rr, cc = polygon(snake[:, 1], snake[:, 0], mask.shape)
         mask[rr, cc] = True
         
@@ -1057,7 +1179,6 @@ class SklearnSegmenter:
         return mask.astype(np.uint8)
     
     # ============ SUPER-PIXEL МЕТОДЫ ============
-    
     def _quickshift(
         self, 
         img: np.ndarray
@@ -1171,96 +1292,6 @@ class SklearnSegmenter:
         return mask_result.astype(np.uint8)
     
     # ============ SKLEARN МЕТОДЫ ============
-    
-    def _sklearn_kmeans(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """K-Means из sklearn с извлечением признаков."""
-        features = self._extract_features(image)
-        h, w = image.shape[:2]
-        
-        n_clusters = self.params.get('n_clusters', 3)
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-        labels = kmeans.fit_predict(features)
-        
-        # Создаем маску
-        mask = self._create_mask_from_labels(labels, (h, w))
-        
-        return mask.astype(np.uint8)
-    
-    def _sklearn_dbscan(
-        self, 
-        img: np.ndarray
-    ) -> np.ndarray:
-        """DBSCAN из sklearn."""
-        features = self._extract_features(image)
-        h, w = image.shape[:2]
-        
-        eps = self.params.get('eps', 0.5)
-        min_samples = self.params.get('min_samples', 5)
-        
-        dbscan = DBSCAN(eps=eps, min_samples=min_samples)
-        labels = dbscan.fit_predict(features)
-        
-        # Создаем маску (исключаем шум)
-        mask = (labels != -1).reshape(h, w)
-        
-        return mask.astype(np.uint8)
-    
-    def _sklearn_meanshift(
-        self, 
-        image: np.ndarray
-    ) -> np.ndarray:
-        """
-        MeanShift кластеризация для сегментации.
-        
-        Args:
-            image: Входное изображение
-        
-        Returns:
-            Бинарная маска сегментации
-        """
-        features = self._extract_features(image)
-        h, w = image.shape[:2]
-        
-        # Ограничиваем размер для производительности
-        max_samples = 5000
-        if features.shape[0] > max_samples:
-            indices = np.random.choice(features.shape[0], max_samples, replace=False)
-            sample_features = features[indices]
-            use_sampling = True
-        else:
-            sample_features = features
-            use_sampling = False
-        
-        # Параметры MeanShift
-        bandwidth = self.params.get('bandwidth', None)
-        if bandwidth is None:
-            # Автоматическая оценка bandwidth
-            bandwidth = self._estimate_meanshift_bandwidth(sample_features)
-        
-        # Применяем MeanShift
-        meanshift = MeanShift(
-            bandwidth=bandwidth,
-            bin_seeding=True,
-            min_bin_freq=1,
-            cluster_all=True,
-            n_jobs=-1
-        )
-        
-        if use_sampling:
-            meanshift.fit(sample_features)
-            # Предсказываем для всех точек
-            labels = meanshift.predict(features)
-        else:
-            labels = meanshift.fit_predict(features)
-        
-        # Создаем маску
-        mask = self._create_mask_from_labels(labels, (h, w))
-        mask = self._postprocess_mask(mask)
-        
-        return mask
     
     def _sklearn_gmm(
         self, 
@@ -2072,7 +2103,6 @@ class SklearnSegmenter:
             transformed_sample = tsne.fit_transform(sample_features)
             
             # Интерполируем для всех точек
-            from sklearn.neighbors import KNeighborsRegressor
             knn = KNeighborsRegressor(n_neighbors=5)
             knn.fit(sample_features, transformed_sample)
             transformed = knn.predict(features)
@@ -2235,7 +2265,6 @@ class SklearnSegmenter:
     ) -> Tuple[float, int]:
         """Автоматическая оценка параметров DBSCAN."""
         # Используем метод k-distance graph
-        from sklearn.neighbors import NearestNeighbors
         
         n_samples = min(1000, features.shape[0])
         sample_indices = np.random.choice(features.shape[0], n_samples, replace=False)
@@ -2264,7 +2293,6 @@ class SklearnSegmenter:
     ) -> float:
         """Оценка bandwidth для MeanShift."""
         # Используем квантильный метод
-        from sklearn.neighbors import NearestNeighbors
         
         n_samples = min(500, features.shape[0])
         sample_indices = np.random.choice(features.shape[0], n_samples, replace=False)
@@ -2329,7 +2357,6 @@ class SklearnSegmenter:
             test_labels = knn.predict(test_features)
         else:
             # Ближайший сосед
-            from sklearn.neighbors import NearestNeighbors
             nbrs = NearestNeighbors(n_neighbors=1).fit(train_features)
             _, indices = nbrs.kneighbors(test_features)
             test_labels = train_labels[indices.flatten()]
@@ -2845,6 +2872,577 @@ class SklearnSegmenter:
         mask = labels_2d != bg_label
         
         return mask
+
+    # ============================================================================
+    # ДОБАВИТЬ/ОБНОВИТЬ МЕТОДЫ В КЛАСС SklearnSegmenter:
+    # ============================================================================
+
+    def _sklearn_floodfill(
+        self,
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        FloodFill сегментация (scikit-image).
+        Заполняет область, начиная с заданной точки, пока интенсивность
+        отличается не более чем на допуск.
+        
+        Args:
+            img: Входное изображение (RGB или grayscale)
+        
+        Returns:
+            Бинарная маска (0-255)
+        """
+        try:
+            if len(img.shape) == 3:
+                gray = color.rgb2gray(img)
+            else:
+                gray = img
+            
+            h, w = gray.shape
+            seed = self.params.get('seed', (w//2, h//2))
+            tolerance = self.params.get('tolerance', 0.1)
+            
+            # Используем flood из skimage
+            mask = segmentation.flood(gray, seed_point=seed[::-1], tolerance=tolerance)
+            
+            return mask.astype(np.uint8) * 255
+            
+        except Exception as e:
+            warnings.warn(f"FloodFill failed: {e}. Using fallback (Otsu).")
+            return self._sklearn_otsu_thresholding(img)
+
+
+    def _sklearn_active_contour(
+        self,
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Active Contour (Snakes) сегментация.
+        Инициализирует замкнутый контур и деформирует его под действием
+        внутренних и внешних сил до равновесия.
+        
+        Args:
+            img: Входное изображение
+        
+        Returns:
+            Бинарная маска внутри контура
+        """
+        try:
+            if len(img.shape) == 3:
+                gray = color.rgb2gray(img)
+            else:
+                gray = img
+            
+            gray_norm = img_as_float(gray)
+            h, w = gray_norm.shape
+            
+            # Создаём начальный контур (окружность в центре)
+            center_x, center_y = w // 2, h // 2
+            radius = min(center_x, center_y) // 2
+            s = np.linspace(0, 2 * np.pi, 100)
+            init = np.array([
+                center_x + radius * np.cos(s),
+                center_y + radius * np.sin(s)
+            ]).T
+            
+            # Параметры
+            alpha = self.params.get('alpha', 0.015)
+            beta = self.params.get('beta', 10)
+            gamma = self.params.get('gamma', 0.001)
+            w_edge = self.params.get('w_edge', 1)
+            w_line = self.params.get('w_line', 0)
+            max_iter = self.params.get('max_iter', 1000)
+            
+            # Применяем active_contour
+            snake = active_contour(
+                gaussian(gray_norm, 3),
+                init,
+                alpha=alpha,
+                beta=beta,
+                gamma=gamma,
+                w_edge=w_edge,
+                w_line=w_line,
+                max_num_iter=max_iter
+            )
+            
+            # Создаём маску из контура
+            mask = np.zeros((h, w), dtype=bool)
+            rr, cc = polygon(snake[:, 1], snake[:, 0], mask.shape)
+            mask[rr, cc] = True
+            
+            return mask.astype(np.uint8) * 255
+            
+        except Exception as e:
+            warnings.warn(f"Active Contour failed: {e}. Using fallback (Otsu).")
+            return self._sklearn_otsu_thresholding(img)
+
+
+    def _sklearn_gvf_contour(
+        self,
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Gradient Vector Flow (GVF) контуры.
+        Вычисляет векторное поле, распространяющее информацию о градиентах.
+        
+        Args:
+            img: Входное изображение
+        
+        Returns:
+            Бинарная маска
+        """
+        try:
+            if len(img.shape) == 3:
+                gray = color.rgb2gray(img)
+            else:
+                gray = img
+            
+            gray_norm = img_as_float(gray)
+            
+            # Вычисляем градиенты
+            grad_x = filters.sobel_h(gray_norm)
+            grad_y = filters.sobel_v(gray_norm)
+            
+            # Параметры GVF
+            mu = self.params.get('mu', 0.1)
+            iterations = self.params.get('iterations', 50)
+            
+            # Итеративно вычисляем GVF поле
+            u = grad_x.copy()
+            v = grad_y.copy()
+            
+            for _ in range(iterations):
+                laplacian_u = filters.laplace(u)
+                laplacian_v = filters.laplace(v)
+                edge_map = grad_x**2 + grad_y**2
+                
+                u = u + mu * laplacian_u - edge_map * (u - grad_x)
+                v = v + mu * laplacian_v - edge_map * (v - grad_y)
+            
+            # Величина GVF
+            gvf_mag = np.sqrt(u**2 + v**2)
+            
+            # Пороговое разделение
+            threshold = np.percentile(gvf_mag, 70)
+            mask = gvf_mag > threshold
+            
+            return mask.astype(np.uint8) * 255
+            
+        except Exception as e:
+            warnings.warn(f"GVF Contour failed: {e}. Using fallback (Otsu).")
+            return self._sklearn_otsu_thresholding(img)
+
+
+    def _sklearn_morphological_snakes(
+        self,
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Морфологические змеи (Morphological Geodesic Active Contours).
+        Итеративно расширяет/сужает маску на основе градиента изображения.
+        
+        Args:
+            img: Входное изображение
+        
+        Returns:
+            Бинарная маска
+        """
+        try:
+            if len(img.shape) == 3:
+                gray = color.rgb2gray(img)
+            else:
+                gray = img
+            
+            gray_norm = img_as_float(gray)
+            h, w = gray_norm.shape
+            
+            # Начальный уровень (прямоугольник в центре)
+            init_level_set = np.zeros(gray_norm.shape, dtype=np.int8)
+            init_level_set[h//4:3*h//4, w//4:3*w//4] = 1
+            
+            # Параметры
+            iterations = self.params.get('iterations', 50)
+            smoothing = self.params.get('smoothing', 1)
+            threshold = self.params.get('threshold', 0.5)
+            balloon = self.params.get('balloon', 1)
+            
+            # Применяем морфологические змеи
+            mask = morphological_geodesic_active_contour(
+                gray_norm,
+                iterations,
+                init_level_set=init_level_set,
+                smoothing=smoothing,
+                threshold=threshold,
+                balloon=balloon
+            )
+            
+            return mask.astype(np.uint8) * 255
+            
+        except Exception as e:
+            warnings.warn(f"Morphological Snakes failed: {e}. Using fallback (Otsu).")
+            return self._sklearn_otsu_thresholding(img)
+
+
+    def _sklearn_chan_vese(
+        self,
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Chan-Vese активные контуры (без градиентов).
+        Энергетическая модель, разделяющая изображение на две области
+        с минимальной внутрирегиональной дисперсией.
+        
+        Args:
+            img: Входное изображение
+        
+        Returns:
+            Бинарная маска
+        """
+        try:
+            if len(img.shape) == 3:
+                gray = color.rgb2gray(img)
+            else:
+                gray = img
+            
+            gray_norm = img_as_float(gray)
+            h, w = gray_norm.shape
+            
+            # Начальный уровень
+            init_level_set = np.zeros(gray_norm.shape, dtype=np.int8)
+            init_level_set[h//4:3*h//4, w//4:3*w//4] = 1
+            
+            # Параметры
+            mu = self.params.get('mu', 0.25)
+            lambda1 = self.params.get('lambda1', 1.0)
+            lambda2 = self.params.get('lambda2', 1.0)
+            tol = self.params.get('tol', 1e-3)
+            max_iter = self.params.get('max_iter', 100)
+            
+            # Применяем Chan-Vese
+            mask = morphological_chan_vese(
+                gray_norm,
+                max_iter,
+                init_level_set=init_level_set,
+                smoothing=1,
+                lambda1=lambda1,
+                lambda2=lambda2
+            )
+            
+            return mask.astype(np.uint8) * 255
+            
+        except Exception as e:
+            warnings.warn(f"Chan-Vese failed: {e}. Using fallback (Otsu).")
+            return self._sklearn_otsu_thresholding(img)
+
+
+    def _sklearn_watershed(
+        self,
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Watershed (водораздел) сегментация.
+        Использует маркеры для разделения объектов на основе градиента.
+        
+        Args:
+            img: Входное изображение
+        
+        Returns:
+            Бинарная маска
+        """
+        try:
+            if len(img.shape) == 3:
+                gray = color.rgb2gray(img)
+            else:
+                gray = img
+            
+            gray_norm = img_as_float(gray)
+            
+            # Создаём маркеры
+            markers = np.zeros_like(gray, dtype=np.uint8)
+            h, w = gray.shape
+            
+            # Маркеры на основе процентилей
+            markers[gray < np.percentile(gray, 25)] = 1  # Фон
+            markers[gray > np.percentile(gray, 75)] = 2  # Объект
+            
+            # Вычисляем градиент
+            gradient = filters.sobel(gray_norm)
+            
+            # Применяем watershed
+            segmentation = watershed(gradient, markers=markers)
+            
+            # Создаём маску (объект = маркер 2)
+            mask = segmentation == 2
+            
+            return mask.astype(np.uint8) * 255
+            
+        except Exception as e:
+            warnings.warn(f"Watershed failed: {e}. Using fallback (Otsu).")
+            return self._sklearn_otsu_thresholding(img)
+
+
+    def _sklearn_random_walker(
+        self,
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Random Walker сегментация.
+        На основе маркеров решает задачу на графе о принадлежности пикселей.
+        
+        Args:
+            img: Входное изображение
+        
+        Returns:
+            Бинарная маска
+        """
+        try:
+            if len(img.shape) == 3:
+                gray = color.rgb2gray(img)
+            else:
+                gray = img
+            
+            gray_norm = img_as_float(gray)
+            h, w = gray.shape
+            
+            # Создаём маркеры
+            markers = np.zeros(gray.shape, dtype=np.uint8)
+            
+            # Центральная область - объект (маркер 2)
+            markers[h//4:3*h//4, w//4:3*w//4] = 2
+            
+            # Углы - фон (маркер 1)
+            corner_size = min(h, w) // 8
+            markers[:corner_size, :corner_size] = 1
+            markers[:corner_size, -corner_size:] = 1
+            markers[-corner_size:, :corner_size] = 1
+            markers[-corner_size:, -corner_size:] = 1
+            
+            # Параметры
+            beta = self.params.get('beta', 130)
+            mode = self.params.get('mode', 'cg_mg')
+            
+            # Применяем Random Walker
+            labels = random_walker(gray_norm, markers, beta=beta, mode=mode)
+            
+            # Создаём маску (объект = маркер 2)
+            mask = labels == 2
+            
+            return mask.astype(np.uint8) * 255
+            
+        except Exception as e:
+            warnings.warn(f"Random Walker failed: {e}. Using fallback (Otsu).")
+            return self._sklearn_otsu_thresholding(img)
+
+
+    def _sklearn_quickshift(
+        self,
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Quickshift сегментация.
+        Mode-seeking алгоритм для сегментации в пространстве признаков.
+        
+        Args:
+            img: Входное изображение (RGB)
+        
+        Returns:
+            Бинарная маска
+        """
+        try:
+            if len(img.shape) == 2:
+                img_rgb = np.stack([img] * 3, axis=-1)
+            else:
+                img_rgb = img
+            
+            # Параметры
+            kernel_size = self.params.get('kernel_size', 3)
+            max_dist = self.params.get('max_dist', 6)
+            ratio = self.params.get('ratio', 0.5)
+            
+            # Применяем Quickshift
+            segments = quickshift(
+                img_rgb,
+                kernel_size=kernel_size,
+                max_dist=max_dist,
+                ratio=ratio
+            )
+            
+            # Находим самый большой сегмент (фон)
+            unique, counts = np.unique(segments, return_counts=True)
+            bg_label = unique[np.argmax(counts)]
+            
+            # Создаём маску (все кроме фона)
+            mask = segments != bg_label
+            
+            return mask.astype(np.uint8) * 255
+            
+        except Exception as e:
+            warnings.warn(f"Quickshift failed: {e}. Using fallback (KMeans).")
+            return self._sklearn_kmeans_segmentation(img)
+
+
+    def _sklearn_slic(
+        self,
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        SLIC (Simple Linear Iterative Clustering).
+        Суперпиксельная сегментация на основе пространственной и цветовой близости.
+        
+        Args:
+            img: Входное изображение (RGB)
+        
+        Returns:
+            Бинарная маска
+        """
+        try:
+            if len(img.shape) == 2:
+                img_rgb = np.stack([img] * 3, axis=-1)
+            else:
+                img_rgb = img
+            
+            # Параметры
+            n_segments = self.params.get('n_segments', 100)
+            compactness = self.params.get('compactness', 10.0)
+            max_iter = self.params.get('max_iter', 10)
+            enforce_connectivity = self.params.get('enforce_connectivity', True)
+            
+            # Применяем SLIC
+            segments = slic(
+                img_rgb,
+                n_segments=n_segments,
+                compactness=compactness,
+                max_num_iter=max_iter,
+                enforce_connectivity=enforce_connectivity,
+                start_label=0
+            )
+            
+            # Находим самый большой сегмент (фон)
+            unique, counts = np.unique(segments, return_counts=True)
+            bg_label = unique[np.argmax(counts)]
+            
+            # Создаём маску (все кроме фона)
+            mask = segments != bg_label
+            
+            return mask.astype(np.uint8) * 255
+            
+        except Exception as e:
+            warnings.warn(f"SLIC failed: {e}. Using fallback (KMeans).")
+            return self._sklearn_kmeans_segmentation(img)
+
+
+    def _sklearn_felzenszwalb(
+        self,
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        Felzenszwalb сегментация.
+        Графовая сегментация на основе минимального остовного дерева.
+        
+        Args:
+            img: Входное изображение (RGB)
+        
+        Returns:
+            Бинарная маска
+        """
+        try:
+            if len(img.shape) == 2:
+                img_rgb = np.stack([img] * 3, axis=-1)
+            else:
+                img_rgb = img
+            
+            # Параметры
+            scale = self.params.get('scale', 100)
+            sigma = self.params.get('sigma', 0.8)
+            min_size = self.params.get('min_size', 50)
+            
+            # Применяем Felzenszwalb
+            segments = felzenszwalb(
+                img_rgb,
+                scale=scale,
+                sigma=sigma,
+                min_size=min_size
+            )
+            
+            # Находим самый большой сегмент (фон)
+            unique, counts = np.unique(segments, return_counts=True)
+            bg_label = unique[np.argmax(counts)]
+            
+            # Создаём маску (все кроме фона)
+            mask = segments != bg_label
+            
+            return mask.astype(np.uint8) * 255
+            
+        except Exception as e:
+            warnings.warn(f"Felzenszwalb failed: {e}. Using fallback (KMeans).")
+            return self._sklearn_kmeans_segmentation(img)
+
+
+    def _sklearn_grabcut(
+        self,
+        img: np.ndarray
+    ) -> np.ndarray:
+        """
+        GrabCut сегментация (эмуляция через Random Forest).
+        Имитация интерактивной сегментации с использованием маркеров.
+        
+        Args:
+            img: Входное изображение (RGB)
+        
+        Returns:
+            Бинарная маска переднего плана
+        """
+        try:
+            if len(img.shape) == 2:
+                img_rgb = np.stack([img] * 3, axis=-1)
+            else:
+                img_rgb = img
+            
+            h, w = img_rgb.shape[:2]
+            
+            # Создаём начальную маску с маркерами
+            mask = np.zeros((h, w), dtype=np.uint8)
+            
+            # Прямоугольник в центре - вероятный передний план
+            rect = self.params.get('rect', (w//4, h//4, w//2, h//2))
+            x, y, rw, rh = rect
+            mask[y:y+rh, x:x+rw] = 3  # Вероятный передний план
+            
+            # Углы - определённый фон
+            corner_size = min(h, w) // 8
+            mask[:corner_size, :corner_size] = 0
+            mask[:corner_size, -corner_size:] = 0
+            mask[-corner_size:, :corner_size] = 0
+            mask[-corner_size:, -corner_size:] = 0
+            
+            # Подготовка признаков
+            pixels = img_rgb.reshape(-1, 3).astype(np.float32) / 255.0
+            y_coords, x_coords = np.mgrid[0:h, 0:w]
+            coords = np.column_stack([
+                x_coords.ravel() / w,
+                y_coords.ravel() / h
+            ])
+            features = np.hstack([pixels, coords])
+            
+            # Выбираем пиксели для обучения
+            train_mask = (mask.ravel() == 0) | (mask.ravel() == 3)
+            X_train = features[train_mask]
+            y_train = (mask.ravel()[train_mask] == 3).astype(int)
+            
+            # Обучаем Random Forest
+            n_estimators = self.params.get('n_estimators', 50)
+            rf = RandomForestClassifier(n_estimators=n_estimators, random_state=42, n_jobs=-1)
+            rf.fit(X_train, y_train)
+            
+            # Предсказываем для всех пикселей
+            labels = rf.predict(features)
+            mask_result = labels.reshape(h, w)
+            
+            return mask_result.astype(np.uint8) * 255
+            
+        except Exception as e:
+            warnings.warn(f"GrabCut failed: {e}. Using fallback (KMeans).")
+            return self._sklearn_kmeans_segmentation(img)
 
 
 # Пример использования SklearnSegmenter
