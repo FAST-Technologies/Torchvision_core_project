@@ -272,43 +272,6 @@ def create_segmentation_pipeline():
     
     return SegmentationPipeline()
 
-
-# Пример создания пайплайна
-def example_pipeline() -> Tuple[Any, Dict[str, Dict[str, Any]]]:
-    """Пример пайплайна сегментации"""
-    
-    pipeline = create_segmentation_pipeline()
-    
-    # Шаг 1: Предварительная обработка - выделение краев
-    pipeline.add_step(
-        "Canny_Edge_Detection",
-        CV2SklearnSegmenter("canny_edge", low=30, high=100)
-    )
-    
-    # Шаг 2: Уточнение с помощью адаптивного порога
-    pipeline.add_step(
-        "Adaptive_Threshold_Refinement",
-        CV2SklearnSegmenter("adaptive_thresholding", block_size=15, C=5)
-    )
-    
-    # Шаг 3: Region Growing для объединения регионов
-    pipeline.add_step(
-        "Region_Growing",
-        CV2SklearnSegmenter("region_growing", tolerance=25)
-    )
-    
-    # Шаг 4: Постобработка с помощью Watershed
-    pipeline.add_step(
-        "Watershed_Segmentation",
-        CV2SklearnSegmenter("watershed")
-    )
-    
-    # Запуск пайплайна
-    image_path = "./data/test_image.jpg"
-    results = pipeline.run(image_path)
-    
-    return pipeline, results
-
 def create_advanced_pipeline_example() -> Any:
     """Пример создания сложного пайплайна с различными методами"""
     

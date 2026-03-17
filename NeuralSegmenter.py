@@ -34,7 +34,8 @@ class NeuralSegmenter(BaseSegmenter):
         self, 
         model_name: str = "nvidia/segformer-b5-finetuned-ade-640-640",
         device: str = None,
-        local_path: str = None
+        local_path: str = None,
+        **kwargs
     ) -> None:
         super().__init__()
         
@@ -44,6 +45,7 @@ class NeuralSegmenter(BaseSegmenter):
         self.model_name: str = model_name
         self.local_path: str = local_path
         self.device: str
+        self.params: Dict[str, Any] = kwargs
         
         if device is None:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -148,7 +150,15 @@ class NeuralSegmenter(BaseSegmenter):
         image: Union[str, Image.Image], 
         alpha: float = 0.5
     ) -> np.ndarray:
-        """Основной метод сегментации"""
+        """
+        Основной метод сегментации.
+        
+        Args:
+            image: Входное изображение (RGB, grayscale или любой формат)
+        
+        Returns:
+            np.ndarray: Бинарная маска сегментации (0-255)
+        """
         result_img: Image.Image = self.segment_image(image, alpha)
         return np.array(result_img)
     
@@ -157,7 +167,17 @@ class NeuralSegmenter(BaseSegmenter):
         image: Union[str, Image.Image], 
         alpha: float = 0.5
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Сегментация с возвратом маски и обработанного изображения"""
+        """
+        Сегментация с возвратом визуализации и маски.
+        
+        Args:
+            image: Входное изображение
+        
+        Returns:
+            Tuple[np.ndarray, np.ndarray]:
+                - Визуализация: исходное изображение с наложенной маской (0–255, RGB).
+                - Маска: бинарная маска (0–255, grayscale).
+        """
         start_time: float = time.time()
         
         # Получаем сегментированное изображение

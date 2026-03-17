@@ -38,14 +38,16 @@ class SklearnSegmentationComparator:
         self.metrics_history = {}
         self.sklearn_segmenter = None
     
-    def compare_with_opencv(self, 
-                          image: np.ndarray,
-                          sklearn_method: str,
-                          opencv_method: str,
-                          sklearn_params: Dict = None,
-                          opencv_params: Dict = None,
-                          save_comparison: bool = True,
-                          output_path: str = None) -> Dict[str, Any]:
+    def compare_with_opencv(
+        self, 
+        image: np.ndarray,
+        sklearn_method: str,
+        opencv_method: str,
+        sklearn_params: Dict = None,
+        opencv_params: Dict = None,
+        save_comparison: bool = True,
+        output_path: str = None
+    ) -> Dict[str, Any]:
         """
         Сравнение SklearnSegmenter с OpenCVSegmenter.
         
@@ -111,12 +113,14 @@ class SklearnSegmentationComparator:
         
         return result
     
-    def compare_sklearn_methods(self,
-                              image: np.ndarray,
-                              methods: List[Tuple[str, Dict]] = None,
-                              reference_method: str = "kmeans",
-                              save_results: bool = True,
-                              output_dir: str = "./data/sklearn_comparison") -> pd.DataFrame:
+    def compare_sklearn_methods(
+        self,
+        image: np.ndarray,
+        methods: List[Tuple[str, Dict]] = None,
+        reference_method: str = "kmeans",
+        save_results: bool = True,
+        output_dir: str = "./data/sklearn_comparison"
+    ) -> pd.DataFrame:
         """
         Сравнение нескольких методов SklearnSegmenter между собой.
         
@@ -206,7 +210,11 @@ class SklearnSegmentationComparator:
         
         return df
     
-    def _compute_metrics(self, mask1: np.ndarray, mask2: np.ndarray) -> Dict[str, float]:
+    def _compute_metrics(
+        self, 
+        mask1: np.ndarray, 
+        mask2: np.ndarray
+    ) -> Dict[str, float]:
         """Вычисление метрик сравнения двух масок."""
         # Бинаризуем маски
         mask1_bin = (mask1 > 127).astype(np.uint8).flatten()
@@ -239,10 +247,12 @@ class SklearnSegmentationComparator:
         
         return metrics
     
-    def _visualize_comparison(self, 
-                            image: np.ndarray,
-                            result: Dict[str, Any],
-                            output_path: str = None):
+    def _visualize_comparison(
+        self, 
+        image: np.ndarray,
+        result: Dict[str, Any],
+        output_path: str = None
+    ) -> None:
         """Визуализация сравнения методов."""
         fig, axes = plt.subplots(2, 3, figsize=(15, 10))
         
@@ -310,13 +320,15 @@ class SklearnSegmentationComparator:
         
         plt.show()
     
-    def _save_method_visualization(self,
-                                 image: np.ndarray,
-                                 mask: np.ndarray,
-                                 method_name: str,
-                                 metrics: Dict[str, float],
-                                 exec_time: float,
-                                 output_dir: str):
+    def _save_method_visualization(
+        self,
+        image: np.ndarray,
+        mask: np.ndarray,
+        method_name: str,
+        metrics: Dict[str, float],
+        exec_time: float,
+        output_dir: str
+    ) -> None:
         """Сохранение визуализации для отдельного метода."""
         fig, axes = plt.subplots(1, 3, figsize=(12, 4))
         
@@ -353,7 +365,11 @@ class SklearnSegmentationComparator:
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
         plt.close()
     
-    def _create_summary_plot(self, df: pd.DataFrame, output_dir: str):
+    def _create_summary_plot(
+        self, 
+        df: pd.DataFrame, 
+        output_dir: str
+    ) -> None:
         """Создание сводного графика сравнения методов."""
         fig, axes = plt.subplots(2, 2, figsize=(12, 10))
         
@@ -445,7 +461,5 @@ def demo_comparator():
     
     return comparator, df_results
 
-
-if __name__ == "__main__":
-    comparator, results = demo_comparator()
-    print("\n✅ Демонстрация компаратора завершена!")
+comparator, results = demo_comparator()
+print("\n✅ Демонстрация компаратора завершена!")

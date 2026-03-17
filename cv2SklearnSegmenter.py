@@ -26,7 +26,7 @@ from skimage.segmentation import chan_vese, random_walker, slic as sk_slic
 
 class CV2SklearnSegmenter(BaseSegmenter):
     """
-    Класс для методов сегментации изображений на основе библиотек OpenCV и scikit-learn.
+    Класс для реализации методов сегментации изображений на основе библиотек OpenCV и scikit-learn.
     Поддерживает как классические методы (пороговые, граничные), так и методы на основе кластеризации,
     активных контуров и графов.
     """
@@ -64,7 +64,7 @@ class CV2SklearnSegmenter(BaseSegmenter):
     
     def _setup_method(self) -> None:
         """Регистрация всех доступных методов сегментации."""
-        method_map: Dict[str, Any] = {
+        self.method_map: Dict[str, Any] = {
             # ============ ПОРОГОВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ ============
             "global_thresholding": self._global_thresholding,
             "adaptive_thresholding": self._adaptive_thresholding,
@@ -102,14 +102,14 @@ class CV2SklearnSegmenter(BaseSegmenter):
             "felzenszwalb": self._felzenszwalb,
 
             # ============ ИНТЕРАКТИВНЫЕ МЕТОДЫ ============
-            "grabcut": self._grabcut,
-            # "gmm": self._gmm
+            "grabcut": self._grabcut
         }
         
-        if self.method not in method_map:
-            raise ValueError(f"Неизвестный метод: {self.method}")
+        if self.method not in self.method_map:
+            raise ValueError(f"Неизвестный метод: {self.method}. "
+                           f"Доступные методы: {list(self.method_map.keys())}")
         
-        self._segment_func = method_map[self.method]
+        self._segment_func = self.method_map[self.method]
     
     def segment(
         self, 
@@ -161,8 +161,10 @@ class CV2SklearnSegmenter(BaseSegmenter):
         # Создаем визуализацию
         if len(img_array.shape) == 2:
             img_array = cv2.cvtColor(img_array, cv2.COLOR_GRAY2RGB)
+        else:
+            img_array = img_array.copy()
         
-        overlay = img_array.copy()
+        overlay = img_array
         overlay[mask > 0] = [255, 0, 0] # Красный цвет для маски
         result = cv2.addWeighted(img_array, 0.1, overlay, 0.9, 0)
         return result, mask
@@ -361,7 +363,6 @@ class CV2SklearnSegmenter(BaseSegmenter):
         # # Нормализация
         # sobel_norm = cv2.normalize(sobel_mag, None, 0, 255, cv2.NORM_MINMAX)
         _, mask = cv2.threshold(sobel_norm.astype(np.uint8), threshold, 255, cv2.THRESH_BINARY)
-        # Или так - mask = (sobel > threshold)
         
         return mask
     

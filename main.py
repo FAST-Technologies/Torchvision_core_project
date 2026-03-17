@@ -1315,7 +1315,6 @@
 #     """
 #     Сравнение кастомных реализаций с референсными (sklearn/scikit-image)
 #     """
-#     from cv2SklearnSegmenter import CV2SklearnSegmenter
     
 #     # Создаем компаратор
 #     comparator = SegmentationComparator()
@@ -1439,8 +1438,6 @@
 #     """
 #     Оценивает внутреннюю согласованность методов без ground truth
 #     """
-#     from cv2SklearnSegmenter import CV2SklearnSegmenter
-#     import numpy as np
     
 #     # Загружаем изображение
 #     image = cv2.imread(image_path)
@@ -1597,8 +1594,6 @@
 #     test_images = [image_path] + all_images[:max_images-1] if len(all_images) > 1 else [image_path]
     
 #     print(f"\n📸 Кросс-валидация на {len(test_images)} изображениях")
-    
-#     from cv2SklearnSegmenter import CV2SklearnSegmenter
     
 #     # Методы для тестирования
 #     methods = {
@@ -2380,7 +2375,7 @@
 #         print(traceback.format_exc())
 #         return None
 
-# main.py - Упрощённая версия для валидации Torch реализаций
+# main.py
 from TorchSegmenter import TorchSegmenter
 from SklearnSegmenter import SklearnSegmenter
 from OpenCVSegmenter import OpenCVSegmenter
@@ -2418,6 +2413,40 @@ class TorchImplementationValidator:
         self.edge_methods = [
             "sobel_edge",
             "canny_edge"
+        ]
+
+        self.region_methods = [
+            "region_growing",
+            "split_and_merge",
+            "floodfill"
+        ]
+
+        self.clastering_methods = [
+            "kmeans_segmentation",
+            "dbscan_segmentation",
+            "meanshift"
+        ]
+
+        self.active_contour_methods = [
+            "active_contour",
+            "gvf_contour",
+            "morphological_snakes",
+            "chan_vese",
+        ]
+
+        self.watershed_methods = [
+            "watershed",
+            "random_walker",
+        ]
+
+        self.super_pixel_methods = [
+            # "quickshift",
+            "slic",
+            "felzenszwalb",
+        ]
+
+        self.interactive_methods = [
+            "grabcut"
         ]
         
         # Пороги успешности валидации
@@ -2659,6 +2688,450 @@ class TorchImplementationValidator:
         # Сохраняем результаты
         self._save_validation_results(results, "edge_validation", reference)
         self._visualize_validation_enhanced(results, img_array, "edge", reference)
+        
+        return results
+    
+    def validate_region_methods(
+        self,
+        image_path: str,
+        reference: str = "sklearn"  # "sklearn" или "opencv"
+    ) -> Dict:
+        """
+        Валидация региональных методов
+        """
+        print(f"\n{'='*60}")
+        print(f"ВАЛИДАЦИЯ РЕГИОНАЛЬНЫХ МЕТОДОВ")
+        print(f"Референс: {reference.upper()}")
+        print(f"{'='*60}")
+        
+        results = {}
+        
+        # Загружаем изображение ОДИН РАЗ
+        img_array = self._load_image(image_path)
+        
+        for method in self.region_methods:
+            print(f"\n📊 Метод: {method}")
+            
+            try:
+                # 1. Torch реализация - передаём numpy array
+                torch_segmenter = TorchSegmenter(method=method)
+                torch_mask = torch_segmenter.segment(img_array)  # ✅ Передаём array, не путь!
+                
+                # 2. Референсная реализация
+                if reference == "sklearn":
+                    ref_segmenter = SklearnSegmenter(method=method)
+                else:  # opencv
+                    ref_segmenter = OpenCVSegmenter(method=method)
+                
+                ref_mask = ref_segmenter.segment(img_array)  # ✅ Передаём array, не путь!
+                
+                # 3. Вычисляем метрики соответствия
+                metrics = SegmentationMetrics.calculate_all_metrics(
+                    torch_mask, ref_mask, threshold=0.5, include_hausdorff=False
+                )
+                
+                # 4. Определяем статус валидации
+                validation_status = self._check_validation_status(metrics)
+                
+                results[method] = {
+                    'torch_mask': torch_mask,
+                    'reference_mask': ref_mask,
+                    'metrics': metrics,
+                    'validation_status': validation_status,
+                    'success': True,
+                    'reference_library': reference
+                }
+                
+                # Вывод результатов
+                status_icon = "✅" if validation_status == "PASS" else "⚠️"
+                print(f"   {status_icon} IoU: {metrics['iou']:.4f}")
+                print(f"   {status_icon} Dice: {metrics['dice']:.4f}")
+                print(f"   {status_icon} Pixel Accuracy: {metrics['pixel_accuracy']:.4f}")
+                print(f"   Статус: {validation_status}")
+                
+            except Exception as e:
+                print(f"   ❌ Ошибка: {e}")
+                import traceback
+                traceback.print_exc()
+                results[method] = {
+                    'success': False,
+                    'error': str(e),
+                    'reference_library': reference
+                }
+        
+        # Сохраняем результаты
+        self._save_validation_results(results, "region_validation", reference)
+        self._visualize_validation(results, img_array, "region", reference)
+        
+        return results
+    
+    def validate_interactive_methods(
+        self,
+        image_path: str,
+        reference: str = "sklearn"  # "sklearn" или "opencv"
+    ) -> Dict:
+        """
+        Валидация интерактивных методов
+        """
+        print(f"\n{'='*60}")
+        print(f"ВАЛИДАЦИЯ ИНТЕРАКТИВНЫХ МЕТОДОВ")
+        print(f"Референс: {reference.upper()}")
+        print(f"{'='*60}")
+        
+        results = {}
+        
+        # Загружаем изображение ОДИН РАЗ
+        img_array = self._load_image(image_path)
+        
+        for method in self.interactive_methods:
+            print(f"\n📊 Метод: {method}")
+            
+            try:
+                # 1. Torch реализация - передаём numpy array
+                torch_segmenter = TorchSegmenter(method=method)
+                torch_mask = torch_segmenter.segment(img_array)  # ✅ Передаём array, не путь!
+                
+                # 2. Референсная реализация
+                if reference == "sklearn":
+                    ref_segmenter = SklearnSegmenter(method=method)
+                else:  # opencv
+                    ref_segmenter = OpenCVSegmenter(method=method)
+                
+                ref_mask = ref_segmenter.segment(img_array)  # ✅ Передаём array, не путь!
+                
+                # 3. Вычисляем метрики соответствия
+                metrics = SegmentationMetrics.calculate_all_metrics(
+                    torch_mask, ref_mask, threshold=0.5, include_hausdorff=False
+                )
+                
+                # 4. Определяем статус валидации
+                validation_status = self._check_validation_status(metrics)
+                
+                results[method] = {
+                    'torch_mask': torch_mask,
+                    'reference_mask': ref_mask,
+                    'metrics': metrics,
+                    'validation_status': validation_status,
+                    'success': True,
+                    'reference_library': reference
+                }
+                
+                # Вывод результатов
+                status_icon = "✅" if validation_status == "PASS" else "⚠️"
+                print(f"   {status_icon} IoU: {metrics['iou']:.4f}")
+                print(f"   {status_icon} Dice: {metrics['dice']:.4f}")
+                print(f"   {status_icon} Pixel Accuracy: {metrics['pixel_accuracy']:.4f}")
+                print(f"   Статус: {validation_status}")
+                
+            except Exception as e:
+                print(f"   ❌ Ошибка: {e}")
+                import traceback
+                traceback.print_exc()
+                results[method] = {
+                    'success': False,
+                    'error': str(e),
+                    'reference_library': reference
+                }
+        
+        # Сохраняем результаты
+        self._save_validation_results(results, "interactive_validation", reference)
+        self._visualize_validation(results, img_array, "interactive", reference)
+        
+        return results
+    
+    def validate_clastering_methods(
+        self,
+        image_path: str,
+        reference: str = "opencv"  # Для edge методов лучше OpenCV
+    ) -> Dict:
+        """
+        Валидация методов кластеризации
+        """
+        print(f"\n{'='*60}")
+        print(f"ВАЛИДАЦИЯ МЕТОДОВ КЛАСТЕРИЗАЦИИ")
+        print(f"Референс: {reference.upper()}")
+        print(f"{'='*60}")
+        
+        results = {}
+        
+        # Загружаем изображение ОДИН РАЗ
+        img_array = self._load_image(image_path)
+        
+        for method in self.clastering_methods:
+            print(f"\n📊 Метод: {method}")
+            
+            try:
+                # 1. Torch реализация
+                torch_segmenter = TorchSegmenter(method=method)
+                torch_mask = torch_segmenter.segment(img_array)
+                
+                # 2. Референсная реализация
+                if reference == "sklearn":
+                    ref_segmenter = SklearnSegmenter(method=method)
+                else:  # opencv
+                    ref_segmenter = OpenCVSegmenter(method=method)
+                
+                ref_mask = ref_segmenter.segment(img_array)
+                
+                # 3. Вычисляем метрики соответствия
+                metrics = SegmentationMetrics.calculate_all_metrics(
+                    torch_mask, ref_mask, threshold=0.5, include_hausdorff=False
+                )
+                
+                # 4. Определяем статус валидации
+                validation_status = self._check_validation_status(metrics)
+                
+                results[method] = {
+                    'torch_mask': torch_mask,
+                    'reference_mask': ref_mask,
+                    'metrics': metrics,
+                    'validation_status': validation_status,
+                    'success': True,
+                    'reference_library': reference
+                }
+                
+                # Вывод результатов
+                status_icon = "✅" if validation_status == "PASS" else "⚠️"
+                print(f"   {status_icon} IoU: {metrics['iou']:.4f}")
+                print(f"   {status_icon} Dice: {metrics['dice']:.4f}")
+                print(f"   {status_icon} Pixel Accuracy: {metrics['pixel_accuracy']:.4f}")
+                print(f"   Статус: {validation_status}")
+                
+            except Exception as e:
+                print(f"   ❌ Ошибка: {e}")
+                import traceback
+                traceback.print_exc()
+                results[method] = {
+                    'success': False,
+                    'error': str(e),
+                    'reference_library': reference
+                }
+        
+        # Сохраняем результаты
+        self._save_validation_results(results, "claster_validation", reference)
+        self._visualize_validation(results, img_array, "claster", reference)
+        
+        return results
+    
+    def validate_active_contour_methods(
+        self,
+        image_path: str,
+        reference: str = "opencv"  # Для edge методов лучше OpenCV
+    ) -> Dict:
+        """
+        Валидация методов активных контуров
+        """
+        print(f"\n{'='*60}")
+        print(f"ВАЛИДАЦИЯ МЕТОДОВ АКТИВНЫХ КОНТУРОВ")
+        print(f"Референс: {reference.upper()}")
+        print(f"{'='*60}")
+        
+        results = {}
+        
+        # Загружаем изображение ОДИН РАЗ
+        img_array = self._load_image(image_path)
+        
+        for method in self.active_contour_methods:
+            print(f"\n📊 Метод: {method}")
+            
+            try:
+                # 1. Torch реализация
+                torch_segmenter = TorchSegmenter(method=method)
+                torch_mask = torch_segmenter.segment(img_array)
+                
+                # 2. Референсная реализация
+                if reference == "sklearn":
+                    ref_segmenter = SklearnSegmenter(method=method)
+                else:  # opencv
+                    ref_segmenter = OpenCVSegmenter(method=method)
+                
+                ref_mask = ref_segmenter.segment(img_array)
+                
+                # 3. Вычисляем метрики соответствия
+                metrics = SegmentationMetrics.calculate_all_metrics(
+                    torch_mask, ref_mask, threshold=0.5, include_hausdorff=False
+                )
+                
+                # 4. Определяем статус валидации
+                validation_status = self._check_validation_status(metrics)
+                
+                results[method] = {
+                    'torch_mask': torch_mask,
+                    'reference_mask': ref_mask,
+                    'metrics': metrics,
+                    'validation_status': validation_status,
+                    'success': True,
+                    'reference_library': reference
+                }
+                
+                # Вывод результатов
+                status_icon = "✅" if validation_status == "PASS" else "⚠️"
+                print(f"   {status_icon} IoU: {metrics['iou']:.4f}")
+                print(f"   {status_icon} Dice: {metrics['dice']:.4f}")
+                print(f"   {status_icon} Pixel Accuracy: {metrics['pixel_accuracy']:.4f}")
+                print(f"   Статус: {validation_status}")
+                
+            except Exception as e:
+                print(f"   ❌ Ошибка: {e}")
+                import traceback
+                traceback.print_exc()
+                results[method] = {
+                    'success': False,
+                    'error': str(e),
+                    'reference_library': reference
+                }
+        
+        # Сохраняем результаты
+        self._save_validation_results(results, "active_contour_validation", reference)
+        self._visualize_validation(results, img_array, "active_contour", reference)
+        
+        return results
+    
+    def validate_watershed_methods(
+        self,
+        image_path: str,
+        reference: str = "opencv"  # Для edge методов лучше OpenCV
+    ) -> Dict:
+        """
+        Валидация методов водораздела
+        """
+        print(f"\n{'='*60}")
+        print(f"ВАЛИДАЦИЯ МЕТОДОВ ВОДОРАЗДЕЛА")
+        print(f"Референс: {reference.upper()}")
+        print(f"{'='*60}")
+        
+        results = {}
+        
+        # Загружаем изображение ОДИН РАЗ
+        img_array = self._load_image(image_path)
+        
+        for method in self.watershed_methods:
+            print(f"\n📊 Метод: {method}")
+            
+            try:
+                # 1. Torch реализация
+                torch_segmenter = TorchSegmenter(method=method)
+                torch_mask = torch_segmenter.segment(img_array)
+                
+                # 2. Референсная реализация
+                if reference == "sklearn":
+                    ref_segmenter = SklearnSegmenter(method=method)
+                else:  # opencv
+                    ref_segmenter = OpenCVSegmenter(method=method)
+                
+                ref_mask = ref_segmenter.segment(img_array)
+                
+                # 3. Вычисляем метрики соответствия
+                metrics = SegmentationMetrics.calculate_all_metrics(
+                    torch_mask, ref_mask, threshold=0.5, include_hausdorff=False
+                )
+                
+                # 4. Определяем статус валидации
+                validation_status = self._check_validation_status(metrics)
+                
+                results[method] = {
+                    'torch_mask': torch_mask,
+                    'reference_mask': ref_mask,
+                    'metrics': metrics,
+                    'validation_status': validation_status,
+                    'success': True,
+                    'reference_library': reference
+                }
+                
+                # Вывод результатов
+                status_icon = "✅" if validation_status == "PASS" else "⚠️"
+                print(f"   {status_icon} IoU: {metrics['iou']:.4f}")
+                print(f"   {status_icon} Dice: {metrics['dice']:.4f}")
+                print(f"   {status_icon} Pixel Accuracy: {metrics['pixel_accuracy']:.4f}")
+                print(f"   Статус: {validation_status}")
+                
+            except Exception as e:
+                print(f"   ❌ Ошибка: {e}")
+                import traceback
+                traceback.print_exc()
+                results[method] = {
+                    'success': False,
+                    'error': str(e),
+                    'reference_library': reference
+                }
+        
+        # Сохраняем результаты
+        self._save_validation_results(results, "watershed_validation", reference)
+        self._visualize_validation(results, img_array, "watershed", reference)
+        
+        return results
+    
+    def validate_super_pixel_methods(
+        self,
+        image_path: str,
+        reference: str = "opencv"  # Для edge методов лучше OpenCV
+    ) -> Dict:
+        """
+        Валидация суперпиксельных методов
+        """
+        print(f"\n{'='*60}")
+        print(f"ВАЛИДАЦИЯ СУПЕРПИКСЕЛЬНЫХ МЕТОДОВ")
+        print(f"Референс: {reference.upper()}")
+        print(f"{'='*60}")
+        
+        results = {}
+        
+        # Загружаем изображение ОДИН РАЗ
+        img_array = self._load_image(image_path)
+        
+        for method in self.super_pixel_methods:
+            print(f"\n📊 Метод: {method}")
+            
+            try:
+                # 1. Torch реализация
+                torch_segmenter = TorchSegmenter(method=method)
+                torch_mask = torch_segmenter.segment(img_array)
+                
+                # 2. Референсная реализация
+                if reference == "sklearn":
+                    ref_segmenter = SklearnSegmenter(method=method)
+                else:  # opencv
+                    ref_segmenter = OpenCVSegmenter(method=method)
+                
+                ref_mask = ref_segmenter.segment(img_array)
+                
+                # 3. Вычисляем метрики соответствия
+                metrics = SegmentationMetrics.calculate_all_metrics(
+                    torch_mask, ref_mask, threshold=0.5, include_hausdorff=False
+                )
+                
+                # 4. Определяем статус валидации
+                validation_status = self._check_validation_status(metrics)
+                
+                results[method] = {
+                    'torch_mask': torch_mask,
+                    'reference_mask': ref_mask,
+                    'metrics': metrics,
+                    'validation_status': validation_status,
+                    'success': True,
+                    'reference_library': reference
+                }
+                
+                # Вывод результатов
+                status_icon = "✅" if validation_status == "PASS" else "⚠️"
+                print(f"   {status_icon} IoU: {metrics['iou']:.4f}")
+                print(f"   {status_icon} Dice: {metrics['dice']:.4f}")
+                print(f"   {status_icon} Pixel Accuracy: {metrics['pixel_accuracy']:.4f}")
+                print(f"   Статус: {validation_status}")
+                
+            except Exception as e:
+                print(f"   ❌ Ошибка: {e}")
+                import traceback
+                traceback.print_exc()
+                results[method] = {
+                    'success': False,
+                    'error': str(e),
+                    'reference_library': reference
+                }
+        
+        # Сохраняем результаты
+        self._save_validation_results(results, "super_pixel_validation", reference)
+        self._visualize_validation(results, img_array, "super_pixel", reference)
         
         return results
     
@@ -2996,6 +3469,78 @@ def main():
         reference="sklearn"
     )
     all_results['edge_custom'] = edge_results_enhanced
+
+    region_results_sklearn = validator.validate_region_methods(
+        test_image_path,
+        reference="sklearn"
+    )
+    all_results['region_sklearn'] = region_results_sklearn
+
+    region_results_opencv = validator.validate_region_methods(
+        test_image_path,
+        reference="opencv"
+    )
+    all_results['region_opencv'] = region_results_opencv
+
+    interactive_results_sklearn = validator.validate_interactive_methods(
+        test_image_path,
+        reference="sklearn"
+    )
+    all_results['interactive_sklearn'] = interactive_results_sklearn
+
+    interactive_results_opencv = validator.validate_interactive_methods(
+        test_image_path,
+        reference="opencv"
+    )
+    all_results['interactive_opencv'] = interactive_results_opencv
+
+    clastering_results_sklearn = validator.validate_clastering_methods(
+        test_image_path,
+        reference="sklearn"
+    )
+    all_results['clastering_sklearn'] = clastering_results_sklearn
+
+    clastering_results_opencv = validator.validate_clastering_methods(
+        test_image_path,
+        reference="opencv"
+    )
+    all_results['clastering_opencv'] = clastering_results_opencv
+
+    active_contour_results_sklearn = validator.validate_active_contour_methods(
+        test_image_path,
+        reference="sklearn"
+    )
+    all_results['active_contour_sklearn'] = active_contour_results_sklearn
+
+    active_contour_results_opencv = validator.validate_active_contour_methods(
+        test_image_path,
+        reference="opencv"
+    )
+    all_results['active_contour_opencv'] = active_contour_results_opencv
+
+    watershed_results_sklearn = validator.validate_watershed_methods(
+        test_image_path,
+        reference="sklearn"
+    )
+    all_results['watershed_sklearn'] = watershed_results_sklearn
+
+    watershed_results_opencv = validator.validate_watershed_methods(
+        test_image_path,
+        reference="opencv"
+    )
+    all_results['watershed_opencv'] = watershed_results_opencv
+
+    super_pixel_results_sklearn = validator.validate_super_pixel_methods(
+        test_image_path,
+        reference="sklearn"
+    )
+    all_results['super_pixel_sklearn'] = super_pixel_results_sklearn
+
+    super_pixel_results_opencv = validator.validate_super_pixel_methods(
+        test_image_path,
+        reference="opencv"
+    )
+    all_results['super_pixel_opencv'] = super_pixel_results_opencv
     
     # 5. Генерация сводного отчёта
     validator.generate_validation_report(all_results)

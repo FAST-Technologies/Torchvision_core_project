@@ -2,6 +2,8 @@
 
 # Импорт основных библиотек
 
+from BaseSegmenter import BaseSegmenter
+
 import cv2
 import numpy as np
 from typing import (
@@ -13,15 +15,18 @@ from collections import deque
 from scipy import ndimage
 import math
 
-class OpenCVSegmenter:
+class OpenCVSegmenter(BaseSegmenter):
     """
-    Класс для реализации сегментации изображений с использованием чистого OpenCV.
+    Класс для реализации методов сегментации изображений с использованием чистого OpenCV.
+    Поддерживает как классические методы (пороговые, граничные), так и методы на основе кластеризации,
+    активных контуров и графов.
     """  
     def __init__(
         self, 
         method: str = "global_thresholding", 
         **kwargs
     ) -> None:
+        super().__init__()
         self.method: str = method
         self.params: Dict[str, Any] = kwargs
         self._setup_methods()
@@ -70,7 +75,7 @@ class OpenCVSegmenter:
         }
         
         if self.method not in self.methods:
-             raise ValueError(f"Неизвестный метод: {self.method}. "
+            raise ValueError(f"Неизвестный метод: {self.method}. "
                            f"Доступные методы: {list(self.methods.keys())}")
     
     def segment(
@@ -99,7 +104,9 @@ class OpenCVSegmenter:
             image: Входное изображение
         
         Returns:
-            Tuple[np.ndarray, np.ndarray]: Визуализация и маска
+            Tuple[np.ndarray, np.ndarray]:
+                - Визуализация: исходное изображение с наложенной маской (0–255, RGB).
+                - Маска: бинарная маска (0–255, grayscale).
         """
         mask = self.segment(image)
         
@@ -129,7 +136,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Глобальная пороговая сегментация"""
+        """
+        Глобальная пороговая сегментация.
+
+        Применяет фиксированный порог ко всему изображению.
+        Все пиксели яркостью выше порога становятся белыми (объект), остальные — черными (фон).
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            Бинарная маска (0/255).
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -143,7 +161,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Адаптивная пороговая сегментация"""
+        """
+        Адаптивная пороговая сегментация (Gaussian).
+
+        Вычисляет локальный порог для каждой области изображения.
+        Особенно эффективна при неравномерном освещении.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -164,7 +193,17 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Метод Оцу"""
+        """
+        Автоматическая бинаризация по методу Оцу.
+
+        Находит оптимальный порог, максимизирующий межклассовую дисперсию между фоном и объектом.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -177,7 +216,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Порог Ниблака"""
+        """
+        Адаптивная пороговая обработка по Ниблаку.
+
+        Порог вычисляется как: T = μ + k·σ, где μ и σ — локальное среднее и СКО.
+        Хорошо работает на изображениях с шумом и градиентом освещения.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -190,6 +240,10 @@ class OpenCVSegmenter:
         mean = cv2.boxFilter(gray, cv2.CV_32F, (window_size, window_size))
         mean_sq = cv2.boxFilter(gray.astype(np.float32)**2, cv2.CV_32F, (window_size, window_size))
         std = np.sqrt(mean_sq - mean**2)
+
+        # Или
+        # mean = cv2.blur(gray, (window_size, window_size))
+        # std = np.sqrt(cv2.boxFilter(gray.astype(float)**2, -1, (window_size, window_size)) - mean**2)
         
         # Вычисляем порог
         threshold = mean + k * std
@@ -201,7 +255,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Порог Сауволы"""
+        """
+        Улучшенная адаптивная пороговая обработка по Сауволе.
+
+        Порог: T = μ·(1 + k·(σ/R - 1)), где R — динамический диапазон (обычно 128).
+        Лучше Ниблака при очень низком контрасте.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -215,6 +280,9 @@ class OpenCVSegmenter:
         mean = cv2.boxFilter(gray, cv2.CV_32F, (window_size, window_size))
         mean_sq = cv2.boxFilter(gray.astype(np.float32)**2, cv2.CV_32F, (window_size, window_size))
         std = np.sqrt(mean_sq - mean**2)
+
+        # mean = cv2.blur(gray, (window_size, window_size))
+        # std = np.sqrt(cv2.boxFilter(gray.astype(float)**2, -1, (window_size, window_size)) - mean**2)
         
         # Вычисляем порог
         threshold = mean * (1 + k * (std / r - 1))
@@ -227,7 +295,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Детектор границ Собеля"""
+        """
+        Обнаружение границ оператором Собеля.
+
+        Вычисляет градиент интенсивности по горизонтали и вертикали, затем объединяет их.
+        Применяется порог к величине градиента для получения бинарной маски границ.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -240,6 +319,10 @@ class OpenCVSegmenter:
         
         magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
         magnitude = np.uint8(255 * magnitude / np.max(magnitude))
+        # Или
+        # magnitude = cv2.magnitude(sobelx, sobely)
+        # sobel_norm = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
+        # _, mask = cv2.threshold(sobel_norm.astype(np.uint8), threshold, 255, cv2.THRESH_BINARY)
         
         _, mask = cv2.threshold(magnitude, threshold, 255, cv2.THRESH_BINARY)
         return mask
@@ -248,7 +331,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Детектор границ Кэнни"""
+        """
+        Обнаружение границ оператором Кэнни.
+
+        Многоэтапный алгоритм: сглаживание, вычисление градиента, подавление немаксимумов,
+        двойная пороговая фильтрация и отслеживание связных границ.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -265,21 +359,36 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Region Growing сегментация"""
+        """
+        Сегментация методом Region Growing (роста регионов).
+
+        Начинает с заданной точки (или центра) и рекурсивно добавляет соседние пиксели,
+        интенсивность которых отличается от средней интенсивности региона не более чем на допуск.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска выращенного региона.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
         
         h, w = gray.shape
+
         seed = self.params.get('seed', (w//2, h//2))
         tolerance = self.params.get('tolerance', 15)
+
+        if seed is None or not (0 <= seed[0] < w and 0 <= seed[1] < h):
+            seed = (w // 2, h // 2) # (x, y)
         
-        mask = np.zeros((h, w), dtype=np.uint8)
-        visited = np.zeros((h, w), dtype=bool)
+        mask: np.ndarray = np.zeros((h, w), dtype=np.uint8)
+        visited: np.ndarray = np.zeros((h, w), dtype=bool)
         
         queue = deque([seed])
-        start_value = gray[seed[1], seed[0]]
+        start_value = float(gray[seed[1], seed[0]])
         
         while queue:
             x, y = queue.popleft()
@@ -297,7 +406,9 @@ class OpenCVSegmenter:
                     for dy in [-1, 0, 1]:
                         if dx == 0 and dy == 0:
                             continue
-                        queue.append((x + dx, y + dy))
+                        nx, ny = x + dx, y + dy
+                        if 0 <= nx < w and 0 <= ny < h and not visited[ny, nx]:
+                            queue.append((nx, ny))
         
         return mask
     
@@ -305,7 +416,19 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Split and Merge алгоритм"""
+        """
+        Рекурсивный алгоритм разделения и слияния регионов.
+
+        Рекурсивно делит изображение на квадранты до тех пор, пока дисперсия внутри региона
+        не станет меньше заданного порога. Затем объединяет похожие соседние регионы.
+        Возвращает маску второго по величине региона (предполагаемый объект).
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -389,8 +512,8 @@ class OpenCVSegmenter:
             idx = np.argsort(sizes)[-2]  # Второй по величине
             mask = np.zeros((h, w), dtype=np.uint8)
             for x, y in regions[idx]:
-                mask[y, x] = 255
-            return mask
+                mask[y, x] = True
+            return mask.astype(np.uint8) * 255
         
         return np.zeros((h, w), dtype=np.uint8)
     
@@ -398,7 +521,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """FloodFill сегментация"""
+        """
+        Сегментация методом заливки (Flood Fill).
+
+        Начиная с заданной точки, рекурсивно заполняет все связанные пиксели,
+        интенсивность которых отличается от исходной не более чем на допуск.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) залитой области.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -407,7 +541,9 @@ class OpenCVSegmenter:
         h, w = gray.shape
         
         # Начальная точка
-        seed = self.params.get('seed', (w//2, h//2))
+        seed = self.params.get('seed', None)
+        if seed is None:
+            seed = (w // 2, h // 2)
         
         # Создаем маску
         mask = np.zeros((h+2, w+2), np.uint8)
@@ -420,16 +556,32 @@ class OpenCVSegmenter:
         cv2.floodFill(gray.copy(), mask, seed, 255, 
                      (tolerance,)*3, (tolerance,)*3, flags)
         
-        return mask[1:-1, 1:-1] * 255
+        # Извлекаем маску
+        mask_final = mask[1:-1, 1:-1] * 255
+        
+        # Опционально: заполняем дыры
+        mask_final = ndimage.binary_fill_holes(mask_final > 0).astype(np.uint8) * 255
+        
+        return mask_final
 
     # ============ КЛАСТЕРИЗАЦИЯ ============
     def _opencv_kmeans_segmentation(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """K-Means кластеризация на OpenCV"""
+        """
+        Сегментация методом K-Means кластеризации.
+
+        Группирует пиксели по цветовому признаку в K кластеров.
+        Самый крупный кластер считается фоном; остальные — объектами.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 2:
-            # Если grayscale, конвертируем в BGR
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         
         h, w = img.shape[:2]
@@ -452,7 +604,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """DBSCAN на OpenCV (упрощенная реализация)"""
+        """
+        Сегментация методом DBSCAN кластеризации.
+
+        Группирует пиксели на основе плотности. Пиксели, не принадлежащие ни одному кластеру (шум),
+        исключаются. Самый крупный кластер считается фоном.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -481,7 +644,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """MeanShift сегментация"""
+        """
+        Сегментация методом MeanShift.
+
+        Итеративно сдвигает каждый пиксель к локальному центру масс в пространстве признаков
+        (цвет + координаты). Результатом является кластеризация пикселей по плотности.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
+        """
         spatial_radius = self.params.get('spatial_radius', 60)
         color_radius = self.params.get('color_radius', 60)
         max_level = self.params.get('max_level', 1)
@@ -501,7 +675,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Активные контуры на OpenCV"""
+        """
+        Сегментация активными контурами (Snakes).
+
+        Инициализирует замкнутый контур (обычно окружность) и деформирует его под действием
+        внутренних (упругость, жесткость) и внешних (притяжение к границам) сил до равновесия.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) внутри замкнутого контура.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -530,7 +715,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Gradient Vector Flow (упрощенная версия)"""
+        """
+        Сегментация на основе Gradient Vector Flow (GVF).
+
+        Вычисляет векторное поле, распространяющее информацию о градиентах по всему изображению.
+        Это позволяет контуру "чувствовать" границы даже на расстоянии. Маска строится по величине GVF.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -564,13 +760,26 @@ class OpenCVSegmenter:
         gvf_mag = np.uint8(255 * gvf_mag / np.max(gvf_mag))
         
         _, mask = cv2.threshold(gvf_mag, 50, 255, cv2.THRESH_BINARY)
+        mask = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
+
         return mask
     
     def _opencv_morphological_snakes(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Морфологические змеи"""
+        """
+        Сегментация морфологическими змеями.
+
+        Итеративно расширяет или сужает бинарную маску на основе величины градиента.
+        Области с низким градиентом "поглощаются", с высоким — отбрасываются.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -605,7 +814,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Chan-Vese активные контуры без градиентов"""
+        """
+        Модель Chan-Vese — активные контуры без градиентов.
+
+        Энергетическая модель, которая разделяет изображение на две области с минимальной
+        внутрирегиональной дисперсией. Подходит для объектов без четких границ.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска: 255 — внутренняя область контура.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -647,12 +867,26 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Watershed алгоритм"""
+        """
+        Сегментация методом водораздела (Watershed).
+
+        Использует морфологические операции и преобразование расстояния для выделения
+        надежных маркеров переднего плана и фона. Алгоритм "затопляет" изображение от маркеров,
+        формируя границы между объектами.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) всех сегментированных объектов.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
         
+        # blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        # _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         # Бинаризация
         _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         
@@ -689,7 +923,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Random Walker (упрощенная версия)"""
+        """
+        Сегментация методом Random Walker.
+
+        На основе маркеров (пользовательских или автоматических) решается задача на графе:
+        каждый пиксель "принадлежит" тому маркеру, до которого "случайное блуждание" короче.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска переднего плана.
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -726,14 +971,36 @@ class OpenCVSegmenter:
         img: np.ndarray
     ) -> np.ndarray:
         """Quickshift (упрощенная версия на основе superpixels)"""
-        # Используем простую кластеризацию по цвету
+        """
+        Сегментация методом Quickshift (реализована через MeanShift как аналог).
+
+        Находит моды в плотности распределения пикселей в пространстве признаков.
+        Группирует пиксели, принадлежащие одной моде.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
+        """
         return self._kmeans_segmentation(img)
     
     def _opencv_slic(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """SLIC superpixels (упрощенная реализация)"""
+        """
+        SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.
+
+        Группирует пиксели в компактные, однородные регионы (суперпиксели) на основе пространственной
+        и цветовой близости. Самый крупный суперпиксель считается фоном.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8): 255 — все суперпиксели, кроме фона.
+        """
         h, w = img.shape[:2]
         
         # Разбиваем изображение на регионы
@@ -765,7 +1032,18 @@ class OpenCVSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Felzenszwalb (графовая сегментация - упрощенная версия)"""
+        """
+        Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
+
+        Строит сегментацию, начиная с мелких регионов и объединяя их, если внутреннее различие
+        меньше межрегионального. Очень эффективен для выделения объектов разного масштаба.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            Бинарная маска: 255 — все регионы, кроме самого крупного (фона).
+        """
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -787,29 +1065,86 @@ class OpenCVSegmenter:
         return combined
     
     # ============ ИНТЕРАКТИВНЫЕ МЕТОДЫ ============
+    # def _opencv_grabcut(
+    #     self, 
+    #     img: np.ndarray
+    # ) -> np.ndarray:
+    #     """
+    #     Интерактивная сегментация GrabCut.
+
+    #     Использует прямоугольник для инициализации фона и переднего плана.
+    #     Строит модели цветового распределения (GMM) и уточняет границы итеративно.
+
+    #     Args:
+    #         img: Входное изображение (RGB).
+
+    #     Returns:
+    #         np.ndarray: Бинарная маска (0/255, dtype=np.uint8) переднего плана.
+    #     """
+    #     h, w = img.shape[:2]
+        
+    #     # Создаем маску
+    #     mask = np.zeros((h, w), np.uint8)
+        
+    #     # Прямоугольник для инициализации (центр изображения)
+    #     rect = self.params.get('rect', (w//4, h//4, w//2, h//2))
+        
+    #     # Временные массивы
+    #     bgd_model = np.zeros((1, 65), np.float64)
+    #     fgd_model = np.zeros((1, 65), np.float64)
+        
+    #     # Применяем GrabCut
+    #     cv2.grabCut(img, mask, rect, bgd_model, fgd_model, 
+    #                self.params.get('iterations', 5), cv2.GC_INIT_WITH_RECT)
+        
+    #     # Создаем финальную маску
+    #     mask2 = np.where((mask == 2) | (mask == 0), 0, 1).astype('uint8')
+    #     result_mask = mask2 * 255
+        
+    #     return result_mask
+
     def _opencv_grabcut(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """GrabCut сегментация"""
-        h, w = img.shape[:2]
+        """
+        Интерактивная сегментация GrabCut.
+
+        Использует прямоугольник для инициализации фона и переднего плана.
+        Строит модели цветового распределения (GMM) и уточняет границы итеративно.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) переднего плана.
+        """
+        # Параметры
+        rect = self.params.get('rect', None)
+        iter_count = self.params.get('iterations', 10)
         
-        # Создаем маску
-        mask = np.zeros((h, w), np.uint8)
+        # Создаем маску и модель
+        mask = np.zeros(img.shape[:2], dtype=np.uint8)
+        bgd_model = np.zeros((1, 65), dtype=np.float64)
+        fgd_model = np.zeros((1, 65), dtype=np.float64)
         
-        # Прямоугольник для инициализации (центр изображения)
-        rect = self.params.get('rect', (w//4, h//4, w//2, h//2))
-        
-        # Временные массивы
-        bgd_model = np.zeros((1, 65), np.float64)
-        fgd_model = np.zeros((1, 65), np.float64)
+        # Если прямоугольник не задан, используем центральную часть
+        if rect is None:
+            h, w = img.shape[:2]
+            rect = (int(w*0.25), int(h*0.25), int(w*0.5), int(h*0.5))
         
         # Применяем GrabCut
-        cv2.grabCut(img, mask, rect, bgd_model, fgd_model, 
-                   self.params.get('iterations', 5), cv2.GC_INIT_WITH_RECT)
+        mask, bgd_model, fgd_model = cv2.grabCut(
+            img, mask, rect, bgd_model, fgd_model, 
+            iter_count, cv2.GC_INIT_WITH_RECT
+        )
         
-        # Создаем финальную маску
-        mask2 = np.where((mask == 2) | (mask == 0), 0, 1).astype('uint8')
-        result_mask = mask2 * 255
+        # Создаем финальную маску (0-255)
+        mask_final = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
         
-        return result_mask
+        # Опционально: применение морфологических операций для улучшения результата
+        kernel = np.ones((3, 3), np.uint8)
+        mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_CLOSE, kernel, iterations=2)
+        mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_OPEN, kernel, iterations=2)
+        
+        return mask_final

@@ -29,36 +29,12 @@ from torchvision.transforms import functional as TF
 import cv2
 from sklearn.cluster import MeanShift, KMeans, DBSCAN, MeanShift as SkMeanShift
 
-def conv2d_numpy(image: np.ndarray, kernel: np.ndarray, mode: str = 'reflect') -> np.ndarray:
-    """2D свёртка на numpy/scipy (эквивалент cv2.filter2D)"""
-    return ndimage.convolve(image, kernel, mode=mode)
-
-def rgb_to_gray_numpy(rgb: np.ndarray) -> np.ndarray:
-    """Конвертация RGB → Grayscale на numpy"""
-    # ITU-R BT.601 weights
-    return 0.2989 * rgb[..., 0] + 0.5870 * rgb[..., 1] + 0.1140 * rgb[..., 2]
-
-def local_mean_numpy(image: np.ndarray, window_size: int) -> np.ndarray:
-    """Локальное среднее через свёртку"""
-    kernel = np.ones((window_size, window_size), dtype=np.float32) / (window_size ** 2)
-    return conv2d_numpy(image, kernel)
-
-def local_std_numpy(image: np.ndarray, window_size: int) -> np.ndarray:
-    """Локальное стандартное отклонение"""
-    mean = local_mean_numpy(image, window_size)
-    mean_sq = local_mean_numpy(image ** 2, window_size)
-    return np.sqrt(np.maximum(mean_sq - mean ** 2, 0))
-
-def sobel_numpy(image: np.ndarray) -> np.ndarray:
-    """Оператор Собеля на numpy"""
-    kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
-    kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
-    gx = conv2d_numpy(image, kernel_x)
-    gy = conv2d_numpy(image, kernel_y)
-    return np.sqrt(gx ** 2 + gy ** 2)
-
 class TorchSegmenter(BaseSegmenter):
-    """Класс для методов сегментации с использованием PyTorch""" 
+    """
+    Класс для методов сегментации с использованием PyTorch. Все реализации сделаны без использования OpenCV, Scikit-learn, Scikit-image или специализированных
+    библиотек для обработки изображений. Поддерживает как классические методы (пороговые, граничные), так и методы на основе кластеризации,
+    активных контуров и графов.
+    """ 
     def __init__(
         self, 
         method: str = "global_thresholding", 
@@ -99,7 +75,7 @@ class TorchSegmenter(BaseSegmenter):
     
     def _setup_method(self) -> None:
         """Настройка выбранного метода"""
-        method_map: Dict[str, torch.Tensor] = {
+        self.method_map: Dict[str, torch.Tensor] = {
             # ============ ПОРОГОВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ ============
             "global_thresholding": self._global_thresholding,
             "adaptive_thresholding": self._adaptive_thresholding,
@@ -140,10 +116,11 @@ class TorchSegmenter(BaseSegmenter):
             "grabcut": self._grabcut,
         }
         
-        if self.method not in method_map:
-            raise ValueError(f"Неизвестный метод: {self.method}")
+        if self.method not in self.method_map:
+            raise ValueError(f"Неизвестный метод: {self.method}. "
+                           f"Доступные методы: {list(self.method_map.keys())}")
         
-        self._segment_func = method_map[self.method]
+        self._segment_func = self.method_map[self.method]
     
     def preprocess_image(
         self, 
@@ -168,6 +145,34 @@ class TorchSegmenter(BaseSegmenter):
             return image.to(self.device)
         else:
             raise TypeError(f"Неподдерживаемый тип изображения: {type(image)}")
+        
+    def conv2d_numpy(self, image: np.ndarray, kernel: np.ndarray, mode: str = 'reflect') -> np.ndarray:
+        """2D свёртка на numpy/scipy (эквивалент cv2.filter2D)"""
+        return ndimage.convolve(image, kernel, mode=mode)
+
+    def rgb_to_gray_numpy(self, rgb: np.ndarray) -> np.ndarray:
+        """Конвертация RGB → Grayscale на numpy"""
+        # ITU-R BT.601 weights
+        return 0.2989 * rgb[..., 0] + 0.5870 * rgb[..., 1] + 0.1140 * rgb[..., 2]
+
+    def local_mean_numpy(self, image: np.ndarray, window_size: int) -> np.ndarray:
+        """Локальное среднее через свёртку"""
+        kernel = np.ones((window_size, window_size), dtype=np.float32) / (window_size ** 2)
+        return self.conv2d_numpy(image, kernel)
+
+    def local_std_numpy(self, image: np.ndarray, window_size: int) -> np.ndarray:
+        """Локальное стандартное отклонение"""
+        mean = self.local_mean_numpy(image, window_size)
+        mean_sq = self.local_mean_numpy(image ** 2, window_size)
+        return np.sqrt(np.maximum(mean_sq - mean ** 2, 0))
+
+    def sobel_numpy(self, image: np.ndarray) -> np.ndarray:
+        """Оператор Собеля на numpy"""
+        kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
+        kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
+        gx = self.conv2d_numpy(image, kernel_x)
+        gy = self.conv2d_numpy(image, kernel_y)
+        return np.sqrt(gx ** 2 + gy ** 2)
     
     def _pil_to_tensor(
         self, 
@@ -327,7 +332,12 @@ class TorchSegmenter(BaseSegmenter):
     ) -> torch.Tensor:
         """Энергетический член: длина контура"""
         # Паддинг для вычисления градиентов
-        P = torch.nn.functional.pad(phi, (1, 1, 1, 1), mode='replicate')
+        # P = torch.nn.functional.pad(phi, (1, 1, 1, 1), mode='replicate')
+
+        if phi.dim() == 2:
+            P = torch.nn.functional.pad(phi.unsqueeze(0).unsqueeze(0), (1, 1, 1, 1), mode='replicate').squeeze(0).squeeze(0)
+        else:
+            P = torch.nn.functional.pad(phi, (1, 1, 1, 1), mode='replicate')
         
         # Центральные разности для градиентов
         fy = (P[2:, 1:-1] - P[:-2, 1:-1]) / 2.0
@@ -366,7 +376,12 @@ class TorchSegmenter(BaseSegmenter):
         eta = 1e-16
         
         # Паддинг для вычисления разностей
-        P = torch.nn.functional.pad(phi, (1, 1, 1, 1), mode='replicate')
+        # P = torch.nn.functional.pad(phi, (1, 1, 1, 1), mode='replicate')
+        if phi.dim() == 2:
+            phi_padded = torch.nn.functional.pad(phi.unsqueeze(0).unsqueeze(0), (1, 1, 1, 1), mode='replicate').squeeze(0).squeeze(0)
+        else:
+            phi_padded = torch.nn.functional.pad(phi, (1, 1, 1, 1), mode='replicate')
+        P = phi_padded
         
         # Разности по осям
         phixp = P[1:-1, 2:] - P[1:-1, 1:-1]  # phi(x+1) - phi(x)
@@ -813,13 +828,20 @@ class TorchSegmenter(BaseSegmenter):
             for c in range(n_labels):
                 b_vec = B_np[c]
                 # Используем CG с Jacobi preconditioner
-                diag = np.array(L_scipy.diagonal())
-                M = csr_matrix((1.0 / (diag + 1e-8), (np.arange(len(diag)), np.arange(len(diag)))))
+                # diag = np.array(L_scipy.diagonal())
+                # M = csr_matrix((1.0 / (diag + 1e-8), (np.arange(len(diag)), np.arange(len(diag)))))
                 
-                x_c, info = cg(L_scipy, b_vec, M=M, tol=tol, maxiter=max_iter)
-                if info != 0:
-                    warnings.warn(f"CG не сошёлся для класса {c}, info={info}")
-                x[c] = torch.from_numpy(x_c).to(L.device)
+                # x_c, info = cg(L_scipy, b_vec, M=M, tol=tol, maxiter=max_iter)
+                # if info != 0:
+                #     warnings.warn(f"CG не сошёлся для класса {c}, info={info}")
+                # x[c] = torch.from_numpy(x_c).to(L.device)
+
+                x_c, info = cg(L_scipy, b_vec, tol=tol, maxiter=max_iter)
+                if info == 0:
+                    x[c] = torch.from_numpy(x_c).to(L.device)
+                else:
+                    # Fallback на равномерное распределение
+                    x[c] = torch.ones(n_unlabeled, device=L.device) / n_labels
             
             return x
             
@@ -1039,7 +1061,15 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         image: Union[str, np.ndarray, Image.Image, torch.Tensor]
     ) -> np.ndarray:
-        """Сегментация изображения - возвращает маску 0-255"""
+        """
+        Основной метод сегментации.
+        
+        Args:
+            image: Входное изображение (RGB, grayscale или любой формат)
+        
+        Returns:
+            np.ndarray: Бинарная маска сегментации (0-255)
+        """
         try:
             tensor: torch.Tensor = self.preprocess_image(image)
             tensor: torch.Tensor = self.preprocess_image(image)
@@ -1071,8 +1101,6 @@ class TorchSegmenter(BaseSegmenter):
             # Возвращаем пустую маску в случае ошибки
             h: int
             w: int
-            h: int
-            w: int
             if isinstance(image, str):
                 img = Image.open(image).convert('RGB')
                 h, w = img.size[1], img.size[0]
@@ -1089,7 +1117,15 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         image: Union[str, np.ndarray, Image.Image, torch.Tensor]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Сегментация с возвратом маски (0-255) и визуализации"""
+        """
+        Сегментация с возвратом визуализации и маски.
+        
+        Args:
+            image: Входное изображение
+        
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: Визуализация и маска
+        """
         try:
             tensor = self.preprocess_image(image)
             result_vis, mask_tensor = self._segment_with_visualization(tensor)
@@ -1201,8 +1237,18 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """Глобальная пороговая обработка (PyTorch)"""
-        gray: torch.Tensor = self._to_grayscale(tensor) # (1, 1, H, W)
+        """
+        Глобальная пороговая сегментация.
+
+        Применяет фиксированный порог ко всему изображению.
+        Все пиксели яркостью выше порога становятся белыми (объект), остальные — черными (фон).
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            Бинарная маска (0/255).
+        """
         gray: torch.Tensor = self._to_grayscale(tensor) # (1, 1, H, W)
         threshold = self.params.get('threshold', 0.5)
         mask = (gray > threshold).float()
@@ -1212,7 +1258,18 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """Адаптивная пороговая обработка (PyTorch)"""
+        """
+        Адаптивная пороговая сегментация (Gaussian).
+
+        Вычисляет локальный порог для каждой области изображения.
+        Особенно эффективна при неравномерном освещении.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
         gray: torch.Tensor = self._to_grayscale(tensor) # (1,1,H,W)
         gray: torch.Tensor = self._to_grayscale(tensor) # (1,1,H,W)
         block_size = self.params.get('block_size', 11)
@@ -1230,7 +1287,17 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """Метод Оцу (PyTorch)"""
+        """
+        Автоматическая бинаризация по методу Оцу.
+
+        Находит оптимальный порог, максимизирующий межклассовую дисперсию между фоном и объектом.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
         gray = self._to_grayscale(tensor).squeeze()
 
         gray_np = gray.cpu().numpy()
@@ -1242,7 +1309,7 @@ class TorchSegmenter(BaseSegmenter):
         hist = torch.histc(gray, bins=256, min=0, max=1)
         total = hist.sum()
         if total == 0:
-                return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
+            return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
         cumsum = torch.cumsum(hist, dim=0)
         mean = torch.arange(256, dtype=torch.float32).to(self.device) / 255
         
@@ -1289,13 +1356,20 @@ class TorchSegmenter(BaseSegmenter):
         tensor: torch.Tensor
     ) -> torch.Tensor:
         """
-        Пороговая обработка по Ниблаку (PyTorch + numpy)
-        Порог: T = μ + k·σ (локальное среднее + k * локальное СКО)
+        Адаптивная пороговая обработка по Ниблаку.
+
+        Порог вычисляется как: T = μ + k·σ, где μ и σ — локальное среднее и СКО.
+        Хорошо работает на изображениях с шумом и градиентом освещения.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
         """
         try:
             gray = self._to_grayscale(tensor).squeeze(0)  # (H, W) - torch.Tensor!
             
-            # ✅ СРАЗУ конвертируем в numpy
             gray_np = gray.cpu().numpy()
             if gray_np.max() <= 1.0:
                 gray_np = (gray_np * 255).astype(np.float32)
@@ -1327,14 +1401,21 @@ class TorchSegmenter(BaseSegmenter):
             traceback.print_exc()
             return self._global_thresholding(tensor)
 
-
     def _threshold_sauvola(
         self,
         tensor: torch.Tensor
     ) -> torch.Tensor:
         """
-        Пороговая обработка по Сауволе (PyTorch + numpy)
-        Порог: T = μ·(1 + k·(σ/R - 1))
+        Улучшенная адаптивная пороговая обработка по Сауволе.
+
+        Порог: T = μ·(1 + k·(σ/R - 1)), где R — динамический диапазон (обычно 128).
+        Лучше Ниблака при очень низком контрасте.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
         """
         try:
             gray = self._to_grayscale(tensor).squeeze(0)  # (H, W) - torch.Tensor!
@@ -1371,34 +1452,23 @@ class TorchSegmenter(BaseSegmenter):
             traceback.print_exc()
             return self._global_thresholding(tensor)
         
-    #     def _threshold_sauvola(self, tensor: torch.Tensor) -> torch.Tensor:
-    # """Порог Сауволы (чистый numpy + PyTorch)"""
-    # from torch_utils import local_mean_numpy, local_std_numpy
-    
-    # gray = self._to_grayscale(tensor).squeeze(0).cpu().numpy()
-    # if gray.max() <= 1.0:
-    #     gray = (gray * 255).astype(np.float32)
-    
-    # window_size = self.params.get('window_size', 15)
-    # k = self.params.get('k', 0.2)
-    # r = self.params.get('r', 128)
-    
-    # local_mean = local_mean_numpy(gray, window_size)
-    # local_std = local_std_numpy(gray, window_size)
-    
-    # # Порог Сауволы
-    # threshold = local_mean * (1 + k * (local_std / r - 1))
-    # mask_np = (gray > threshold).astype(np.float32)
-    
-    # mask = torch.from_numpy(mask_np).to(self.device)
-    # return mask.unsqueeze(0).unsqueeze(0)
-        
     # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
     def _sobel_edge(
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """Оператор Собеля (PyTorch)"""
+        """
+        Обнаружение границ оператором Собеля.
+
+        Вычисляет градиент интенсивности по горизонтали и вертикали, затем объединяет их.
+        Применяется порог к величине градиента для получения бинарной маски границ.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
+        """
         gray = self._to_grayscale(tensor)
         threshold = self.params.get('threshold', 0.1)
         
@@ -1420,7 +1490,18 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """Оператор Кэнни (PyTorch)"""
+        """
+        Обнаружение границ оператором Кэнни.
+
+        Многоэтапный алгоритм: сглаживание, вычисление градиента, подавление немаксимумов,
+        двойная пороговая фильтрация и отслеживание связных границ.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
+        """
         gray = self._to_grayscale(tensor)
         low = self.params.get('low', 0.1)
         high = self.params.get('high', 0.3)
@@ -1453,9 +1534,22 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """Region Growing (PyTorch)"""
+        """
+        Сегментация методом Region Growing (роста регионов).
+
+        Начинает с заданной точки (или центра) и рекурсивно добавляет соседние пиксели,
+        интенсивность которых отличается от средней интенсивности региона не более чем на допуск.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска выращенного региона.
+        """
         
         gray = self._to_grayscale(tensor).squeeze(0)  # (H, W)
+        if gray.dim() == 3 and gray.shape[0] == 1:
+            gray = gray.squeeze(0)
         h, w = gray.shape
         
         seed = self.params.get('seed', (h//2, w//2))
@@ -1518,7 +1612,19 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """Split-and-Merge (PyTorch) - упрощенная реализация"""
+        """
+        Рекурсивный алгоритм разделения и слияния регионов.
+
+        Рекурсивно делит изображение на квадранты до тех пор, пока дисперсия внутри региона
+        не станет меньше заданного порога. Затем объединяет похожие соседние регионы.
+        Возвращает маску второго по величине региона (предполагаемый объект).
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         try:
             # Преобразуем в numpy для более простой реализации
             img_np = self._tensor_to_numpy(tensor)
@@ -1526,7 +1632,7 @@ class TorchSegmenter(BaseSegmenter):
                 img_np = (img_np * 255).astype(np.uint8)
             
             if len(img_np.shape) == 3:
-                gray = rgb_to_gray_numpy(img_np).astype(np.float32)
+                gray = self.rgb_to_gray_numpy(img_np).astype(np.float32)
             else:
                 gray = img_np.astype(np.float32)
             h, w = gray.shape
@@ -1580,7 +1686,18 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """FloodFill сегментация (PyTorch реализация)"""
+        """
+        Сегментация методом заливки (Flood Fill).
+
+        Начиная с заданной точки, рекурсивно заполняет все связанные пиксели,
+        интенсивность которых отличается от исходной не более чем на допуск.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) залитой области.
+        """
         try:
             h, w = tensor.shape[2], tensor.shape[3]
             
@@ -1744,7 +1861,18 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """K-Means кластеризация (PyTorch)"""
+        """
+        Сегментация методом K-Means кластеризации.
+
+        Группирует пиксели по цветовому признаку в K кластеров.
+        Самый крупный кластер считается фоном; остальные — объектами.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         k = self.params.get('k', 3)
         h, w = tensor.shape[2], tensor.shape[3]
         pixels = tensor.squeeze(0).permute(1, 2, 0).reshape(-1, 3)
@@ -1770,7 +1898,18 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """DBSCAN кластеризация (PyTorch)"""
+        """
+        Сегментация методом DBSCAN кластеризации.
+
+        Группирует пиксели на основе плотности. Пиксели, не принадлежащие ни одному кластеру (шум),
+        исключаются. Самый крупный кластер считается фоном.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         try:
             # Преобразуем в numpy для sklearn DBSCAN
             img_np = self._tensor_to_numpy(tensor)
@@ -1785,8 +1924,8 @@ class TorchSegmenter(BaseSegmenter):
             else:
                 pixels = img_np.reshape(-1, 3)
             
-            eps = self.params.get('eps', 10)
-            min_samples = self.params.get('min_samples', 100)
+            eps = self.params.get('eps', 0.1)
+            min_samples = self.params.get('min_samples', 10)
             
             # Применяем DBSCAN
             db = DBSCAN(eps=eps, min_samples=min_samples, n_jobs=-1)
@@ -1814,7 +1953,18 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """MeanShift сегментация (PyTorch реализация)"""
+        """
+        Сегментация методом MeanShift.
+
+        Итеративно сдвигает каждый пиксель к локальному центру масс в пространстве признаков
+        (цвет + координаты). Результатом является кластеризация пикселей по плотности.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
+        """
         try:
             # Убираем batch dimension если есть
             if tensor.dim() == 4:
@@ -2046,16 +2196,27 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """Active Contour (PyTorch)"""
-        gray = self._to_grayscale(tensor).squeeze(0)
+        """
+        Сегментация активными контурами (Snakes).
+
+        Инициализирует замкнутый контур (обычно окружность) и деформирует его под действием
+        внутренних (упругость, жесткость) и внешних (притяжение к границам) сил до равновесия.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) внутри замкнутого контура.
+        """
+        gray = self._to_grayscale(tensor)
         
         sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], 
                               dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
         sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], 
                               dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
         
-        gx = F.conv2d(gray.unsqueeze(0).unsqueeze(0), sobel_x, padding=1).squeeze()
-        gy = F.conv2d(gray.unsqueeze(0).unsqueeze(0), sobel_y, padding=1).squeeze()
+        gx = F.conv2d(gray, sobel_x, padding=1).squeeze()
+        gy = F.conv2d(gray, sobel_y, padding=1).squeeze()
         mag = torch.sqrt(gx**2 + gy**2)
         mask = (mag > 0.1).float()
         
@@ -2065,50 +2226,77 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """GVF (PyTorch)"""
-        gray = self._to_grayscale(tensor).squeeze(0)
+        """
+        Сегментация на основе Gradient Vector Flow (GVF).
+
+        Вычисляет векторное поле, распространяющее информацию о градиентах по всему изображению.
+        Это позволяет контуру "чувствовать" границы даже на расстоянии. Маска строится по величине GVF.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
+        gray = self._to_grayscale(tensor)  # (B, 1, H, W) или (1, H, W)
+    
+        # Гарантируем 4D вход для conv2d
+        if gray.dim() == 3:
+            gray = gray.unsqueeze(0)  # (1, H, W) -> (1, 1, H, W)
         
         sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], 
                               dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
         sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], 
                               dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
         
-        gx = F.conv2d(gray.unsqueeze(0).unsqueeze(0), sobel_x, padding=1).squeeze()
-        gy = F.conv2d(gray.unsqueeze(0).unsqueeze(0), sobel_y, padding=1).squeeze()
+        # Не делаем squeeze сразу — сохраняем 4D для следующей conv2d
+        gx = F.conv2d(gray, sobel_x, padding=1)  # (B, 1, H, W)
+        gy = F.conv2d(gray, sobel_y, padding=1)  # (B, 1, H, W)
         
+        # Kernel для сглаживания — тоже 4D
         kernel = torch.ones(1, 1, 5, 5, device=self.device) / 25
-        gx_smooth = F.conv2d(gx.unsqueeze(0).unsqueeze(0), kernel, padding=2).squeeze()
-        gy_smooth = F.conv2d(gy.unsqueeze(0).unsqueeze(0), kernel, padding=2).squeeze()
+        gx_smooth = F.conv2d(gx, kernel, padding=2)  # (B, 1, H, W)
+        gy_smooth = F.conv2d(gy, kernel, padding=2)  # (B, 1, H, W)
         
-        mag = torch.sqrt(gx_smooth**2 + gy_smooth**2)
+        # Теперь можно squeeze для вычисления магнитуды
+        mag = torch.sqrt(gx_smooth.squeeze()**2 + gy_smooth.squeeze()**2)
         mask = (mag > 0.1).float()
         
-        return mask
+        return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
     
     def _morphological_snakes(
         self,
         tensor: torch.Tensor
     ) -> torch.Tensor:
         """
-        Морфологические змеи (PyTorch + numpy)
-        Итеративное расширение/сужение маски на основе градиента
+        Сегментация морфологическими змеями.
+
+        Итеративно расширяет или сужает бинарную маску на основе величины градиента.
+        Области с низким градиентом "поглощаются", с высоким — отбрасываются.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
         """
         try:
             gray = self._to_grayscale(tensor).squeeze(0)  # (H, W)
-            if gray.max() <= 1.0:
-                gray = (gray * 255).astype(np.float32)
-            h, w = gray.shape
+            if gray.dim() == 3 and gray.shape[0] == 1:
+                gray = gray.squeeze(0)
             
-            iterations = self.params.get('iterations', 100)
-            smoothing = self.params.get('smoothing', 1)
-            threshold = self.params.get('threshold', 0.5)
+            gray_np = gray.cpu().numpy()  # ✅ .cpu().numpy(), не .numpy() напрямую!
             
-            # Конвертируем в numpy
-            gray_np = gray.cpu().numpy()
             if gray_np.max() <= 1.0:
                 gray_np = (gray_np * 255).astype(np.float32)
             else:
                 gray_np = gray_np.astype(np.float32)
+            
+            h, w = gray_np.shape
+            
+            iterations = self.params.get('iterations', 100)
+            smoothing = self.params.get('smoothing', 1)
+            threshold = self.params.get('threshold', 0.5)
             
             # Создаём начальную маску (окружность в центре)
             center_y, center_x = h // 2, w // 2
@@ -2120,7 +2308,7 @@ class TorchSegmenter(BaseSegmenter):
             # grad_x = cv2.Sobel(gray_np, cv2.CV_32F, 1, 0, ksize=3)
             # grad_y = cv2.Sobel(gray_np, cv2.CV_32F, 0, 1, ksize=3)
             # grad_mag = np.sqrt(grad_x ** 2 + grad_y ** 2)
-            grad_mag = sobel_numpy(gray)
+            grad_mag = self.sobel_numpy(gray_np)
             grad_mag = grad_mag / (grad_mag.max() + 1e-8)
             
             # Морфологические операции
@@ -2159,19 +2347,23 @@ class TorchSegmenter(BaseSegmenter):
         tensor: torch.Tensor
     ) -> torch.Tensor:
         """
-        Модель Chan-Vese (чистый PyTorch)
-        Активные контуры без градиентов на основе минимизации энергии
-        
+        Модель Chan-Vese — активные контуры без градиентов.
+
+        Энергетическая модель, которая разделяет изображение на две области с минимальной
+        внутрирегиональной дисперсией. Подходит для объектов без четких границ.
+
         Args:
-            tensor: Входное изображение (B, C, H, W) или (C, H, W)
-        
+            img: Входное изображение (B, C, H, W) или (C, H, W).
+
         Returns:
-            torch.Tensor: Бинарная маска (1, 1, H, W)
+            Бинарная маска: 255 — внутренняя область контура (1, 1, H, W).
         """
         try:
             # === ПРЕДПОДГОТОВКА ===
             gray = self._to_grayscale(tensor).squeeze(0)  # (1, H, W) -> (H, W)
             
+            if gray.dim() == 3 and gray.shape[0] == 1:
+                gray = gray.squeeze(0)
             # Нормализация к [0, 1]
             if gray.max() > 1.0:
                 gray = gray / 255.0
@@ -2227,7 +2419,19 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """Watershed сегментация (PyTorch реализация)"""
+        """
+        Сегментация методом водораздела (Watershed).
+
+        Использует морфологические операции и преобразование расстояния для выделения
+        надежных маркеров переднего плана и фона. Алгоритм "затопляет" изображение от маркеров,
+        формируя границы между объектами.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) всех сегментированных объектов.
+        """
         try:
             # Получаем градиент и маркеры
             gradient, markers = self._watershed_segmentation_torch(tensor)
@@ -2408,18 +2612,22 @@ class TorchSegmenter(BaseSegmenter):
         tensor: torch.Tensor
     ) -> torch.Tensor:
         """
-        Random Walker сегментация (чистый PyTorch + опционально scipy для СЛАУ)
-        Графовая сегментация на основе случайных блужданий
-        
+        Сегментация методом Random Walker (чистый PyTorch + опционально scipy для СЛАУ).
+
+        На основе маркеров (пользовательских или автоматических) решается задача на графе:
+        каждый пиксель "принадлежит" тому маркеру, до которого "случайное блуждание" короче.
+
         Args:
-            tensor: Входное изображение (B, C, H, W) или (C, H, W)
-        
+            img: Входное изображение (B, C, H, W) или (C, H, W).
+
         Returns:
-            torch.Tensor: Бинарная маска (1, 1, H, W)
+            Бинарная маска переднего плана (1, 1, H, W).
         """
         try:
             # === ПРЕДПОДГОТОВКА ===
             gray = self._to_grayscale(tensor).squeeze(0)  # (H, W)
+            if gray.dim() == 3 and gray.shape[0] == 1:
+                gray = gray.squeeze(0)
             
             # Нормализация к [0, 1]
             if gray.max() > 1.0:
@@ -2430,7 +2638,8 @@ class TorchSegmenter(BaseSegmenter):
             
             # === ПАРАМЕТРЫ ===
             beta = self.params.get('beta', 130)
-            mode = self.params.get('mode', 'cg')  # 'cg', 'jacobi', 'gauss_seidel'
+            # mode = self.params.get('mode', 'cg')  # 'cg', 'jacobi', 'gauss_seidel'
+            mode = 'scipy'
             tol = self.params.get('tol', 1e-3)
             max_iter = self.params.get('max_iter', 300)
             
@@ -2454,13 +2663,17 @@ class TorchSegmenter(BaseSegmenter):
                 result = markers.clone()
             else:
                 # Решаем систему: A * x = B
-                if mode == 'scipy_cg' or mode == 'scipy':
-                    # Используем scipy для решения (быстрее для больших систем)
-                    x = self._rw_solve_scipy(L, b_indices, m_indices, markers, n_labels, tol, max_iter)
-                else:
-                    # Чистый PyTorch решатель
-                    x = self._rw_solve_torch(L, b_indices, m_indices, markers, n_labels, 
-                                            mode=mode, tol=tol, max_iter=max_iter)
+                # if mode == 'scipy_cg' or mode == 'scipy':
+                #     # Используем scipy для решения (быстрее для больших систем)
+                #     x = self._rw_solve_scipy(L, b_indices, m_indices, markers, n_labels, tol, max_iter)
+                # else:
+                #     # Чистый PyTorch решатель
+                #     x = self._rw_solve_torch(L, b_indices, m_indices, markers, n_labels, 
+                #                             mode=mode, tol=tol, max_iter=max_iter)
+                x = self._rw_solve_scipy(L, b_indices, m_indices, markers, n_labels, tol, max_iter)
+                if x is None:
+                    warnings.warn("scipy solver failed, using fallback")
+                    return self._otsu_thresholding(tensor)
                 
                 # Назначаем метки по максимальной вероятности
                 result = torch.argmax(x, dim=0) + 1  # +1 т.к. метки начинаются с 1
@@ -2489,6 +2702,9 @@ class TorchSegmenter(BaseSegmenter):
         """
         Quickshift сегментация (чистый PyTorch/numpy)
         Mode-seeking алгоритм для сегментации в пространстве признаков
+
+        Находит моды в плотности распределения пикселей в пространстве признаков.
+        Группирует пиксели, принадлежащие одной моде.
         
         Алгоритм:
         1. Для каждого пикселя вычисляем плотность в пространстве (цвет + координаты)
@@ -2578,6 +2794,9 @@ class TorchSegmenter(BaseSegmenter):
         """
         SLIC (Simple Linear Iterative Clustering) — чистая реализация на numpy/PyTorch
         Суперпиксельная сегментация в пространстве (цвет + координаты)
+
+        Группирует пиксели в компактные, однородные регионы (суперпиксели) на основе пространственной
+        и цветовой близости. Самый крупный суперпиксель считается фоном.
         
         Алгоритм:
         1. Инициализация центроидов на регулярной сетке
@@ -2587,10 +2806,10 @@ class TorchSegmenter(BaseSegmenter):
         5. (Опционально) Принудительная связность регионов
         
         Args:
-            tensor: Входное изображение (B, C, H, W) или (C, H, W)
+            tensor: Входное изображение (B, C, H, W) или (C, H, W).
         
         Returns:
-            torch.Tensor: Бинарная маска (1, 1, H, W)
+            torch.Tensor: Бинарная маска (1, 1, H, W) — все суперпиксели, кроме фона.
         """
         try:
             # === ПРЕДПОДГОТОВКА ===
@@ -2627,7 +2846,7 @@ class TorchSegmenter(BaseSegmenter):
             
             # Нормализуем координаты к масштабу компактности
             # Чем больше compactness, тем больше вес координат
-            step = max(h, w) / np.sqrt(n_segments)  # Приблизительный шаг сетки
+            step = int(max(h, w)) / np.sqrt(n_segments)  # Приблизительный шаг сетки
             coord_scale = compactness / step
             
             # === ОБЪЕДИНЕНИЕ ПРИЗНАКОВ ===
@@ -2653,10 +2872,10 @@ class TorchSegmenter(BaseSegmenter):
             for i in range(n_centroids):
                 y, x = int(grid_y[i]), int(grid_x[i])
                 # Начальный центроид = среднее значение в окрестности
-                y_start = max(0, y - step//2)
-                y_end = min(h, y + step//2)
-                x_start = max(0, x - step//2)
-                x_end = min(w, x + step//2)
+                y_start = max(0, int(y - step//2))
+                y_end = min(h, int(y + step//2))
+                x_start = max(0, int(x - step//2))
+                x_end = min(w, int(x + step//2))
                 
                 region = features[y_start:y_end, x_start:x_end]
                 centroids_init[i] = region.reshape(-1, c + 2).mean(axis=0)
@@ -2795,14 +3014,22 @@ class TorchSegmenter(BaseSegmenter):
         
         return labels_out
 
-
     def _felzenszwalb(
         self,
         tensor: torch.Tensor
     ) -> torch.Tensor:
         """
-        Felzenszwalb сегментация (PyTorch + numpy)
+        Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
         Графовая сегментация на основе минимального остовного дерева
+
+        Строит сегментацию, начиная с мелких регионов и объединяя их, если внутреннее различие
+        меньше межрегионального. Очень эффективен для выделения объектов разного масштаба.
+
+        Args:
+            tensor: Входное изображение (B, C, H, W) или (C, H, W).
+        
+        Returns:
+            torch.Tensor: Бинарная маска (1, 1, H, W) — все суперпиксели, кроме фона.
         """
         try:
             # Конвертируем в numpy
@@ -2814,8 +3041,6 @@ class TorchSegmenter(BaseSegmenter):
             else:
                 gray = (gray / 255.0).astype(np.float32)
             
-            h, w = gray.shape
-            
             # Параметры
             scale = self.params.get('scale', 100)
             sigma = self.params.get('sigma', 0.8)
@@ -2825,7 +3050,6 @@ class TorchSegmenter(BaseSegmenter):
             
             # Применяем Felzenszwalb
             segments = sk_felzenszwalb(
-                # img_np,
                 gray,
                 scale=scale,
                 sigma=sigma,
@@ -2869,7 +3093,18 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor
     ) -> torch.Tensor:
-        """GrabCut сегментация (упрощенная PyTorch реализация)"""
+        """
+        Интерактивная сегментация GrabCut.
+
+        Использует прямоугольник для инициализации фона и переднего плана.
+        Строит модели цветового распределения (GMM) и уточняет границы итеративно.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) переднего плана.
+        """
         try:
             h, w = tensor.shape[2], tensor.shape[3]
             

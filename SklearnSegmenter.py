@@ -2,6 +2,7 @@
 
 # Импорт основных библиотек
 
+from BaseSegmenter import BaseSegmenter
 from typing import (
     List, Union, Tuple, Dict, Any, TypeVar, Optional, 
     Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
@@ -48,51 +49,50 @@ from sklearn.tree import DecisionTreeClassifier
 
 from scipy import ndimage, signal, sparse
 from scipy.sparse.linalg import eigsh
+from skimage.util import img_as_float, img_as_ubyte
 
-try:
-    import skimage
-    from skimage import (
-        filters, segmentation, morphology, measure,
-        feature, color, exposure, transform, util,
-        restoration, graph, draw
-    )
-    from skimage.color import label2rgb
-    from skimage.draw import polygon
-    from skimage.feature import canny
-    from skimage.filters import (
-        threshold_otsu, threshold_local, threshold_niblack,
-        threshold_sauvola, gaussian, sobel, prewitt, roberts,
-        scharr, laplace, farid, butterworth
-    )
-    from skimage.future import graph
-    from skimage.measure import label, regionprops
-    from skimage.morphology import (
-        disk, square, dilation, erosion, opening, closing,
-        white_tophat, black_tophat, skeletonize, thin,
-        remove_small_objects, remove_small_holes
-    )
-    from skimage.segmentation import (
-        felzenszwalb, slic, quickshift, watershed,
-        random_walker, active_contour, morphological_chan_vese,
-        morphological_geodesic_active_contour, mark_boundaries
-    )
-    from skimage.util import img_as_ubyte, img_as_float
-    SKIMAGE_AVAILABLE = True
-except ImportError:
-    SKIMAGE_AVAILABLE = False
-    print("Warning: scikit-image not available. Some methods will not work.")
+import skimage
+from skimage import (
+    filters, segmentation, morphology, measure,
+    feature, color, exposure, transform, util,
+    restoration, graph, draw
+)
+from skimage.color import label2rgb
+from skimage.draw import polygon
+from skimage.feature import canny
+from skimage.filters import (
+    threshold_otsu, threshold_local, threshold_niblack,
+    threshold_sauvola, gaussian, sobel, prewitt, roberts,
+    scharr, laplace, farid, butterworth
+)
+# from skimage.future import graph
+from skimage.measure import label, regionprops
+from skimage.morphology import (
+    disk, square, dilation, erosion, opening, closing,
+    white_tophat, black_tophat, skeletonize, thin,
+    remove_small_objects, remove_small_holes
+)
+from skimage.segmentation import (
+    felzenszwalb, slic, quickshift, watershed,
+    random_walker, active_contour, morphological_chan_vese,
+    morphological_geodesic_active_contour, mark_boundaries
+)
+from skimage.util import img_as_ubyte, img_as_float
+SKIMAGE_AVAILABLE = True
 
-class SklearnSegmenter:
+class SklearnSegmenter(BaseSegmenter):
     """
     Класс для сегментации изображений с использованием scikit-learn и scikit-image.
     Все реализации сделаны без использования OpenCV или специализированных
-    библиотек для обработки изображений.
+    библиотек для обработки изображений. Поддерживает как классические методы (пороговые, граничные), так и методы на основе кластеризации,
+    активных контуров и графов.
     """
     def __init__(
         self, 
         method: str = "kmeans", 
         **kwargs
     ) -> None:
+        super().__init__()
         self.method: str = method
         self.params: Dict[str, Any] = kwargs
         self._setup_methods()
@@ -207,18 +207,6 @@ class SklearnSegmenter:
             "distance_matrix": self._sklearn_distance_matrix,
             "affinity_propagation": self._sklearn_affinity_propagation,
         }
-
-        # if not SKIMAGE_AVAILABLE:
-        #     # Убираем методы, требующие scikit-image
-        #     methods_to_remove = [
-        #         "global_thresholding", "adaptive_thresholding", "otsu_thresholding",
-        #         "threshold_niblack", "threshold_sauvola", "sobel_edge", "canny_edge",
-        #         "watershed", "random_walker", "quickshift", "slic", "felzenszwalb",
-        #         "active_contour", "chan_vese"
-        #     ]
-        #     for method in methods_to_remove:
-        #         if method in self.methods:
-        #             del self.methods[method]
         
         self.methods: Dict[str, callable] = self.methods
         
@@ -455,7 +443,18 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Глобальная пороговая сегментация."""
+        """
+        Глобальная пороговая сегментация.
+
+        Применяет фиксированный порог ко всему изображению.
+        Все пиксели яркостью выше порога становятся белыми (объект), остальные — черными (фон).
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            Бинарная маска (0/255).
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
@@ -471,7 +470,18 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Адаптивная пороговая сегментация."""
+        """
+        Адаптивная пороговая сегментация (Gaussian).
+
+        Вычисляет локальный порог для каждой области изображения.
+        Особенно эффективна при неравномерном освещении.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
@@ -489,7 +499,17 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Метод Оцу."""
+        """
+        Автоматическая бинаризация по методу Оцу.
+
+        Находит оптимальный порог, максимизирующий межклассовую дисперсию между фоном и объектом.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
@@ -505,7 +525,18 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Порог Ниблака."""
+        """
+        Адаптивная пороговая обработка по Ниблаку.
+
+        Порог вычисляется как: T = μ + k·σ, где μ и σ — локальное среднее и СКО.
+        Хорошо работает на изображениях с шумом и градиентом освещения.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
@@ -522,7 +553,18 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Порог Сауволы."""
+        """
+        Улучшенная адаптивная пороговая обработка по Сауволе.
+
+        Порог: T = μ·(1 + k·(σ/R - 1)), где R — динамический диапазон (обычно 128).
+        Лучше Ниблака при очень низком контрасте.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска.
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
@@ -544,7 +586,18 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Детектор границ Собеля."""
+        """
+        Обнаружение границ оператором Собеля.
+
+        Вычисляет градиент интенсивности по горизонтали и вертикали, затем объединяет их.
+        Применяется порог к величине градиента для получения бинарной маски границ.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
@@ -566,7 +619,18 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Детектор границ Кэнни."""
+        """
+        Обнаружение границ оператором Кэнни.
+
+        Многоэтапный алгоритм: сглаживание, вычисление градиента, подавление немаксимумов,
+        двойная пороговая фильтрация и отслеживание связных границ.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
@@ -590,7 +654,7 @@ class SklearnSegmenter:
             sigma=sigma, 
             low_threshold=low_threshold, 
             high_threshold=high_threshold,
-            use_quantiles=use_quantiles  # ← Ключевой параметр
+            use_quantiles=use_quantiles
         )
         print(f"DEBUG: sigma={sigma}, low={low_threshold}, high={high_threshold}, quantiles={use_quantiles}")
         print(f"DEBUG: Image range: [{gray.min():.4f}, {gray.max():.4f}]")
@@ -603,12 +667,24 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Region Growing сегментация."""
+        """
+        Сегментация методом Region Growing (роста регионов).
+
+        Начинает с заданной точки (или центра) и рекурсивно добавляет соседние пиксели,
+        интенсивность которых отличается от средней интенсивности региона не более чем на допуск.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска выращенного региона.
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
             gray = img
-        
+        gray = self._normalize_image(gray)
+
         h, w = gray.shape
         seed = self.params.get('seed', (w//2, h//2))
         tolerance = self.params.get('tolerance', 0.1)
@@ -635,19 +711,34 @@ class SklearnSegmenter:
                     for dy in [-1, 0, 1]:
                         if dx == 0 and dy == 0:
                             continue
-                        queue.append((x + dx, y + dy))
+                        nx, ny = x + dx, y + dy
+                        if 0 <= nx < w and 0 <= ny < h and not visited[ny, nx]:
+                            queue.append((nx, ny))
         
-        return mask.astype(np.uint8)
+        return mask.astype(np.uint8) * 255
     
     def _sklearn_split_and_merge(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Split and Merge алгоритм."""
+        """
+        Рекурсивный алгоритм разделения и слияния регионов.
+
+        Рекурсивно делит изображение на квадранты до тех пор, пока дисперсия внутри региона
+        не станет меньше заданного порога. Затем объединяет похожие соседние регионы.
+        Возвращает маску второго по величине региона (предполагаемый объект).
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         h, w = gray.shape
         threshold = self.params.get('threshold', 0.1)
@@ -722,17 +813,30 @@ class SklearnSegmenter:
                 mask[:best_region_mask.shape[0], :best_region_mask.shape[1]] = \
                     best_region_mask.astype(np.uint8)
         
-        return mask
+        return mask.astype(np.uint8) * 255
     
     def _split_and_merge(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Split and Merge алгоритм."""
+        """
+        Рекурсивный алгоритм разделения и слияния регионов.
+
+        Рекурсивно делит изображение на квадранты до тех пор, пока дисперсия внутри региона
+        не станет меньше заданного порога. Затем объединяет похожие соседние регионы.
+        Возвращает маску второго по величине региона (предполагаемый объект).
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         h, w = gray.shape
         threshold = self.params.get('threshold', 0.1)
@@ -779,13 +883,24 @@ class SklearnSegmenter:
                 x1, y1, x2, y2 = regions[idx]
                 mask[y1:y2, x1:x2] = True
         
-        return mask.astype(np.uint8)
+        return mask.astype(np.uint8) * 255
     
     def _floodfill(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """FloodFill сегментация."""
+        """
+        Сегментация методом заливки (Flood Fill).
+
+        Начиная с заданной точки, рекурсивно заполняет все связанные пиксели,
+        интенсивность которых отличается от исходной не более чем на допуск.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) залитой области.
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
@@ -802,7 +917,18 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """K-Means кластеризация."""
+        """
+        Сегментация методом K-Means кластеризации.
+
+        Группирует пиксели по цветовому признаку в K кластеров.
+        Самый крупный кластер считается фоном; остальные — объектами.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 2:
             # Если grayscale, конвертируем в 3 канала
             img = np.stack([img] * 3, axis=-1)
@@ -824,7 +950,7 @@ class SklearnSegmenter:
         # Создаем маску (все кроме фона)
         mask = (labels != bg_label).reshape(h, w)
         
-        return mask.astype(np.uint8)
+        return mask.astype(np.uint8) * 255
     
     def _sklearn_kmeans(
         self, 
@@ -841,17 +967,29 @@ class SklearnSegmenter:
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
         
-        return mask.astype(np.uint8)
+        return mask.astype(np.uint8) * 255
     
     def _sklearn_dbscan_segmentation(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """DBSCAN сегментация."""
+        """
+        Сегментация методом DBSCAN кластеризации.
+
+        Группирует пиксели на основе плотности. Пиксели, не принадлежащие ни одному кластеру (шум),
+        исключаются. Самый крупный кластер считается фоном.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         h, w = gray.shape
         
@@ -873,7 +1011,7 @@ class SklearnSegmenter:
         # Создаем маску (исключаем шум -1)
         mask = (labels != -1).reshape(h, w)
         
-        return mask.astype(np.uint8)
+        return mask.astype(np.uint8) * 255
     
     def _sklearn_dbscan(
         self, 
@@ -892,13 +1030,24 @@ class SklearnSegmenter:
         # Создаем маску (исключаем шум)
         mask = (labels != -1).reshape(h, w)
         
-        return mask.astype(np.uint8)
+        return mask.astype(np.uint8) * 255
     
     def _meanshift(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """MeanShift сегментация."""
+        """
+        Сегментация методом MeanShift.
+
+        Итеративно сдвигает каждый пиксель к локальному центру масс в пространстве признаков
+        (цвет + координаты). Результатом является кластеризация пикселей по плотности.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
+        """
         if len(img.shape) == 3:
             img_rgb = img
         else:
@@ -943,7 +1092,7 @@ class SklearnSegmenter:
         
         mask = (all_labels != bg_label).reshape(h, w)
         
-        return mask.astype(np.uint8)
+        return mask.astype(np.uint8) * 255
     
     def _sklearn_meanshift(
         self, 
@@ -997,16 +1146,28 @@ class SklearnSegmenter:
         mask = self._create_mask_from_labels(labels, (h, w))
         mask = self._postprocess_mask(mask)
         
-        return mask
+        return mask.astype(np.uint8) * 255
     
     # ============ АКТИВНЫЕ КОНТУРЫ ============
     
     def _active_contour(self, img: np.ndarray) -> np.ndarray:
-        """Активные контуры."""
+        """
+        Сегментация активными контурами (Snakes).
+
+        Инициализирует замкнутый контур (обычно окружность) и деформирует его под действием
+        внутренних (упругость, жесткость) и внешних (притяжение к границам) сил до равновесия.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) внутри замкнутого контура.
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         h, w = gray.shape
         
@@ -1015,55 +1176,87 @@ class SklearnSegmenter:
         radius = min(center_x, center_y) // 2
         
         s = np.linspace(0, 2 * np.pi, 100)
+        # r = center_y + radius * np.sin(s)
+        # c = center_x + radius * np.cos(s)
+        # init = np.array([r, c]).T
         init = np.array([center_x + radius * np.cos(s),
                          center_y + radius * np.sin(s)]).T
         
         # Параметры активного контура
-        alpha = self.params.get('alpha', 0.015)
-        beta = self.params.get('beta', 10)
-        gamma = self.params.get('gamma', 0.001)
+        alpha = self.params.get('alpha', 0.015) # elasticity (0.01)
+        beta = self.params.get('beta', 10) # rigidity (0.1)
+        gamma = self.params.get('gamma', 0.001) # time step (0.001)
+        max_iterations = self.params.get('max_iterations', 2000)
         
         # Применяем активный контур
-        snake = active_contour(gaussian(gray, 3, preserve_range=False),
-                              init, alpha=alpha, beta=beta, gamma=gamma)
+        snake = active_contour(
+            gaussian(gray, 3, preserve_range=False),
+            init, 
+            alpha=alpha, 
+            beta=beta, 
+            gamma=gamma, 
+            w_line=0,      # attract to light
+            w_edge=1,      # attract to edges
+            max_num_iter=max_iterations
+        )
         
         # Создаем маску из контура
         mask = np.zeros((h, w), dtype=bool)
         rr, cc = polygon(snake[:, 1], snake[:, 0], mask.shape)
         mask[rr, cc] = True
         
-        return mask.astype(np.uint8)
+        return mask.astype(np.uint8) * 255
     
     def _gvf_contour(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Gradient Vector Flow (упрощенная версия)."""
+        """
+        Сегментация на основе Gradient Vector Flow (GVF).
+
+        Вычисляет векторное поле, распространяющее информацию о градиентах по всему изображению.
+        Это позволяет контуру "чувствовать" границы даже на расстоянии. Маска строится по величине GVF.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         # Вычисляем градиенты
+        # grad_y, grad_x = np.gradient(gray_norm)
         grad_x = filters.sobel_h(gray)
         grad_y = filters.sobel_v(gray)
+
+        # Вычисляем внешние силы (edge map)
+        edge_map = grad_x**2 + grad_y**2
+        edge_map = edge_map / (edge_map.max() + 1e-8)
         
-        # Применяем GVF (упрощенная версия)
-        mu = self.params.get('mu', 0.1)
-        iterations = self.params.get('iterations', 50)
+        # Применяем GVF
+        mu = self.params.get('mu', 0.1) # 0.2
+        iterations = self.params.get('iterations', 50) # 100
         
-        u = grad_x.copy()
-        v = grad_y.copy()
-        
+        # Инициализируем GVF поле
+        u = grad_x.copy() * edge_map
+        v = grad_y.copy() * edge_map
+         
         for _ in range(iterations):
             laplacian_u = filters.laplace(u)
             laplacian_v = filters.laplace(v)
             
-            u = u + mu * laplacian_u - (grad_x**2 + grad_y**2) * (u - grad_x)
-            v = v + mu * laplacian_v - (grad_x**2 + grad_y**2) * (v - grad_y)
+            u = u + mu * laplacian_u - edge_map * (u - grad_x)
+            v = v + mu * laplacian_v - edge_map * (v - grad_y)
         
-        # Создаем маску из величины GVF
+        # Вычисляем величину GVF
         gvf_mag = np.sqrt(u**2 + v**2)
+
+        # Нормализуем и пороговое разделение
         mask = gvf_mag > np.percentile(gvf_mag, 70)
         
         return mask.astype(np.uint8) * 255
@@ -1072,22 +1265,36 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Морфологические змеи."""
+        """
+        Сегментация морфологическими змеями.
+
+        Итеративно расширяет или сужает бинарную маску на основе величины градиента.
+        Области с низким градиентом "поглощаются", с высоким — отбрасываются.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         # Применяем морфологические активные контуры
         init_level_set = np.zeros(gray.shape, dtype=np.int8)
         h, w = gray.shape
         init_level_set[h//4:3*h//4, w//4:3*w//4] = 1
         
+        smoothing = self.params.get('smoothing', 1)
+        threshold = self.params.get('threshold', 0.5)
         iterations = self.params.get('iterations', 50)
         
         mask = morphological_geodesic_active_contour(
             gray, iterations, init_level_set,
-            smoothing=1, threshold=0.5,
+            smoothing=smoothing, threshold=threshold,
             balloon=1
         )
         
@@ -1097,24 +1304,57 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Chan-Vese активные контуры."""
+        """
+        Модель Chan-Vese — активные контуры без градиентов.
+
+        Энергетическая модель, которая разделяет изображение на две области с минимальной
+        внутрирегиональной дисперсией. Подходит для объектов без четких границ.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска: 255 — внутренняя область контура.
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         # Начальная маска
         init_level_set = np.zeros(gray.shape, dtype=np.int8)
         h, w = gray.shape
         init_level_set[h//4:3*h//4, w//4:3*w//4] = 1
         
+        # Параметры Chan-Vese
+        mu = self.params.get('mu', 0.25)
+        lambda1 = self.params.get('lambda1', 1.0)
+        lambda2 = self.params.get('lambda2', 1.0)
+        tol = self.params.get('tol', 1e-3)
+        max_iter = self.params.get('max_iter', 100)
         iterations = self.params.get('iterations', 100)
         
         # Применяем метод Chan-Vese
         mask = morphological_chan_vese(
-            gray, iterations, init_level_set,
-            smoothing=1, lambda1=1, lambda2=1
+            gray, 
+            iterations, 
+            init_level_set,
+            smoothing=1, 
+            lambda1=lambda1,
+            lambda2=lambda2
         )
+
+        # segmentation = chan_vese(
+        #         gray_norm,
+        #         mu=mu,
+        #         lambda1=lambda1,
+        #         lambda2=lambda2,
+        #         tol=tol,
+        #         max_num_iter=max_iter,
+        #         init_level_set=init_level_set
+        #     )
+        # mask = (segmentation > 0.5).astype(np.uint8) * 255
         
         return mask.astype(np.uint8) * 255
     
@@ -1124,11 +1364,24 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Watershed алгоритм."""
+        """
+        Сегментация методом водораздела (Watershed).
+
+        Использует морфологические операции и преобразование расстояния для выделения
+        надежных маркеров переднего плана и фона. Алгоритм "затопляет" изображение от маркеров,
+        формируя границы между объектами.
+
+        Args:
+            img: Входное изображение (RGB или grayscale).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) всех сегментированных объектов.
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         # Маркеры для watershed
         markers = np.zeros_like(gray, dtype=np.uint8)
@@ -1144,17 +1397,29 @@ class SklearnSegmenter:
         # Бинаризуем (все кроме фона)
         mask = segmentation == 2
         
-        return mask.astype(np.uint8)
+        return mask.astype(np.uint8) * 255
     
     def _random_walker(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Random Walker сегментация."""
+        """
+        Сегментация методом Random Walker.
+
+        На основе маркеров (пользовательских или автоматических) решается задача на графе:
+        каждый пиксель "принадлежит" тому маркеру, до которого "случайное блуждание" короче.
+
+        Args:
+            img: Входное изображение.
+
+        Returns:
+            Бинарная маска переднего плана.
+        """
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
         else:
             gray = img
+        gray = self._normalize_image(gray)
         
         # Создаем маркеры
         markers = np.zeros(gray.shape, dtype=np.uint8)
@@ -1176,14 +1441,25 @@ class SklearnSegmenter:
         # Бинаризуем
         mask = labels == 2
         
-        return mask.astype(np.uint8)
+        return mask.astype(np.uint8) * 255
     
     # ============ SUPER-PIXEL МЕТОДЫ ============
     def _quickshift(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Quickshift сегментация."""
+        """
+        Сегментация методом Quickshift (реализована через MeanShift как аналог).
+
+        Находит моды в плотности распределения пикселей в пространстве признаков.
+        Группирует пиксели, принадлежащие одной моде.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
+        """
         segments = quickshift(img, kernel_size=3, max_dist=6, ratio=0.5)
         
         # Находим самый большой суперпиксель
@@ -1199,7 +1475,18 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """SLIC superpixels."""
+        """
+        SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.
+
+        Группирует пиксели в компактные, однородные регионы (суперпиксели) на основе пространственной
+        и цветовой близости. Самый крупный суперпиксель считается фоном.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8): 255 — все суперпиксели, кроме фона.
+        """
         n_segments = self.params.get('n_segments', 100)
         compactness = self.params.get('compactness', 10)
         
@@ -1213,13 +1500,24 @@ class SklearnSegmenter:
         # Создаем маску
         mask = segments != bg_label
         
-        return mask.astype(np.uint8)
+        return mask.astype(np.uint8) * 255
     
     def _felzenszwalb(
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """Felzenszwalb сегментация."""
+        """
+        Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
+
+        Строит сегментацию, начиная с мелких регионов и объединяя их, если внутреннее различие
+        меньше межрегионального. Очень эффективен для выделения объектов разного масштаба.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            Бинарная маска: 255 — все регионы, кроме самого крупного (фона).
+        """
         scale = self.params.get('scale', 100)
         sigma = self.params.get('sigma', 0.5)
         min_size = self.params.get('min_size', 50)
@@ -1229,12 +1527,13 @@ class SklearnSegmenter:
         
         # Находим самый большой регион
         unique_labels, counts = np.unique(segments, return_counts=True)
-        bg_label = unique_labels[np.argmax(counts)]
+        if len(unique_labels) > 0:
+            bg_label = unique_labels[np.argmax(counts)]
+            mask_np = (segments != bg_label).astype(np.uint8) * 255
+        else:
+            mask_np = np.zeros_like(segments, dtype=np.uint8)
         
-        # Создаем маску
-        mask = segments != bg_label
-        
-        return mask.astype(np.uint8)
+        return mask_np
     
     # ============ ИНТЕРАКТИВНЫЕ МЕТОДЫ ============
     
@@ -1242,7 +1541,18 @@ class SklearnSegmenter:
         self, 
         img: np.ndarray
     ) -> np.ndarray:
-        """GrabCut сегментация."""
+        """
+        Интерактивная сегментация GrabCut.
+
+        Использует прямоугольник для инициализации фона и переднего плана.
+        Строит модели цветового распределения (GMM) и уточняет границы итеративно.
+
+        Args:
+            img: Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) переднего плана.
+        """
         if len(img.shape) == 2:
             img = np.stack([img] * 3, axis=-1)
         

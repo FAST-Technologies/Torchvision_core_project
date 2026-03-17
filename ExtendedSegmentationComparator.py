@@ -4,7 +4,6 @@
 
 from SegmentationComparator import SegmentationComparator
 from SegmentationTester import SegmentationTester
-from cv2SklearnSegmenter import CV2SklearnSegmenter
 
 import os
 from datetime import datetime
@@ -628,78 +627,73 @@ def quick_comparison(
     
     return comparator, results
 
+# def integrate_with_your_pipeline():
+#     """
+#     Пример интеграции с вашим существующим пайплайном
+#     """
 
-# Интеграция с вашим main.py
-def integrate_with_your_pipeline():
-    """
-    Пример интеграции с вашим существующим пайплайном
-    """
+#     your_tester = SegmentationTester()
     
-    # Предположим, у вас есть ваш тестер
+#     # Добавляем ваши методы
+#     your_tester.add_method("My_KMeans", CV2SklearnSegmenter("kmeans_segmentation", k=3))
+#     your_tester.add_method("My_Watershed", CV2SklearnSegmenter("watershed"))
+#     your_tester.add_method("My_Otsu", CV2SklearnSegmenter("otsu_thresholding"))
     
-    # Создаем ваш тестер
-    your_tester = SegmentationTester()
+#     # Загружаем изображение
+#     image_path = "test_image.jpg"
+#     image = cv2.imread(image_path)
     
-    # Добавляем ваши методы
-    your_tester.add_method("My_KMeans", CV2SklearnSegmenter("kmeans_segmentation", k=3))
-    your_tester.add_method("My_Watershed", CV2SklearnSegmenter("watershed"))
-    your_tester.add_method("My_Otsu", CV2SklearnSegmenter("otsu_thresholding"))
+#     # Создаем компаратор
+#     comparator = ExtendedSegmentationComparator()
     
-    # Загружаем изображение
-    image_path = "test_image.jpg"
-    image = cv2.imread(image_path)
-    
-    # Создаем компаратор
-    comparator = ExtendedSegmentationComparator()
-    
-    # Конфигурация для сравнения
-    comparison_config = [
-        # Ваши методы
-        {"name": "My_KMeans", "type": "custom", "segmenter": your_tester.methods["My_KMeans"]},
-        {"name": "My_Watershed", "type": "custom", "segmenter": your_tester.methods["My_Watershed"]},
-        {"name": "My_Otsu", "type": "custom", "segmenter": your_tester.methods["My_Otsu"]},
+#     # Конфигурация для сравнения
+#     comparison_config = [
+#         # Ваши методы
+#         {"name": "My_KMeans", "type": "custom", "segmenter": your_tester.methods["My_KMeans"]},
+#         {"name": "My_Watershed", "type": "custom", "segmenter": your_tester.methods["My_Watershed"]},
+#         {"name": "My_Otsu", "type": "custom", "segmenter": your_tester.methods["My_Otsu"]},
         
-        # Референсные методы
-        {"name": "kmeans", "type": "sklearn", "params": {"n_clusters": 3}},
-        {"name": "watershed", "type": "skimage", "params": {}},
-        {"name": "threshold_otsu", "type": "skimage", "params": {}},
-    ]
+#         # Референсные методы
+#         {"name": "kmeans", "type": "sklearn", "params": {"n_clusters": 3}},
+#         {"name": "watershed", "type": "skimage", "params": {}},
+#         {"name": "threshold_otsu", "type": "skimage", "params": {}},
+#     ]
     
-    # Выполняем сегментацию
-    masks = {}
+#     # Выполняем сегментацию
+#     masks = {}
     
-    for config in comparison_config:
-        if config["type"] == "custom":
-            segmenter = config["segmenter"]
-            mask, _ = segmenter.segment_with_mask(image)
-            masks[config["name"]] = mask
-        else:
-            if config["type"] == "sklearn":
-                mask, _ = comparator.segment_with_sklearn(image, config["name"], **config["params"])
-            else:  # skimage
-                mask, _ = comparator.segment_with_skimage(image, config["name"], **config["params"])
-            masks[config["name"]] = mask
+#     for config in comparison_config:
+#         if config["type"] == "custom":
+#             segmenter = config["segmenter"]
+#             mask, _ = segmenter.segment_with_mask(image)
+#             masks[config["name"]] = mask
+#         else:
+#             if config["type"] == "sklearn":
+#                 mask, _ = comparator.segment_with_sklearn(image, config["name"], **config["params"])
+#             else:  # skimage
+#                 mask, _ = comparator.segment_with_skimage(image, config["name"], **config["params"])
+#             masks[config["name"]] = mask
     
-    # Сравниваем все со всеми
-    methods = list(masks.keys())
-    comparison_results = []
+#     # Сравниваем все со всеми
+#     methods = list(masks.keys())
+#     comparison_results = []
     
-    for i, m1 in enumerate(methods):
-        for j, m2 in enumerate(methods[i+1:], i+1):
-            metrics = comparator.compute_metrics(masks[m1], masks[m2], m1, m2)
+#     for i, m1 in enumerate(methods):
+#         for j, m2 in enumerate(methods[i+1:], i+1):
+#             metrics = comparator.compute_metrics(masks[m1], masks[m2], m1, m2)
             
-            comparison_results.append({
-                'method1': m1,
-                'method2': m2,
-                **metrics
-            })
+#             comparison_results.append({
+#                 'method1': m1,
+#                 'method2': m2,
+#                 **metrics
+#             })
     
-    df_comparison = pd.DataFrame(comparison_results)
+#     df_comparison = pd.DataFrame(comparison_results)
     
-    print("\nСравнение ваших методов с референсными:")
-    print(df_comparison[['method1', 'method2', 'f1_score', 'accuracy']].to_string(index=False))
+#     print("\nСравнение ваших методов с референсными:")
+#     print(df_comparison[['method1', 'method2', 'f1_score', 'accuracy']].to_string(index=False))
     
-    return df_comparison
+#     return df_comparison
 
 
 if __name__ == "__main__":

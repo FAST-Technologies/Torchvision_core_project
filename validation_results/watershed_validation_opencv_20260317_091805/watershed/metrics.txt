@@ -1,0 +1,14 @@
+Результаты валидации: watershed
+Референсная библиотека: opencv
+Статус: FAIL
+==================================================
+iou: 0.266797
+dice: 0.421215
+precision: 0.276454
+recall: 0.884223
+f1_score: 0.421215
+pixel_accuracy: 0.325490
+mae: 0.674510
+predicted_area: 545472.000000
+ground_truth_area: 170543.000000
+area_difference: 374929.000000

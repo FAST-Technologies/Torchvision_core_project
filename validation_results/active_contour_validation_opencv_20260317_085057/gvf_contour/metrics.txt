@@ -1,0 +1,14 @@
+Результаты валидации: gvf_contour
+Референсная библиотека: opencv
+Статус: FAIL
+==================================================
+iou: 0.223569
+dice: 0.365438
+precision: 0.233465
+recall: 0.840631
+f1_score: 0.365438
+pixel_accuracy: 0.630169
+mae: 0.369831
+predicted_area: 280248.000000
+ground_truth_area: 77832.000000
+area_difference: 202416.000000
