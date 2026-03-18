@@ -1,0 +1,15 @@
+Результаты валидации: felzenszwalb
+Референсная библиотека: sklearn
+Статус: FAIL
+==================================================
+iou: 0.707135
+dice: 0.828447
+precision: 0.957129
+recall: 0.730265
+f1_score: 0.828447
+pixel_accuracy: 0.707135
+mae: 0.292865
+hausdorff_distance: 38.288379
+predicted_area: 453924.000000
+ground_truth_area: 594940.000000
+area_difference: 141016.000000

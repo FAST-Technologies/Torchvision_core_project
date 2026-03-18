@@ -24,7 +24,6 @@ from sklearn.metrics import confusion_matrix
 
 class SegmentationTester:
     """Класс для тестирования и сравнения методов сегментации"""
-    
     def __init__(
         self,
         base_output_dir: str = "./data/segmentation_results",
@@ -39,24 +38,6 @@ class SegmentationTester:
         
         if ground_truth_path:
             self.load_ground_truth(ground_truth_path)
-
-    def load_ground_truth(
-        self, 
-        gt_path: str
-    ) -> None:
-        """Загрузка ground truth маски"""
-        try:
-            if gt_path.endswith(('.png', '.jpg', '.jpeg', '.bmp')):
-                self.ground_truth_mask = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
-                print(f"✅ Ground truth загружен: {gt_path}")
-            elif gt_path.endswith('.npy'):
-                self.ground_truth_mask = np.load(gt_path)
-                print(f"✅ Ground truth загружен: {gt_path}")
-            else:
-                raise ValueError(f"Неизвестный формат ground truth: {gt_path}")
-        except Exception as e:
-            print(f"❌ Ошибка загрузки ground truth: {e}")
-            self.ground_truth_mask = None
 
     def load_ground_truth(
         self, 
@@ -485,47 +466,6 @@ class SegmentationTester:
         # Измеряем время выполнения
         start_time = time.time()
         
-        # if gt_mask is not None:
-        #     # Убеждаемся, что предсказанная маска бинарная и правильного размера
-        #     if pred_mask.dtype != np.uint8:
-        #         if pred_mask.max() <= 1.0:
-        #             pred_mask = (pred_mask * 255).astype(np.uint8)
-        #         else:
-        #             pred_mask = pred_mask.astype(np.uint8)
-            
-        #     # Приводим к одинаковому размеру
-        #     h, w = min(pred_mask.shape[0], gt_mask.shape[0]), \
-        #         min(pred_mask.shape[1], gt_mask.shape[1])
-            
-        #     pred_mask = pred_mask[:h, :w]
-        #     gt_mask_resized = gt_mask[:h, :w]
-            
-        #     # Для нейросетевых методов: преобразуем многоклассовую сегментацию в бинарную
-        #     if method_name == "Neural_SegFormer" and len(np.unique(pred_mask)) > 2:
-        #         # Выбираем все не-фоновые классы как объект
-        #         bg_class = np.bincount(pred_mask.flatten()).argmax()  # Самый частый класс = фон
-        #         pred_mask_binary = (pred_mask != bg_class).astype(np.uint8) * 255
-        #     else:
-        #         # Бинаризация обычной маски
-        #         pred_mask_binary = (pred_mask > 127).astype(np.uint8) * 255
-            
-        #     # Бинаризация Ground Truth
-        #     if gt_mask_resized.max() > 1:
-        #         gt_mask_binary = (gt_mask_resized > 127).astype(np.uint8) * 255
-        #     else:
-        #         gt_mask_binary = gt_mask_resized.astype(np.uint8) * 255
-            
-        #     # Вычисляем метрики
-        #     metrics = self._calculate_segmentation_metrics(pred_mask_binary, gt_mask_binary)
-            
-        #     result_data = {
-        #         'method': method_name,
-        #         'result': result_img,
-        #         'mask': pred_mask_binary,
-        #         'time': execution_time,
-        #         'metrics': metrics,
-        #         'has_ground_truth': True
-        #     }
         if gt_mask is not None:
             # Если есть ground truth, вычисляем метрики
             metrics, pred_mask = segmenter.segment_and_evaluate(image, gt_mask, threshold)
@@ -752,139 +692,7 @@ class SegmentationTester:
         print(f"📋 Протестировано методов: {len(results)}/{len(method_names)}")
         
         return results
-    
-    def compare_methods_with_metrics(
-        self,
-        image: Union[str, np.ndarray, Image.Image],
-        method_names: List[str] = None,
-        ground_truth: Optional[np.ndarray] = None,
-        threshold: float = 0.5,
-        figsize: Tuple[int, int] = (20, 15),
-        test_name: str = None,
-        show_plots: bool = True
-    ) -> Dict[str, Dict[str, Any]]:
-        """
-        Сравнение методов с метриками качества
-        
-        Args:
-            image: Входное изображение
-            method_names: Список методов для сравнения
-            ground_truth: Ground truth маска
-            threshold: Порог для метрик
-            figsize: Размер фигуры
-            test_name: Имя теста
-            show_plots: Показывать графики
-            
-        Returns:
-            Результаты всех методов с метриками
-        """
-        if method_names is None:
-            method_names = list(self.methods.keys())
-        
-        test_dir = self._create_test_directory(test_name)
-        results = {}
-        
-        gt_mask = ground_truth if ground_truth is not None else self.ground_truth_mask
-        has_gt = gt_mask is not None
-        
-        print(f"Сравнение методов {'с' if has_gt else 'без'} ground truth")
-        
-        # Создаем фигуру для отображения
-        n_methods = len(method_names)
-        n_cols = min(4, n_methods + 1)
-        n_rows = (n_methods + n_cols) // n_cols
-        
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
-        axes = axes.flatten()
-        
-        # Оригинальное изображение
-        original_img = Image.open(image).convert('RGB') if isinstance(image, str) else image
-        axes[0].imshow(original_img)
-        axes[0].set_title("Original Image")
-        axes[0].axis('off')
-        
-        if has_gt:
-            # Если есть ground truth, показываем его
-            axes[1].imshow(gt_mask, cmap='gray')
-            axes[1].set_title("Ground Truth")
-            axes[1].axis('off')
-            start_idx = 2
-        else:
-            start_idx = 1
-        
-        all_metrics_data = []
-        
-        # Тестируем каждый метод
-        for i, method_name in enumerate(method_names, start_idx):
-            if i >= len(axes):
-                break
-            
-            try:
-                result_data = self.test_single_method_with_metrics(
-                    image, method_name, gt_mask, threshold, test_dir
-                )
-                results[method_name] = result_data
-                
-                # Отображение результата
-                axes[i].imshow(result_data['result'])
-                
-                if has_gt:
-                    # Показываем метрики
-                    metrics = result_data['metrics']
-                    title = (f"{method_name}\n"
-                            f"IoU: {metrics['iou']:.3f}, Dice: {metrics['dice']:.3f}\n"
-                            f"F1: {metrics['f1_score']:.3f}, Acc: {metrics['pixel_accuracy']:.3f}")
-                else:
-                    # Показываем базовую информацию
-                    title = (f"{method_name}\n"
-                            f"Time: {result_data['time']:.2f}s\n"
-                            f"Area: {result_data['mask_percentage']:.1f}%")
-                
-                axes[i].set_title(title, fontsize=9)
-                axes[i].axis('off')
-                
-                # Собираем метрики для сводной таблицы
-                if has_gt:
-                    metrics = result_data['metrics'].copy()
-                    metrics['method'] = method_name
-                    metrics['time'] = result_data['time']
-                    all_metrics_data.append(metrics)
-                
-                print(f"{method_name}: {'метрики вычислены' if has_gt else 'без ground truth'}")
-                
-            except Exception as e:
-                error_msg = str(e)[:50]
-                axes[i].text(0.5, 0.5, f"Error:\n{error_msg}", 
-                           ha='center', va='center', 
-                           transform=axes[i].transAxes,
-                           fontsize=8)
-                axes[i].set_title(f"{method_name}\n(Error)", fontsize=9)
-                axes[i].axis('off')
-                print(f"❌ Ошибка в методе {method_name}: {e}")
-        
-        # Скрываем пустые оси
-        for j in range(i + 1, len(axes)):
-            axes[j].axis('off')
-        
-        plt.suptitle(f"Сравнение методов сегментации {'с метриками' if has_gt else ''}\n{self.current_test_id}", 
-                    fontsize=14, fontweight='bold')
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        
-        # Сохраняем сравнение
-        comparison_path = os.path.join(test_dir, "comparisons", "methods_comparison.jpg")
-        plt.savefig(comparison_path, dpi=150, bbox_inches='tight')
-        
-        if show_plots:
-            plt.show()
-        else:
-            plt.close()
-        
-        # Сохраняем метрики если есть ground truth
-        if has_gt and all_metrics_data:
-            self._save_metrics_comparison(all_metrics_data, test_dir)
-        
-        self.results[test_dir] = results
-        return results
+
     
     def compare_methods_with_metrics(
         self,
@@ -1556,80 +1364,6 @@ class SegmentationTester:
         self._create_benchmark_preview(df, output_dir, comp_dir)
         
         print(f"📈 Графики бенчмарка сохранены в {output_dir}/comparisons/")
-
-    def _create_metrics_plots(
-        self, 
-        df, 
-        metrics_dir
-    ):
-        """Создает графики сравнения метрик"""
-        try:
-            # График 1: Барчарт основных метрик
-            fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-            
-            # IoU сравнение
-            ax1 = axes[0, 0]
-            bars1 = ax1.barh(df['method'], df['iou'])
-            ax1.set_xlabel('IoU')
-            ax1.set_title('Intersection over Union (IoU) по методам')
-            for bar, val in zip(bars1, df['iou']):
-                ax1.text(val + 0.01, bar.get_y() + bar.get_height()/2,
-                        f'{val:.3f}', va='center')
-            
-            # Dice coefficient сравнение
-            ax2 = axes[0, 1]
-            bars2 = ax2.barh(df['method'], df['dice'])
-            ax2.set_xlabel('Dice Coefficient')
-            ax2.set_title('Dice Coefficient по методам')
-            for bar, val in zip(bars2, df['dice']):
-                ax2.text(val + 0.01, bar.get_y() + bar.get_height()/2,
-                        f'{val:.3f}', va='center')
-            
-            # F1 Score сравнение
-            ax3 = axes[1, 0]
-            bars3 = ax3.barh(df['method'], df['f1_score'])
-            ax3.set_xlabel('F1 Score')
-            ax3.set_title('F1 Score по методам')
-            for bar, val in zip(bars3, df['f1_score']):
-                ax3.text(val + 0.01, bar.get_y() + bar.get_height()/2,
-                        f'{val:.3f}', va='center')
-            
-            # Время выполнения
-            ax4 = axes[1, 1]
-            bars4 = ax4.barh(df['method'], df['time'])
-            ax4.set_xlabel('Время (секунды)')
-            ax4.set_title('Время выполнения по методам')
-            for bar, val in zip(bars4, df['time']):
-                ax4.text(val + 0.01, bar.get_y() + bar.get_height()/2,
-                        f'{val:.2f}s', va='center')
-            
-            plt.tight_layout()
-            plots_path = os.path.join(metrics_dir, "metrics_comparison_plots.jpg")
-            plt.savefig(plots_path, dpi=150, bbox_inches='tight')
-            plt.close(fig)
-            print(f"📊 Графики метрик сохранены: {plots_path}")
-            
-            # График 2: Scatter plot IoU vs Время
-            fig, ax = plt.subplots(figsize=(10, 6))
-            scatter = ax.scatter(df['time'], df['iou'], s=100, alpha=0.7)
-            
-            # Подписи точек
-            for i, row in df.iterrows():
-                ax.annotate(row['method'], (row['time'], row['iou']),
-                          textcoords="offset points", xytext=(0,10),
-                          ha='center', fontsize=8)
-            
-            ax.set_xlabel('Время выполнения (секунды)')
-            ax.set_ylabel('IoU')
-            ax.set_title('Соотношение точности и скорости')
-            ax.grid(True, alpha=0.3)
-            
-            scatter_path = os.path.join(metrics_dir, "iou_vs_time_scatter.jpg")
-            plt.savefig(scatter_path, dpi=150, bbox_inches='tight')
-            plt.close(fig)
-            
-        except Exception as e:
-            print(f"⚠️ Ошибка создания графиков метрик: {e}")
 
     def _create_metrics_plots(
         self, 

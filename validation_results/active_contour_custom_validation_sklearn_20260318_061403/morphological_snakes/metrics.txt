@@ -1,0 +1,15 @@
+Результаты валидации: morphological_snakes
+Референсная библиотека: sklearn
+Статус: FAIL
+==================================================
+iou: 0.429906
+dice: 0.601307
+precision: 0.999948
+recall: 0.429916
+f1_score: 0.601307
+pixel_accuracy: 0.833197
+mae: 0.166803
+hausdorff_distance: 192.769292
+predicted_area: 77287.000000
+ground_truth_area: 179763.000000
+area_difference: 102476.000000

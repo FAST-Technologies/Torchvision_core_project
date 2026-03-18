@@ -1,0 +1,15 @@
+Результаты валидации: kmeans_segmentation
+Референсная библиотека: sklearn
+Статус: FAIL
+==================================================
+iou: 0.336319
+dice: 0.503351
+precision: 0.666661
+recall: 0.404309
+f1_score: 0.503351
+pixel_accuracy: 0.517899
+mae: 0.482101
+hausdorff_distance: 125.195847
+predicted_area: 225152.000000
+ground_truth_area: 371251.000000
+area_difference: 146099.000000

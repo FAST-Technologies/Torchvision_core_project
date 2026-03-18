@@ -1,0 +1,7 @@
+Method,Time (s),Success,Mask Area,Mask Shape,Error
+KMeans,0.019317626953125,True,73837,"(270, 480)",
+GrabCut,0.02137446403503418,True,69692,"(270, 480)",
+Neural,0.34366679191589355,True,128681,"(270, 480)",
+MeanShift,9.004741191864014,True,128577,"(270, 480)",
+FloodFill,72.6971366405487,True,1,"(270, 480)",
+Watershed,695.1229596138,True,120563,"(270, 480)",

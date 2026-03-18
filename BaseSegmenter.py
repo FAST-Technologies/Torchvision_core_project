@@ -155,10 +155,6 @@ class BaseSegmenter(ABC):
                     result = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         elif isinstance(image, torch.Tensor):
             # PyTorch tensor
-            # img_np = image.permute(1, 2, 0).cpu().numpy()
-            # if as_gray and img_np.shape[2] == 3:
-            #     return cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-            # return img_np
             if image.dim() == 3:
                 # Изменение порядка каналов из (C, H, W) в (H, W, C)
                 if image.shape[0] in (1, 3):

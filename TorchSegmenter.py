@@ -73,7 +73,7 @@ class TorchSegmenter(BaseSegmenter):
 
         self._setup_method()
     
-    def _setup_method(self) -> None:
+    def _setup_method(self, **kwargs) -> None:
         """Настройка выбранного метода"""
         self.method_map: Dict[str, torch.Tensor] = {
             # ============ ПОРОГОВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ ============
@@ -1059,7 +1059,8 @@ class TorchSegmenter(BaseSegmenter):
         
     def segment(
         self, 
-        image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor],
+        **kwargs
     ) -> np.ndarray:
         """
         Основной метод сегментации.
@@ -1115,7 +1116,8 @@ class TorchSegmenter(BaseSegmenter):
     
     def segment_with_mask(
         self, 
-        image: Union[str, np.ndarray, Image.Image, torch.Tensor]
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor],
+        **kwargs
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Сегментация с возвратом визуализации и маски.
@@ -1128,7 +1130,7 @@ class TorchSegmenter(BaseSegmenter):
         """
         try:
             tensor = self.preprocess_image(image)
-            result_vis, mask_tensor = self._segment_with_visualization(tensor)
+            result_vis, mask_tensor = self._segment_with_visualization(tensor, **kwargs)
             
             # Преобразуем маску в numpy
             if mask_tensor.dim() == 4:
@@ -1175,17 +1177,18 @@ class TorchSegmenter(BaseSegmenter):
         
     def _segment_with_visualization(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> Tuple[Union[torch.Tensor, np.ndarray], torch.Tensor]:
         """Сегментация с визуализацией для конкретного метода"""
         if self.method == "watershed":
-            return self._watershed_torch_visualization(tensor)
+            return self._watershed_torch_visualization(tensor, **kwargs)
         elif self.method == "meanshift":
-            return self._meanshift_torch_visualization(tensor)
+            return self._meanshift_torch_visualization(tensor, **kwargs)
         elif self.method == "grabcut":
-            return self._grabcut_torch_visualization(tensor)
+            return self._grabcut_torch_visualization(tensor, **kwargs)
         elif self.method == "floodfill":
-            return self._floodfill_torch_visualization(tensor)
+            return self._floodfill_torch_visualization(tensor, **kwargs)
         else:
             # Для других методов используем стандартный подход
             mask = self._segment_func(tensor)
@@ -1235,7 +1238,8 @@ class TorchSegmenter(BaseSegmenter):
     
     def _global_thresholding(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Глобальная пороговая сегментация.
@@ -1250,13 +1254,21 @@ class TorchSegmenter(BaseSegmenter):
             Бинарная маска (0/255).
         """
         gray: torch.Tensor = self._to_grayscale(tensor) # (1, 1, H, W)
+        start_time = time.time()
         threshold = self.params.get('threshold', 0.5)
         mask = (gray > threshold).float()
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'global_thresholding_torch',
+            'parameters': {'threshold': threshold, **kwargs},
+            'execution_time': exec_time,
+        }
         return mask
     
     def _adaptive_thresholding(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Адаптивная пороговая сегментация (Gaussian).
@@ -1271,21 +1283,28 @@ class TorchSegmenter(BaseSegmenter):
             Бинарная маска.
         """
         gray: torch.Tensor = self._to_grayscale(tensor) # (1,1,H,W)
-        gray: torch.Tensor = self._to_grayscale(tensor) # (1,1,H,W)
+        start_time = time.time()
         block_size = self.params.get('block_size', 11)
-        c = self.params.get('C', 2)
+        C = self.params.get('C', 2)
 
         if block_size % 2 == 0:
             block_size += 1
         
         kernel = torch.ones(1, 1, block_size, block_size).to(self.device) / (block_size * block_size)
         local_mean = F.conv2d(gray, kernel, padding=block_size//2)
-        mask = (gray > (local_mean - c/255.0)).float()
+        mask = (gray > (local_mean - C/255.0)).float()
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'adaptive_thresholding_torch',
+            'parameters': {'block_size': block_size, 'C': C, **kwargs},
+            'execution_time': exec_time,
+        }
         return mask
     
     def _otsu_thresholding(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Автоматическая бинаризация по методу Оцу.
@@ -1305,6 +1324,7 @@ class TorchSegmenter(BaseSegmenter):
             gray_np = (gray_np * 255).astype(np.uint8)
         else:
             gray_np = gray_np.astype(np.uint8)
+        start_time = time.time()
         
         hist = torch.histc(gray, bins=256, min=0, max=1)
         total = hist.sum()
@@ -1324,6 +1344,12 @@ class TorchSegmenter(BaseSegmenter):
         best_threshold = best_threshold_idx.float() / 255.0
         
         mask = (gray > best_threshold).float()
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'otsu_thresholding_torch',
+            'parameters': {**kwargs},
+            'execution_time': exec_time,
+        }
         return mask.unsqueeze(0).unsqueeze(0)
 
     def _local_mean_numpy(self, image: np.ndarray, window_size: int) -> np.ndarray:
@@ -1353,7 +1379,8 @@ class TorchSegmenter(BaseSegmenter):
     
     def _threshold_niblack(
         self,
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Адаптивная пороговая обработка по Ниблаку.
@@ -1378,6 +1405,8 @@ class TorchSegmenter(BaseSegmenter):
 
             if gray_np.ndim == 3:
                 gray_np = gray_np.squeeze()
+
+            start_time = time.time()
             
             window_size = self.params.get('window_size', 15)
             k = self.params.get('k', -0.2)
@@ -1394,6 +1423,12 @@ class TorchSegmenter(BaseSegmenter):
             
             # Конвертируем обратно в torch
             mask = torch.from_numpy(mask_np).to(self.device)
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'niblack_thresholding_torch',
+                'parameters': {'window_size': window_size, 'k': k, **kwargs},
+                'execution_time': exec_time,
+            }
             return mask.unsqueeze(0).unsqueeze(0)
             
         except Exception as e:
@@ -1403,7 +1438,8 @@ class TorchSegmenter(BaseSegmenter):
 
     def _threshold_sauvola(
         self,
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Улучшенная адаптивная пороговая обработка по Сауволе.
@@ -1420,7 +1456,6 @@ class TorchSegmenter(BaseSegmenter):
         try:
             gray = self._to_grayscale(tensor).squeeze(0)  # (H, W) - torch.Tensor!
             
-            # ✅ СРАЗУ конвертируем в numpy
             gray_np = gray.cpu().numpy()
             if gray_np.max() <= 1.0:
                 gray_np = (gray_np * 255).astype(np.float32)
@@ -1429,6 +1464,8 @@ class TorchSegmenter(BaseSegmenter):
 
             if gray_np.ndim == 3:
                 gray_np = gray_np.squeeze()
+
+            start_time = time.time()
             
             window_size = self.params.get('window_size', 15)
             k = self.params.get('k', 0.2)
@@ -1445,6 +1482,12 @@ class TorchSegmenter(BaseSegmenter):
             mask_np = (gray_np > threshold).astype(np.float32)
             
             mask = torch.from_numpy(mask_np).to(self.device)
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'sauvola_thresholding_torch',
+                'parameters': {'window_size': window_size, 'k': k, 'r': r, **kwargs},
+                'execution_time': exec_time,
+            }
             return mask.unsqueeze(0).unsqueeze(0)
             
         except Exception as e:
@@ -1455,7 +1498,8 @@ class TorchSegmenter(BaseSegmenter):
     # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
     def _sobel_edge(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Обнаружение границ оператором Собеля.
@@ -1470,6 +1514,7 @@ class TorchSegmenter(BaseSegmenter):
             np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
         """
         gray = self._to_grayscale(tensor)
+        start_time = time.time()
         threshold = self.params.get('threshold', 0.1)
         
         sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], 
@@ -1483,12 +1528,20 @@ class TorchSegmenter(BaseSegmenter):
         if magnitude.max() > 0:
             magnitude = magnitude / magnitude.max()
         mask = (magnitude > threshold).float()
+
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'sobel_edge_torch',
+            'parameters': {'threshold': threshold, **kwargs},
+            'execution_time': exec_time,
+        }
         
         return mask
     
     def _canny_edge(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Обнаружение границ оператором Кэнни.
@@ -1503,6 +1556,7 @@ class TorchSegmenter(BaseSegmenter):
             np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
         """
         gray = self._to_grayscale(tensor)
+        start_time = time.time()
         low = self.params.get('low', 0.1)
         high = self.params.get('high', 0.3)
         
@@ -1525,6 +1579,13 @@ class TorchSegmenter(BaseSegmenter):
         mask = (mag > high).float()
         weak = ((mag > low) & (mag <= high)).float()
         mask = mask + weak * (mask > 0).float()
+
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'canny_edge_torch',
+            'parameters': {'low': low, 'high': high, **kwargs},
+            'execution_time': exec_time,
+        }
         
         return mask
     
@@ -1532,7 +1593,8 @@ class TorchSegmenter(BaseSegmenter):
     
     def _region_growing(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Сегментация методом Region Growing (роста регионов).
@@ -1550,6 +1612,7 @@ class TorchSegmenter(BaseSegmenter):
         gray = self._to_grayscale(tensor).squeeze(0)  # (H, W)
         if gray.dim() == 3 and gray.shape[0] == 1:
             gray = gray.squeeze(0)
+        start_time = time.time()
         h, w = gray.shape
         
         seed = self.params.get('seed', (h//2, w//2))
@@ -1579,6 +1642,13 @@ class TorchSegmenter(BaseSegmenter):
                 # Добавляем соседей
                 neighbors = [(x+1, y), (x-1, y), (x, y+1), (x, y-1)]
                 queue.extend(neighbors)
+
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'region_growing_torch',
+            'parameters': {'seed': seed, 'tolerance': tolerance, **kwargs},
+            'execution_time': exec_time,
+        }
         
         return mask.float().unsqueeze(0).unsqueeze(0)
 
@@ -1610,7 +1680,8 @@ class TorchSegmenter(BaseSegmenter):
     #     return mask.float()
     def _split_and_merge(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Рекурсивный алгоритм разделения и слияния регионов.
@@ -1635,6 +1706,8 @@ class TorchSegmenter(BaseSegmenter):
                 gray = self.rgb_to_gray_numpy(img_np).astype(np.float32)
             else:
                 gray = img_np.astype(np.float32)
+
+            start_time = time.time()
             h, w = gray.shape
             min_size = self.params.get('min_size', 50)
             threshold = self.params.get('threshold', 20)
@@ -1658,9 +1731,6 @@ class TorchSegmenter(BaseSegmenter):
                 
                 return subregions
             
-            min_size = self.params.get('min_size', 50)
-            threshold = self.params.get('threshold', 20)
-            
             regions = recursive_split(0, 0, h, w, min_size, threshold)
             
             # Выбираем второй по величине регион
@@ -1676,6 +1746,13 @@ class TorchSegmenter(BaseSegmenter):
                 mask_np = np.zeros((h, w), dtype=np.float32)
             
             mask = torch.from_numpy(mask_np).to(self.device)
+
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'split_and_merge_torch',
+                'parameters': {'min_size': min_size, 'threshold': threshold, **kwargs},
+                'execution_time': exec_time,
+            }
             return mask.unsqueeze(0).unsqueeze(0)
             
         except Exception as e:
@@ -1684,7 +1761,8 @@ class TorchSegmenter(BaseSegmenter):
     
     def _floodfill(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Сегментация методом заливки (Flood Fill).
@@ -1699,6 +1777,7 @@ class TorchSegmenter(BaseSegmenter):
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8) залитой области.
         """
         try:
+            start_time = time.time()
             h, w = tensor.shape[2], tensor.shape[3]
             
             # Get parameters
@@ -1720,6 +1799,13 @@ class TorchSegmenter(BaseSegmenter):
             
             # Convert segmentation to mask
             mask = (segmentation > 0).float()
+
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'floodfill_torch',
+                'parameters': {'points': points, 'tolerance': tolerance, **kwargs},
+                'execution_time': exec_time,
+            }
             
             return mask
             
@@ -1729,10 +1815,12 @@ class TorchSegmenter(BaseSegmenter):
         
     def _floodfill_torch_visualization(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для FloodFill"""
         try:
+            start_time = time.time()
             h, w = tensor.shape[2], tensor.shape[3]
             
             # Get parameters
@@ -1758,6 +1846,13 @@ class TorchSegmenter(BaseSegmenter):
             # Create mask
             mask = (segmentation_np > 0).astype(np.float32)
             mask_tensor = torch.from_numpy(mask).to(self.device)
+
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'floodfill_visualisation_torch',
+                'parameters': {'points': points, 'tolerance': tolerance, **kwargs},
+                'execution_time': exec_time,
+            }
             
             return result_np, mask_tensor
             
@@ -1771,9 +1866,11 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor, 
         start_point: Tuple[int, int], 
-        tolerance: float = 0.1
+        tolerance: float = 0.1,
+        **kwargs
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """FloodFill из одной точки"""
+        start_time = time.time()
         c, h, w = tensor.shape[1], tensor.shape[2], tensor.shape[3]
         
         # Создаем маску посещенных пикселей
@@ -1808,6 +1905,13 @@ class TorchSegmenter(BaseSegmenter):
                         visited[ny, nx] = True
                         mask[ny, nx] = True
                         queue.append((nx, ny))
+
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'floodfill_single_torch',
+            'parameters': {'tolerance': tolerance, **kwargs},
+            'execution_time': exec_time,
+        }
         
         return mask
     
@@ -1815,7 +1919,8 @@ class TorchSegmenter(BaseSegmenter):
         self, 
         tensor: torch.Tensor, 
         points: List[Tuple[int, int]], 
-        tolerance: float = 0.1
+        tolerance: float = 0.1,
+        **kwargs
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """FloodFill из нескольких точек"""
         c, h, w = tensor.shape[1], tensor.shape[2], tensor.shape[3]
@@ -1859,7 +1964,8 @@ class TorchSegmenter(BaseSegmenter):
 
     def _kmeans_segmentation(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Сегментация методом K-Means кластеризации.
@@ -1873,6 +1979,7 @@ class TorchSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
         """
+        start_time = time.time()
         k = self.params.get('k', 3)
         h, w = tensor.shape[2], tensor.shape[3]
         pixels = tensor.squeeze(0).permute(1, 2, 0).reshape(-1, 3)
@@ -1891,12 +1998,20 @@ class TorchSegmenter(BaseSegmenter):
         unique, counts = torch.unique(labels, return_counts=True)
         bg_label = unique[torch.argmax(counts)]
         mask = (labels != bg_label).view(h, w)
+
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'kmeans_torch',
+            'parameters': {**kwargs},
+            'execution_time': exec_time,
+        }
         
         return mask.float()
     
     def _dbscan_segmentation(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Сегментация методом DBSCAN кластеризации.
@@ -1914,6 +2029,7 @@ class TorchSegmenter(BaseSegmenter):
             # Преобразуем в numpy для sklearn DBSCAN
             img_np = self._tensor_to_numpy(tensor)
             h, w = img_np.shape[:2]
+            start_time = time.time()
             
             # Уменьшаем разрешение для скорости
             scale = 0.5
@@ -1942,6 +2058,13 @@ class TorchSegmenter(BaseSegmenter):
             # Создаем маску (все кроме шума)
             mask_np = (labels_2d != -1).astype(np.float32)
             mask = torch.from_numpy(mask_np).to(self.device)
+
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'dbscan_torch',
+                'parameters': {'eps': eps, 'min_samples': min_samples, **kwargs},
+                'execution_time': exec_time,
+            }
             
             return mask.unsqueeze(0).unsqueeze(0)
             
@@ -1951,7 +2074,8 @@ class TorchSegmenter(BaseSegmenter):
         
     def _meanshift(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Сегментация методом MeanShift.
@@ -1969,6 +2093,8 @@ class TorchSegmenter(BaseSegmenter):
             # Убираем batch dimension если есть
             if tensor.dim() == 4:
                 tensor = tensor.squeeze(0)  # (C, H, W)
+
+            start_time = time.time()
             
             # Конвертируем в numpy как в старом коде
             image_np = tensor.permute(1, 2, 0).cpu().numpy()  # (H, W, C)
@@ -2011,6 +2137,13 @@ class TorchSegmenter(BaseSegmenter):
                 mask_np = (labels_2d != bg_label).astype(np.float32)
             
             mask = torch.from_numpy(mask_np).to(self.device)
+
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'meanshift_torch',
+                'parameters': {'bandwidth': bandwidth, 'spatial_radius': spatial_radius, 'color_radius': color_radius, **kwargs},
+                'execution_time': exec_time,
+            }
             
             return mask
             
@@ -2021,13 +2154,16 @@ class TorchSegmenter(BaseSegmenter):
 
     def _meanshift_torch_visualization(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для MeanShift - как в старом коде"""
         try:
             # Убираем batch dimension если есть
             if tensor.dim() == 4:
                 tensor = tensor.squeeze(0)
+
+            start_time = time.time()
             
             # Конвертируем в numpy
             image_np = tensor.permute(1, 2, 0).cpu().numpy()  # (H, W, C)
@@ -2079,6 +2215,13 @@ class TorchSegmenter(BaseSegmenter):
                 mask_np = (labels_2d != bg_label).astype(np.float32)
             
             mask = torch.from_numpy(mask_np).to(self.device)
+
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'meanshift_visualisation_torch',
+                'parameters': {'bandwidth': bandwidth, 'spatial_radius': spatial_radius, 'color_radius': color_radius, **kwargs},
+                'execution_time': exec_time,
+            }
             
             return result_np, mask
             
@@ -2194,7 +2337,8 @@ class TorchSegmenter(BaseSegmenter):
     # ============ АКТИВНЫЕ КОНТУРЫ ============
     def _active_contour(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Сегментация активными контурами (Snakes).
@@ -2209,6 +2353,7 @@ class TorchSegmenter(BaseSegmenter):
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8) внутри замкнутого контура.
         """
         gray = self._to_grayscale(tensor)
+        start_time = time.time()
         
         sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], 
                               dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
@@ -2219,12 +2364,20 @@ class TorchSegmenter(BaseSegmenter):
         gy = F.conv2d(gray, sobel_y, padding=1).squeeze()
         mag = torch.sqrt(gx**2 + gy**2)
         mask = (mag > 0.1).float()
+
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'active_contour_torch',
+            'parameters': {**kwargs},
+            'execution_time': exec_time,
+        }
         
         return mask
     
     def _gvf_contour(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Сегментация на основе Gradient Vector Flow (GVF).
@@ -2239,6 +2392,7 @@ class TorchSegmenter(BaseSegmenter):
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
         """
         gray = self._to_grayscale(tensor)  # (B, 1, H, W) или (1, H, W)
+        start_time = time.time()
     
         # Гарантируем 4D вход для conv2d
         if gray.dim() == 3:
@@ -2261,12 +2415,20 @@ class TorchSegmenter(BaseSegmenter):
         # Теперь можно squeeze для вычисления магнитуды
         mag = torch.sqrt(gx_smooth.squeeze()**2 + gy_smooth.squeeze()**2)
         mask = (mag > 0.1).float()
+
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'gvf_torch',
+            'parameters': {**kwargs},
+            'execution_time': exec_time,
+        }
         
         return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
     
     def _morphological_snakes(
         self,
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Сегментация морфологическими змеями.
@@ -2285,7 +2447,8 @@ class TorchSegmenter(BaseSegmenter):
             if gray.dim() == 3 and gray.shape[0] == 1:
                 gray = gray.squeeze(0)
             
-            gray_np = gray.cpu().numpy()  # ✅ .cpu().numpy(), не .numpy() напрямую!
+            gray_np = gray.cpu().numpy()
+            start_time = time.time()
             
             if gray_np.max() <= 1.0:
                 gray_np = (gray_np * 255).astype(np.float32)
@@ -2335,6 +2498,12 @@ class TorchSegmenter(BaseSegmenter):
                     # mask_np = mask_np.astype(np.float32)
             
             mask = torch.from_numpy(mask_np).to(self.device)
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'morphological_snakes_torch',
+                'parameters': {'iterations': iterations, 'smoothing': smoothing, 'threshold': threshold, **kwargs},
+                'execution_time': exec_time,
+            }
             return mask.unsqueeze(0).unsqueeze(0)
             
         except Exception as e:
@@ -2344,7 +2513,8 @@ class TorchSegmenter(BaseSegmenter):
 
     def _chan_vese(
         self,
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Модель Chan-Vese — активные контуры без градиентов.
@@ -2368,6 +2538,7 @@ class TorchSegmenter(BaseSegmenter):
             if gray.max() > 1.0:
                 gray = gray / 255.0
             gray = gray.to(self.device).float()
+            start_time = time.time()
             
             h, w = gray.shape
             
@@ -2408,6 +2579,22 @@ class TorchSegmenter(BaseSegmenter):
             
             # === БИНАРИЗАЦИЯ ===
             mask = (phi > 0).float()
+
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'chan_vese_torch',
+                'parameters': {
+                    'mu': mu, 
+                    'lambda1': lambda1, 
+                    'lambda2': lambda2,
+                    'tol': tol,
+                    'max_iter': max_iter,
+                    'dt': dt,
+                    'eps': eps, 
+                    'init_level_set': init_level_set, 
+                    **kwargs},
+                'execution_time': exec_time,
+            }
             return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
             
         except Exception as e:
@@ -2417,7 +2604,8 @@ class TorchSegmenter(BaseSegmenter):
     # ============ WATERSHED И ГРАФОВЫЕ ============
     def _watershed(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Сегментация методом водораздела (Watershed).
@@ -2449,7 +2637,8 @@ class TorchSegmenter(BaseSegmenter):
     
     def _watershed_segmentation_torch(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Вспомогательная функция для Watershed - ПОЛНАЯ РЕАЛИЗАЦИЯ"""
         # Проверяем размерность тензора
@@ -2457,6 +2646,7 @@ class TorchSegmenter(BaseSegmenter):
             tensor_for_processing = tensor[0].unsqueeze(0)
         else:
             tensor_for_processing = tensor.unsqueeze(0)
+        start_time = time.time()
 
         # Convert to grayscale if needed
         if tensor_for_processing.shape[1] == 3:
@@ -2561,15 +2751,27 @@ class TorchSegmenter(BaseSegmenter):
         # Для маски используем все, что не является фоном (маркер 0)
         mask = (result_labels > 0).float()
 
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'watershed_torch',
+            'parameters': {
+                'markers': markers, 
+                **kwargs
+            },
+            'execution_time': exec_time,
+        }
+
         return gradient_magnitude.squeeze(), mask
     
     def _watershed_torch_visualization(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для Watershed - теперь как в CV2"""
         try:
             # Получаем градиент и маску
+            start_time = time.time()
             gradient, mask = self._watershed_segmentation_torch(tensor)
             
             # Создаем визуализацию
@@ -2598,6 +2800,14 @@ class TorchSegmenter(BaseSegmenter):
             
             # Возвращаем результат и маску
             mask_tensor = mask.to(self.device)  # Уже в нужном формате
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'watershed_visualisation_torch',
+                'parameters': {
+                    **kwargs
+                },
+                'execution_time': exec_time,
+            }
             return result, mask_tensor
             
         except Exception as e:
@@ -2609,7 +2819,8 @@ class TorchSegmenter(BaseSegmenter):
         
     def _random_walker(
         self,
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Сегментация методом Random Walker (чистый PyTorch + опционально scipy для СЛАУ).
@@ -2626,6 +2837,7 @@ class TorchSegmenter(BaseSegmenter):
         try:
             # === ПРЕДПОДГОТОВКА ===
             gray = self._to_grayscale(tensor).squeeze(0)  # (H, W)
+            start_time = time.time()
             if gray.dim() == 3 and gray.shape[0] == 1:
                 gray = gray.squeeze(0)
             
@@ -2687,6 +2899,20 @@ class TorchSegmenter(BaseSegmenter):
             # Маркер 2 = объект (по умолчанию)
             target_label = self.params.get('target_label', 2)
             mask = (result == target_label).float()
+
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'random_walker_torch',
+                'parameters': {
+                    'beta': beta, 
+                    'mode': mode, 
+                    'tol': tol, 
+                    'max_iter': max_iter, 
+                    'target_label': target_label, 
+                    **kwargs
+                },
+                'execution_time': exec_time,
+            }
             
             return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
             
@@ -2697,7 +2923,8 @@ class TorchSegmenter(BaseSegmenter):
     # ============ SUPER-PIXEL МЕТОДЫ ============
     def _quickshift(
         self,
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Quickshift сегментация (чистый PyTorch/numpy)
@@ -2721,6 +2948,7 @@ class TorchSegmenter(BaseSegmenter):
             # === ПРЕДПОДГОТОВКА ===
             # Конвертируем в numpy для вычислений
             img_np = self._tensor_to_numpy(tensor)  # (H, W, C) или (H, W)
+            start_time = time.time()
             
             if len(img_np.shape) == 2:
                 # Grayscale → RGB
@@ -2780,6 +3008,21 @@ class TorchSegmenter(BaseSegmenter):
             mask_np = (segments != bg_label).astype(np.float32)
             
             mask = torch.from_numpy(mask_np).to(self.device)
+
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'quickshift_torch',
+                'parameters': {
+                    'kernel_size': kernel_size, 
+                    'max_dist': max_dist, 
+                    'ratio': ratio, 
+                    'sigma': sigma, 
+                    'convert2lab': convert2lab, 
+                    **kwargs
+                },
+                'execution_time': exec_time,
+            }
+
             return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
             
         except Exception as e:
@@ -2789,7 +3032,8 @@ class TorchSegmenter(BaseSegmenter):
 
     def _slic(
         self,
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         SLIC (Simple Linear Iterative Clustering) — чистая реализация на numpy/PyTorch
@@ -2815,6 +3059,7 @@ class TorchSegmenter(BaseSegmenter):
             # === ПРЕДПОДГОТОВКА ===
             # Конвертируем в numpy для вычислений
             img_np = self._tensor_to_numpy(tensor)  # (H, W, C) или (H, W)
+            start_time = time.time()
             
             if len(img_np.shape) == 2:
                 # Grayscale → 3 канала для единообразия
@@ -2924,6 +3169,22 @@ class TorchSegmenter(BaseSegmenter):
             mask_np = (labels != bg_label).astype(np.float32)
             
             mask = torch.from_numpy(mask_np).to(self.device)
+
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'slic_torch',
+                'parameters': {
+                    'n_segments': n_segments, 
+                    'compactness': compactness, 
+                    'max_iter': max_iter, 
+                    'sigma': sigma, 
+                    'enforce_connectivity': enforce_connectivity, 
+                    'min_size_factor': min_size_factor,
+                    'max_size_factor': max_size_factor,
+                    **kwargs
+                },
+                'execution_time': exec_time,
+            }
             return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
             
         except Exception as e:
@@ -2935,7 +3196,8 @@ class TorchSegmenter(BaseSegmenter):
         labels: np.ndarray,
         n_segments: int,
         min_size_factor: float,
-        max_size_factor: float
+        max_size_factor: float,
+        **kwargs
     ) -> np.ndarray:
         """
         Принудительная связность регионов (упрощённая реализация).
@@ -3016,7 +3278,8 @@ class TorchSegmenter(BaseSegmenter):
 
     def _felzenszwalb(
         self,
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
@@ -3040,6 +3303,7 @@ class TorchSegmenter(BaseSegmenter):
                 gray = gray.astype(np.float32)
             else:
                 gray = (gray / 255.0).astype(np.float32)
+            start_time = time.time()
             
             # Параметры
             scale = self.params.get('scale', 100)
@@ -3064,6 +3328,18 @@ class TorchSegmenter(BaseSegmenter):
             mask_np = (segments != bg_label).astype(np.float32)
             
             mask = torch.from_numpy(mask_np).to(self.device)
+
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'felzenszwalb_torch',
+                'parameters': {
+                    'scale': scale, 
+                    'sigma': sigma, 
+                    'min_size': min_size, 
+                    **kwargs
+                },
+                'execution_time': exec_time,
+            }
             return mask.unsqueeze(0).unsqueeze(0)
             
         except Exception as e:
@@ -3091,7 +3367,8 @@ class TorchSegmenter(BaseSegmenter):
     
     def _grabcut(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> torch.Tensor:
         """
         Интерактивная сегментация GrabCut.
@@ -3107,6 +3384,7 @@ class TorchSegmenter(BaseSegmenter):
         """
         try:
             h, w = tensor.shape[2], tensor.shape[3]
+            start_time = time.time()
             
             # Initialize mask
             rect = self.params.get('rect', None)
@@ -3144,6 +3422,17 @@ class TorchSegmenter(BaseSegmenter):
             bg_probs = bg_gmm(image_flat)
             
             final_mask = (fg_probs > bg_probs).float().reshape(h, w)
+
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'grabcut_torch',
+                'parameters': {
+                    'rect': rect, 
+                    'num_iterations': num_iterations, 
+                    **kwargs
+                },
+                'execution_time': exec_time,
+            }
             
             return final_mask
             
@@ -3154,10 +3443,12 @@ class TorchSegmenter(BaseSegmenter):
     
     def _grabcut_torch_visualization(
         self, 
-        tensor: torch.Tensor
+        tensor: torch.Tensor,
+        **kwargs
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для GrabCut"""
         try:
+            start_time = time.time()
             mask = self._grabcut(tensor)
             
             # Создаем визуализацию
@@ -3179,6 +3470,15 @@ class TorchSegmenter(BaseSegmenter):
                 mask_np = (mask_np * 255).astype(np.uint8)
             
             mask_tensor = torch.from_numpy(mask_np).float().to(self.device)
+
+            exec_time = time.time() - start_time
+            info = {
+                'method': 'grabcut_visualisation_torch',
+                'parameters': { 
+                    **kwargs
+                },
+                'execution_time': exec_time,
+            }
             
             return result, mask_tensor
             

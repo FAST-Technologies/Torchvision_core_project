@@ -1,0 +1,15 @@
+Результаты валидации: active_contour
+Референсная библиотека: sklearn
+Статус: FAIL
+==================================================
+iou: 0.000000
+dice: 0.000000
+precision: 0.000000
+recall: 0.000000
+f1_score: 0.000000
+pixel_accuracy: 0.234759
+mae: 0.765241
+hausdorff_distance: inf
+predicted_area: 470164.000000
+ground_truth_area: 0.000000
+area_difference: 470164.000000

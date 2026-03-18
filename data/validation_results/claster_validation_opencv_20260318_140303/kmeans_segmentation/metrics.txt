@@ -1,0 +1,15 @@
+Результаты валидации: kmeans_segmentation
+Референсная библиотека: opencv
+Статус: FAIL
+==================================================
+iou: 0.326082
+dice: 0.491798
+precision: 0.622587
+recall: 0.406420
+f1_score: 0.491798
+pixel_accuracy: 0.490228
+mae: 0.509772
+hausdorff_distance: 50.487622
+predicted_area: 243415.000000
+ground_truth_area: 372883.000000
+area_difference: 129468.000000

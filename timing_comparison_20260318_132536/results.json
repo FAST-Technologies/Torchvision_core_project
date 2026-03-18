@@ -1,0 +1,50 @@
+[
+  {
+    "Method": "Neural",
+    "Time (s)": 0.3016397953033447,
+    "Success": true,
+    "Mask Area": 129600,
+    "Mask Shape": "(270, 480)",
+    "Error": ""
+  },
+  {
+    "Method": "Watershed",
+    "Time (s)": 452.6196656227112,
+    "Success": true,
+    "Mask Area": 122958,
+    "Mask Shape": "(270, 480)",
+    "Error": ""
+  },
+  {
+    "Method": "MeanShift",
+    "Time (s)": 8.456964015960693,
+    "Success": true,
+    "Mask Area": 128511,
+    "Mask Shape": "(270, 480)",
+    "Error": ""
+  },
+  {
+    "Method": "GrabCut",
+    "Time (s)": 0.019379377365112305,
+    "Success": true,
+    "Mask Area": 64395,
+    "Mask Shape": "(270, 480)",
+    "Error": ""
+  },
+  {
+    "Method": "FloodFill",
+    "Time (s)": 33.83764958381653,
+    "Success": true,
+    "Mask Area": 1,
+    "Mask Shape": "(270, 480)",
+    "Error": ""
+  },
+  {
+    "Method": "KMeans",
+    "Time (s)": 0.015799760818481445,
+    "Success": true,
+    "Mask Area": 70094,
+    "Mask Shape": "(270, 480)",
+    "Error": ""
+  }
+]

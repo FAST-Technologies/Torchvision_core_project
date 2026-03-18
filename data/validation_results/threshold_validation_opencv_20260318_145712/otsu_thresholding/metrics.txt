@@ -1,0 +1,15 @@
+Результаты валидации: otsu_thresholding
+Референсная библиотека: opencv
+Статус: FAIL
+==================================================
+iou: 0.769197
+dice: 0.869544
+precision: 0.821493
+recall: 0.923565
+f1_score: 0.869544
+pixel_accuracy: 0.907873
+mae: 0.092127
+hausdorff_distance: 50.289164
+predicted_area: 229632.000000
+ground_truth_area: 204253.000000
+area_difference: 25379.000000

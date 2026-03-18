@@ -14,6 +14,7 @@ import warnings
 from collections import deque
 from scipy import ndimage
 import math
+import time
 
 class OpenCVSegmenter(BaseSegmenter):
     """
@@ -80,7 +81,8 @@ class OpenCVSegmenter(BaseSegmenter):
     
     def segment(
         self, 
-        image: np.ndarray
+        image: np.ndarray,
+        **kwargs
     ) -> np.ndarray:
         """
         Основной метод сегментации.
@@ -91,11 +93,11 @@ class OpenCVSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска сегментации (0-255)
         """
-        return self.methods[self.method](image)
+        return self.methods[self.method](image, **kwargs)
     
     def segment_with_mask(
         self, 
-        image: np.ndarray
+        image: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Сегментация с возвратом визуализации и маски.
@@ -108,7 +110,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 - Визуализация: исходное изображение с наложенной маской (0–255, RGB).
                 - Маска: бинарная маска (0–255, grayscale).
         """
-        mask = self.segment(image)
+        mask = self.segment(image, **kwargs)
         
         if mask.dtype != np.uint8:
             if mask.max() <= 1.0:
@@ -134,7 +136,7 @@ class OpenCVSegmenter(BaseSegmenter):
     
     def _opencv_global_thresholding(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Глобальная пороговая сегментация.
@@ -152,14 +154,28 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         threshold = self.params.get('threshold', 127)
         _, mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'global_thresholding_opencv',
+            'parameters': {
+                'threshold': threshold,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
         return mask
     
     def _opencv_adaptive_thresholding(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Адаптивная пороговая сегментация (Gaussian).
@@ -177,6 +193,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         block_size = self.params.get('block_size', 11)
         C = self.params.get('C', 2)
@@ -187,11 +205,23 @@ class OpenCVSegmenter(BaseSegmenter):
         mask = cv2.adaptiveThreshold(gray, 255, 
                                     cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                     cv2.THRESH_BINARY, block_size, C)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'adaptive_thresholding_opencv',
+            'parameters': {
+                'block_size': block_size,
+                'C': C,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         return mask
     
     def _opencv_otsu_thresholding(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Автоматическая бинаризация по методу Оцу.
@@ -208,13 +238,23 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+        start_time = time.time()
         
         _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'otsu_thresholding_opencv',
+            'parameters': {
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         return mask
     
     def _opencv_threshold_niblack(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Адаптивная пороговая обработка по Ниблаку.
@@ -232,6 +272,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         window_size = self.params.get('window_size', 15)
         k = self.params.get('k', -0.2)
@@ -248,12 +290,24 @@ class OpenCVSegmenter(BaseSegmenter):
         # Вычисляем порог
         threshold = mean + k * std
         mask = (gray.astype(np.float32) > threshold).astype(np.uint8) * 255
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'niblack_thresholding_opencv',
+            'parameters': {
+                'window_size': window_size,
+                'k': k,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
         return mask
     
     def _opencv_threshold_sauvola(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Улучшенная адаптивная пороговая обработка по Сауволе.
@@ -271,6 +325,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         window_size = self.params.get('window_size', 15)
         k = self.params.get('k', 0.5)
@@ -287,13 +343,26 @@ class OpenCVSegmenter(BaseSegmenter):
         # Вычисляем порог
         threshold = mean * (1 + k * (std / r - 1))
         mask = (gray.astype(np.float32) > threshold).astype(np.uint8) * 255
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'sauvola_thresholding_opencv',
+            'parameters': {
+                'window_size': window_size,
+                'k': k,
+                'r': r,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
         return mask
     
     # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
     def _opencv_sobel_edge(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Обнаружение границ оператором Собеля.
@@ -311,6 +380,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         threshold = self.params.get('threshold', 50)
         
@@ -325,11 +396,22 @@ class OpenCVSegmenter(BaseSegmenter):
         # _, mask = cv2.threshold(sobel_norm.astype(np.uint8), threshold, 255, cv2.THRESH_BINARY)
         
         _, mask = cv2.threshold(magnitude, threshold, 255, cv2.THRESH_BINARY)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'sobel_edge_opencv',
+            'parameters': {
+                'threshold': threshold,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         return mask
     
     def _opencv_canny_edge(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Обнаружение границ оператором Кэнни.
@@ -347,17 +429,31 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         low = self.params.get('low', 50)
         high = self.params.get('high', 150)
         
         mask = cv2.Canny(gray, low, high)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'canny_edge_opencv',
+            'parameters': {
+                'low': low,
+                'high': high,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         return mask
     
     # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============
     def _opencv_region_growing(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Сегментация методом Region Growing (роста регионов).
@@ -375,6 +471,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         h, w = gray.shape
 
@@ -409,12 +507,24 @@ class OpenCVSegmenter(BaseSegmenter):
                         nx, ny = x + dx, y + dy
                         if 0 <= nx < w and 0 <= ny < h and not visited[ny, nx]:
                             queue.append((nx, ny))
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'region_growing_opencv',
+            'parameters': {
+                'seed': seed,
+                'tolerance': tolerance,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
         return mask
     
     def _opencv_split_and_merge(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Рекурсивный алгоритм разделения и слияния регионов.
@@ -433,6 +543,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         h, w = gray.shape
         threshold = self.params.get('threshold', 20)
@@ -513,13 +625,26 @@ class OpenCVSegmenter(BaseSegmenter):
             mask = np.zeros((h, w), dtype=np.uint8)
             for x, y in regions[idx]:
                 mask[y, x] = True
+
+            exec_time = time.time() - start_time
+
+            info = {
+                'method': 'split_and_merge_opencv',
+                'parameters': {
+                    'threshold': threshold,
+                    'min_size': min_size,
+                    **kwargs
+                },
+                'execution_time': exec_time
+            }
+
             return mask.astype(np.uint8) * 255
         
         return np.zeros((h, w), dtype=np.uint8)
     
     def _opencv_floodfill(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Сегментация методом заливки (Flood Fill).
@@ -537,6 +662,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         h, w = gray.shape
         
@@ -561,13 +688,25 @@ class OpenCVSegmenter(BaseSegmenter):
         
         # Опционально: заполняем дыры
         mask_final = ndimage.binary_fill_holes(mask_final > 0).astype(np.uint8) * 255
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'floodfill_opencv',
+            'parameters': {
+                'seed': seed,
+                'tolerance': tolerance,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
         return mask_final
 
     # ============ КЛАСТЕРИЗАЦИЯ ============
     def _opencv_kmeans_segmentation(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Сегментация методом K-Means кластеризации.
@@ -583,6 +722,8 @@ class OpenCVSegmenter(BaseSegmenter):
         """
         if len(img.shape) == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+        start_time = time.time()
         
         h, w = img.shape[:2]
         pixels = img.reshape(-1, 3).astype(np.float32)
@@ -598,11 +739,23 @@ class OpenCVSegmenter(BaseSegmenter):
         bg_label = unique[np.argmax(counts)]
         
         mask = (labels != bg_label).astype(np.uint8) * 255
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'kmeans_opencv',
+            'parameters': {
+                'k': k,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
         return mask
     
     def _opencv_dbscan_segmentation(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Сегментация методом DBSCAN кластеризации.
@@ -620,6 +773,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         h, w = gray.shape
         
@@ -637,12 +792,23 @@ class OpenCVSegmenter(BaseSegmenter):
             area = cv2.contourArea(contour)
             if area > min_area:
                 cv2.drawContours(mask, [contour], -1, 255, -1)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'dbscan_opencv',
+            'parameters': {
+                'min_area': min_area,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
         return mask
     
     def _opencv_meanshift(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Сегментация методом MeanShift.
@@ -656,6 +822,8 @@ class OpenCVSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
         """
+        start_time = time.time()
+
         spatial_radius = self.params.get('spatial_radius', 60)
         color_radius = self.params.get('color_radius', 60)
         max_level = self.params.get('max_level', 1)
@@ -666,6 +834,19 @@ class OpenCVSegmenter(BaseSegmenter):
         # Конвертируем в grayscale и пороговую обработку
         gray = cv2.cvtColor(shifted, cv2.COLOR_BGR2GRAY)
         _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'meanshift_opencv',
+            'parameters': {
+                'spatial_radius': spatial_radius,
+                'color_radius': color_radius,
+                'max_level': max_level,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
         return mask
     
@@ -673,7 +854,7 @@ class OpenCVSegmenter(BaseSegmenter):
     
     def _opencv_active_contour(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Сегментация активными контурами (Snakes).
@@ -691,6 +872,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         h, w = gray.shape
         
@@ -704,16 +887,28 @@ class OpenCVSegmenter(BaseSegmenter):
         
         # Применяем морфологические операции для имитации активного контура
         kernel = np.ones((5, 5), np.uint8)
-        for _ in range(self.params.get('iterations', 10)):
+        iterations = self.params.get('iterations', 10)
+        for _ in range(iterations):
             edges = cv2.Canny(gray, 100, 200)
             mask = cv2.bitwise_and(mask, cv2.bitwise_not(edges))
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'active_contour_opencv',
+            'parameters': {
+                'iterations': iterations,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
         return mask
     
     def _opencv_gvf_contour(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Сегментация на основе Gradient Vector Flow (GVF).
@@ -731,6 +926,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         # Вычисляем градиенты
         grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
@@ -762,11 +959,23 @@ class OpenCVSegmenter(BaseSegmenter):
         _, mask = cv2.threshold(gvf_mag, 50, 255, cv2.THRESH_BINARY)
         mask = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
 
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'gvf_opencv',
+            'parameters': {
+                'iterations': iterations,
+                'mu': mu,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
         return mask
     
     def _opencv_morphological_snakes(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Сегментация морфологическими змеями.
@@ -784,6 +993,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         h, w = gray.shape
         
@@ -807,12 +1018,23 @@ class OpenCVSegmenter(BaseSegmenter):
             mask = cv2.bitwise_and(mask, cv2.bitwise_not(grad_binary))
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'morphological_snakes_opencv',
+            'parameters': {
+                'iterations': iterations,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
         return mask
     
     def _opencv_chan_vese(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Модель Chan-Vese — активные контуры без градиентов.
@@ -830,6 +1052,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         h, w = gray.shape
         
@@ -858,6 +1082,18 @@ class OpenCVSegmenter(BaseSegmenter):
             new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_OPEN, kernel)
             
             mask = new_mask
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'chan_vese_opencv',
+            'parameters': {
+                'mu': mu,
+                'iterations': iterations,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
         return mask
 
@@ -865,7 +1101,7 @@ class OpenCVSegmenter(BaseSegmenter):
     
     def _opencv_watershed(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Сегментация методом водораздела (Watershed).
@@ -884,6 +1120,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         # blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         # _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
@@ -917,11 +1155,22 @@ class OpenCVSegmenter(BaseSegmenter):
             markers = cv2.watershed(color_img, markers)
         
         mask = (markers > 1).astype(np.uint8) * 255
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'watershed_opencv',
+            'parameters': {
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
         return mask
     
     def _opencv_random_walker(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Сегментация методом Random Walker.
@@ -939,6 +1188,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         h, w = gray.shape
         
@@ -963,12 +1214,23 @@ class OpenCVSegmenter(BaseSegmenter):
             markers = cv2.watershed(color_img, markers)
         
         mask = (markers == 2).astype(np.uint8) * 255
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'random_walker_opencv',
+            'parameters': {
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
         return mask
 
     # ============ SUPER-PIXEL МЕТОДЫ ============
     def _opencv_quickshift(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """Quickshift (упрощенная версия на основе superpixels)"""
         """
@@ -983,11 +1245,11 @@ class OpenCVSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
         """
-        return self._kmeans_segmentation(img)
+        return self._opencv_kmeans_segmentation(img, **kwargs)
     
     def _opencv_slic(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.
@@ -1002,6 +1264,8 @@ class OpenCVSegmenter(BaseSegmenter):
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8): 255 — все суперпиксели, кроме фона.
         """
         h, w = img.shape[:2]
+
+        start_time = time.time()
         
         # Разбиваем изображение на регионы
         region_size = self.params.get('region_size', 20)
@@ -1025,12 +1289,24 @@ class OpenCVSegmenter(BaseSegmenter):
                 _, region_mask = cv2.threshold(region_gray, 0, 255, 
                                              cv2.THRESH_BINARY + cv2.THRESH_OTSU)
                 mask[y:min(y+region_size, h), x:min(x+region_size, w)] = region_mask
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'slic_opencv',
+            'parameters': {
+                'region_size': region_size,
+                'ruler': ruler,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
         return mask
     
     def _opencv_felzenszwalb(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
@@ -1048,6 +1324,8 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
+        start_time = time.time()
         
         # Применяем несколько порогов для создания иерархической сегментации
         thresholds = [50, 100, 150]
@@ -1061,6 +1339,16 @@ class OpenCVSegmenter(BaseSegmenter):
         combined = np.zeros_like(gray, dtype=np.uint8)
         for mask in masks:
             combined = cv2.bitwise_or(combined, mask)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'felzenszwalb_opencv',
+            'parameters': {
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
         return combined
     
@@ -1105,7 +1393,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
     def _opencv_grabcut(
         self, 
-        img: np.ndarray
+        img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Интерактивная сегментация GrabCut.
@@ -1119,6 +1407,7 @@ class OpenCVSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8) переднего плана.
         """
+        start_time = time.time()
         # Параметры
         rect = self.params.get('rect', None)
         iter_count = self.params.get('iterations', 10)
@@ -1146,5 +1435,17 @@ class OpenCVSegmenter(BaseSegmenter):
         kernel = np.ones((3, 3), np.uint8)
         mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_CLOSE, kernel, iterations=2)
         mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_OPEN, kernel, iterations=2)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'grabcut_opencv',
+            'parameters': {
+                'iterations': iter_count,
+                'rect': rect,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
         return mask_final

@@ -1,0 +1,15 @@
+Результаты валидации: active_contour
+Референсная библиотека: opencv
+Статус: FAIL
+==================================================
+iou: 0.134885
+dice: 0.237707
+precision: 0.139149
+recall: 0.814864
+f1_score: 0.237707
+pixel_accuracy: 0.317049
+mae: 0.682951
+hausdorff_distance: 417.137867
+predicted_area: 470164.000000
+ground_truth_area: 80287.000000
+area_difference: 389877.000000

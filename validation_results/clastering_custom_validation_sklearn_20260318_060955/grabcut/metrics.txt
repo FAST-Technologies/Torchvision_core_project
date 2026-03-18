@@ -1,0 +1,15 @@
+Результаты валидации: grabcut
+Референсная библиотека: sklearn
+Статус: FAIL
+==================================================
+iou: 0.461755
+dice: 0.631781
+precision: 1.000000
+recall: 0.461755
+f1_score: 0.631781
+pixel_accuracy: 0.865449
+mae: 0.134551
+hausdorff_distance: 149.482440
+predicted_area: 70920.000000
+ground_truth_area: 153588.000000
+area_difference: 82668.000000

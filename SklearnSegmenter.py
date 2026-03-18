@@ -15,6 +15,7 @@ import requests
 from io import BytesIO
 from PIL import Image
 import matplotlib.pyplot as plt
+import time
 
 # Импорт scikit-learn компонентов
 from sklearn.cluster import (
@@ -78,6 +79,7 @@ from skimage.segmentation import (
     morphological_geodesic_active_contour, mark_boundaries
 )
 from skimage.util import img_as_ubyte, img_as_float
+import cv2
 SKIMAGE_AVAILABLE = True
 
 class SklearnSegmenter(BaseSegmenter):
@@ -98,8 +100,13 @@ class SklearnSegmenter(BaseSegmenter):
         self._setup_methods()
         self._scaler: StandardScaler = StandardScaler()
     
-    def _setup_methods(self) -> None:
-        """Регистрация всех доступных методов сегментации."""
+    def _setup_methods(self, **kwargs) -> None:
+        """
+        Сегментация с использованием scikit методов.
+        
+        Args:
+            **kwargs: Параметры метода
+        """
         self.methods: Dict[str, np.ndarray] = {
             # ============ ПОРОГОВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ ============
             "global_thresholding": self._sklearn_global_thresholding,
@@ -225,7 +232,8 @@ class SklearnSegmenter(BaseSegmenter):
     
     def segment(
         self, 
-        image: np.ndarray
+        image: np.ndarray,
+        **kwargs
     ) -> np.ndarray:
         """
         Основной метод сегментации.
@@ -246,7 +254,7 @@ class SklearnSegmenter(BaseSegmenter):
         # else:
         #     image_rgb = image
         
-        mask = self.methods[self.method](image)
+        mask, info = self.methods[self.method](image)
         
         # Гарантируем правильный формат вывода
         if mask.dtype != np.uint8:
@@ -263,7 +271,7 @@ class SklearnSegmenter(BaseSegmenter):
     
     def segment_with_mask(
         self, 
-        image: np.ndarray
+        image: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Сегментация с возвратом визуализации и маски.
@@ -274,7 +282,7 @@ class SklearnSegmenter(BaseSegmenter):
         Returns:
             Tuple[np.ndarray, np.ndarray]: Визуализация и маска
         """
-        mask = self.segment(image)
+        mask = self.segment(image, **kwargs)
         
         # Создаем визуализацию
         if len(image.shape) == 2:
@@ -441,8 +449,9 @@ class SklearnSegmenter(BaseSegmenter):
     
     def _sklearn_global_thresholding(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Глобальная пороговая сегментация.
 
@@ -461,15 +470,26 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img
         gray = self._normalize_image(gray)
         
+        start_time = time.time()
         threshold = self.params.get('threshold', 0.5)
         mask = gray > threshold
-        
-        return (mask * 255).astype(np.uint8)
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'global_thresholding_sklearn',
+            'parameters': kwargs,
+            'execution_time': exec_time,
+            'threshold': threshold
+        }
+
+        return mask, info
     
     def _sklearn_adaptive_thresholding(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Адаптивная пороговая сегментация (Gaussian).
 
@@ -488,17 +508,28 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img
         gray = self._normalize_image(gray)
         
+        start_time = time.time()
         block_size = self.params.get('block_size', 11)
         C = self.params.get('C', 2)
         adaptive_thresh = threshold_local(gray, block_size=block_size, offset=C/255.0)
         mask = gray > adaptive_thresh
+        mask = (mask * 255).astype(np.uint8)
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'adaptive_thresholding_sklearn',
+            'parameters': kwargs,
+            'execution_time': exec_time,
+            'threshold': adaptive_thresh
+        }
         
-        return (mask * 255).astype(np.uint8)
+        return mask, info
     
     def _sklearn_otsu_thresholding(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Автоматическая бинаризация по методу Оцу.
 
@@ -516,15 +547,27 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img
         gray = self._normalize_image(gray)
         
+        start_time = time.time()
         thresh = threshold_otsu(gray)
         mask = gray > thresh
+
+        mask = (mask * 255).astype(np.uint8)
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'otsu_thresholding_sklearn',
+            'parameters': kwargs,
+            'execution_time': exec_time,
+            'threshold': thresh
+        }
         
-        return (mask * 255).astype(np.uint8)
+        return mask, info
     
     def _sklearn_threshold_niblack(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Адаптивная пороговая обработка по Ниблаку.
 
@@ -543,16 +586,29 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img
         gray = self._normalize_image(gray)
         
+        start_time = time.time()
         window_size = self.params.get('window_size', 15)
         k = self.params.get('k', -0.2)
-        thresh = threshold_niblack(gray, window_size=window_size, k=k)
+        thresh = threshold_niblack(gray, window_size=window_size, k=k, **kwargs)
         mask = gray > thresh
-        return (mask * 255).astype(np.uint8)
+
+        mask = (mask * 255).astype(np.uint8)
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'niblack_thresholding_sklearn',
+            'parameters': {'window_size': window_size, 'k': k, **kwargs},
+            'execution_time': exec_time,
+            'threshold': thresh
+        }
+
+        return mask, info
     
     def _sklearn_threshold_sauvola(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Улучшенная адаптивная пороговая обработка по Сауволе.
 
@@ -571,21 +627,34 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img
         gray = self._normalize_image(gray)
         
+        start_time = time.time()
         window_size = self.params.get('window_size', 15)
         k = self.params.get('k', 0.5)
+        r = self.params.get('r', 128)
         
         # Порог Сауволы из scikit-image
-        thresh = threshold_sauvola(gray, window_size=window_size, k=k)
+        thresh = threshold_sauvola(gray, window_size=window_size, k=k, r=r, **kwargs)
         mask = gray > thresh
+
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'sauvola_thresholding_sklearn',
+            'parameters': {'window_size': window_size, 'k': k, 'r': r, **kwargs},
+            'execution_time': exec_time,
+            'threshold': thresh
+        }
         
-        return (mask * 255).astype(np.uint8)
+        return mask, info
     
     # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
     
     def _sklearn_sobel_edge(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Обнаружение границ оператором Собеля.
 
@@ -604,6 +673,7 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img
         gray = self._normalize_image(gray)
         
+        start_time = time.time()
         threshold = self.params.get('threshold', 0.1)
         edges = sobel(gray)
         
@@ -612,13 +682,24 @@ class SklearnSegmenter(BaseSegmenter):
             edges = edges / edges.max()
         
         mask = edges > threshold
+
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'sobel_edge_sklearn',
+            'parameters': {'threshold': threshold, **kwargs},
+            'execution_time': exec_time,
+            'threshold': threshold
+        }
         
-        return (mask * 255).astype(np.uint8)
+        return mask, info
     
     def _sklearn_canny_edge(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Обнаружение границ оператором Кэнни.
 
@@ -640,6 +721,8 @@ class SklearnSegmenter(BaseSegmenter):
         # gray = self._normalize_image(gray)
         if gray.dtype == np.uint8:
             gray = gray.astype(np.float32) / 255.0
+
+        start_time = time.time()
         
         sigma = self.params.get('sigma', 1.0)
         low_threshold = self.params.get('low', 0.1)
@@ -649,6 +732,7 @@ class SklearnSegmenter(BaseSegmenter):
         # 3. Включаем квантили!
         use_quantiles = False 
         
+        start_time = time.time()
         mask = feature.canny(
             gray, 
             sigma=sigma, 
@@ -656,17 +740,33 @@ class SklearnSegmenter(BaseSegmenter):
             high_threshold=high_threshold,
             use_quantiles=use_quantiles
         )
+        exec_time = time.time() - start_time
         print(f"DEBUG: sigma={sigma}, low={low_threshold}, high={high_threshold}, quantiles={use_quantiles}")
         print(f"DEBUG: Image range: [{gray.min():.4f}, {gray.max():.4f}]")
-        
-        return (mask * 255).astype(np.uint8)
+
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'canny_edge_sklearn',
+            'parameters': {
+                'sigma': sigma,
+                'low_threshold': low_threshold,
+                'high_threshold': high_threshold,
+                'use_quantiles': use_quantiles,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
         
     # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============
     
     def _sklearn_region_growing(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Сегментация методом Region Growing (роста регионов).
 
@@ -684,6 +784,8 @@ class SklearnSegmenter(BaseSegmenter):
         else:
             gray = img
         gray = self._normalize_image(gray)
+
+        start_time = time.time()
 
         h, w = gray.shape
         seed = self.params.get('seed', (w//2, h//2))
@@ -714,13 +816,27 @@ class SklearnSegmenter(BaseSegmenter):
                         nx, ny = x + dx, y + dy
                         if 0 <= nx < w and 0 <= ny < h and not visited[ny, nx]:
                             queue.append((nx, ny))
+
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'region_growing_sklearn',
+            'parameters': {
+                'seed': seed,
+                'tolerance': tolerance,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
     def _sklearn_split_and_merge(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Рекурсивный алгоритм разделения и слияния регионов.
 
@@ -739,6 +855,8 @@ class SklearnSegmenter(BaseSegmenter):
         else:
             gray = img
         gray = self._normalize_image(gray)
+
+        start_time = time.time()
         
         h, w = gray.shape
         threshold = self.params.get('threshold', 0.1)
@@ -813,12 +931,26 @@ class SklearnSegmenter(BaseSegmenter):
                 mask[:best_region_mask.shape[0], :best_region_mask.shape[1]] = \
                     best_region_mask.astype(np.uint8)
         
-        return mask.astype(np.uint8) * 255
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'split_and_merge_sklearn',
+            'parameters': {
+                'threshold': threshold,
+                'min_size': min_size,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+        
+        return mask, info
     
     def _split_and_merge(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Рекурсивный алгоритм разделения и слияния регионов.
 
@@ -837,6 +969,8 @@ class SklearnSegmenter(BaseSegmenter):
         else:
             gray = img
         gray = self._normalize_image(gray)
+
+        start_time = time.time()
         
         h, w = gray.shape
         threshold = self.params.get('threshold', 0.1)
@@ -883,12 +1017,25 @@ class SklearnSegmenter(BaseSegmenter):
                 x1, y1, x2, y2 = regions[idx]
                 mask[y1:y2, x1:x2] = True
         
-        return mask.astype(np.uint8) * 255
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'split_and_merge_sklearn',
+            'parameters': {
+                'threshold': threshold,
+                'min_size': min_size,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+        return mask, info
     
     def _floodfill(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Сегментация методом заливки (Flood Fill).
 
@@ -905,18 +1052,34 @@ class SklearnSegmenter(BaseSegmenter):
             gray = color.rgb2gray(img)
         else:
             gray = img
+
+        start_time = time.time()
         h, w = gray.shape
         seed = self.params.get('seed', (w//2, h//2))
         tolerance = self.params.get('tolerance', 0.1)
         mask = segmentation.flood(gray, seed, tolerance=tolerance)
-        return mask.astype(np.uint8) * 255
+
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'floodfill_sklearn',
+            'parameters': {
+                'seed': seed,
+                'tolarance': tolerance,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+        return mask, info
 
     # ============ КЛАСТЕРИЗАЦИЯ ============
     
     def _sklearn_kmeans_segmentation(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Сегментация методом K-Means кластеризации.
 
@@ -934,6 +1097,8 @@ class SklearnSegmenter(BaseSegmenter):
             img = np.stack([img] * 3, axis=-1)
         
         h, w = img.shape[:2]
+
+        start_time = time.time()
         
         # Преобразуем изображение в массив пикселей
         pixels = img.reshape(-1, 3)
@@ -949,30 +1114,61 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску (все кроме фона)
         mask = (labels != bg_label).reshape(h, w)
-        
-        return mask.astype(np.uint8) * 255
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'kmeans_sklearn',
+            'parameters': {
+                'k': k,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
     
     def _sklearn_kmeans(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """K-Means из sklearn с извлечением признаков."""
         features = self._extract_features(img)
         h, w = img.shape[:2]
+
+        start_time = time.time()
         
         n_clusters = self.params.get('n_clusters', 3)
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10, **kwargs)
         labels = kmeans.fit_predict(features)
+
+        unique, counts = np.unique(labels, return_counts=True)
+        bg_label = unique[np.argmax(counts)]
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'kmeans_sklearn',
+            'parameters': {
+                'n_clusters': n_clusters,
+                **kwargs
+            },
+            'execution_time': exec_time,
+            'cluster_centers': kmeans.cluster_centers_,
+            'inertia': kmeans.inertia_
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
     def _sklearn_dbscan_segmentation(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Сегментация методом DBSCAN кластеризации.
 
@@ -990,7 +1186,8 @@ class SklearnSegmenter(BaseSegmenter):
         else:
             gray = img
         gray = self._normalize_image(gray)
-        
+        start_time = time.time()
+
         h, w = gray.shape
         
         # Извлекаем признаки (пиксель + координаты)
@@ -1005,37 +1202,68 @@ class SklearnSegmenter(BaseSegmenter):
         eps = self.params.get('eps', 0.1)
         min_samples = self.params.get('min_samples', 10)
         
-        dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+        dbscan = DBSCAN(eps=eps, min_samples=min_samples, **kwargs)
         labels = dbscan.fit_predict(features)
         
         # Создаем маску (исключаем шум -1)
         mask = (labels != -1).reshape(h, w)
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'dbscan_sklearn',
+            'parameters': {
+                'eps': eps,
+                'min_samples': min_samples,
+                **kwargs
+            },
+            'execution_time': exec_time,
+            'n_clusters': len(np.unique(labels[labels != -1])),
+            'n_noise': np.sum(labels == -1)
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
     def _sklearn_dbscan(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """DBSCAN из sklearn."""
         features = self._extract_features(img)
         h, w = img.shape[:2]
-        
+        start_time = time.time()
+
         eps = self.params.get('eps', 0.5)
         min_samples = self.params.get('min_samples', 5)
         
-        dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+        dbscan = DBSCAN(eps=eps, min_samples=min_samples, **kwargs)
         labels = dbscan.fit_predict(features)
         
         # Создаем маску (исключаем шум)
         mask = (labels != -1).reshape(h, w)
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'dbscan_sklearn',
+            'parameters': {
+                'eps': eps,
+                'min_samples': min_samples,
+                **kwargs
+            },
+            'execution_time': exec_time,
+            'n_clusters': len(np.unique(labels[labels != -1])),
+            'n_noise': np.sum(labels == -1)
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
     def _meanshift(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Сегментация методом MeanShift.
 
@@ -1054,6 +1282,7 @@ class SklearnSegmenter(BaseSegmenter):
             img_rgb = np.stack([img] * 3, axis=-1)
         
         h, w = img_rgb.shape[:2]
+        start_time = time.time()
         
         # Для производительности сэмплируем пиксели
         sample_size = min(1000, h * w)
@@ -1091,13 +1320,24 @@ class SklearnSegmenter(BaseSegmenter):
         bg_label = unique_labels[np.argmax(counts)]
         
         mask = (all_labels != bg_label).reshape(h, w)
-        
-        return mask.astype(np.uint8) * 255
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'meanshift_sklearn',
+            'parameters': {
+                'bandwidth': bandwidth,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+        return mask, info
     
     def _sklearn_meanshift(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         MeanShift кластеризация для сегментации.
         
@@ -1109,6 +1349,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Ограничиваем размер для производительности
         max_samples = 5000
@@ -1132,7 +1374,7 @@ class SklearnSegmenter(BaseSegmenter):
             bin_seeding=True,
             min_bin_freq=1,
             cluster_all=True,
-            n_jobs=-1
+            n_jobs=-1, **kwargs
         )
         
         if use_sampling:
@@ -1143,14 +1385,29 @@ class SklearnSegmenter(BaseSegmenter):
             labels = meanshift.fit_predict(features)
         
         # Создаем маску
+        unique, counts = np.unique(labels, return_counts=True)
         mask = self._create_mask_from_labels(labels, (h, w))
         mask = self._postprocess_mask(mask)
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'meanshift_sklearn',
+            'parameters': {
+                'bandwidth': bandwidth,
+                **kwargs
+            },
+            'execution_time': exec_time,
+            'n_clusters': len(unique),
+            'cluster_centers': meanshift.cluster_centers_
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
     # ============ АКТИВНЫЕ КОНТУРЫ ============
     
-    def _active_contour(self, img: np.ndarray) -> np.ndarray:
+    def _active_contour(self, img: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Сегментация активными контурами (Snakes).
 
@@ -1170,6 +1427,8 @@ class SklearnSegmenter(BaseSegmenter):
         gray = self._normalize_image(gray)
         
         h, w = gray.shape
+
+        start_time = time.time()
         
         # Создаем начальный контур (окружность)
         center_x, center_y = w // 2, h // 2
@@ -1187,6 +1446,8 @@ class SklearnSegmenter(BaseSegmenter):
         beta = self.params.get('beta', 10) # rigidity (0.1)
         gamma = self.params.get('gamma', 0.001) # time step (0.001)
         max_iterations = self.params.get('max_iterations', 2000)
+        w_edge = self.params.get('w_edge', 1)
+        w_line = self.params.get('w_line', 0)
         
         # Применяем активный контур
         snake = active_contour(
@@ -1195,22 +1456,41 @@ class SklearnSegmenter(BaseSegmenter):
             alpha=alpha, 
             beta=beta, 
             gamma=gamma, 
-            w_line=0,      # attract to light
-            w_edge=1,      # attract to edges
-            max_num_iter=max_iterations
+            w_line=w_line,      # attract to light
+            w_edge=w_edge,      # attract to edges
+            max_num_iter=max_iterations,
+            **kwargs
         )
         
         # Создаем маску из контура
         mask = np.zeros((h, w), dtype=bool)
         rr, cc = polygon(snake[:, 1], snake[:, 0], mask.shape)
         mask[rr, cc] = True
+
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'active_contour_sklearn',
+            'parameters': {
+                'alpha': alpha,
+                'beta': beta,
+                'gamma': gamma,
+                'w_edge': w_edge, 
+                'w_line': w_line,
+                'max_iterations': max_iterations,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
     def _gvf_contour(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Сегментация на основе Gradient Vector Flow (GVF).
 
@@ -1228,6 +1508,8 @@ class SklearnSegmenter(BaseSegmenter):
         else:
             gray = img
         gray = self._normalize_image(gray)
+
+        start_time = time.time()
         
         # Вычисляем градиенты
         # grad_y, grad_x = np.gradient(gray_norm)
@@ -1258,13 +1540,26 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Нормализуем и пороговое разделение
         mask = gvf_mag > np.percentile(gvf_mag, 70)
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'gvf_contour_sklearn',
+            'parameters': {
+                'mu': mu,
+                'iterations': iterations,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
     def _morphological_snakes(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Сегментация морфологическими змеями.
 
@@ -1282,6 +1577,8 @@ class SklearnSegmenter(BaseSegmenter):
         else:
             gray = img
         gray = self._normalize_image(gray)
+
+        start_time = time.time()
         
         # Применяем морфологические активные контуры
         init_level_set = np.zeros(gray.shape, dtype=np.int8)
@@ -1295,15 +1592,30 @@ class SklearnSegmenter(BaseSegmenter):
         mask = morphological_geodesic_active_contour(
             gray, iterations, init_level_set,
             smoothing=smoothing, threshold=threshold,
-            balloon=1
+            balloon=1, **kwargs
         )
+
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'morphological_snakes_sklearn',
+            'parameters': {
+                'smoothing': smoothing,
+                'threshold': threshold,
+                'iterations': iterations,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
     def _chan_vese(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Модель Chan-Vese — активные контуры без градиентов.
 
@@ -1321,6 +1633,8 @@ class SklearnSegmenter(BaseSegmenter):
         else:
             gray = img
         gray = self._normalize_image(gray)
+
+        start_time = time.time()
         
         # Начальная маска
         init_level_set = np.zeros(gray.shape, dtype=np.int8)
@@ -1342,7 +1656,8 @@ class SklearnSegmenter(BaseSegmenter):
             init_level_set,
             smoothing=1, 
             lambda1=lambda1,
-            lambda2=lambda2
+            lambda2=lambda2,
+            **kwargs
         )
 
         # segmentation = chan_vese(
@@ -1352,18 +1667,38 @@ class SklearnSegmenter(BaseSegmenter):
         #         lambda2=lambda2,
         #         tol=tol,
         #         max_num_iter=max_iter,
-        #         init_level_set=init_level_set
+        #         init_level_set=init_level_set,
+                                # **kwargs
         #     )
         # mask = (segmentation > 0.5).astype(np.uint8) * 255
+
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'chan_vese_sklearn',
+            'parameters': {
+                'mu': mu,
+                'lambda1': lambda1,
+                'lambda2': lambda2,
+                'tol': tol,
+                'max_iter': max_iter,
+                'iterations': iterations,
+                **kwargs
+            },
+            'execution_time': exec_time,
+            'converged': exec_time < max_iter * 0.1
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
     # ============ WATERSHED И ГРАФОВЫЕ МЕТОДЫ ============
     
     def _watershed(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Сегментация методом водораздела (Watershed).
 
@@ -1382,6 +1717,8 @@ class SklearnSegmenter(BaseSegmenter):
         else:
             gray = img
         gray = self._normalize_image(gray)
+
+        start_time = time.time()
         
         # Маркеры для watershed
         markers = np.zeros_like(gray, dtype=np.uint8)
@@ -1396,13 +1733,25 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Бинаризуем (все кроме фона)
         mask = segmentation == 2
+
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'watershed_sklearn',
+            'parameters': {
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
     def _random_walker(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Сегментация методом Random Walker.
 
@@ -1420,6 +1769,8 @@ class SklearnSegmenter(BaseSegmenter):
         else:
             gray = img
         gray = self._normalize_image(gray)
+
+        start_time = time.time()
         
         # Создаем маркеры
         markers = np.zeros(gray.shape, dtype=np.uint8)
@@ -1436,18 +1787,32 @@ class SklearnSegmenter(BaseSegmenter):
         markers[-corner_size:, -corner_size:] = 1
         
         # Применяем Random Walker
-        labels = random_walker(gray, markers, beta=10, mode='cg_mg')
+        beta = self.params.get('beta', 10)
+        labels = random_walker(gray, markers, beta=beta, mode='cg_mg')
         
         # Бинаризуем
         mask = labels == 2
+
+        exec_time = time.time() - start_time
+        mask = (mask * 255).astype(np.uint8)
+
+        info = {
+            'method': 'random_walker_sklearn',
+            'parameters': {
+                'beta': beta,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
     # ============ SUPER-PIXEL МЕТОДЫ ============
     def _quickshift(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Сегментация методом Quickshift (реализована через MeanShift как аналог).
 
@@ -1460,21 +1825,42 @@ class SklearnSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
         """
-        segments = quickshift(img, kernel_size=3, max_dist=6, ratio=0.5)
+        start_time = time.time()
+
+        kernel_size = self.params.get('kernel_size', 3)
+        max_dist = self.params.get('max_dist', 6)
+        ratio = self.params.get('ratio', 0.5)
+
+        segments = quickshift(img, kernel_size=kernel_size, max_dist=max_dist, ratio=ratio, **kwargs)
         
         # Находим самый большой суперпиксель
         unique_labels, counts = np.unique(segments, return_counts=True)
-        bg_label = unique_labels[np.argmax(counts)]
+        if len(unique_labels) > 0:
+            bg_label = unique_labels[np.argmax(counts)]
+            mask = (segments != bg_label).astype(np.uint8) * 255
+        else:
+            mask = np.zeros_like(segments, dtype=np.uint8)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'quickshift_sklearn',
+            'parameters': {
+                'kernel_size': kernel_size,
+                'max_dist': max_dist,
+                'ratio': ratio,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        # Создаем маску (все кроме фона)
-        mask = segments != bg_label
-        
-        return mask.astype(np.uint8)
+        return mask, info
     
     def _slic(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.
 
@@ -1487,25 +1873,41 @@ class SklearnSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8): 255 — все суперпиксели, кроме фона.
         """
+        start_time = time.time()
+
         n_segments = self.params.get('n_segments', 100)
         compactness = self.params.get('compactness', 10)
         
         # Применяем SLIC
-        segments = slic(img, n_segments=n_segments, compactness=compactness)
+        segments = slic(img, n_segments=n_segments, compactness=compactness, **kwargs)
         
         # Находим самый большой суперпиксель
         unique_labels, counts = np.unique(segments, return_counts=True)
-        bg_label = unique_labels[np.argmax(counts)]
+        if len(unique_labels) > 0:
+            bg_label = unique_labels[np.argmax(counts)]
+            mask = (segments != bg_label).astype(np.uint8) * 255
+        else:
+            mask = np.zeros_like(segments, dtype=np.uint8)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'slic_sklearn',
+            'parameters': {
+                'n_segments': n_segments,
+                'compactness': compactness,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        # Создаем маску
-        mask = segments != bg_label
-        
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
     def _felzenszwalb(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
 
@@ -1518,12 +1920,14 @@ class SklearnSegmenter(BaseSegmenter):
         Returns:
             Бинарная маска: 255 — все регионы, кроме самого крупного (фона).
         """
+        start_time = time.time()
+
         scale = self.params.get('scale', 100)
         sigma = self.params.get('sigma', 0.5)
         min_size = self.params.get('min_size', 50)
         
         # Применяем Felzenszwalb
-        segments = felzenszwalb(img, scale=scale, sigma=sigma, min_size=min_size)
+        segments = felzenszwalb(img, scale=scale, sigma=sigma, min_size=min_size, **kwargs)
         
         # Находим самый большой регион
         unique_labels, counts = np.unique(segments, return_counts=True)
@@ -1532,15 +1936,30 @@ class SklearnSegmenter(BaseSegmenter):
             mask_np = (segments != bg_label).astype(np.uint8) * 255
         else:
             mask_np = np.zeros_like(segments, dtype=np.uint8)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'felzenszwalb_sklearn',
+            'parameters': {
+                'scale': scale,
+                'sigma': sigma,
+                'min_size': min_size,
+                **kwargs
+            },
+            'execution_time': exec_time,
+            'n_segments': len(unique_labels)
+        }
         
-        return mask_np
+        return mask_np, info
     
     # ============ ИНТЕРАКТИВНЫЕ МЕТОДЫ ============
     
     def _grabcut(
         self, 
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Интерактивная сегментация GrabCut.
 
@@ -1557,6 +1976,8 @@ class SklearnSegmenter(BaseSegmenter):
             img = np.stack([img] * 3, axis=-1)
         
         h, w = img.shape[:2]
+
+        start_time = time.time()
         
         # Создаем начальную маску
         mask = np.zeros((h, w), dtype=np.uint8)
@@ -1598,15 +2019,28 @@ class SklearnSegmenter(BaseSegmenter):
         labels = rf.predict(features)
         
         mask_result = labels.reshape(h, w)
+
+        exec_time = time.time() - start_time
+        mask = mask_result.astype(np.uint8)
+
+        info = {
+            'method': 'grabcut_sklearn',
+            'parameters': {
+                'rect': rect,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask_result.astype(np.uint8)
+        return mask, info
     
     # ============ SKLEARN МЕТОДЫ ============
     
     def _sklearn_gmm(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Gaussian Mixture Models для сегментации.
         
@@ -1618,6 +2052,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         n_components = self.params.get('n_components', 3)
         if n_components <= 0:
@@ -1635,19 +2071,37 @@ class SklearnSegmenter(BaseSegmenter):
             max_iter=100,
             n_init=1,
             init_params='kmeans',
-            random_state=42
+            random_state=42,
+            **kwargs
         )
         
         labels = gmm.fit_predict(features)
         
         # Создаем маску
-        mask = self._create_mask_from_labels(labels, (h, w))      
-        return mask.astype(np.uint8)
+        mask = self._create_mask_from_labels(labels, (h, w)) 
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8)  
+
+        info = {
+            'method': 'gmm_sklearn',
+            'parameters': {
+                'n_components': n_components,
+                'covariance_type': covariance_type,
+                **kwargs
+            },
+            'execution_time': exec_time,
+            'converged': gmm.converged_,
+            'lower_bound': gmm.lower_bound_
+        }
+
+        return mask, info
     
     def _sklearn_optics(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         OPTICS кластеризация для сегментации.
         
@@ -1659,6 +2113,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Ограничиваем размер для производительности
         max_samples = 2000
@@ -1697,13 +2153,28 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8)
+
+        info = {
+            'method': 'optics_sklearn',
+            'parameters': {
+                'min_samples': min_samples,
+                'xi': xi,
+                'min_cluster_size': min_cluster_size,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8)
+        return mask, info
     
     def _sklearn_agglomerative(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Agglomerative (иерархическая) кластеризация.
         
@@ -1715,6 +2186,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Ограничиваем размер
         max_samples = 1000
@@ -1748,13 +2221,28 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8)
+
+        info = {
+            'method': 'agglomerative_sklearn',
+            'parameters': {
+                'n_clusters': n_clusters,
+                'linkage': linkage,
+                'affinity': affinity,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8)
+        return mask, info
     
     def _sklearn_spectral(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Spectral Clustering для сегментации.
         
@@ -1766,6 +2254,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Ограничиваем размер (Spectral Clustering требователен к памяти)
         max_samples = 1000
@@ -1801,12 +2291,27 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
-        return mask.astype(np.uint8)
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8)
+
+        info = {
+            'method': 'spectral_sklearn',
+            'parameters': {
+                'n_clusters': n_clusters,
+                'n_neighbors': n_neighbors,
+                'affinity': affinity,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
     
     def _sklearn_birch(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         BIRCH (Balanced Iterative Reducing and Clustering using Hierarchies).
         
@@ -1818,6 +2323,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Параметры BIRCH
         n_clusters = self.params.get('n_clusters', 3)
@@ -1835,12 +2342,27 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
-        return mask
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'birch_sklearn',
+            'parameters': {
+                'n_clusters': n_clusters,
+                'threshold': threshold,
+                'branching_factor': branching_factor,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
     
     def _sklearn_mini_batch_kmeans(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Mini-Batch K-Means для больших изображений.
         
@@ -1852,6 +2374,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Параметры
         n_clusters = self.params.get('n_clusters', 3)
@@ -1871,7 +2395,21 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
-        return mask.astype(np.uint8)
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8)
+
+        info = {
+            'method': 'birch_sklearn',
+            'parameters': {
+                'n_clusters': n_clusters,
+                'batch_size': batch_size,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
     
     # ============ МЕТОДЫ КЛАССИФИКАЦИИ ДЛЯ СЕГМЕНТАЦИИ ============
     
@@ -1948,11 +2486,14 @@ class SklearnSegmenter(BaseSegmenter):
     #     return mask
     def _sklearn_random_forest(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Random Forest для сегментации."""
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Создаем метки для обучения
         labels_train = -np.ones(h * w)
@@ -1986,13 +2527,25 @@ class SklearnSegmenter(BaseSegmenter):
         # Предсказываем
         labels = rf.predict(features)
         mask = labels.reshape(h, w)
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8)
+
+        info = {
+            'method': 'random_forest_sklearn',
+            'parameters': {
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8)
+        return mask, info
     
     def _sklearn_svm(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Support Vector Machine для сегментации.
         
@@ -2004,6 +2557,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Создаем метки для обучения (как в Random Forest)
         labels_train = np.zeros(features.shape[0])
@@ -2031,12 +2586,16 @@ class SklearnSegmenter(BaseSegmenter):
         train_indices = np.where(labels_train >= 0)[0]
         X_train = features[train_indices]
         y_train = labels_train[train_indices]
+
+        C=self.params.get('C', 1.0),
+        kernel=self.params.get('kernel', 'rbf'),
+        gamma=self.params.get('gamma', 'scale'),
         
         # Обучаем SVM
         svm = SVC(
-            C=self.params.get('C', 1.0),
-            kernel=self.params.get('kernel', 'rbf'),
-            gamma=self.params.get('gamma', 'scale'),
+            C,
+            kernel,
+            gamma,
             probability=True,
             random_state=42
         )
@@ -2049,13 +2608,27 @@ class SklearnSegmenter(BaseSegmenter):
         # Создаем маску
         mask = labels.reshape(h, w).astype(np.uint8) * 255
         mask = self._postprocess_mask(mask)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'svm_sklearn',
+            'parameters': {
+                'C': C,
+                'kernel': kernel,
+                'gamma': gamma,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask
+        return mask, info
     
     def _sklearn_logistic_regression(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Logistic Regression для сегментации.
         
@@ -2067,6 +2640,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Создаем метки для обучения
         labels_train = np.zeros(features.shape[0])
@@ -2094,6 +2669,8 @@ class SklearnSegmenter(BaseSegmenter):
         train_indices = np.where(labels_train >= 0)[0]
         X_train = features[train_indices]
         y_train = labels_train[train_indices]
+
+        C=self.params.get('C', 1.0),
         
         # Обучаем Logistic Regression
         lr = LogisticRegression(
@@ -2113,13 +2690,25 @@ class SklearnSegmenter(BaseSegmenter):
         # Создаем маску
         mask = labels.reshape(h, w).astype(np.uint8) * 255
         mask = self._postprocess_mask(mask)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'logistic_regression_sklearn',
+            'parameters': {
+                'C': C,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask
+        return mask, info
     
     def _sklearn_knn(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         K-Nearest Neighbors для сегментации.
         
@@ -2131,6 +2720,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Создаем метки для обучения
         labels_train = np.zeros(features.shape[0])
@@ -2158,11 +2749,14 @@ class SklearnSegmenter(BaseSegmenter):
         train_indices = np.where(labels_train >= 0)[0]
         X_train = features[train_indices]
         y_train = labels_train[train_indices]
+
+        n_neighbors=self.params.get('n_neighbors', 5),
+        weights=self.params.get('weights', 'uniform'),
         
         # Обучаем KNN
         knn = KNeighborsClassifier(
-            n_neighbors=self.params.get('n_neighbors', 5),
-            weights=self.params.get('weights', 'uniform'),
+            n_neighbors,
+            weights,
             algorithm='auto',
             leaf_size=30,
             n_jobs=-1
@@ -2176,15 +2770,28 @@ class SklearnSegmenter(BaseSegmenter):
         # Создаем маску
         mask = labels.reshape(h, w).astype(np.uint8) * 255
         mask = self._postprocess_mask(mask)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'knn_sklearn',
+            'parameters': {
+                'n_neighbors': n_neighbors,
+                'weights': weights,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask
+        return mask, info
     
     # ============ МЕТОДЫ ОБНАРУЖЕНИЯ АНОМАЛИЙ ============
     
     def _sklearn_isolation_forest(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Isolation Forest для сегментации (объект как аномалия).
         
@@ -2196,11 +2803,16 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
+
+        n_estimators=self.params.get('n_estimators', 100),
+        contamination=self.params.get('contamination', 'auto'),
         
         # Применяем Isolation Forest
         iso_forest = IsolationForest(
-            n_estimators=self.params.get('n_estimators', 100),
-            contamination=self.params.get('contamination', 'auto'),
+            n_estimators,
+            contamination,
             max_samples='auto',
             random_state=42,
             n_jobs=-1
@@ -2212,13 +2824,26 @@ class SklearnSegmenter(BaseSegmenter):
         # Преобразуем в маску (аномалии = объект)
         mask = (labels == -1).reshape(h, w).astype(np.uint8) * 255
         mask = self._postprocess_mask(mask)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'isolation_forest_sklearn',
+            'parameters': {
+                'n_estimators': n_estimators,
+                'contamination': contamination,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask
+        return mask, info
     
     def _sklearn_local_outlier_factor(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Local Outlier Factor для сегментации.
         
@@ -2230,6 +2855,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Ограничиваем размер для производительности
         max_samples = 2000
@@ -2240,11 +2867,14 @@ class SklearnSegmenter(BaseSegmenter):
         else:
             sample_features = features
             use_sampling = False
+
+        n_neighbors=self.params.get('n_neighbors', 20),
+        contamination=self.params.get('contamination', 'auto'),
         
         # Применяем LOF
         lof = LocalOutlierFactor(
-            n_neighbors=self.params.get('n_neighbors', 20),
-            contamination=self.params.get('contamination', 'auto'),
+            n_neighbors,
+            contamination,
             novelty=False,
             n_jobs=-1
         )
@@ -2259,13 +2889,26 @@ class SklearnSegmenter(BaseSegmenter):
         # Преобразуем в маску
         mask = (labels == -1).reshape(h, w).astype(np.uint8) * 255
         mask = self._postprocess_mask(mask)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'local_outlier_factor_sklearn',
+            'parameters': {
+                'n_neighbors': n_neighbors,
+                'contamination': contamination,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask
+        return mask, info
     
     def _sklearn_one_class_svm(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         One-Class SVM для сегментации.
         
@@ -2277,6 +2920,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Обучаем на центральной области (предполагаем, что это фон)
         center_mask = np.zeros((h, w), dtype=bool)
@@ -2291,12 +2936,16 @@ class SklearnSegmenter(BaseSegmenter):
         # Выбираем пиксели фона (все кроме центра)
         background_mask = ~center_mask
         X_train = features[background_mask.ravel()]
+
+        kernel=self.params.get('kernel', 'rbf'),
+        gamma=self.params.get('gamma', 'auto'),
+        nu=self.params.get('nu', 0.1)
         
         # Обучаем One-Class SVM
         oc_svm = OneClassSVM(
-            kernel=self.params.get('kernel', 'rbf'),
-            gamma=self.params.get('gamma', 'auto'),
-            nu=self.params.get('nu', 0.1)
+            kernel,
+            gamma,
+            nu
         )
         
         oc_svm.fit(X_train)
@@ -2307,15 +2956,29 @@ class SklearnSegmenter(BaseSegmenter):
         # Преобразуем в маску (объект = -1)
         mask = (labels == -1).reshape(h, w).astype(np.uint8) * 255
         mask = self._postprocess_mask(mask)
+
+        exec_time = time.time() - start_time
+
+        info = {
+            'method': 'one_class_svm_sklearn',
+            'parameters': {
+                'kernel': kernel,
+                'gamma': gamma,
+                'nu': nu,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask
+        return mask, info
     
     # ============ МЕТОДЫ РАЗЛОЖЕНИЯ ============
     
     def _sklearn_pca_segmentation(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         PCA-based сегментация.
         
@@ -2327,6 +2990,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Применяем PCA
         n_components = self.params.get('n_components', 3)
@@ -2340,13 +3005,27 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8)
+
+        info = {
+            'method': 'pca_segmentation_sklearn',
+            'parameters': {
+                'n_components': n_components,
+                'n_clusters': n_clusters,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8)
+        return mask, info
     
     def _sklearn_nmf_segmentation(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Non-negative Matrix Factorization для сегментации.
         
@@ -2358,6 +3037,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Убедимся, что данные неотрицательные
         features_nonneg = features - features.min()
@@ -2376,13 +3057,27 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8)
+
+        info = {
+            'method': 'nmf_segmentation_sklearn',
+            'parameters': {
+                'n_components': n_components,
+                'n_clusters': n_clusters,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8)
+        return mask, info
     
     def _sklearn_tsne_segmentation(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         t-SNE для сегментации (визуализация + кластеризация).
         
@@ -2394,6 +3089,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Ограничиваем размер для производительности
         max_samples = 1000
@@ -2426,14 +3123,29 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
-        return mask.astype(np.uint8)
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8)
+
+        info = {
+            'method': 'tsne_segmentation_sklearn',
+            'parameters': {
+                'perplexity': perplexity,
+                'n_clusters': n_clusters,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
     
     # ============ КОМБИНИРОВАННЫЕ МЕТОДЫ ============
     
     def _sklearn_ensemble_clustering(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Ensemble clustering (комбинация нескольких методов).
         
@@ -2445,6 +3157,8 @@ class SklearnSegmenter(BaseSegmenter):
         """
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Создаем несколько кластеризаций
         clusterings = []
@@ -2483,12 +3197,25 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
-        return mask.astype(np.uint8)
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8)
+
+        info = {
+            'method': 'ensemble_clustering_sklearn',
+            'parameters': {
+                'n_clusters': n_clusters,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
     
     def _sklearn_color_spatial_clustering(
         self, 
-        image: np.ndarray
-    ) -> np.ndarray:
+        image: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Кластеризация с учетом цвета и пространственных координат.
         
@@ -2499,6 +3226,8 @@ class SklearnSegmenter(BaseSegmenter):
             Бинарная маска сегментации
         """
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Создаем признаки: цвет + пространственные координаты
         if len(image.shape) == 3:
@@ -2533,14 +3262,29 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
-        return mask.astype(np.uint8)
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8)
+
+        info = {
+            'method': 'color_spatial_clustering_sklearn',
+            'parameters': {
+                'n_clusters': n_clusters,
+                'color_weight': color_weight,
+                'spatial_weight': spatial_weight,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
     
     # ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ АВТОМАТИЧЕСКОЙ НАСТРОЙКИ ============
     
     def _estimate_optimal_clusters(
         self, 
         features: np.ndarray, 
-        max_k: int = 10
+        max_k: int = 10,
+        **kwargs
     ) -> int:
         """Оценка оптимального числа кластеров методом локтя."""
         if features.shape[0] < 10:
@@ -2571,7 +3315,8 @@ class SklearnSegmenter(BaseSegmenter):
     
     def _estimate_dbscan_params(
         self, 
-        features: np.ndarray
+        features: np.ndarray,
+        **kwargs
     ) -> Tuple[float, int]:
         """Автоматическая оценка параметров DBSCAN."""
         # Используем метод k-distance graph
@@ -2599,7 +3344,8 @@ class SklearnSegmenter(BaseSegmenter):
     
     def _estimate_meanshift_bandwidth(
         self, 
-        features: np.ndarray
+        features: np.ndarray,
+        **kwargs
     ) -> float:
         """Оценка bandwidth для MeanShift."""
         # Используем квантильный метод
@@ -2620,7 +3366,8 @@ class SklearnSegmenter(BaseSegmenter):
     def _estimate_gmm_components(
         self, 
         features: np.ndarray, 
-        max_components: int = 10
+        max_components: int = 10,
+        **kwargs
     ) -> int:
         """Оценка числа компонент для GMM с помощью BIC."""
         if features.shape[0] < 20:
@@ -2647,7 +3394,8 @@ class SklearnSegmenter(BaseSegmenter):
     def _interpolate_labels(self, train_features: np.ndarray, 
                           test_features: np.ndarray, 
                           train_labels: np.ndarray,
-                          method: str = 'knn') -> np.ndarray:
+                          method: str = 'knn',
+        **kwargs) -> np.ndarray:
         """
         Интерполяция меток с обучающего набора на тестовый.
         
@@ -2675,10 +3423,13 @@ class SklearnSegmenter(BaseSegmenter):
     
     # ============ ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ (для полноты) ============
     
-    def _sklearn_decision_tree(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_decision_tree(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Decision Tree для сегментации."""
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Создаем метки для обучения
         labels_train = self._create_training_labels(h, w)
@@ -2687,10 +3438,13 @@ class SklearnSegmenter(BaseSegmenter):
         X_train = features[train_indices]
         y_train = labels_train[train_indices]
         
+        max_depth=self.params.get('max_depth', None),
+        min_samples_split=self.params.get('min_samples_split', 2),
+        
         # Обучаем Decision Tree
         dt = DecisionTreeClassifier(
-            max_depth=self.params.get('max_depth', None),
-            min_samples_split=self.params.get('min_samples_split', 2),
+            max_depth,
+            min_samples_split,
             random_state=42
         )
         
@@ -2698,22 +3452,39 @@ class SklearnSegmenter(BaseSegmenter):
         labels = dt.predict(features)
         
         mask = labels.reshape(h, w).astype(np.uint8) * 255
-        return self._postprocess_mask(mask)
+
+        exec_time = time.time() - start_time
+        mask = self._postprocess_mask(mask)
+        info = {
+            'method': 'decision_tree_sklearn',
+            'parameters': {
+                'max_depth': max_depth,
+                'min_samples_split': min_samples_split,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
     
-    def _sklearn_mlp(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_mlp(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Multi-layer Perceptron для сегментации."""
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         labels_train = self._create_training_labels(h, w)
         train_indices = np.where(labels_train >= 0)[0]
         
         X_train = features[train_indices]
         y_train = labels_train[train_indices]
+        hidden_layer_sizes=self.params.get('hidden_layer_sizes', (100, 50))
         
         # Обучаем MLP
         mlp = MLPClassifier(
-            hidden_layer_sizes=self.params.get('hidden_layer_sizes', (100, 50)),
+            hidden_layer_sizes=hidden_layer_sizes,
             activation='relu',
             solver='adam',
             random_state=42,
@@ -2724,12 +3495,27 @@ class SklearnSegmenter(BaseSegmenter):
         labels = mlp.predict(features)
         
         mask = labels.reshape(h, w).astype(np.uint8) * 255
-        return self._postprocess_mask(mask)
+        exec_time = time.time() - start_time
+        mask = self._postprocess_mask(mask)
+
+        info = {
+            'method': 'mlp_sklearn',
+            'parameters': {
+                'hidden_layer_sizes': hidden_layer_sizes,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
     
-    def _sklearn_naive_bayes(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_naive_bayes(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Naive Bayes для сегментации."""
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         labels_train = self._create_training_labels(h, w)
         train_indices = np.where(labels_train >= 0)[0]
@@ -2743,12 +3529,26 @@ class SklearnSegmenter(BaseSegmenter):
         labels = nb.predict(features)
         
         mask = labels.reshape(h, w).astype(np.uint8) * 255
-        return self._postprocess_mask(mask)
+        exec_time = time.time() - start_time
+        mask = self._postprocess_mask(mask)
+
+        info = {
+            'method': 'naive_bayes_sklearn',
+            'parameters': {
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
     
-    def _sklearn_lda(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_lda(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Linear Discriminant Analysis для сегментации."""
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         labels_train = self._create_training_labels(h, w)
         train_indices = np.where(labels_train >= 0)[0]
@@ -2762,9 +3562,21 @@ class SklearnSegmenter(BaseSegmenter):
         labels = lda.predict(features)
         
         mask = labels.reshape(h, w).astype(np.uint8) * 255
-        return self._postprocess_mask(mask)
+        exec_time = time.time() - start_time
+        mask = self._postprocess_mask(mask)
+
+        info = {
+            'method': 'lda_sklearn',
+            'parameters': {
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
     
-    def _create_training_labels(self, h: int, w: int) -> np.ndarray:
+    def _create_training_labels(self, h: int, w: int,
+        **kwargs) -> np.ndarray:
         """Создание меток для обучения."""
         labels_train = -np.ones(h * w)  # -1 означает непомеченный
         
@@ -2798,101 +3610,150 @@ class SklearnSegmenter(BaseSegmenter):
     
     # ============ ОСТАЛЬНЫЕ МЕТОДЫ (заглушки для полноты API) ============
     
-    def _sklearn_elliptic_envelope(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_elliptic_envelope(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Elliptic Envelope для сегментации."""
         return self._sklearn_isolation_forest(image)
     
-    def _sklearn_bayesian_gmm(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_bayesian_gmm(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Bayesian GMM для сегментации."""
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
+        n_components=self.params.get('n_components', 10),
         bgmm = BayesianGaussianMixture(
-            n_components=self.params.get('n_components', 10),
+            n_components=n_components,
             random_state=42
         )
         
         labels = bgmm.fit_predict(features)
         mask = self._create_mask_from_labels(labels, (h, w))
-        return self._postprocess_mask(mask)
+
+        exec_time = time.time() - start_time
+        mask = self._postprocess_mask(mask)
+
+        info = {
+            'method': 'bayesian_gmm_sklearn',
+            'parameters': {
+                'n_components': n_components,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
     
-    def _sklearn_ica_segmentation(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_ica_segmentation(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """ICA для сегментации."""
         return self._sklearn_pca_segmentation(image)
     
-    def _sklearn_isomap_segmentation(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_isomap_segmentation(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Isomap для сегментации."""
         return self._sklearn_tsne_segmentation(image)
     
-    def _sklearn_spectral_embedding(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_spectral_embedding(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Spectral Embedding для сегментации."""
         return self._sklearn_spectral(image)
     
-    def _sklearn_variational_gmm(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_variational_gmm(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Variational GMM для сегментации."""
         return self._sklearn_bayesian_gmm(image)
     
-    def _sklearn_density_based(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_density_based(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Density-based кластеризация."""
         return self._sklearn_dbscan(image)
     
-    def _sklearn_hdbscan_emulation(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_hdbscan_emulation(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Эмуляция HDBSCAN."""
         return self._sklearn_optics(image)
     
-    def _sklearn_graph_clustering(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_graph_clustering(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Graph-based кластеризация."""
         return self._sklearn_spectral(image)
     
-    def _sklearn_modularity_clustering(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_modularity_clustering(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Modularity-based кластеризация."""
         return self._sklearn_spectral(image)
     
-    def _sklearn_self_training(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_self_training(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Self-training для сегментации."""
         return self._sklearn_random_forest(image)
     
-    def _sklearn_semi_supervised(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_semi_supervised(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Semi-supervised сегментация."""
         return self._sklearn_random_forest(image)
     
-    def _sklearn_distance_matrix(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_distance_matrix(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Distance matrix-based кластеризация."""
         return self._sklearn_spectral(image)
     
-    def _sklearn_affinity_propagation(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_affinity_propagation(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Affinity Propagation."""
         features = self._extract_features(image)
         h, w = image.shape[:2]
+
+        start_time = time.time()
         
         # Используем K-Means как альтернативу (Affinity Propagation требователен)
         kmeans = KMeans(n_clusters=3, random_state=42)
         labels = kmeans.fit_predict(features)
         
         mask = self._create_mask_from_labels(labels, (h, w))
-        return self._postprocess_mask(mask)
+        exec_time = time.time() - start_time
+        mask = self._postprocess_mask(mask)
+
+        info = {
+            'method': 'affinity_propagation_sklearn',
+            'parameters': {
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
+
+        return mask, info
     
-    def _sklearn_qda(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_qda(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Quadratic Discriminant Analysis."""
         return self._sklearn_lda(image)
     
-    def _sklearn_texture_clustering(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_texture_clustering(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Текстурная кластеризация."""
         return self._sklearn_color_spatial_clustering(image)
     
-    def _sklearn_superpixel_clustering(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_superpixel_clustering(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Кластеризация суперпикселей."""
         return self._sklearn_color_spatial_clustering(image)
     
-    def _sklearn_hierarchical_kmeans(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_hierarchical_kmeans(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Иерархический K-Means."""
         return self._sklearn_agglomerative(image)
     
-    def _sklearn_pca_kmeans(self, image: np.ndarray) -> np.ndarray:
+    def _sklearn_pca_kmeans(self, image: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """PCA + K-Means."""
         return self._sklearn_pca_segmentation(image)
     
-    def _sklearn_gmm(self, img: np.ndarray) -> np.ndarray:
+    def _sklearn_gmm(self, img: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Gaussian Mixture Models."""
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
@@ -2900,6 +3761,8 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img
         
         h, w = gray.shape
+
+        start_time = time.time()
         
         # Подготовка признаков
         y_coords, x_coords = np.mgrid[0:h, 0:w]
@@ -2916,10 +3779,23 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8) * 255
+
+        info = {
+            'method': 'gmm_sklearn',
+            'parameters': {
+                'n_components': n_components,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
-    def _sklearn_agglomerative(self, img: np.ndarray) -> np.ndarray:
+    def _sklearn_agglomerative(self, img: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Agglomerative Clustering."""
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
@@ -2927,6 +3803,8 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img
         
         h, w = gray.shape
+
+        start_time = time.time()
         
         # Для производительности сэмплируем
         sample_size = min(1000, h * w)
@@ -2958,10 +3836,23 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8) * 255
+
+        info = {
+            'method': 'agglomerative_sklearn',
+            'parameters': {
+                'n_clusters': n_clusters,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
-    def _sklearn_spectral(self, img: np.ndarray) -> np.ndarray:
+    def _sklearn_spectral(self, img: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Spectral Clustering."""
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
@@ -2969,6 +3860,8 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img
         
         h, w = gray.shape
+
+        start_time = time.time()
         
         # Для производительности - сильное сэмплирование
         sample_size = min(500, h * w)
@@ -3000,10 +3893,23 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8) * 255
+
+        info = {
+            'method': 'spectral_sklearn',
+            'parameters': {
+                'n_clusters': n_clusters,
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
-    def _sklearn_isolation_forest(self, img: np.ndarray) -> np.ndarray:
+    def _sklearn_isolation_forest(self, img: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Isolation Forest для сегментации."""
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
@@ -3011,6 +3917,8 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img
         
         h, w = gray.shape
+
+        start_time = time.time()
         
         # Подготовка признаков
         y_coords, x_coords = np.mgrid[0:h, 0:w]
@@ -3026,10 +3934,22 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Аномалии = объект
         mask = (labels == -1).reshape(h, w)
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8) * 255
+
+        info = {
+            'method': 'isolation_forest_sklearn',
+            'parameters': {
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
-    def _sklearn_random_forest(self, img: np.ndarray) -> np.ndarray:
+    def _sklearn_random_forest(self, img: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Random Forest для сегментации."""
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
@@ -3037,6 +3957,8 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img
         
         h, w = gray.shape
+
+        start_time = time.time()
         
         # Создаем метки для обучения
         labels_train = -np.ones(h * w)
@@ -3078,10 +4000,22 @@ class SklearnSegmenter(BaseSegmenter):
         # Предсказываем
         labels = rf.predict(features)
         mask = labels.reshape(h, w)
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8) * 255
+
+        info = {
+            'method': 'random_forest_sklearn',
+            'parameters': {
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
-    def _sklearn_svm(self, img: np.ndarray) -> np.ndarray:
+    def _sklearn_svm(self, img: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """SVM для сегментации."""
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
@@ -3089,6 +4023,8 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img
         
         h, w = gray.shape
+
+        start_time = time.time()
         
         # Создаем метки для обучения (как в Random Forest)
         labels_train = -np.ones(h * w)
@@ -3128,10 +4064,22 @@ class SklearnSegmenter(BaseSegmenter):
         # Предсказываем
         labels = svm.predict(features)
         mask = labels.reshape(h, w)
+
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8) * 255
+
+        info = {
+            'method': 'svm_sklearn',
+            'parameters': {
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
-    def _sklearn_pca_segmentation(self, img: np.ndarray) -> np.ndarray:
+    def _sklearn_pca_segmentation(self, img: np.ndarray,
+        **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """PCA-based сегментация."""
         if len(img.shape) == 3:
             gray = color.rgb2gray(img)
@@ -3139,6 +4087,8 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img
         
         h, w = gray.shape
+
+        start_time = time.time()
         
         # Подготовка признаков
         y_coords, x_coords = np.mgrid[0:h, 0:w]
@@ -3158,12 +4108,23 @@ class SklearnSegmenter(BaseSegmenter):
         
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
+        exec_time = time.time() - start_time
+        mask = mask.astype(np.uint8) * 255
+
+        info = {
+            'method': 'psa_segmentation_sklearn',
+            'parameters': {
+                **kwargs
+            },
+            'execution_time': exec_time
+        }
         
-        return mask.astype(np.uint8) * 255
+        return mask, info
     
     # ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
     
-    def _create_mask_from_labels(self, labels: np.ndarray, shape: Tuple) -> np.ndarray:
+    def _create_mask_from_labels(self, labels: np.ndarray, shape: Tuple,
+        **kwargs) -> np.ndarray:
         """Создание бинарной маски из меток."""
         labels_2d = labels.reshape(shape)
         unique_labels = np.unique(labels)
@@ -3189,8 +4150,9 @@ class SklearnSegmenter(BaseSegmenter):
 
     def _sklearn_floodfill(
         self,
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         FloodFill сегментация (scikit-image).
         Заполняет область, начиная с заданной точки, пока интенсивность
@@ -3209,23 +4171,39 @@ class SklearnSegmenter(BaseSegmenter):
                 gray = img
             
             h, w = gray.shape
+
+            start_time = time.time()
             seed = self.params.get('seed', (w//2, h//2))
             tolerance = self.params.get('tolerance', 0.1)
             
             # Используем flood из skimage
             mask = segmentation.flood(gray, seed_point=seed[::-1], tolerance=tolerance)
+
+            exec_time = time.time() - start_time
+            mask = mask.astype(np.uint8) * 255
+
+            info = {
+                'method': 'floodfill_sklearn',
+                'parameters': {
+                    'seed': seed,
+                    'tolerance': tolerance,
+                    **kwargs
+                },
+                'execution_time': exec_time
+            }
             
-            return mask.astype(np.uint8) * 255
+            return mask, info
             
         except Exception as e:
             warnings.warn(f"FloodFill failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img)
+            return self._sklearn_otsu_thresholding(img), {}
 
 
     def _sklearn_active_contour(
         self,
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Active Contour (Snakes) сегментация.
         Инициализирует замкнутый контур и деформирует его под действием
@@ -3245,6 +4223,7 @@ class SklearnSegmenter(BaseSegmenter):
             
             gray_norm = img_as_float(gray)
             h, w = gray_norm.shape
+            start_time = time.time()
             
             # Создаём начальный контур (окружность в центре)
             center_x, center_y = w // 2, h // 2
@@ -3279,18 +4258,36 @@ class SklearnSegmenter(BaseSegmenter):
             mask = np.zeros((h, w), dtype=bool)
             rr, cc = polygon(snake[:, 1], snake[:, 0], mask.shape)
             mask[rr, cc] = True
+
+            exec_time = time.time() - start_time
+            mask = mask.astype(np.uint8) * 255
+
+            info = {
+                'method': 'active_contour_sklearn',
+                'parameters': {
+                    'alpha': alpha,
+                    'beta': beta,
+                    'gamma': gamma,
+                    'w_edge': w_edge,
+                    'w_line': w_line,
+                    'max_iter': max_iter,
+                    **kwargs
+                },
+                'execution_time': exec_time
+            }
             
-            return mask.astype(np.uint8) * 255
+            return mask, info
             
         except Exception as e:
             warnings.warn(f"Active Contour failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img)
+            return self._sklearn_otsu_thresholding(img), {}
 
 
     def _sklearn_gvf_contour(
         self,
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Gradient Vector Flow (GVF) контуры.
         Вычисляет векторное поле, распространяющее информацию о градиентах.
@@ -3308,6 +4305,7 @@ class SklearnSegmenter(BaseSegmenter):
                 gray = img
             
             gray_norm = img_as_float(gray)
+            start_time = time.time()
             
             # Вычисляем градиенты
             grad_x = filters.sobel_h(gray_norm)
@@ -3335,18 +4333,32 @@ class SklearnSegmenter(BaseSegmenter):
             # Пороговое разделение
             threshold = np.percentile(gvf_mag, 70)
             mask = gvf_mag > threshold
+
+            exec_time = time.time() - start_time
+            mask = mask.astype(np.uint8) * 255
+
+            info = {
+                'method': 'gvf_sklearn',
+                'parameters': {
+                    'mu': mu,
+                    'iterations': iterations,
+                    **kwargs
+                },
+                'execution_time': exec_time
+            }
             
-            return mask.astype(np.uint8) * 255
+            return mask, info
             
         except Exception as e:
             warnings.warn(f"GVF Contour failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img)
+            return self._sklearn_otsu_thresholding(img), {}
 
 
     def _sklearn_morphological_snakes(
         self,
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Морфологические змеи (Morphological Geodesic Active Contours).
         Итеративно расширяет/сужает маску на основе градиента изображения.
@@ -3365,6 +4377,7 @@ class SklearnSegmenter(BaseSegmenter):
             
             gray_norm = img_as_float(gray)
             h, w = gray_norm.shape
+            start_time = time.time()
             
             # Начальный уровень (прямоугольник в центре)
             init_level_set = np.zeros(gray_norm.shape, dtype=np.int8)
@@ -3385,18 +4398,34 @@ class SklearnSegmenter(BaseSegmenter):
                 threshold=threshold,
                 balloon=balloon
             )
+
+            exec_time = time.time() - start_time
+            mask = mask.astype(np.uint8) * 255
+
+            info = {
+                'method': 'morphological_snakes_sklearn',
+                'parameters': {
+                    'smoothing': smoothing,
+                    'threshold': threshold,
+                    'smoothing': smoothing,
+                    'balloon': balloon,
+                    **kwargs
+                },
+                'execution_time': exec_time
+            }
             
-            return mask.astype(np.uint8) * 255
+            return mask, info
             
         except Exception as e:
             warnings.warn(f"Morphological Snakes failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img)
+            return self._sklearn_otsu_thresholding(img), {}
 
 
     def _sklearn_chan_vese(
         self,
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Chan-Vese активные контуры (без градиентов).
         Энергетическая модель, разделяющая изображение на две области
@@ -3416,6 +4445,7 @@ class SklearnSegmenter(BaseSegmenter):
             
             gray_norm = img_as_float(gray)
             h, w = gray_norm.shape
+            start_time = time.time()
             
             # Начальный уровень
             init_level_set = np.zeros(gray_norm.shape, dtype=np.int8)
@@ -3437,18 +4467,34 @@ class SklearnSegmenter(BaseSegmenter):
                 lambda1=lambda1,
                 lambda2=lambda2
             )
+            exec_time = time.time() - start_time
+            mask = mask.astype(np.uint8) * 255
+
+            info = {
+                'method': 'chan_vese_sklearn',
+                'parameters': {
+                    'mu': mu,
+                    'lambda1': lambda1,
+                    'lambda2': lambda2,
+                    'tol': tol,
+                    'max_iter': max_iter,
+                    **kwargs
+                },
+                'execution_time': exec_time
+            }
             
-            return mask.astype(np.uint8) * 255
+            return mask, info
             
         except Exception as e:
             warnings.warn(f"Chan-Vese failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img)
+            return self._sklearn_otsu_thresholding(img), {}
 
 
     def _sklearn_watershed(
         self,
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Watershed (водораздел) сегментация.
         Использует маркеры для разделения объектов на основе градиента.
@@ -3466,6 +4512,7 @@ class SklearnSegmenter(BaseSegmenter):
                 gray = img
             
             gray_norm = img_as_float(gray)
+            start_time = time.time()
             
             # Создаём маркеры
             markers = np.zeros_like(gray, dtype=np.uint8)
@@ -3483,18 +4530,29 @@ class SklearnSegmenter(BaseSegmenter):
             
             # Создаём маску (объект = маркер 2)
             mask = segmentation == 2
+            exec_time = time.time() - start_time
+            mask = mask.astype(np.uint8) * 255
+
+            info = {
+                'method': 'watershed_sklearn',
+                'parameters': {
+                    **kwargs
+                },
+                'execution_time': exec_time
+            }
             
-            return mask.astype(np.uint8) * 255
+            return mask, info
             
         except Exception as e:
             warnings.warn(f"Watershed failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img)
+            return self._sklearn_otsu_thresholding(img), {}
 
 
     def _sklearn_random_walker(
         self,
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Random Walker сегментация.
         На основе маркеров решает задачу на графе о принадлежности пикселей.
@@ -3513,6 +4571,7 @@ class SklearnSegmenter(BaseSegmenter):
             
             gray_norm = img_as_float(gray)
             h, w = gray.shape
+            start_time = time.time()
             
             # Создаём маркеры
             markers = np.zeros(gray.shape, dtype=np.uint8)
@@ -3536,18 +4595,30 @@ class SklearnSegmenter(BaseSegmenter):
             
             # Создаём маску (объект = маркер 2)
             mask = labels == 2
+            exec_time = time.time() - start_time
+            mask = mask.astype(np.uint8) * 255
+
+            info = {
+                'method': 'random_walker_sklearn',
+                'parameters': {
+                    'beta': beta,
+                    'mode': mode,
+                    **kwargs
+                },
+                'execution_time': exec_time
+            }
             
-            return mask.astype(np.uint8) * 255
+            return mask, info
             
         except Exception as e:
             warnings.warn(f"Random Walker failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img)
-
+            return self._sklearn_otsu_thresholding(img), {}
 
     def _sklearn_quickshift(
         self,
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Quickshift сегментация.
         Mode-seeking алгоритм для сегментации в пространстве признаков.
@@ -3563,6 +4634,7 @@ class SklearnSegmenter(BaseSegmenter):
                 img_rgb = np.stack([img] * 3, axis=-1)
             else:
                 img_rgb = img
+            start_time = time.time()
             
             # Параметры
             kernel_size = self.params.get('kernel_size', 3)
@@ -3583,18 +4655,32 @@ class SklearnSegmenter(BaseSegmenter):
             
             # Создаём маску (все кроме фона)
             mask = segments != bg_label
+            exec_time = time.time() - start_time
+            mask = mask.astype(np.uint8) * 255
+
+            info = {
+                'method': 'quickshift_sklearn',
+                'parameters': {
+                    'kernel_size': kernel_size,
+                    'max_dist': max_dist,
+                    'ratio': ratio,
+                    **kwargs
+                },
+                'execution_time': exec_time
+            }
             
-            return mask.astype(np.uint8) * 255
+            return mask, info
             
         except Exception as e:
             warnings.warn(f"Quickshift failed: {e}. Using fallback (KMeans).")
-            return self._sklearn_kmeans_segmentation(img)
+            return self._sklearn_kmeans_segmentation(img), {}
 
 
     def _sklearn_slic(
         self,
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         SLIC (Simple Linear Iterative Clustering).
         Суперпиксельная сегментация на основе пространственной и цветовой близости.
@@ -3610,6 +4696,7 @@ class SklearnSegmenter(BaseSegmenter):
                 img_rgb = np.stack([img] * 3, axis=-1)
             else:
                 img_rgb = img
+            start_time = time.time()
             
             # Параметры
             n_segments = self.params.get('n_segments', 100)
@@ -3633,18 +4720,33 @@ class SklearnSegmenter(BaseSegmenter):
             
             # Создаём маску (все кроме фона)
             mask = segments != bg_label
+            exec_time = time.time() - start_time
+            mask = mask.astype(np.uint8) * 255
+
+            info = {
+                'method': 'slic_sklearn',
+                'parameters': {
+                    'n_segments': n_segments,
+                    'compactness': compactness,
+                    'max_iter': max_iter,
+                    'enforce_connectivity': enforce_connectivity,
+                    **kwargs
+                },
+                'execution_time': exec_time
+            }
             
-            return mask.astype(np.uint8) * 255
+            return mask, info
             
         except Exception as e:
             warnings.warn(f"SLIC failed: {e}. Using fallback (KMeans).")
-            return self._sklearn_kmeans_segmentation(img)
+            return self._sklearn_kmeans_segmentation(img), {}
 
 
     def _sklearn_felzenszwalb(
         self,
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Felzenszwalb сегментация.
         Графовая сегментация на основе минимального остовного дерева.
@@ -3660,6 +4762,7 @@ class SklearnSegmenter(BaseSegmenter):
                 img_rgb = np.stack([img] * 3, axis=-1)
             else:
                 img_rgb = img
+            start_time = time.time()
             
             # Параметры
             scale = self.params.get('scale', 100)
@@ -3680,18 +4783,32 @@ class SklearnSegmenter(BaseSegmenter):
             
             # Создаём маску (все кроме фона)
             mask = segments != bg_label
+            exec_time = time.time() - start_time
+            mask = mask.astype(np.uint8) * 255
+
+            info = {
+                'method': 'felzenszwalb_sklearn',
+                'parameters': {
+                    'scale': scale,
+                    'sigma': sigma,
+                    'min_size': min_size,
+                    **kwargs
+                },
+                'execution_time': exec_time
+            }
             
-            return mask.astype(np.uint8) * 255
+            return mask, info
             
         except Exception as e:
             warnings.warn(f"Felzenszwalb failed: {e}. Using fallback (KMeans).")
-            return self._sklearn_kmeans_segmentation(img)
+            return self._sklearn_kmeans_segmentation(img), {}
 
 
     def _sklearn_grabcut(
         self,
-        img: np.ndarray
-    ) -> np.ndarray:
+        img: np.ndarray,
+        **kwargs
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         GrabCut сегментация (эмуляция через Random Forest).
         Имитация интерактивной сегментации с использованием маркеров.
@@ -3709,6 +4826,7 @@ class SklearnSegmenter(BaseSegmenter):
                 img_rgb = img
             
             h, w = img_rgb.shape[:2]
+            start_time = time.time()
             
             # Создаём начальную маску с маркерами
             mask = np.zeros((h, w), dtype=np.uint8)
@@ -3747,124 +4865,21 @@ class SklearnSegmenter(BaseSegmenter):
             # Предсказываем для всех пикселей
             labels = rf.predict(features)
             mask_result = labels.reshape(h, w)
+            exec_time = time.time() - start_time
+            mask = mask_result.astype(np.uint8) * 255
+
+            info = {
+                'method': 'grabcut_sklearn',
+                'parameters': {
+                    'rect': rect,
+                    'n_estimators': n_estimators,
+                    **kwargs
+                },
+                'execution_time': exec_time
+            }
             
-            return mask_result.astype(np.uint8) * 255
+            return mask, info
             
         except Exception as e:
             warnings.warn(f"GrabCut failed: {e}. Using fallback (KMeans).")
-            return self._sklearn_kmeans_segmentation(img)
-
-
-# Пример использования SklearnSegmenter
-def demo_sklearn_segmenter() -> SklearnSegmenter:
-    """Демонстрация работы SklearnSegmenter."""
-    if not SKIMAGE_AVAILABLE:
-        print("scikit-image не установлен. Установите: pip install scikit-image")
-        return
-    
-    # Загрузка тестового изображения
-    url = "https://upload.wikimedia.org/wikipedia/commons/7/7d/Colorful_spring_garden.jpg"
-    response = requests.get(url)
-    img = Image.open(BytesIO(response.content))
-    img_np = np.array(img)
-
-    # Создаем тестовое изображение
-    h, w = 256, 256
-    y, x = np.ogrid[:h, :w]
-    center_y, center_x = h // 2, w // 2
-    radius = h // 4
-    
-    # Круг на фоне градиента
-    circle = (x - center_x) ** 2 + (y - center_y) ** 2 <= radius ** 2
-    gradient = np.linspace(0, 1, w).reshape(1, -1).repeat(h, axis=0)
-    test_image = gradient.copy()
-    test_image[circle] = 0.8
-    
-    print("Демонстрация SklearnSegmenter")
-    print("=" * 50)
-    
-    # Тестируем разные методы
-    methods_to_test = [
-        ("global_thresholding", {"threshold": 0.5}),
-        ("otsu_thresholding", {}),
-        ("canny_edge", {"sigma": 1.0}),
-        ("kmeans_segmentation", {"k": 2}),
-        ("watershed", {}),
-        ("slic", {"n_segments": 50}),
-        ("kmeans", {"n_clusters": 3}),
-        ("dbscan", {"eps": "auto", "min_samples": "auto"}),
-        ("meanshift", {"bandwidth": None}),
-        ("gmm", {"n_components": 3}),
-        ("random_forest", {"n_estimators": 50}),
-        ("svm", {"C": 1.0, "kernel": "rbf"}),
-        ("isolation_forest", {"n_estimators": 100}),
-        ("pca_segmentation", {"n_components": 3}),
-        ("color_spatial_clustering", {"color_weight": 0.7, "spatial_weight": 0.3}),
-    ]
-    
-    fig, axes = plt.subplots(2, 8, figsize=(16, 8))
-    axes = axes.flatten()
-    
-    # Оригинальное изображение
-    # axes[0].imshow(img_np)
-    axes[0].imshow(test_image, cmap='gray')
-    axes[0].set_title("Original Image")
-    axes[0].axis('off')
-    
-    for idx, (method_name, params) in enumerate(methods_to_test):
-        try:
-            print(f"Тестирование метода: {method_name}")
-            
-            # Создаем сегментатор
-            segmenter = SklearnSegmenter(method=method_name, **params)
-            
-            # Выполняем сегментацию
-            # mask = segmenter.segment(img_np)
-            mask = segmenter.segment(test_image)
-            
-            # Отображаем результат
-            axes[idx + 1].imshow(mask, cmap='gray')
-            axes[idx + 1].set_title(f"{method_name}")
-            axes[idx + 1].axis('off')
-            
-            print(f"  ✓ Успешно: маска размера {mask.shape}, "
-                  f"уникальных значений: {np.unique(mask)}")
-            
-        except Exception as e:
-            print(f"  ✗ Ошибка: {e}")
-            axes[idx + 1].axis('off')
-            axes[idx + 1].set_title(f"{method_name}\n(ошибка)")
-    
-    plt.suptitle("SklearnSegmenter: Разные методы сегментации", fontsize=16)
-    plt.tight_layout()
-    plt.show()
-    
-    # Демонстрация segment_with_mask
-    print("\nДемонстрация segment_with_mask:")
-    segmenter = SklearnSegmenter(method="kmeans", n_clusters=3)
-    visualization, mask = segmenter.segment_with_mask(img_np)
-    
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    
-    axes[0].imshow(img_np)
-    axes[0].set_title("Original")
-    axes[0].axis('off')
-    
-    axes[1].imshow(mask, cmap='gray')
-    axes[1].set_title("Mask")
-    axes[1].axis('off')
-    
-    axes[2].imshow(visualization)
-    axes[2].set_title("Visualization")
-    axes[2].axis('off')
-    
-    plt.suptitle("SklearnSegmenter.segment_with_mask()", fontsize=14)
-    plt.tight_layout()
-    plt.show()
-    
-    return segmenter
-
-
-if __name__ == "__main__":
-    segmenter = demo_sklearn_segmenter()
-    print("\n✅ Демонстрация завершена успешно!")
+            return self._sklearn_kmeans_segmentation(img), {}

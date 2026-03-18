@@ -1,0 +1,15 @@
+Результаты валидации: random_walker
+Референсная библиотека: sklearn
+Статус: WARNING
+==================================================
+iou: 0.900504
+dice: 0.947648
+precision: 0.930280
+recall: 0.965676
+f1_score: 0.947648
+pixel_accuracy: 0.918563
+mae: 0.081437
+hausdorff_distance: 109.293184
+predicted_area: 486788.000000
+ground_truth_area: 468945.000000
+area_difference: 17843.000000
