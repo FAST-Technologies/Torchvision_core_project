@@ -2,6 +2,7 @@ from segmenters.TorchSegmenter import TorchSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from metrics.SegmentationMetrics import SegmentationMetrics
+import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -20,7 +21,6 @@ class TorchImplementationValidator:
     Класс для валидации кастомных PyTorch реализаций
     против оригинальных реализаций из библиотек
     """
-    
     def __init__(
         self, 
         output_dir: str = "./data/validation_results"
@@ -322,6 +322,21 @@ class TorchImplementationValidator:
             
             torch_mask = data['torch_mask']
             ref_mask = data['reference_mask']
+            if isinstance(torch_mask, torch.Tensor):
+                torch_mask_np = torch_mask.cpu().numpy()
+            else:
+                torch_mask_np = torch_mask
+
+            # Удаляем все оси размером 1, чтобы получить (H, W)
+            torch_mask_np = np.squeeze(torch_mask_np)
+            
+            # То же самое для референсной маски (на всякий случай)
+            if isinstance(ref_mask, torch.Tensor):
+                ref_mask_np = ref_mask.cpu().numpy()
+            else:
+                ref_mask_np = ref_mask
+            ref_mask_np = np.squeeze(ref_mask_np)
+
             metrics = data['metrics']
             status = data['validation_status']
             
@@ -331,7 +346,7 @@ class TorchImplementationValidator:
             axes[row, 0].axis('off')
             
             # Torch маска
-            axes[row, 1].imshow(torch_mask, cmap='gray')
+            axes[row, 1].imshow(torch_mask_np, cmap='gray')
             if additional_method == "Torch":
                 axes[row, 1].set_title(f"Torch {method}\nIoU: {metrics['iou']:.3f}")
             else:
@@ -339,12 +354,12 @@ class TorchImplementationValidator:
             axes[row, 1].axis('off')
             
             # Reference маска
-            axes[row, 2].imshow(ref_mask, cmap='gray')
+            axes[row, 2].imshow(ref_mask_np, cmap='gray')
             axes[row, 2].set_title(f"{reference.upper()} {method}")
             axes[row, 2].axis('off')
             
             # Разность
-            diff = np.abs(torch_mask.astype(float) - ref_mask.astype(float))
+            diff = np.abs(torch_mask_np.astype(float) - ref_mask_np.astype(float))
             im = axes[row, 3].imshow(diff, cmap='hot')
             status_color = 'green' if status == 'PASS' else 'orange' if status == 'WARNING' else 'red'
             axes[row, 3].set_title(f"Difference\nStatus: {status}", color=status_color)

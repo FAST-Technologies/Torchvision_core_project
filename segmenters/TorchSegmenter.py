@@ -1078,7 +1078,6 @@ class TorchSegmenter(BaseSegmenter):
             print(f"Image after Torch preprocessing (tensor): {tensor}")
             mask_tensor = self._segment_func(tensor)
             print(f"Image after Torch preprocessing (mask_tensor): {mask_tensor}")
-            # print(f"Info Torch segment: {info}")
             
             # Преобразуем маску в numpy
             if mask_tensor.dim() == 4:
@@ -1097,7 +1096,7 @@ class TorchSegmenter(BaseSegmenter):
                     mask_np = (mask_np * 255).astype(np.uint8)
                 else:
                     mask_np = mask_np.astype(np.uint8)
-            print(f"Mask after Torch segment: {mask_np}")
+            # print(f"Mask after Torch segment: {mask_np}")
             return mask_np
             
         except Exception as e:
@@ -1138,7 +1137,6 @@ class TorchSegmenter(BaseSegmenter):
             result_vis, mask_tensor = self._segment_with_visualization(tensor, **kwargs)
             print(f"Image after Torch preprocessing with mask (result_vis): {result_vis}")
             print(f"Image after Torch preprocessing with mask (mask_tensor): {mask_tensor}")
-            # print(f"Info Torch segment_with_mask: {info}")
             
             # Преобразуем маску в numpy
             if mask_tensor.dim() == 4:
@@ -1344,7 +1342,7 @@ class TorchSegmenter(BaseSegmenter):
         else:
             gray_np = gray_np.astype(np.uint8)
 
-        print(f"Gray after Torch_thresholding_otsu (gray_np - not used): {gray_np}")
+        # print(f"Gray after Torch_thresholding_otsu (gray_np - not used): {gray_np}")
         start_time = time.time()
         
         hist = torch.histc(gray, bins=256, min=0, max=1)
@@ -1570,222 +1568,228 @@ class TorchSegmenter(BaseSegmenter):
         
         return mask
     
-    # def _canny_edge(
-    #     self,
-    #     tensor: torch.Tensor,
-    #     **kwargs
-    # ) -> torch.Tensor:
-    #     """
-    #     Обнаружение границ оператором Кэнни (Исправленная версия с правильным паддингом).
-    #     """
-    #     gray = self._to_grayscale(tensor) # (B, 1, H, W)
-    #     print(f"Gray after Torch_canny_edge: {gray}")
-    #     start_time = time.time()
-        
-    #     low = self.params.get('low', 0.1)
-    #     high = self.params.get('high', 0.3)
-    #     sigma = self.params.get('sigma', 1.0)
-        
-    #     # 1. Gaussian Blur (если sigma > 0)
-    #     if sigma > 0:
-    #         kernel_size = int(2 * round(3 * sigma) + 1)
-    #         # Убедимся, что kernel_size нечетный
-    #         if kernel_size % 2 == 0:
-    #             kernel_size += 1
-    #         try:
-    #             gray = F.gaussian_blur(gray, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma])
-    #         except AttributeError:
-    #             # Fallback для старых версий PyTorch
-    #             pass
-
-    #     # 2. Градиенты Собеля
-    #     sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], 
-    #                           dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
-    #     sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], 
-    #                           dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
-        
-    #     gx = F.conv2d(gray, sobel_x, padding=1)
-    #     gy = F.conv2d(gray, sobel_y, padding=1)
-        
-    #     mag = torch.sqrt(gx**2 + gy**2)
-    #     angle = torch.atan2(gy, gx) # Радианы от -pi до pi
-        
-    #     # Нормализуем угол в диапазон [0, 180] градусов
-    #     angle_deg = torch.rad2deg(angle)
-    #     angle_deg = torch.abs(angle_deg)
-        
-    #     # 3. Non-Maximum Suppression (NMS) с правильным паддингом
-    #     # Используем reflection padding, чтобы сохранить размерность
-    #     mag_padded = F.pad(mag, (1, 1, 1, 1), mode='reflect')
-        
-    #     # Извлекаем соседей из паддингованного тензора
-    #     # Центральный пиксель теперь соответствует [1:-1, 1:-1] в padded, но мы будем сравнивать полные тензоры со сдвигом
-        
-    #     # Соседи для 4 направлений:
-    #     # Left, Right, Top, Bottom
-    #     m_left   = mag_padded[:, :, 1:-1, :-2]   # Сдвиг влево
-    #     m_right  = mag_padded[:, :, 1:-1, 2:]    # Сдвиг вправо
-    #     m_top    = mag_padded[:, :, :-2, 1:-1]   # Сдвиг вверх
-    #     m_bottom = mag_padded[:, :, 2:, 1:-1]    # Сдвиг вниз
-        
-    #     # Диагональные соседи
-    #     m_ul = mag_padded[:, :, :-2, :-2]   # Верх-Лево
-    #     m_ur = mag_padded[:, :, :-2, 2:]    # Верх-Право
-    #     m_dl = mag_padded[:, :, 2:, :-2]    # Низ-Лево
-    #     m_dr = mag_padded[:, :, 2:, 2:]     # Низ-Право
-        
-    #     # Основной массив для результата (инициализируем нулями)
-    #     suppressed = torch.zeros_like(mag)
-        
-    #     # Определяем маски направлений (0, 45, 90, 135 градусов)
-    #     # 0 град: горизонталь (сравниваем лево/право)
-    #     mask_0 = ((angle_deg <= 22.5) | (angle_deg > 157.5))
-    #     # 45 град: диагональ \ (сравниваем UL/DR) -> ОШИБКА В ЛОГИКЕ РАНЬШЕ: 45 град это обычно / (UR/DL) или \ (UL/DR)?
-    #     # В стандартной реализации:
-    #     # 0 deg: <-> (Left/Right)
-    #     # 45 deg: ↘↖ (Up-Right / Down-Left) -> Сравниваем с UR и DL
-    #     # 90 deg: ↑↓ (Top/Bottom)
-    #     # 135 deg: ↙↗ (Up-Left / Down-Right) -> Сравниваем с UL и DR
-        
-    #     # Исправляем логику сравнения в соответствии с углами:
-    #     # Если угол ~45 (22.5-67.5), градиент направлен по диагонали /. Значит нужно сравнивать с соседями по этой линии: UR и DL.
-    #     # Если угол ~135 (112.5-157.5), градиент направлен по диагонали \. Сравниваем с UL и DR.
-        
-    #     mask_45 = ((angle_deg > 22.5) & (angle_deg <= 67.5))
-    #     mask_90 = ((angle_deg > 67.5) & (angle_deg <= 112.5))
-    #     mask_135 = ((angle_deg > 112.5) & (angle_deg <= 157.5))
-        
-    #     # --- Направление 0 (Горизонталь) ---
-    #     cond_0 = (mag >= m_left) & (mag >= m_right)
-    #     suppressed[mask_0] = mag[mask_0] * cond_0[mask_0].float()
-        
-    #     # --- Направление 90 (Вертикаль) ---
-    #     cond_90 = (mag >= m_top) & (mag >= m_bottom)
-    #     suppressed[mask_90] = mag[mask_90] * cond_90[mask_90].float()
-        
-    #     # --- Направление 45 (Диагональ UR-DL) ---
-    #     # Сравниваем с Upper-Right и Down-Left
-    #     cond_45 = (mag >= m_ur) & (mag >= m_dl)
-    #     suppressed[mask_45] = mag[mask_45] * cond_45[mask_45].float()
-        
-    #     # --- Направление 135 (Диагональ UL-DR) ---
-    #     # Сравниваем с Upper-Left и Down-Right
-    #     cond_135 = (mag >= m_ul) & (mag >= m_dr)
-    #     suppressed[mask_135] = mag[mask_135] * cond_135[mask_135].float()
-        
-    #     # Теперь 'suppressed' содержит только локальные максимумы, остальные 0
-        
-    #     # 4. Double Thresholding & Hysteresis
-    #     strong_mask = suppressed >= high
-    #     weak_mask = (suppressed >= low) & (suppressed < high)
-        
-    #     # Инициализируем итоговую маску сильными пикселями
-    #     final_mask = strong_mask.float()
-        
-    #     # Простой итеративный гистерезис (связывание слабых пикселей с сильными)
-    #     # Используем свертку для поиска соседей
-    #     kernel_conn = torch.ones(1, 1, 3, 3, device=self.device)
-        
-    #     # Выполняем 2-3 итерации распространения
-    #     for _ in range(2):
-    #         # Размываем текущую маску сильных пикселей, чтобы найти соседей
-    #         # Pad перед сверткой, чтобы не потерять края
-    #         # Исправление размерности для F.pad (требуется 4D тензор: N, C, H, W)
-    #         if final_mask.dim() == 2:
-    #             # Если маска (H, W), превращаем в (1, 1, H, W)
-    #             input_for_pad = final_mask.unsqueeze(0).unsqueeze(0).float()
-    #         elif final_mask.dim() == 3:
-    #             # Если маска (1, H, W), превращаем в (1, 1, H, W)
-    #             input_for_pad = final_mask.unsqueeze(1).float()
-    #         else:
-    #             input_for_pad = final_mask.float()
-
-    #         final_padded = F.pad(input_for_pad, (1, 1, 1, 1), mode='replicate')
-    #         neighbors_exist = F.conv2d(final_padded, kernel_conn).squeeze(0) > 0
-            
-    #         # Слабые пиксели, у которых есть сильный сосед, становятся сильными
-    #         new_strong = neighbors_exist & weak_mask
-    #         final_mask = final_mask | new_strong.float()
-            
-    #     exec_time = time.time() - start_time
-        
-    #     info = {
-    #         'method': 'canny_edge_torch',
-    #         'parameters': {'low': low, 'high': high, 'sigma': sigma},
-    #         'execution_time': exec_time,
-    #     }
-
-    #     print(f"Mask after Torch_canny_edge: {final_mask.unsqueeze(0)}")
-    #     print(f"Info after Torch_canny_edge: {info}")
-        
-    #     return final_mask.unsqueeze(0) # Возвращаем (1, 1, H, W)
-    
     def _canny_edge(
-        self, 
+        self,
         tensor: torch.Tensor,
         **kwargs
-    ) -> Tuple[torch.Tensor]:
+    ) -> torch.Tensor:
         """
-        Обнаружение границ оператором Кэнни.
-
-        Многоэтапный алгоритм: сглаживание, вычисление градиента, подавление немаксимумов,
-        двойная пороговая фильтрация и отслеживание связных границ.
-
-        Args:
-            img: Входное изображение (RGB или grayscale).
-
-        Returns:
-            np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
+        Обнаружение границ оператором Кэнни (Исправленная версия с правильным паддингом).
         """
-        gray = self._to_grayscale(tensor)
-        print(f"Gray after Torch_canny_edge (before blur): {gray}")
+        gray = self._to_grayscale(tensor) # (B, 1, H, W)
+        print(f"Gray after Torch_canny_edge: {gray}")
         start_time = time.time()
+        
         low = self.params.get('low', 0.1)
         high = self.params.get('high', 0.3)
         sigma = self.params.get('sigma', 1.0)
         
+        # 1. Gaussian Blur (если sigma > 0)
+        if sigma > 0:
+            kernel_size = int(2 * round(3 * sigma) + 1)
+            # Убедимся, что kernel_size нечетный
+            if kernel_size % 2 == 0:
+                kernel_size += 1
+            try:
+                gray = F.gaussian_blur(gray, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma])
+            except AttributeError:
+                # Fallback для старых версий PyTorch
+                pass
+
+        # 2. Градиенты Собеля
         sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], 
                               dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
         sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], 
                               dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
         
-        if sigma > 0:
-            # Применяем Гауссово размытие
-            kernel_size = int(2 * round(3 * sigma) + 1)
-            blur_transform = torchvision.transforms.GaussianBlur(
-                kernel_size=[kernel_size, kernel_size], 
-                sigma=[sigma, sigma]
-            )
-            # 2. Применяем его к тензору
-            gray = blur_transform(gray)
-        print(f"Gray after Torch_canny_edge (after blur): {gray}")
-        
         gx = F.conv2d(gray, sobel_x, padding=1)
         gy = F.conv2d(gray, sobel_y, padding=1)
+        
         mag = torch.sqrt(gx**2 + gy**2)
-        angle = torch.atan2(gy, gx) * 180 / np.pi
+        angle = torch.atan2(gy, gx) # Радианы от -pi до pi
         
-        suppressed = mag.clone()
-        suppressed[(angle > -22.5) & (angle <= 22.5)] = 0
-        suppressed[(angle > 22.5) & (angle <= 67.5)] = 0
-        suppressed[(angle > 67.5) & (angle <= 112.5)] = 0
-        suppressed[(angle > 112.5) & (angle <= 157.5)] = 0
+        # Нормализуем угол в диапазон [0, 180] градусов
+        angle_deg = torch.rad2deg(angle)
+        angle_deg = torch.abs(angle_deg)
         
-        mask = (mag > high).float()
-        weak = ((mag > low) & (mag <= high)).float()
-        mask = mask + weak * (mask > 0).float()
+        # 3. Non-Maximum Suppression (NMS) с правильным паддингом
+        # Используем reflection padding, чтобы сохранить размерность
+        mag_padded = F.pad(mag, (1, 1, 1, 1), mode='reflect')
+        
+        # Извлекаем соседей из паддингованного тензора
+        # Центральный пиксель теперь соответствует [1:-1, 1:-1] в padded, но мы будем сравнивать полные тензоры со сдвигом
+        
+        # Соседи для 4 направлений:
+        # Left, Right, Top, Bottom
+        m_left   = mag_padded[:, :, 1:-1, :-2]   # Сдвиг влево
+        m_right  = mag_padded[:, :, 1:-1, 2:]    # Сдвиг вправо
+        m_top    = mag_padded[:, :, :-2, 1:-1]   # Сдвиг вверх
+        m_bottom = mag_padded[:, :, 2:, 1:-1]    # Сдвиг вниз
+        
+        # Диагональные соседи
+        m_ul = mag_padded[:, :, :-2, :-2]   # Верх-Лево
+        m_ur = mag_padded[:, :, :-2, 2:]    # Верх-Право
+        m_dl = mag_padded[:, :, 2:, :-2]    # Низ-Лево
+        m_dr = mag_padded[:, :, 2:, 2:]     # Низ-Право
+        
+        # Основной массив для результата (инициализируем нулями)
+        suppressed = torch.zeros_like(mag)
+        
+        # Определяем маски направлений (0, 45, 90, 135 градусов)
+        # 0 град: горизонталь (сравниваем лево/право)
+        mask_0 = ((angle_deg <= 22.5) | (angle_deg > 157.5))
+        # 45 град: диагональ \ (сравниваем UL/DR) -> ОШИБКА В ЛОГИКЕ РАНЬШЕ: 45 град это обычно / (UR/DL) или \ (UL/DR)?
+        # В стандартной реализации:
+        # 0 deg: <-> (Left/Right)
+        # 45 deg: ↘↖ (Up-Right / Down-Left) -> Сравниваем с UR и DL
+        # 90 deg: ↑↓ (Top/Bottom)
+        # 135 deg: ↙↗ (Up-Left / Down-Right) -> Сравниваем с UL и DR
+        
+        # Исправляем логику сравнения в соответствии с углами:
+        # Если угол ~45 (22.5-67.5), градиент направлен по диагонали /. Значит нужно сравнивать с соседями по этой линии: UR и DL.
+        # Если угол ~135 (112.5-157.5), градиент направлен по диагонали \. Сравниваем с UL и DR.
+        
+        mask_45 = ((angle_deg > 22.5) & (angle_deg <= 67.5))
+        mask_90 = ((angle_deg > 67.5) & (angle_deg <= 112.5))
+        mask_135 = ((angle_deg > 112.5) & (angle_deg <= 157.5))
+        
+        # --- Направление 0 (Горизонталь) ---
+        cond_0 = (mag >= m_left) & (mag >= m_right)
+        suppressed[mask_0] = mag[mask_0] * cond_0[mask_0].float()
+        
+        # --- Направление 90 (Вертикаль) ---
+        cond_90 = (mag >= m_top) & (mag >= m_bottom)
+        suppressed[mask_90] = mag[mask_90] * cond_90[mask_90].float()
+        
+        # --- Направление 45 (Диагональ UR-DL) ---
+        # Сравниваем с Upper-Right и Down-Left
+        cond_45 = (mag >= m_ur) & (mag >= m_dl)
+        suppressed[mask_45] = mag[mask_45] * cond_45[mask_45].float()
+        
+        # --- Направление 135 (Диагональ UL-DR) ---
+        # Сравниваем с Upper-Left и Down-Right
+        cond_135 = (mag >= m_ul) & (mag >= m_dr)
+        suppressed[mask_135] = mag[mask_135] * cond_135[mask_135].float()
+        
+        # Теперь 'suppressed' содержит только локальные максимумы, остальные 0
+        
+        # 4. Double Thresholding & Hysteresis
+        strong_mask = suppressed >= high
+        weak_mask = (suppressed >= low) & (suppressed < high)
+        
+        # Инициализируем итоговую маску сильными пикселями
+        final_mask = strong_mask
+        
+        # Простой итеративный гистерезис (связывание слабых пикселей с сильными)
+        # Используем свертку для поиска соседей
+        kernel_conn = torch.ones(1, 1, 3, 3, device=self.device)
+        
+        # Выполняем 2-3 итерации распространения
+        for _ in range(2):
+            # Размываем текущую маску сильных пикселей, чтобы найти соседей
+            # Pad перед сверткой, чтобы не потерять края
+            # Исправление размерности для F.pad (требуется 4D тензор: N, C, H, W)
+            if final_mask.dim() == 2:
+                # Если маска (H, W), превращаем в (1, 1, H, W)
+                input_for_pad = final_mask.unsqueeze(0).unsqueeze(0)
+            elif final_mask.dim() == 3:
+                # Если маска (1, H, W), превращаем в (1, 1, H, W)
+                input_for_pad = final_mask.unsqueeze(1)
+            else:
+                input_for_pad = final_mask
 
+            final_padded = F.pad(input_for_pad.float(), (1, 1, 1, 1), mode='replicate')
+            neighbors_exist = F.conv2d(final_padded, kernel_conn).squeeze(0) > 0
+            
+            # Слабые пиксели, у которых есть сильный сосед, становятся сильными
+            new_strong = neighbors_exist & weak_mask
+            final_mask = final_mask | new_strong
+            
         exec_time = time.time() - start_time
+        
         info = {
             'method': 'canny_edge_torch',
-            'parameters': {'low': low, 'high': high, **kwargs},
+            'parameters': {'low': low, 'high': high, 'sigma': sigma},
             'execution_time': exec_time,
         }
 
-        print(f"Mask after Torch_canny_edge: {mask}")
+        print(f"Mask after Torch_canny_edge: {final_mask.unsqueeze(0)}")
         print(f"Info after Torch_canny_edge: {info}")
+
+        final_mask = final_mask.squeeze() # Удаляет ВСЕ размерности 1
+        if final_mask.dim() == 2:
+            final_mask = final_mask.unsqueeze(0).unsqueeze(0) # Возвращаем к (1, 1, H, W)
+        elif final_mask.dim() == 3:
+            final_mask = final_mask.unsqueeze(0) # Если было (1, H, W)
         
-        return mask
+        return final_mask # Возвращаем (1, 1, H, W)
+    
+    # def _canny_edge(
+    #     self, 
+    #     tensor: torch.Tensor,
+    #     **kwargs
+    # ) -> Tuple[torch.Tensor]:
+    #     """
+    #     Обнаружение границ оператором Кэнни.
+
+    #     Многоэтапный алгоритм: сглаживание, вычисление градиента, подавление немаксимумов,
+    #     двойная пороговая фильтрация и отслеживание связных границ.
+
+    #     Args:
+    #         img: Входное изображение (RGB или grayscale).
+
+    #     Returns:
+    #         np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
+    #     """
+    #     gray = self._to_grayscale(tensor)
+    #     print(f"Gray after Torch_canny_edge (before blur): {gray}")
+    #     start_time = time.time()
+    #     low = self.params.get('low', 0.1)
+    #     high = self.params.get('high', 0.3)
+    #     sigma = self.params.get('sigma', 1.0)
+        
+    #     sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], 
+    #                           dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
+    #     sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], 
+    #                           dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
+        
+    #     # if sigma > 0:
+    #     #     # Применяем Гауссово размытие
+    #     #     kernel_size = int(2 * round(3 * sigma) + 1)
+    #     #     blur_transform = torchvision.transforms.GaussianBlur(
+    #     #         kernel_size=[kernel_size, kernel_size], 
+    #     #         sigma=[sigma, sigma]
+    #     #     )
+    #     #     # 2. Применяем его к тензору
+    #     #     gray = blur_transform(gray)
+    #     # print(f"Gray after Torch_canny_edge (after blur): {gray}")
+        
+    #     gx = F.conv2d(gray, sobel_x, padding=1)
+    #     gy = F.conv2d(gray, sobel_y, padding=1)
+    #     mag = torch.sqrt(gx**2 + gy**2)
+    #     angle = torch.atan2(gy, gx) * 180 / np.pi
+        
+    #     suppressed = mag.clone()
+    #     suppressed[(angle > -22.5) & (angle <= 22.5)] = 0
+    #     suppressed[(angle > 22.5) & (angle <= 67.5)] = 0
+    #     suppressed[(angle > 67.5) & (angle <= 112.5)] = 0
+    #     suppressed[(angle > 112.5) & (angle <= 157.5)] = 0
+        
+    #     mask = (mag > high).float()
+    #     weak = ((mag > low) & (mag <= high)).float()
+    #     mask = mask + weak * (mask > 0).float()
+
+    #     exec_time = time.time() - start_time
+    #     info = {
+    #         'method': 'canny_edge_torch',
+    #         'parameters': {'low': low, 'high': high, **kwargs},
+    #         'execution_time': exec_time,
+    #     }
+
+    #     print(f"Mask after Torch_canny_edge: {mask}")
+    #     print(f"Info after Torch_canny_edge: {info}")
+        
+    #     return mask
     
     # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============
     

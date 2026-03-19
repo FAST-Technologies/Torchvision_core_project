@@ -35,6 +35,8 @@ import cv2
 import torch
 import gc
 
+warnings.filterwarnings('ignore')
+
 def main():
     print("=" * 60)
     print("ОБЪЕДИНЁННЫЙ ФРЕЙМВОРК СЕГМЕНТАЦИИ")
@@ -153,11 +155,13 @@ def main():
     
     # ============ 2. ЗАГРУЗКА ДАННЫХ ============
     print("\n2. Загрузка тестовых изображений...")
-    test_images = load_test_images()
+    test_images = load_test_images(use_image_with_mask=False)
+    gt_results_summary = {}
     
     # ============ 3. БЕНЧМАРК ============
-    print("\n3. Бенчмарк производительности...")
-    for img_name, (img_path, img_pil, gt) in test_images.items():
+    print("\n3. Бенчмарк производительности и оценка качества...")
+    for img_name, (img_path, img_pil, gt_mask) in test_images.items():
+        print(f"\n--- Обработка изображения: {img_name} ---")
         img_array = np.array(img_pil)
         df_benchmark = tester.benchmark_methods(
             img_array,
@@ -172,6 +176,8 @@ def main():
     validator = TorchImplementationValidator(output_dir="./data/validation")
 
     all_results = {}
+    # test_images['ade20k_sample'][0]
+    # test_images['countryside'][0]
     all_results = validator.validate_all_methods(test_images['countryside'][0])
     validator.generate_validation_report(all_results)
     print(f"\n✅ Все результаты сохранены в: {validator.output_dir}")
@@ -204,18 +210,130 @@ def main():
         print(f"      - Сравнено пар: {len(results['df_comparisons'])}")
     
     # ============ 6. СРАВНЕНИЕ С GROUND TRUTH (если есть) ============
-    print("\n6. Сравнение с Ground Truth...")
-    for img_name, (img_path, img, gt) in test_images.items():
-        if gt is not None:
-            metrics_all = {}
-            for name, segmenter in {**cv2_methods, **sklearn_methods, **torch_methods}.items():
-                pred_mask = segmenter.segment(img_path)
-                metrics = SegmentationMetrics.calculate_all_metrics(pred_mask, gt)
-                metrics_all[name] = metrics
-            save_metrics_report(metrics_all, f"./data/gt_metrics_{img_name}.json")
-            print(f"   ✅ Метрики для {img_name} сохранены")
+    print("\n6. Сравнение с Ground Truth и оценка качества...") 
+    has_gt_images = False
+    for img_name, (img_path, img, gt_mask) in test_images.items():
+        if gt_mask is None:
+            print(f"⚠️ Пропуск {img_name}: Ground Truth не найден.")
+            continue
+        
+        has_gt_images = True
+        print(f"\n🎯 Обработка изображения: {img_name} (GT available)")
+        print(f"🎯 Ground Truth найден ({gt_mask.shape}). Запуск оценки метрик...")
+        metrics_all = {}
 
-    # ============ 7. ФИНАЛЬНЫЙ ОТЧЁТ ============
+        if gt.max() <= 1.0:
+            gt_binary = (gt * 255).astype(np.uint8)
+        else:
+            gt_binary = gt.astype(np.uint8)
+
+        # Запускаем бенчмарк вручную по каждому методу, чтобы сразу собрать метрики
+        all_segmenters = {**cv2_methods, **sklearn_methods, **torch_methods}
+            
+        for name, segmenter in all_segmenters.items():
+            try:
+                start_time = time.time()
+                pred_mask = segmenter.segment(img_path)
+                exec_time = time.time() - start_time
+
+                if pred_mask.shape != gt_binary.shape:
+                    from skimage.transform import resize
+                    # order=0 для бинарных масок (ближайший сосед)
+                    pred_mask_resized = resize(pred_mask, gt_binary.shape, order=0, preserve_range=True).astype(np.uint8)
+                else:
+                    pred_mask_resized = pred_mask
+    
+                metrics = SegmentationMetrics.calculate_all_metrics(
+                    pred_mask, 
+                    gt_binary, 
+                    threshold=0.5,
+                    include_hausdorff=True
+                )
+                metrics['execution_time'] = exec_time # Добавляем время в метрики
+                metrics_all[name] = metrics
+                status = "✅" if metrics['iou'] > 0.5 else "⚠️" if metrics['iou'] > 0.2 else "❌"
+                print(f"   {status} {name}: IoU={metrics['iou']:.4f}, Dice={metrics['dice']:.4f}, Time={exec_time:.3f}s")
+                print(f"Mask after {name} segment: {pred_mask_resized[:3, :3]}") 
+                        
+            except Exception as e:
+                print(f"   💥 Критическая ошибка в методе {name}: {e}")
+                traceback.print_exc()
+                metrics_all[name] = {'error': str(e)}
+                # traceback.print_exc()
+
+        gt_results_summary[img_name] = metrics_all
+        save_metrics_report(metrics_all, f"./data/gt_metrics_{img_name}.json")
+        print(f"   💾 Детальные метрики сохранены в ./data/gt_metrics_{img_name}.json")
+
+    if not has_gt_images:
+        print("⚠️ Ground Truth маски не найдены ни для одного изображения. Пропускаем этап оценки качества.")
+    else:
+        # Запуск визуализации по всем изображениям с GT
+        print("\n📈 Построение сводных графиков по результатам Ground Truth...")
+        visualize_gt_results(gt_results_summary, output_dir="./data/gt_visualization")
+        
+        # Вывод топ-5 методов в консоль
+        print("\n🏆 ТОП-5 методов по среднему IoU:")
+        # Плоский список всех результатов
+        flat_results = []
+        for img, methods in gt_results_summary.items():
+            for method, metrics in methods.items():
+                if 'iou' in metrics and 'error' not in metrics:
+                    flat_results.append({'Method': method, 'IoU': metrics['iou'], 'Image': img})
+        
+        if flat_results:
+            df_flat = pd.DataFrame(flat_results)
+            top_methods = df_flat.groupby('Method')['IoU'].mean().sort_values(ascending=False).head(5)
+            for i, (method, iou) in enumerate(top_methods.items(), 1):
+                print(f"   {i}. {method}: IoU = {iou:.4f}")
+        else:
+            print("   Нет успешных результатов для ранжирования.")
+
+        print("\n" + "="*60)
+        print("СВОДНЫЙ ОТЧЕТ ПО GROUND TRUTH")
+        print("="*60)
+    
+        rows = []
+        for img_name, methods_data in gt_results_summary.items():
+            for method_name, metrics in methods_data.items():
+                if 'error' not in metrics and 'iou' in metrics:
+                    rows.append({
+                        'Image': img_name,
+                        'Method': method_name,
+                        'IoU': metrics['iou'],
+                        'Dice': metrics['dice'],
+                        'Precision': metrics['precision'],
+                        'Recall': metrics['recall'],
+                        'F1_Score': metrics['f1_score'],
+                        'Time_s': metrics.get('execution_time', 0)
+                    })
+        
+        if rows:
+            df_gt = pd.DataFrame(rows)
+            df_gt_sorted = df_gt.sort_values(by=['Image', 'IoU'], ascending=[True, False])
+            print("\nТоп методов по IoU:")
+            print(df_gt_sorted[['Method', 'Image', 'IoU', 'Dice', 'Time_s']].to_string(index=False))
+            df_gt_sorted.to_csv("./data/gt_summary_report.csv", index=False)
+            print("\n💾 Общая сводка сохранена в ./data/gt_summary_report.csv")
+            plt.figure(figsize=(12, 6))
+            first_img = list(gt_results_summary.keys())[0]
+            df_plot = df_gt[df_gt['Image'] == first_img].sort_values('IoU', ascending=False).head(10)
+            if not df_plot.empty:
+                plt.barh(df_plot['Method'], df_plot['IoU'])
+                plt.xlabel('IoU Score')
+                plt.title(f'Top 10 Methods by IoU ({first_img})')
+                plt.xlim(0, 1)
+                plt.gca().invert_yaxis()
+                plt.tight_layout()
+                plt.savefig("./data/gt_iu_comparison_chart.png")
+                print("📊 График сохранен в ./data/gt_iu_comparison_chart.png")
+            else:
+                print("⚠️ Не удалось построить график: нет данных для первого изображения.")
+            plt.close()
+        else:
+            print("Нет успешных метрик для отображения.")
+
+
     print("\n" + "=" * 60)
     print("ТЕСТИРОВАНИЕ ЗАВЕРШЕНО")
     print("=" * 60)
@@ -225,7 +343,123 @@ def main():
 
     return tester, results, comparator
 
-def load_test_images() -> Dict[str, Tuple[str, Image.Image, Optional[np.ndarray]]]:
+def visualize_gt_results(
+    results_dict: Dict[str, Dict], 
+    output_dir: str = "./data/gt_visualization"
+):
+    """
+    Построение графиков по результатам тестирования с Ground Truth.
+    
+    Args:
+        results_dict: Словарь вида {img_name: {method_name: metrics_dict}}
+        output_dir: Папка для сохранения графиков
+    """
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # 1. Сбор всех данных в единый DataFrame
+    all_rows = []
+    for img_name, methods_data in results_dict.items():
+        for method_name, metrics in methods_data.items():
+            if 'error' in metrics or 'iou' not in metrics:
+                continue
+            
+            row = {
+                'Image': img_name,
+                'Method': method_name,
+                'Library': method_name.split('_')[-1] if '_' in method_name else 'Unknown', # Извлекаем CV2/Sklearn/Torch
+                'IoU': metrics['iou'],
+                'Dice': metrics['dice'],
+                'F1_Score': metrics['f1_score'],
+                'Precision': metrics['precision'],
+                'Recall': metrics['recall'],
+                'Time_s': metrics.get('execution_time', 0),
+                'Area_Diff': metrics.get('area_difference', 0)
+            }
+            all_rows.append(row)
+    
+    if not all_rows:
+        print("⚠️ Нет данных для визуализации.")
+        return
+
+    df = pd.DataFrame(all_rows)
+    
+    # Группировка по методам для усреднения (если изображений несколько)
+    df_avg = df.groupby(['Method', 'Library']).agg({
+        'IoU': 'mean', 'Dice': 'mean', 'F1_Score': 'mean', 
+        'Time_s': 'mean', 'Precision': 'mean', 'Recall': 'mean'
+    }).reset_index()
+    
+    # Сортировка по IoU
+    df_avg = df_avg.sort_values('IoU', ascending=False)
+
+    # === ГРАФИК 1: Сравнение метрик (Bar Chart) ===
+    plt.figure(figsize=(14, 8))
+    x = range(len(df_avg))
+    width = 0.25
+    
+    plt.bar([i - width for i in x], df_avg['IoU'], width, label='IoU', color='#2ecc71')
+    plt.bar(x, df_avg['Dice'], width, label='Dice', color='#3498db')
+    plt.bar([i + width for i in x], df_avg['F1_Score'], width, label='F1-Score', color='#e74c3c')
+    
+    plt.xticks(x, df_avg['Method'], rotation=45, ha='right')
+    plt.ylabel('Score')
+    plt.title('Сравнение метрик качества сегментации (среднее по изображениям)', fontsize=14)
+    plt.legend()
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "metrics_comparison_bar.png"), dpi=150)
+    plt.close()
+    print(f"📊 График метрик сохранен: {output_dir}/metrics_comparison_bar.png")
+
+    # === ГРАФИК 2: Speed vs Accuracy (Scatter Plot) ===
+    plt.figure(figsize=(10, 8))
+    
+    # Цвета для библиотек
+    lib_colors = {'CV2': '#e67e22', 'Sklearn': '#9b59b6', 'Torch': '#34495e', 'Neural': '#c0392b'}
+    
+    for lib, group in df_avg.groupby('Library'):
+        color = lib_colors.get(lib, '#95a5a6')
+        plt.scatter(group['Time_s'], group['IoU'], s=100, label=lib, color=color, alpha=0.7, edgecolors='black')
+        
+        # Подписываем точки названиями методов
+        for i, row in group.iterrows():
+            plt.annotate(row['Method'][-10:], (row['Time_s'], row['IoU']), 
+                         xytext=(5, 5), textcoords='offset points', fontsize=8)
+
+    plt.xlabel('Время выполнения (сек)')
+    plt.ylabel('IoU Score')
+    plt.title('Зависимость точности (IoU) от скорости работы', fontsize=14)
+    plt.legend(title="Библиотека")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "speed_vs_accuracy.png"), dpi=150)
+    plt.close()
+    print(f"🚀 График Speed vs Accuracy сохранен: {output_dir}/speed_vs_accuracy.png")
+
+    # === ГРАФИК 3: Precision-Recall Balance ===
+    plt.figure(figsize=(10, 6))
+    plt.plot(df_avg['Recall'], df_avg['Precision'], 'o-', linewidth=2, markersize=8)
+    
+    for i, row in df_avg.iterrows():
+        plt.annotate(row['Method'][:15], (row['Recall'], row['Precision']), 
+                     xytext=(5, 5), textcoords='offset points', fontsize=7)
+    
+    plt.xlabel('Recall (Полнота)')
+    plt.ylabel('Precision (Точность)')
+    plt.title('Баланс Precision и Recall для методов сегментации')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "precision_recall_balance.png"), dpi=150)
+    plt.close()
+    print(f"⚖️ График Precision-Recall сохранен: {output_dir}/precision_recall_balance.png")
+    
+    # Сохранение сводной таблицы CSV
+    csv_path = os.path.join(output_dir, "gt_summary_table.csv")
+    df_avg.to_csv(csv_path, index=False, float_format="%.4f")
+    print(f"💾 Сводная таблица сохранена: {csv_path}")
+
+def load_test_images(use_image_with_mask: bool = False) -> Dict[str, Tuple[str, Image.Image, Optional[np.ndarray]]]:
     """
     Загружает тестовые изображения. Возвращает словарь:
     {
@@ -234,33 +468,109 @@ def load_test_images() -> Dict[str, Tuple[str, Image.Image, Optional[np.ndarray]
     """
     
     test_images = {}
+
+    if use_image_with_mask:
+        print("📥 Попытка загрузки тестовых данных с масками (ADE20K)...")
+        repo_id = "hf-internal-testing/fixtures_ade20k"
+        
+        img_path = hf_hub_download(
+            repo_id=repo_id, 
+            filename="ADE_val_00000001.jpg", 
+            repo_type="dataset"
+        )
+        img = Image.open(img_path).convert('RGB')
+        
+        # Загружаем маску
+        mask_path = hf_hub_download(
+            repo_id=repo_id, 
+            filename="ADE_val_00000001.png", 
+            repo_type="dataset"
+        )
+        gt_mask_pil = Image.open(mask_path)
+
+        print(f"✅ Изображение загружено: {os.path.basename(img_path)}")
+        print(f"   Размер: {img.size}")
+        print(f"✅ Ground truth загружен: {os.path.basename(mask_path)}")
+        
+        # Конвертируем маску в бинарную (все, что не фон/черный, считаем объектом для простоты)
+        # В ADE20K классы цветные. Для бинарной сегментации просто возьмем все ненулевые пиксели
+        # или самый частый класс как фон.
+        gt_np = np.array(gt_mask_pil)
+        # Эвристика: самый частый цвет - фон. Все остальное - объект.
+        unique, counts = np.unique(gt_np, return_counts=True)
+        bg_class = unique[np.argmax(counts)]
+        print(f"📊 Статистика GT: Всего классов {len(unique)}. Самый частый: {bg_class} ({np.max(counts)} пикселей)")
+
+        binary_gt = (gt_np != bg_class).astype(np.uint8) * 255
+
+        if np.sum(binary_gt > 0) < (binary_gt.size * 0.01):
+            print("⚠️ Объектов слишком мало по стратегии 'не фон'. Пробуем взять второй по величине класс.")
+            if len(unique) > 1:
+                second_common = unique[np.argsort(counts)[-2]]
+                binary_gt = (gt_np == second_common).astype(np.uint8) * 255
+            else:
+                # Если класс всего один, берем всё изображение как объект
+                binary_gt = np.ones_like(gt_np, dtype=np.uint8) * 255
+        
+        # Сохраняем локально
+        local_img_path = "test_gt_image.jpg"
+        local_mask_path_raw = "test_gt_mask_raw.png"
+        local_mask_path = "test_gt_mask.png"
+        img.save(local_img_path)
+        gt_mask_pil.save(local_mask_path_raw)
+        Image.fromarray(binary_gt).save(local_mask_path)
+        
+        test_images["ade20k_sample"] = (local_img_path, img, binary_gt)
+        print(f"✅ Загружен образец ADE20K: {img.size}, GT: {binary_gt.shape}")
+        
+    else:
+        print(f"⚠️ Не удалось загрузить реальные GT. Используем только изображения.")
     
-    # Примеры изображений с возможными ground truth
-    image_urls = {
-        "countryside": "https://i.pinimg.com/736x/17/e7/fc/17e7fc299466b2afd989e709fe7c9815.jpg",
-        "nature": "https://i.pinimg.com/736x/f7/5a/f2/f75af26820b50c24600f50f3998eb02f.jpg",
-        "architecture": "https://i.pinimg.com/736x/86/f6/07/86f60748d5d9ae4cb9092018d1321648.jpg",
-        "trucks": "https://www.shutterstock.com/shutterstock/videos/1106252821/thumb/1.jpg?ip=x480",
-        "traffic": "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg",
-        "mountain": "https://i.pinimg.com/736x/17/66/c4/1766c4f667af39f91172ef8eb21ab18a.jpg"
-    }
-    
-    for name, url in image_urls.items():
-        try:
-            response = requests.get(url, timeout=10)
-            img = Image.open(BytesIO(response.content)).convert('RGB')
-            
-            local_path = f"test_image_{name}.jpg"
-            img.save(local_path)
-            
-            # Для примера, будем считать что ground truth нет
-            # На практике здесь можно было бы загрузить ground truth если он есть
-            test_images[name] = (local_path, img, None)
-            
-            print(f"✅ {name}: {img.size}, ground truth: {'да' if None else 'нет'}")
-            
-        except Exception as e:
-            print(f"❌ Ошибка загрузки {name}: {e}")
+        # Примеры изображений с возможными ground truth
+        image_urls = {
+            "countryside": "https://i.pinimg.com/736x/17/e7/fc/17e7fc299466b2afd989e709fe7c9815.jpg",
+            "nature": "https://i.pinimg.com/736x/f7/5a/f2/f75af26820b50c24600f50f3998eb02f.jpg",
+            "architecture": "https://i.pinimg.com/736x/86/f6/07/86f60748d5d9ae4cb9092018d1321648.jpg",
+            "trucks": "https://www.shutterstock.com/shutterstock/videos/1106252821/thumb/1.jpg?ip=x480",
+            "traffic": "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg",
+            "mountain": "https://i.pinimg.com/736x/17/66/c4/1766c4f667af39f91172ef8eb21ab18a.jpg"
+        }
+
+        image_paths = {
+            "war_frame_1": "2340_frame.jpg",
+            "war_frame_2": "3330_frame.jpg",
+            "war_frame_3": "4130_frame.jpg",
+            "war_frame_4": "4480_frame.jpg",
+        }
+        
+        for name, url in image_urls.items():
+            try:
+                response = requests.get(url, timeout=10)
+                img = Image.open(BytesIO(response.content)).convert('RGB')
+                
+                local_path = f"test_image_{name}.jpg"
+                img.save(local_path)
+                
+                gt_synthetic = np.zeros((img.size[1], img.size[0]), dtype=np.uint8)
+                gt_synthetic[img.size[1]//2:, :] = 255
+                test_images[name] = (local_path, img, gt_synthetic)
+                
+                print(f"✅ {name}: {img.size}, ground truth: {gt_synthetic}")
+                
+            except Exception as e:
+                print(f"❌ Ошибка загрузки {name}: {e}")
+
+        for name, path in image_paths.items():
+            try:
+                img = Image.open(path)
+                gt_synthetic = np.zeros((img.size[1], img.size[0]), dtype=np.uint8)
+                gt_synthetic[img.size[1]//2:, :] = 255
+                test_images[name] = (path, img, gt_synthetic)
+                print(f"✅ {name}: {img.size}, ground truth: {gt_synthetic}")
+                
+            except Exception as e:
+                print(f"❌ Ошибка загрузки {name}: {e}")
+
     
     return test_images
 

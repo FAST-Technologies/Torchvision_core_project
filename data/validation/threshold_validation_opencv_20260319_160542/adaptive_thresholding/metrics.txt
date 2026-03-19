@@ -1,0 +1,16 @@
+Результаты валидации: adaptive_thresholding
+Референсная библиотека: opencv
+Статус: FAIL
+==================================================
+iou: 0.000000
+jaccard_score: 0.000000
+dice: 0.000000
+precision: 0.000000
+recall: 0.000000
+f1_score: 0.000000
+pixel_accuracy: 0.371549
+mae: 0.628451
+hausdorff_distance: inf
+predicted_area: 0.000000
+ground_truth_area: 281766.000000
+area_difference: 281766.000000

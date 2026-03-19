@@ -1,0 +1,16 @@
+Результаты валидации: otsu_thresholding
+Референсная библиотека: sklearn
+Статус: PASS
+==================================================
+iou: 0.991295
+jaccard_score: 0.991295
+dice: 0.995629
+precision: 1.000000
+recall: 0.991295
+f1_score: 0.995629
+pixel_accuracy: 0.994592
+mae: 0.005408
+hausdorff_distance: 7.071068
+predicted_area: 215349.000000
+ground_truth_area: 217240.000000
+area_difference: 1891.000000

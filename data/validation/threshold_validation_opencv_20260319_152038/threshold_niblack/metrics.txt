@@ -1,0 +1,16 @@
+Результаты валидации: threshold_niblack
+Референсная библиотека: opencv
+Статус: PASS
+==================================================
+iou: 0.972574
+jaccard_score: 0.972574
+dice: 0.986096
+precision: 0.986002
+recall: 0.986191
+f1_score: 0.986096
+pixel_accuracy: 0.983448
+mae: 0.016552
+hausdorff_distance: 5.385165
+predicted_area: 208169.000000
+ground_truth_area: 208129.000000
+area_difference: 40.000000

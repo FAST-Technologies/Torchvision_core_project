@@ -182,7 +182,6 @@ class OpenCVSegmenter(BaseSegmenter):
         image: np.ndarray = self.preprocess_image(image)
         print(f"Image after OpenCV preprocessing with mask: {image}")
         mask = self.segment(image, **kwargs)
-        # print(f"Info OpenCV segment_with_mask: {info}")
         
         if mask.dtype != np.uint8:
             if mask.max() <= 1.0:
