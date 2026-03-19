@@ -1,0 +1,16 @@
+Результаты валидации: morphological_snakes
+Референсная библиотека: opencv
+Статус: FAIL
+==================================================
+iou: 0.160105
+jaccard_score: 0.160105
+dice: 0.276018
+precision: 0.160105
+recall: 1.000000
+f1_score: 0.276018
+pixel_accuracy: 0.165137
+mae: 0.834863
+hausdorff_distance: 323.805497
+predicted_area: 445664.000000
+ground_truth_area: 71353.000000
+area_difference: 374311.000000

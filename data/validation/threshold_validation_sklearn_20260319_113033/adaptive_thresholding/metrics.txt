@@ -1,0 +1,16 @@
+Результаты валидации: adaptive_thresholding
+Референсная библиотека: sklearn
+Статус: WARNING
+==================================================
+iou: 0.845870
+jaccard_score: 0.845870
+dice: 0.916500
+precision: 0.939570
+recall: 0.894535
+f1_score: 0.916500
+pixel_accuracy: 0.892388
+mae: 0.107612
+hausdorff_distance: 5.099020
+predicted_area: 281816.000000
+ground_truth_area: 296004.000000
+area_difference: 14188.000000

@@ -1,0 +1,87 @@
+================================================================================
+ОТЧЕТ О БЕНЧМАРКЕ МЕТОДОВ СЕГМЕНТАЦИИ
+================================================================================
+
+Дата тестирования: 2026-03-19 03:27:28
+Количество прогонов: 3
+Всего методов: 67
+
+ТАБЛИЦА РЕЗУЛЬТАТОВ:
+--------------------------------------------------------------------------------
+Метод                          Время (с)            Площадь маски   Процент   
+--------------------------------------------------------------------------------
+Global_Threshold_CV2           0.004 ± 0.000        153,240         24.9%
+Otsu_Thresholding_CV2          0.004 ± 0.000        202,347         32.9%
+Canny_CV2                      0.006 ± 0.000        186,284         30.3%
+Felzenszwalb_CV2               0.007 ± 0.000        454,804         74.0%
+Adaptive_Threshold_CV2         0.008 ± 0.000        352,714         57.4%
+DBSCAN_CV2                     0.009 ± 0.000        141,487         23.0%
+Niblack_Thresholding_CV2       0.009 ± 0.000        337,032         54.9%
+Sobel_CV2                      0.010 ± 0.000        234,066         38.1%
+Slic_CV2                       0.010 ± 0.000        242,466         39.5%
+Sauvola_Thresholding_CV2       0.011 ± 0.000        468,201         76.2%
+Active_Contour_CV2             0.011 ± 0.001        80,283          13.1%
+Floodfill_CV2                  0.016 ± 0.000        66,024          10.7%
+GVF_Torch                      0.016 ± 0.001        279,628         45.5%
+Active_Contour_Torch           0.017 ± 0.000        465,536         75.8%
+Sobel_Sklearn                  0.018 ± 0.000        242,629         39.5%
+Felzenszwalb_Torch             0.020 ± 0.001        777             80.9%
+Split_And_Merge_Torch          0.020 ± 0.001        38,400          6.2%
+Otsu_Thresholding_Torch        0.021 ± 0.001        223,798         36.4%
+Canny_Torch                    0.021 ± 0.000        252,138         41.0%
+Sobel_Torch                    0.021 ± 0.001        239,332         39.0%
+Random_Walker_CV2              0.022 ± 0.001        426,603         69.4%
+Adaptive_Threshold_Torch       0.023 ± 0.001        354,824         57.8%
+Watershed_CV2                  0.024 ± 0.001        175,733         28.6%
+Global_Threshold_Torch         0.025 ± 0.006        153,393         25.0%
+KMeans_Torch                   0.027 ± 0.001        371,336         60.4%
+Canny_Sklearn                  0.044 ± 0.000        106,999         17.4%
+Floodfill_Sklearn              0.050 ± 0.001        64,090          10.4%
+Global_Threshold_Sklearn       0.051 ± 0.000        142,945         23.3%
+Otsu_Thresholding_Sklearn      0.057 ± 0.001        234,382         38.1%
+Chan_Vese_Torch                0.062 ± 0.001        296,930         48.3%
+Adaptive_Threshold_Sklearn     0.065 ± 0.001        443,988         72.3%
+Niblack_Thresholding_Sklearn   0.067 ± 0.002        126,738         20.6%
+Sauvola_Thresholding_Sklearn   0.070 ± 0.000        591,838         96.3%
+Region_Growing_CV2             0.084 ± 0.000        53,223          8.7%
+Split_And_Merge_Sklearn        0.113 ± 0.001        0               0.0%
+Region_Growing_Sklearn         0.116 ± 0.000        46,897          7.6%
+Watershed_Sklearn              0.225 ± 0.003        297,540         48.4%
+Sauvola_Thresholding_Torch     0.236 ± 0.000        475,499         77.4%
+Niblack_Thresholding_Torch     0.241 ± 0.009        338,004         55.0%
+DBSCAN_Torch                   0.297 ± 0.002        182,736         29.7%
+GVF_CV2                        0.326 ± 0.002        74,443          12.1%
+KMeans_CV2                     0.345 ± 0.020        371,734         60.5%
+Neural_SegFormer               0.365 ± 0.001        614,400         100.0%
+Slic_Sklearn                   0.391 ± 0.002        584,798         95.2%
+Chan_Vese_CV2                  0.392 ± 0.003        247,505         40.3%
+Morphological_Snakes_CV2       0.450 ± 0.001        77,225          12.6%
+Active_Contour_Sklearn         0.459 ± 0.000        0               0.0%
+Felzenszwalb_Sklearn           0.532 ± 0.006        587,993         95.7%
+GVF_Sklearn                    0.572 ± 0.000        180,474         29.4%
+Morphological_Snakes_Torch     0.829 ± 0.006        611,195         99.5%
+Slic_Torch                     1.078 ± 0.005        605,184         98.5%
+Split_And_Merge_CV2            1.280 ± 0.001        142,745         23.2%
+GrabCut_Sklearn                1.829 ± 0.040        153,588         25.0%
+KMeans_Sklearn                 1.902 ± 0.015        369,912         60.2%
+Region_Growing_Torch           2.748 ± 0.004        39,739          6.5%
+Chan_Vese_Sklearn              2.914 ± 0.001        150,094         24.4%
+Morphological_Snakes_Sklearn   2.925 ± 0.026        205,304         33.4%
+Meanshift_CV2                  3.210 ± 0.003        158,893         25.9%
+Random_Walker_Sklearn          5.209 ± 0.093        475,327         77.4%
+GrabCut_CV2                    6.818 ± 0.865        59,504          9.7%
+GrabCut_Torch                  24.706 ± 0.064       196,521         32.0%
+MeanShift_Torch                35.417 ± 0.187       613,513         99.9%
+MeanShift_Sklearn              39.884 ± 1.412       0               0.0%
+Floodfill_Torch                44.425 ± 0.013       415,309         67.6%
+DBSCAN_Sklearn                 87.437 ± 2.046       614,400         100.0%
+Random_Walker_Torch            332.677 ± 0.506      223,798         36.4%
+Watershed_Torch                539.996 ± 0.017      548,418         89.3%
+
+================================================================================
+СВОДКА:
+--------------------------------------------------------------------------------
+Самый быстрый метод: Global_Threshold_CV2 (0.004 с)
+Самый медленный метод: Watershed_Torch (539.996 с)
+Среднее время: 17.034 с
+Стандартное отклонение: 77.462 с

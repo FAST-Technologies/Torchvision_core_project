@@ -1,0 +1,16 @@
+Результаты валидации: region_growing
+Референсная библиотека: opencv
+Статус: FAIL
+==================================================
+iou: 0.250000
+jaccard_score: 0.250000
+dice: 0.400000
+precision: 0.333333
+recall: 0.500000
+f1_score: 0.400000
+pixel_accuracy: 0.999993
+mae: 0.000007
+hausdorff_distance: 87.692645
+predicted_area: 3.000000
+ground_truth_area: 2.000000
+area_difference: 1.000000

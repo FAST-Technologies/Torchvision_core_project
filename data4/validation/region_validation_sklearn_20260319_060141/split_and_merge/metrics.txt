@@ -1,0 +1,16 @@
+Результаты валидации: split_and_merge
+Референсная библиотека: sklearn
+Статус: FAIL
+==================================================
+iou: 0.213378
+jaccard_score: 0.213378
+dice: 0.351709
+precision: 1.000000
+recall: 0.213378
+f1_score: 0.351709
+pixel_accuracy: 0.213378
+mae: 0.786622
+hausdorff_distance: 172.467388
+predicted_area: 95668.000000
+ground_truth_area: 448350.000000
+area_difference: 352682.000000

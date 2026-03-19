@@ -1,0 +1,16 @@
+Результаты валидации: dbscan_segmentation
+Референсная библиотека: opencv
+Статус: FAIL
+==================================================
+iou: 0.110200
+jaccard_score: 0.110200
+dice: 0.198523
+precision: 0.342040
+recall: 0.139845
+f1_score: 0.198523
+pixel_accuracy: 0.630200
+mae: 0.369800
+hausdorff_distance: 314.963490
+predicted_area: 60034.000000
+ground_truth_area: 146834.000000
+area_difference: 86800.000000

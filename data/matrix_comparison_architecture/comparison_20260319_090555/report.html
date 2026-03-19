@@ -1,0 +1,219 @@
+
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Отчет сравнения методов сегментации</title>
+                <style>
+                    body { font-family: Arial, sans-serif; margin: 20px; }
+                    h1, h2, h3 { color: #333; }
+                    .summary { background: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+                    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+                    .metric-card { background: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                    table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+                    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                    th { background-color: #f2f2f2; }
+                    img { max-width: 100%; height: auto; margin: 10px 0; }
+                    .highlight { background-color: #e6f7ff; }
+                </style>
+            </head>
+            <body>
+                <h1>📊 Отчет сравнения методов сегментации</h1>
+                
+                <div class="summary">
+                    <h2>Общая информация</h2>
+                    <p><strong>Дата:</strong> 2026-03-19 09:07:29</p>
+                    <p><strong>Всего методов:</strong> 21</p>
+                    <p><strong>Тип сравнения:</strong> all_vs_all</p>
+                    <p><strong>Референсный метод:</strong> Нет (все со всеми)</p>
+                </div>
+                
+                <h2>📈 Матрицы сравнения</h2>
+                <div class="metrics">
+                    <div class="metric-card">
+                        <h3>F1-Score матрица</h3>
+                        <img src="f1_score_matrix.png" alt="F1 Matrix">
+                    </div>
+                    <div class="metric-card">
+                        <h3>Accuracy матрица</h3>
+                        <img src="accuracy_matrix.png" alt="Accuracy Matrix">
+                    </div>
+                    <div class="metric-card">
+                        <h3>Все маски</h3>
+                        <img src="all_masks.png" alt="All Masks">
+                    </div>
+                </div>
+                
+                <h2>🏆 Топ методов</h2>
+                <p>Сравнение всех со всеми</p>
+                
+                <h2>📋 Статистика методов</h2>
+                <table>
+                    <tr>
+                        <th>Метод</th>
+                        <th>Площадь маски</th>
+                        <th>Покрытие</th>
+                        <th>Время (с)</th>
+                    </tr>
+            
+                    <tr>
+                        <td>Sauvola_Thresholding_Sklearn</td>
+                        <td>706,129</td>
+                        <td>86.9%</td>
+                        <td>0.075</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Adaptive_Threshold_Sklearn</td>
+                        <td>692,695</td>
+                        <td>85.3%</td>
+                        <td>0.066</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Sauvola_Thresholding_CV2</td>
+                        <td>661,776</td>
+                        <td>81.4%</td>
+                        <td>0.004</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Sauvola_Thresholding_Torch</td>
+                        <td>661,745</td>
+                        <td>81.4%</td>
+                        <td>0.287</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Otsu_Thresholding_Torch</td>
+                        <td>589,940</td>
+                        <td>72.6%</td>
+                        <td>0.005</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Otsu_Thresholding_CV2</td>
+                        <td>588,789</td>
+                        <td>72.5%</td>
+                        <td>0.001</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Otsu_Thresholding_Sklearn</td>
+                        <td>586,049</td>
+                        <td>72.1%</td>
+                        <td>0.059</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Adaptive_Threshold_CV2</td>
+                        <td>580,012</td>
+                        <td>71.4%</td>
+                        <td>0.002</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Adaptive_Threshold_Torch</td>
+                        <td>576,408</td>
+                        <td>70.9%</td>
+                        <td>0.005</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Global_Threshold_CV2</td>
+                        <td>555,926</td>
+                        <td>68.4%</td>
+                        <td>0.001</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Global_Threshold_Torch</td>
+                        <td>555,926</td>
+                        <td>68.4%</td>
+                        <td>0.008</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Global_Threshold_Sklearn</td>
+                        <td>554,040</td>
+                        <td>68.2%</td>
+                        <td>0.058</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Niblack_Thresholding_Torch</td>
+                        <td>488,337</td>
+                        <td>60.1%</td>
+                        <td>0.284</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Niblack_Thresholding_CV2</td>
+                        <td>488,218</td>
+                        <td>60.1%</td>
+                        <td>0.004</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Niblack_Thresholding_Sklearn</td>
+                        <td>298,342</td>
+                        <td>36.7%</td>
+                        <td>0.077</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Canny_Torch</td>
+                        <td>232,635</td>
+                        <td>28.6%</td>
+                        <td>0.004</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Sobel_Sklearn</td>
+                        <td>207,312</td>
+                        <td>25.5%</td>
+                        <td>0.014</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Sobel_Torch</td>
+                        <td>205,372</td>
+                        <td>25.3%</td>
+                        <td>0.005</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Sobel_CV2</td>
+                        <td>204,501</td>
+                        <td>25.2%</td>
+                        <td>0.006</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Canny_CV2</td>
+                        <td>138,510</td>
+                        <td>17.0%</td>
+                        <td>0.001</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Canny_Sklearn</td>
+                        <td>82,874</td>
+                        <td>10.2%</td>
+                        <td>0.044</td>
+                    </tr>
+                
+                </table>
+                
+                <h2>🔗 Быстрые ссылки</h2>
+                <ul>
+                    <li><a href="comparisons.csv">CSV с результатами сравнения</a></li>
+                    <li><a href="masks/">Папка с масками</a></li>
+                    <li><a href="images/">Папка с изображениями</a></li>
+                </ul>
+                
+                <footer>
+                    <p>Сгенерировано автоматически с помощью SegmentationComparator</p>
+                </footer>
+            </body>
+            </html>
+            

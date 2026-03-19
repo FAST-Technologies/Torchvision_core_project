@@ -1,0 +1,16 @@
+Результаты валидации: threshold_niblack
+Референсная библиотека: sklearn
+Статус: FAIL
+==================================================
+iou: 0.684349
+jaccard_score: 0.684349
+dice: 0.812598
+precision: 0.684822
+recall: 0.998991
+f1_score: 0.812598
+pixel_accuracy: 0.822741
+mae: 0.177259
+hausdorff_distance: 9.848858
+predicted_area: 251604.000000
+ground_truth_area: 172478.000000
+area_difference: 79126.000000

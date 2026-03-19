@@ -1,0 +1,16 @@
+Результаты валидации: chan_vese
+Референсная библиотека: sklearn
+Статус: FAIL
+==================================================
+iou: 0.529960
+jaccard_score: 0.529960
+dice: 0.692776
+precision: 0.604821
+recall: 0.810666
+f1_score: 0.692776
+pixel_accuracy: 0.792508
+mae: 0.207492
+hausdorff_distance: 272.150694
+predicted_area: 173420.000000
+ground_truth_area: 129385.000000
+area_difference: 44035.000000

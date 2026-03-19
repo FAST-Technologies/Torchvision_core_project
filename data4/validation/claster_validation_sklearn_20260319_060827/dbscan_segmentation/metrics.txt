@@ -1,0 +1,16 @@
+Результаты валидации: dbscan_segmentation
+Референсная библиотека: sklearn
+Статус: FAIL
+==================================================
+iou: 0.327499
+jaccard_score: 0.327499
+dice: 0.493407
+precision: 1.000000
+recall: 0.327499
+f1_score: 0.493407
+pixel_accuracy: 0.327499
+mae: 0.672501
+hausdorff_distance: 132.136293
+predicted_area: 146834.000000
+ground_truth_area: 448350.000000
+area_difference: 301516.000000

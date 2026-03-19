@@ -1,0 +1,16 @@
+Результаты валидации: kmeans_segmentation
+Референсная библиотека: sklearn
+Статус: PASS
+==================================================
+iou: 0.943978
+jaccard_score: 0.943978
+dice: 0.971182
+precision: 0.964815
+recall: 0.977633
+f1_score: 0.971182
+pixel_accuracy: 0.972814
+mae: 0.027186
+hausdorff_distance: 149.602807
+predicted_area: 212876.000000
+ground_truth_area: 210085.000000
+area_difference: 2791.000000

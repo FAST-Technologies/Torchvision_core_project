@@ -1,0 +1,16 @@
+Результаты валидации: gvf_contour
+Референсная библиотека: sklearn
+Статус: FAIL
+==================================================
+iou: 0.193716
+jaccard_score: 0.193716
+dice: 0.324560
+precision: 0.594755
+recall: 0.223173
+f1_score: 0.324560
+pixel_accuracy: 0.714277
+mae: 0.285723
+hausdorff_distance: 76.216796
+predicted_area: 51749.000000
+ground_truth_area: 137911.000000
+area_difference: 86162.000000

@@ -1,0 +1,53 @@
+============================================================
+ОТЧЁТ ПО ВАЛИДАЦИИ TORCH РЕАЛИЗАЦИЙ
+============================================================
+Дата: 2026-03-19 09:30:00
+
+
+THRESHOLD_SKLEARN
+----------------------------------------
+✅ global_thresholding: IoU=0.977, Dice=0.988, Acc=0.987 [PASS]
+✅ otsu_thresholding: IoU=0.983, Dice=0.992, Acc=0.989 [PASS]
+⚠️ adaptive_thresholding: IoU=0.846, Dice=0.916, Acc=0.892 [WARNING]
+❌ threshold_niblack: IoU=0.687, Dice=0.815, Acc=0.824 [FAIL]
+✅ threshold_sauvola: IoU=0.976, Dice=0.988, Acc=0.977 [PASS]
+
+THRESHOLD_OPENCV
+----------------------------------------
+✅ global_thresholding: IoU=1.000, Dice=1.000, Acc=1.000 [PASS]
+✅ otsu_thresholding: IoU=0.998, Dice=0.999, Acc=0.999 [PASS]
+⚠️ adaptive_thresholding: IoU=0.879, Dice=0.936, Acc=0.919 [WARNING]
+✅ threshold_niblack: IoU=0.975, Dice=0.987, Acc=0.986 [PASS]
+✅ threshold_sauvola: IoU=0.999, Dice=1.000, Acc=0.999 [PASS]
+
+THRESHOLD_CUSTOM
+----------------------------------------
+✅ global_thresholding: IoU=0.977, Dice=0.988, Acc=0.987 [PASS]
+✅ otsu_thresholding: IoU=0.985, Dice=0.992, Acc=0.990 [PASS]
+✅ adaptive_thresholding: IoU=0.938, Dice=0.968, Acc=0.959 [PASS]
+❌ threshold_niblack: IoU=0.686, Dice=0.814, Acc=0.824 [FAIL]
+✅ threshold_sauvola: IoU=0.976, Dice=0.988, Acc=0.977 [PASS]
+
+EDGE_SKLEARN
+----------------------------------------
+✅ sobel_edge: IoU=0.962, Dice=0.980, Acc=0.986 [PASS]
+❌ canny_edge: IoU=0.367, Dice=0.537, Acc=0.730 [FAIL]
+
+EDGE_OPENCV
+----------------------------------------
+✅ sobel_edge: IoU=0.965, Dice=0.982, Acc=0.988 [PASS]
+❌ canny_edge: IoU=0.474, Dice=0.643, Acc=0.762 [FAIL]
+
+EDGE_CUSTOM
+----------------------------------------
+✅ sobel_edge: IoU=0.959, Dice=0.979, Acc=0.986 [PASS]
+❌ canny_edge: IoU=0.385, Dice=0.556, Acc=0.809 [FAIL]
+
+============================================================
+СВОДНАЯ СТАТИСТИКА
+============================================================
+Всего методов: 21
+✅ PASS: 14 (66.7%)
+⚠️ WARNING: 2 (9.5%)
+❌ FAIL: 5 (23.8%)
+============================================================

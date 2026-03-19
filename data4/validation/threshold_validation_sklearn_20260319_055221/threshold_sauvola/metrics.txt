@@ -1,0 +1,16 @@
+Результаты валидации: threshold_sauvola
+Референсная библиотека: sklearn
+Статус: PASS
+==================================================
+iou: 0.961377
+jaccard_score: 0.961377
+dice: 0.980308
+precision: 0.999958
+recall: 0.961415
+f1_score: 0.980308
+pixel_accuracy: 0.961416
+mae: 0.038584
+hausdorff_distance: 5.000000
+predicted_area: 430608.000000
+ground_truth_area: 447871.000000
+area_difference: 17263.000000
