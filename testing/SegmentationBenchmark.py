@@ -1,12 +1,10 @@
 import sys
 import os
 
-# Добавляем корень проекта в PYTHONPATH
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# Теперь импорт сработает
 from datasets.ADE20KDataset import ADE20KDataset
 from segmenters.NeuralTrainer import NeuralTrainer
 import inference.utils
@@ -111,7 +109,17 @@ class SegmentationBenchmark:
         checkpoint_path: str,
         **kwargs
     ) -> "SegmentationBenchmark":
-        """Загрузка обученной модели из чекпоинта"""
+        """
+        Регистрация загруженной модели из чекпоинта для бенчмарка.
+        
+        Args:
+            key: Уникальный ключ модели для доступа к результатам
+            model_type: Тип модели для выбора правильного инференса
+            checkpoint_path: Путь до чекпоинта
+        
+        Returns:
+            self: Для цепочки вызовов
+        """
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=model_type,
             checkpoint_path=checkpoint_path,

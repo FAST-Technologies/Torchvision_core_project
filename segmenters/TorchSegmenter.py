@@ -1086,7 +1086,6 @@ class TorchSegmenter(BaseSegmenter):
                 mask_tensor = mask_tensor.squeeze(0)
             
             mask_np: np.ndarray = mask_tensor.cpu().numpy()
-            mask_np: np.ndarray = mask_tensor.cpu().numpy()
             
             # Конвертируем в uint8 0-255 если нужно
             if mask_np.dtype != np.uint8:
@@ -1224,20 +1223,28 @@ class TorchSegmenter(BaseSegmenter):
                 mask_np = (mask_np * 255).astype(np.uint8)
             else:
                 mask_np = mask_np.astype(np.uint8)
+
+            if len(img_np.shape) == 2:
+                img_rgb = cv2.cvtColor(img_np, cv2.COLOR_GRAY2RGB)
+            else:
+                img_rgb = img_np.copy()
             
             # Создаем красную маску для overlay
-            red_mask = np.zeros_like(img_np)
+            overlay = img_rgb.copy()
             mask_bool = mask_np > 127
+
+            # Присваиваем ярко-красный цвет маске
+            overlay[mask_bool] = [255, 0, 0]
             
-            # Правильное присваивание цветов
-            if mask_bool.any():
-                # Присваиваем красный цвет только там, где маска True
-                red_mask[mask_bool, 0] = 255  # Красный канал
-                red_mask[mask_bool, 1] = 0    # Зеленый канал  
-                red_mask[mask_bool, 2] = 0    # Синий канал
+            # # Правильное присваивание цветов
+            # if mask_bool.any():
+            #     # Присваиваем красный цвет только там, где маска True
+            #     red_mask[mask_bool, 0] = 255  # Красный канал
+            #     red_mask[mask_bool, 1] = 0    # Зеленый канал  
+            #     red_mask[mask_bool, 2] = 0    # Синий канал
             
             # Смешиваем с оригиналом
-            result = cv2.addWeighted(img_np, alpha, red_mask, (1 - alpha), 0)
+            result = cv2.addWeighted(overlay, alpha, img_rgb, 1-alpha, 0)
             
             mask_tensor = torch.from_numpy(mask_np).float().to(self.device) if not isinstance(mask, torch.Tensor) else mask
             return result, mask_tensor

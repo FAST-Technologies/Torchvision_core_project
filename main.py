@@ -179,16 +179,16 @@ def main():
 
     neural_models_config = [
         # Предобученные
-        {"name": "SegFormer_B5", "type": "segformer", "model_name": "nvidia/segformer-b5-finetuned-ade-640-640", "local_path": "/home/yamshchikov/models/segformer-b5-ready"},
-        {"name": "Mask2Former", "type": "mask2former", "model_name": "facebook/mask2former-swin-base-ade-semantic"},
+        {"name": "SegFormer_B5", "type": "segformer", "model_name": "nvidia/segformer-b5-finetuned-ade-640-640", "local_path": "/home/yamshchikov/models/segformer-b5-ready", "num_classes": 150},
+        {"name": "Mask2Former", "type": "mask2former", "model_name": "facebook/mask2former-swin-base-ade-semantic", "num_classes": 150},
         
         # Обученные
-        {"name": "DeepLabV3+_Trained", "type": "deeplab_tv", "checkpoint_path": "./models/deeplab_ade20k_best.pth"},
-        {"name": "U-Net_Trained", "type": "unet_smp", "checkpoint_path": "./models/unet_ade20k_best.pth"},
-        {"name": "FPN_MiT-B5_Trained", "type": "fpn_smp", "checkpoint_path": "./models/fpn_mit_b5_ade20k_best.pth"},
-        {"name": "PSPNet_MiT-B5_Trained", "type": "pspnet_smp", "checkpoint_path": "./models/psp_mit_b5_ade20k_best.pth"},
-        {"name": "FCN_ResNet50_Trained", "type": "fcn_tv", "checkpoint_path": "./models/fcn_resnet50_ade20k_best.pth"},
-        {"name": "SegNet_Trained", "type": "segnet", "checkpoint_path": "./models/segnet_ade20k_best.pth"},
+        {"name": "DeepLabV3+_Trained", "type": "deeplab_tv", "checkpoint_path": "./models/deeplab_ade20k_best.pth", "num_classes": 80},
+        {"name": "U-Net_Trained", "type": "unet_smp", "checkpoint_path": "./models/unet_ade20k_best.pth", "num_classes": 150},
+        {"name": "FPN_MiT-B5_Trained", "type": "fpn_smp", "checkpoint_path": "./models/fpn_mit_b5_ade20k_best.pth", "num_classes": 150},
+        {"name": "PSPNet_MiT-B5_Trained", "type": "pspnet_smp", "checkpoint_path": "./models/psp_mit_b5_ade20k_best.pth", "num_classes": 150},
+        {"name": "FCN_ResNet50_Trained", "type": "fcn_tv", "checkpoint_path": "./models/fcn_resnet50_ade20k_best.pth", "num_classes": 150},
+        {"name": "SegNet_Trained", "type": "segnet", "checkpoint_path": "./models/segnet_ade20k_best.pth", "num_classes": 150},
     ]
     
     print("\n4. Загрузка нейросетевых методов...")
@@ -203,7 +203,7 @@ def main():
                 checkpoint_path=config.get("checkpoint_path"),
                 local_path=config.get("local_path"),
                 model_name=config.get("model_name"),
-                num_classes=150,
+                num_classes=config.get("num_classes"),
                 **{k: v for k, v in config.items() if k not in ["name", "type", "checkpoint_path", "local_path", "model_name"]}
             )
             tester.add_method(config["name"], segmenter)
@@ -701,8 +701,8 @@ def main():
 
     trainer = NeuralTrainer(
         model=model,
-        train_loader,
-        val_loader
+        train_loader=train_loader,
+        val_loader=val_loader,
         num_classes=150,
         device="cuda",
         lr=1e-4

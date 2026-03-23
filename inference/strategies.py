@@ -360,7 +360,9 @@ def infer_smp_model_fixed(
         pad_w = (output_stride - w % output_stride) % output_stride
         if pad_h > 0 or pad_w > 0:
             input_tensor = torch.nn.functional.pad(
-                input_tensor, (0, pad_w, 0, pad_h), mode='reflect'
+                input_tensor, 
+                (0, pad_w, 0, pad_h), 
+                mode='reflect'
             )
     
     input_tensor = input_tensor.unsqueeze(0).to(device)
@@ -615,7 +617,7 @@ class SegNet(torch.nn.Module):
 def segment_image_unified(
     model: Any,
     processor: Any,
-    image_input: Union[str, Image.Image],
+    image_input: Union[str, Image.Image, np.ndarray],
     model_type: str,
     alpha: float = 0.5,
     palette: Optional[Union[List[List[int]], callable]] = None,
@@ -657,8 +659,27 @@ def segment_image_unified(
             image = Image.open(image_input).convert("RGB")
     elif isinstance(image_input, Image.Image):
         image = image_input.convert("RGB")
+    elif isinstance(image_input, np.ndarray):
+        # 🔥 Конвертация numpy array в PIL.Image
+        if len(image_input.shape) == 2:
+            # Grayscale → RGB
+            image = Image.fromarray(image_input).convert("RGB")
+        elif len(image_input.shape) == 3:
+            if image_input.shape[2] == 3:
+                # RGB
+                image = Image.fromarray(image_input)
+            elif image_input.shape[2] == 4:
+                # RGBA → RGB
+                image = Image.fromarray(image_input).convert("RGB")
+            else:
+                raise ValueError(f"Unsupported number of channels: {image_input.shape[2]}")
+        else:
+            raise ValueError(f"Unsupported array shape: {image_input.shape}")
     else:
-        raise ValueError("Unsupported input type")
+        raise ValueError(
+            f"Unsupported input type: {type(image_input)}. "
+            f"Expected str, PIL.Image, or np.ndarray"
+        )
     
     t0 = time.time()
     

@@ -11,6 +11,9 @@ import torchvision.models.segmentation as tv_seg
 import torchvision.models.detection as tv_det
 from huggingface_hub import list_repo_files
 
+import yaml
+from pathlib import Pat
+
 try:
     from transformers import (
         SegformerImageProcessor, SegformerForSemanticSegmentation,
@@ -52,6 +55,58 @@ class NeuralModelFactory:
     """Фабрика для создания и загрузки нейронных моделей сегментации"""
     
     _model_registry: Dict[ModelType, Dict[str, Any]] = {}
+    _config_path = Path("configs/neural_models.yaml")
+    _config = None
+
+    @classmethod
+    def load_config(cls):
+        """Ленивая загрузка конфига"""
+        if cls._config is None:
+            with open(cls._config_path, 'r', encoding='utf-8') as f:
+                cls._config = yaml.safe_load(f)
+        return cls._config
+
+    @classmethod
+    def get_model_name(cls, model_type: str, variant: str = None) -> str:
+        """Получение имени модели из конфига"""
+        config = cls.load_config()
+        model_config = config['models'].get(model_type, {})
+        
+        if variant is None:
+            variant = model_config.get('default')
+        
+        variants = model_config.get('variants', {})
+        return variants.get(variant, variant)  # fallback на прямое имя
+    
+    @classmethod
+    def create_model_from_config(
+        cls,
+        model_type: str,
+        variant: str = None,
+        device: str = "cuda",
+        **kwargs
+    ):
+        """Создание модели с параметрами из конфига"""
+        model_name = cls.get_model_name(model_type, variant)
+        
+        # Для SMP моделей — получаем encoder из конфига
+        if model_type == "unet":
+            encoders = cls._config['models']['unet'].get('encoders', ['resnet34'])
+            encoder_name = kwargs.get('encoder_name', encoders[0])
+            return cls.create_model(
+                ModelType.UNET_SMP,
+                device=device,
+                encoder_name=encoder_name,
+                **kwargs
+            )
+        
+        # Для HF моделей — используем model_name
+        return cls.create_model(
+            getattr(ModelType, model_type.upper()),
+            model_name=model_name,
+            device=device,
+            **kwargs
+        )
     
     @classmethod
     def register_model(cls, model_type: ModelType, config: Dict[str, Any]):
@@ -317,12 +372,12 @@ class NeuralModelFactory:
     @classmethod
     def _load_deeplab_tv(cls, device, num_classes, checkpoint_path=None):
         # Создаём архитектуру
-        model = tv_seg.deeplabv3_resnet101(weights=None)
         num_classes = int(num_classes)
-        model.classifier[4] = torch.nn.Conv2d(256, num_classes, kernel_size=1)
         
         # Загружаем чекпоинт если есть
         if checkpoint_path and os.path.exists(checkpoint_path):
+            model = tv_seg.deeplabv3_resnet101(weights=None)
+            model.classifier[4] = torch.nn.Conv2d(256, num_classes, kernel_size=1)
             checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             model_keys = {k: v for k, v in checkpoint.items() if not k.startswith('aux_classifier')}
             model.load_state_dict(model_keys, strict=False)

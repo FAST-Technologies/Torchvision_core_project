@@ -253,7 +253,7 @@ class NeuralSegmenter(BaseSegmenter):
     def segment_image_unified(
         self,
         input_image: Union[str, Image.Image],
-        alpha: float = 0.5,
+        alpha: float = 0.9,
         verbose: bool = True,
         class_names: dict = None,
         gt_mask = None
@@ -316,7 +316,7 @@ class NeuralSegmenter(BaseSegmenter):
     def segment_image(
         self, 
         input_image: Union[str, Image.Image], 
-        alpha: float = 0.5
+        alpha: float = 0.9
     ) -> Image.Image:
         """
         Performs semantic segmentation on an image and returns an overlay mask.
@@ -331,7 +331,7 @@ class NeuralSegmenter(BaseSegmenter):
         img: Image.Image = self.load_image(input_image)
         
         # Получаем карту сегментации
-        seg_map, _ = self.predict_segmentation_map(image, verbose=False)
+        seg_map, _ = self.predict_segmentation_map(input_image, verbose=False)
         
         # Create color mask
         palette_array: np.ndarray = np.array(self.palette, dtype=np.uint8)
@@ -348,7 +348,7 @@ class NeuralSegmenter(BaseSegmenter):
     def segment(
         self, 
         image: Union[str, Image.Image], 
-        alpha: float = 0.5
+        alpha: float = 0.9
     ) -> np.ndarray:
         """
         Основной метод сегментации.
@@ -365,7 +365,7 @@ class NeuralSegmenter(BaseSegmenter):
     def segment_with_mask(
         self, 
         image: Union[str, Image.Image], 
-        alpha: float = 0.2
+        alpha: float = 0.9
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Сегментация с возвратом визуализации и маски.
@@ -398,17 +398,17 @@ class NeuralSegmenter(BaseSegmenter):
         # Создаем бинарную маску (все, что не фон)
         mask: np.ndarray = (seg_map > 0).astype(np.uint8) * 255
         
-        # if len(result_np.shape) == 2:
-        #     result_np = cv2.cvtColor(result_np, cv2.COLOR_GRAY2RGB)
+        if len(result_np.shape) == 2:
+            result_np = cv2.cvtColor(result_np, cv2.COLOR_GRAY2RGB)
         
-        # overlay = result_np.copy()
-        # mask_bool: np.ndarray = mask > 0
-        # overlay[mask_bool] = [255, 0, 0]
-        # result = cv2.addWeighted(result_np, alpha, overlay, 1 - alpha, 0)
+        overlay = result_np.copy()
+        mask_bool: np.ndarray = mask > 0
+        overlay[mask_bool] = [255, 0, 0]
+        result = cv2.addWeighted(result_np, alpha, overlay, 1 - alpha, 0)
         
         print(f"Neural segmentation completed in {time.time() - start_time:.2f}s")
         
-        return result_np, mask
+        return result, mask
     
     def detailed_segmentation(
         self, 
@@ -420,7 +420,7 @@ class NeuralSegmenter(BaseSegmenter):
         img: Image.Image = self.load_image(input_image)
         
         # Получаем карту сегментации
-        seg_map, _ = self.predict_segmentation_map(image, verbose=False)
+        seg_map, _ = self.predict_segmentation_map(input_image, verbose=False)
         
         # Создаем цветную сегментацию
         palette_array: np.ndarray = np.array(self.palette, dtype=np.uint8)
@@ -466,7 +466,7 @@ class NeuralSegmenter(BaseSegmenter):
         if not hasattr(self, 'model'):
             return {'error': 'Model not initialized'}
         
-        # 🔥 HuggingFace модели
+        # HuggingFace модели
         if hasattr(self.model, 'config'):
             config = self.model.config
             if hasattr(config, 'num_labels'):
@@ -476,7 +476,7 @@ class NeuralSegmenter(BaseSegmenter):
                     'label2id': getattr(config, 'label2id', {})
                 }
         
-        # 🔥 SMP / Torchvision модели: ищем последний Conv2d
+        # SMP / Torchvision модели: ищем последний Conv2d
         for module in reversed(list(self.model.modules())):
             if isinstance(module, torch.nn.Conv2d):
                 return {
