@@ -1,7 +1,6 @@
-# BaseSegmenter.py
+# segmenters/BaseSegmenter.py
 
 # Импорт основных библиотек
-
 import torch
 import cv2
 import numpy as np
@@ -129,29 +128,23 @@ class BaseSegmenter(ABC):
                 if img is None:
                     raise ValueError(f"Не удалось загрузить изображение: {image}")
                 result = img  # Уже в GRAY
-                result = img  # Уже в GRAY
             else:
                 img = cv2.imread(image)
                 if img is None:
                     raise ValueError(f"Не удалось загрузить изображение: {image}")
                 result = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # BGR→RGB
-                result = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # BGR→RGB
         elif isinstance(image, Image.Image):
             # PIL Image
             if as_gray:
                 result = np.array(image.convert('L'), dtype=np.uint8)  # 'L' = grayscale
-                result = np.array(image.convert('L'), dtype=np.uint8)  # 'L' = grayscale
             else:
-                result = np.array(image.convert('RGB'), dtype=np.uint8)
                 result = np.array(image.convert('RGB'), dtype=np.uint8)
         elif isinstance(image, np.ndarray):
             # NumPy array
             result = image.copy()
-            result = image.copy()
             if as_gray and len(image.shape) == 3:
                 # Конвертируем RGB/BGR в GRAY
                 if image.shape[2] == 3:
-                    result = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
                     result = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         elif isinstance(image, torch.Tensor):
             # PyTorch tensor
@@ -172,7 +165,6 @@ class BaseSegmenter(ABC):
                     img_np = img_np.astype(np.uint8)
                     
             result = img_np
-            
             if as_gray and len(result.shape) == 3 and result.shape[2] == 3:
                 result = cv2.cvtColor(result, cv2.COLOR_RGB2GRAY)
         else:
@@ -180,7 +172,6 @@ class BaseSegmenter(ABC):
                 f"Неподдерживаемый тип изображения: {type(image)}. "
                 f"Ожидается один из: {ImageInput.__args__}"
             )
-        # Изменение размера если требуется
         if target_size is not None:
             result = cv2.resize(
                 result, 
@@ -189,7 +180,6 @@ class BaseSegmenter(ABC):
                           else cv2.INTER_LINEAR
             )
         
-        # Нормализация если требуется
         if normalize:
             if result.dtype != np.float32:
                 result = result.astype(np.float32) / 255.0
@@ -276,13 +266,9 @@ class BaseSegmenter(ABC):
             Кортеж (метрики, предсказанная маска)
         """
         pred_mask: BinaryMask = self.segment(image, **segment_kwargs)
-
-        # Конвертируем в uint8 если нужно
         pred_binary = self._ensure_binary_mask(pred_mask, threshold)
         gt_binary = self._ensure_binary_mask(gt_mask, threshold)
-        
         metrics: MetricsDict = self.evaluate_metrics(pred_binary, gt_binary, threshold)
-        
         return metrics, pred_binary
     
     @overload
@@ -349,7 +335,6 @@ class BaseSegmenter(ABC):
             else:
                 normalized = mask / mask.max()
                 return np.where(normalized > threshold, 255, 0).astype(np.uint8)
-        
         return mask.astype(np.uint8)
     
     def get_info(self) -> Dict[str, Any]:

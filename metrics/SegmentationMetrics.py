@@ -1,4 +1,4 @@
-# SegmentationMetrics.py
+# metrics/SegmentationMetrics.py
 
 """
 Модуль для расчёта метрик качества сегментации
@@ -69,7 +69,6 @@ class SegmentationMetrics:
         union = np.logical_or(pred_binary, gt_binary).sum()
         if union == 0:
             return 0.0
-        
         return float(intersection / (union + 1e-8))
     
     @staticmethod
@@ -154,10 +153,8 @@ class SegmentationMetrics:
         """
         # Нормализуем маски
         pred_binary, gt_binary = SegmentationMetrics._normalize_masks(pred_mask, gt_mask, threshold)
-        
         intersection = np.logical_and(pred_binary, gt_binary).sum()
         dice = (2. * intersection + smooth) / (pred_binary.sum() + gt_binary.sum() + smooth)
-        
         return float(dice)
     
     @staticmethod
@@ -198,8 +195,8 @@ class SegmentationMetrics:
             print(f"Precision: Sklearn={p_sklearn:.6f} | Custom={p_custom:.6f} | Diff={abs(p_sklearn-p_custom):.2e}")
             print(f"Recall:    Sklearn={r_sklearn:.6f} | Custom={r_custom:.6f} | Diff={abs(r_sklearn-r_custom):.2e}")
 
-        print(f"Check difference precision: sklearn {p_custom} && custom {p_sklearn}")
-        print(f"Check difference recall: sklearn {r_custom} && custom {r_sklearn}")
+        # print(f"Check difference precision: sklearn {p_custom} && custom {p_sklearn}")
+        # print(f"Check difference recall: sklearn {r_custom} && custom {r_sklearn}")
         
         return float(p_custom), float(r_custom)
     
@@ -222,18 +219,15 @@ class SegmentationMetrics:
             Значение F1 Score от 0 до 1
         """
         pred_binary, gt_binary = SegmentationMetrics._normalize_masks(pred_mask, gt_mask, threshold)
-
         precision, recall = SegmentationMetrics.calculate_precision_recall(
             pred_mask, gt_mask, threshold
         )
-        
         if precision + recall  == 0:
             f1_custom = 0.0
         else:
             f1_custom = 2 * (precision * recall) / (precision + recall + 1e-8)
 
         f1_sklearn = f1_score(gt_binary.ravel(), pred_binary.ravel())
-
         if verbose:
             print(f"F1-Score: Sklearn={f1_sklearn:.6f} | Custom={f1_custom:.6f} | Diff={abs(f1_sklearn-f1_custom):.2e}")
         return float(f1_custom)
@@ -279,7 +273,6 @@ class SegmentationMetrics:
         
         if verbose:
             print(f"MAE: Sklearn={mae_sklearn:.6f} | Custom={mae_custom:.6f} | Diff={abs(mae_sklearn-mae_custom):.2e}")
-            
         return float(mae_custom)
     
     @staticmethod
@@ -316,9 +309,7 @@ class SegmentationMetrics:
             h2 = directed_hausdorff(gt_coords, pred_coords)[0]
             hausdorff_dist = max(h1, h2)
         except:
-            # Fallback если scipy недоступен
             hausdorff_dist = float('inf')
-        
         return float(hausdorff_dist)
     
     @staticmethod
@@ -361,8 +352,7 @@ class SegmentationMetrics:
         except Exception:
             metrics['silhouette_score'] = np.nan
             metrics['calinski_harabasz_score'] = np.nan
-            metrics['davies_bouldin_score'] = np.nan
-            
+            metrics['davies_bouldin_score'] = np.nan   
         return metrics
     
     @staticmethod
@@ -388,7 +378,6 @@ class SegmentationMetrics:
         # Вычисляем точность
         correct_pixels = (pred_binary == gt_binary).sum()
         total_pixels = pred_binary.size
-        
         accuracy = correct_pixels / total_pixels
         return float(accuracy)
     
@@ -525,7 +514,6 @@ class SegmentationMetrics:
                 avg_metrics[f'std_{key}'] = float(np.std(values))
                 avg_metrics[f'min_{key}'] = float(np.min(values))
                 avg_metrics[f'max_{key}'] = float(np.max(values))
-        
         return {
             'individual_results': individual_results,
             'average_metrics': avg_metrics,

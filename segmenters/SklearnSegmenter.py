@@ -1,4 +1,4 @@
-# SklearnSegmenter.py
+# segmenters/SklearnSegmenter.py
 
 # Импорт основных библиотек
 

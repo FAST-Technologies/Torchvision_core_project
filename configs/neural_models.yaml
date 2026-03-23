@@ -34,6 +34,20 @@ models:
       - "efficientnet-b0"
       - "mit_b5"
     default: "resnet34"
+  
+  fpn:
+    encoders:
+      - "mit_b5"
+      - "mit_b4"
+      - "efficientnet-b7"
+    default: "mit_b5"
+  
+  pspnet:
+    encoders:
+      - "mit_b5"
+      - "resnet50"
+      - "resnet101"
+    default: "mit_b5"
 
 training:
   ade20k:
@@ -43,7 +57,22 @@ training:
     lr: 1.0e-4
     weight_decay: 1.0e-4
     early_stop_patience: 5
+  
+  cityscapes:
+    image_size: [1024, 512]
+    batch_size: 2
+    epochs: 100
+    lr: 5.0e-5
+    weight_decay: 1.0e-4
+    early_stop_patience: 10
 
 metrics:
   threshold: 0.5
   include_hausdorff: true
+  ignore_index: 255
+
+benchmark:
+  n_runs: 3
+  warmup_runs: 2
+  save_results: true
+  output_dir: "./data/benchmark_results"

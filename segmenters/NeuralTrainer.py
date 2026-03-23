@@ -1,32 +1,38 @@
 # segmenters/NeuralTrainer.py
+
+# Импорт основных библиотек
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from typing import Dict, List, Optional, Any
 import numpy as np
 from pathlib import Path
+from sklearn.metrics import jaccard_score
+
+import time
+import gc
+
+num_classes: int = 150
 
 class NeuralTrainer:
     """Трейнер для fine-tuning нейронных моделей сегментации"""
-    
     def __init__(
         self,
         model: torch.nn.Module,
         train_loader: DataLoader, 
         val_loader: DataLoader,
-        num_classes: int = 150,
+        num_classes: int = num_classes,
         device: str = "cuda",
         lr: float = 1e-4,
         weight_decay: float = 1e-4,
         ignore_index: int = 255
-    ):
+    ) -> None:
         self.model = model.to(device)
-        self.train_loader = train_loader
-        self.val_loader = val_loader
-        self.device = device
-        self.num_classes = num_classes
-        self.ignore_index = ignore_index
-        
+        self.train_loader: DataLoader = train_loader
+        self.val_loader: DataLoader = val_loader
+        self.device: str = device
+        self.num_classes: int = int(num_classes)
+        self.ignore_index: int = ignore_index
         self.criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
         self.optimizer = torch.optim.AdamW(
             model.parameters(), 
@@ -36,13 +42,12 @@ class NeuralTrainer:
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer, T_max=len(train_loader) * 50  # 50 эпох
         )
-        self.history = {
+        self.history: Dict[str, Any] = {
             "train_loss": [],
             "val_loss": [],
             "val_miou": []
         }
-        self.best_miou = 0
-        self.history = {"train_loss": [], "val_loss": [], "val_miou": []}
+        self.best_miou: float = 0
     
     def train_epoch(self) -> float:
         """Одна эпоха обучения"""
@@ -70,7 +75,6 @@ class NeuralTrainer:
                 if torch.any(invalid):
                     print(f"⚠️  Invalid mask values: min={masks.min()}, max={masks.max()}")
                     print(f"   Unique invalid: {torch.unique(masks[invalid])}")
-                    # Клиппинг на лету (экстренная мера)
                     masks = torch.clamp(masks, 0, self.num_classes - 1)
             loss = self.criterion(outputs, masks.long())
             loss.backward()
@@ -88,8 +92,6 @@ class NeuralTrainer:
     
     def validate(self) -> tuple:
         """Валидация с вычислением mIoU"""
-        from sklearn.metrics import jaccard_score
-        
         self.model.eval()
         total_loss = 0
         all_preds = []
@@ -120,39 +122,29 @@ class NeuralTrainer:
             labels=range(self.num_classes),
             zero_division=0
         )
-        
         return avg_loss, miou
     
     def fit(
         self,
         epochs: int = 20,
-        checkpoint_path: str = "best_model.pth",
+        checkpoint_path: str = "./../models/best_model.pth",
         early_stop_patience: int = 5
     ) -> Dict[str, List]:
         """Полный цикл обучения"""
-        import time
-        import gc
-        
         print(f"🎯 Starting training for {epochs} epochs...")
         patience_counter = 0
-        
         for epoch in range(epochs):
             start_time = time.time()
-            
             train_loss = self.train_epoch()
             val_loss, val_miou = self.validate()
-            
             epoch_time = time.time() - start_time
-            
             self.history["train_loss"].append(train_loss)
             self.history["val_loss"].append(val_loss)
             self.history["val_miou"].append(val_miou)
-            
             print(f"📊 Epoch {epoch+1}/{epochs} | Time: {epoch_time:.1f}s")
             print(f"   Train Loss: {train_loss:.4f}")
             print(f"   Val Loss:   {val_loss:.4f}")
             print(f"   Val mIoU:   {val_miou:.4f}")
-            
             if val_miou > self.best_miou:
                 self.best_miou = val_miou
                 torch.save({
@@ -167,10 +159,8 @@ class NeuralTrainer:
                 patience_counter += 1
                 if patience_counter >= early_stop_patience:
                     print(f"   ⏹️  Early stopping")
-                    break
-            
+                    break            
             torch.cuda.empty_cache()
             gc.collect()
-        
         print(f"✅ Training complete! Best mIoU: {self.best_miou:.4f}")
         return self.history

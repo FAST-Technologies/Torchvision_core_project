@@ -1,7 +1,6 @@
-# OpenCVSegmenter.py
+# segmenters/OpenCVSegmenter.py
 
 # Импорт основных библиотек
-
 from segmenters.BaseSegmenter import BaseSegmenter
 
 import cv2
@@ -29,9 +28,8 @@ class OpenCVSegmenter(BaseSegmenter):
     ) -> None:
         super().__init__()
         self.method: str = method
-        self.raw_params = kwargs
+        self.raw_params: Dict[str, Any] = kwargs
         self.params = self._adapt_params(kwargs.copy())
-
         self._needs_gray: bool = method in [
             "global_thresholding",
             "adaptive_thresholding", 
@@ -52,10 +50,12 @@ class OpenCVSegmenter(BaseSegmenter):
             "threshold_sauvola",
             "random_walker"
         ]
-
         self._setup_methods()
     
-    def _adapt_params(self, params: dict) -> dict:
+    def _adapt_params(
+        self, 
+        params: dict
+    ) -> dict:
         """Конвертирует значения и приводит имена параметров к стандарту OpenCV."""
         adapted = params.copy()
         
@@ -183,7 +183,7 @@ class OpenCVSegmenter(BaseSegmenter):
         """
         image: np.ndarray = self.preprocess_image(image)
         print(f"Image after OpenCV preprocessing with mask: {image}")
-        mask = self.segment(image, **kwargs)
+        mask: np.ndarray = self.segment(image, **kwargs)
         
         if mask.dtype != np.uint8:
             if mask.max() <= 1.0:

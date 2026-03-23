@@ -1,3 +1,6 @@
+# testing/TorchImplementationValidator.py
+
+# Импорт основных библиотек
 from segmenters.TorchSegmenter import TorchSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
@@ -6,6 +9,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import traceback
 import time
 from datetime import datetime
 from typing import (
@@ -23,7 +27,7 @@ class TorchImplementationValidator:
         self, 
         output_dir: str = "./data/validation_results"
     ) -> None:
-        self.output_dir = output_dir
+        self.output_dir: str = output_dir
         os.makedirs(output_dir, exist_ok=True)
         self.validation_results: Dict[str, Any] = {}
         self.threshold_methods: List[Tuple[str, Dict[str, Any]]] = [
@@ -93,7 +97,6 @@ class TorchImplementationValidator:
         Возвращает numpy array в формате RGB.
         """
         if isinstance(image_path, str) and os.path.exists(image_path):
-            # Загружаем через PIL для единообразия
             img = Image.open(image_path).convert('RGB')
             return np.array(img)
         elif isinstance(image_path, np.ndarray):
@@ -204,14 +207,12 @@ class TorchImplementationValidator:
                 
             except Exception as e:
                 print(f"   ❌ Ошибка: {e}")
-                import traceback
                 traceback.print_exc()
                 results[method_name] = {
                     'success': False,
                     'error': str(e),
                     'reference_library': reference
                 }
-
         if additional_method=="Torch":
             self._save_validation_results(results, prefix, reference, flag_torch=True)
         else:
@@ -306,7 +307,7 @@ class TorchImplementationValidator:
         """Визуализация результатов валидации"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        original = image_array  # Уже загружено
+        original = image_array
         
         n_methods = len([r for r in results.values() if r.get('success')])
         if n_methods == 0:
@@ -332,7 +333,6 @@ class TorchImplementationValidator:
             # Удаляем все оси размером 1, чтобы получить (H, W)
             torch_mask_np = np.squeeze(torch_mask_np)
             
-            # То же самое для референсной маски (на всякий случай)
             if isinstance(ref_mask, torch.Tensor):
                 ref_mask_np = ref_mask.cpu().numpy()
             else:
@@ -367,7 +367,6 @@ class TorchImplementationValidator:
             axes[row, 3].set_title(f"Difference\nStatus: {status}", color=status_color)
             axes[row, 3].axis('off')
             plt.colorbar(im, ax=axes[row, 3], fraction=0.046)
-            
             row += 1
         
         plt.suptitle(f"{validation_type.title()} Validation ({additional_method} vs {reference.upper()})", fontsize=16)
@@ -377,7 +376,10 @@ class TorchImplementationValidator:
             self.output_dir,
             f"{validation_type}_validation_{reference}_{timestamp}.jpg"
         )
-        plt.savefig(viz_path, dpi=150, bbox_inches='tight')
+        plt.savefig(
+            viz_path, 
+            dpi=150, 
+            bbox_inches='tight')
         plt.close()
         
         print(f"📊 Визуализация: {viz_path}")
@@ -452,25 +454,19 @@ class TorchImplementationValidator:
             report_lines.append(f"❌ FAIL: {failed_methods} ({failed_methods/total_methods*100:.2f}%)")
         else:
             report_lines.append("⚠️ Нет данных для статистики (все методы не прошли)")
-        
         report_lines.append("="*60)
-        
         report = "\n".join(report_lines)
-        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_path = os.path.join(self.output_dir, f"validation_report_{timestamp}.txt")
         with open(report_path, 'w', encoding='utf-8') as f:
             f.write(report)
-        
         print(f"\n📄 Отчёт сохранён: {report_path}")
         print("\n" + report)
-        
         return report
     
     def validate_all_methods(self, image_path: str) -> Dict:
         """Валидация всех методов одним вызовом"""
         all_results = {}
-        
         validation_configs = [
             ('threshold_sklearn', self.threshold_methods, TorchSegmenter, SklearnSegmenter, "ВАЛИДАЦИЯ ПОРОГОВЫХ МЕТОДОВ (Torch + Sklearn)", 'sklearn', 'threshold', 'Torch'),
             ('threshold_opencv', self.threshold_methods, TorchSegmenter, OpenCVSegmenter, "ВАЛИДАЦИЯ ПОРОГОВЫХ МЕТОДОВ (Torch + OpenCV)", 'opencv', 'threshold', 'Torch'),
@@ -510,5 +506,4 @@ class TorchImplementationValidator:
                 validation_type=v_type,
                 additional_method=additional_method
             )
-        
         return all_results

@@ -1,7 +1,6 @@
-# TorchSegmenter.py
+# segmenters/TorchSegmenter.py
 
 # Импорт основных библиотек
-
 from segmenters.BaseSegmenter import BaseSegmenter
 
 import warnings
@@ -48,7 +47,7 @@ class TorchSegmenter(BaseSegmenter):
         self.method: str = method
         self.params: Dict[str, Any] = kwargs
         self.model_name: str = f"Torch_{method}"
-        self.use_external_libs = use_external_libs
+        self.use_external_libs: bool = use_external_libs
         self._needs_normalization: bool = method in [
             "global_thresholding",
             "adaptive_thresholding",

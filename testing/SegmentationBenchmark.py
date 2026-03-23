@@ -1,3 +1,6 @@
+# testing/SegmentationBenchmark.py
+
+# Импорт основных библиотек
 import sys
 import os
 
@@ -7,8 +10,8 @@ if project_root not in sys.path:
 
 from datasets.ADE20KDataset import ADE20KDataset
 from segmenters.NeuralTrainer import NeuralTrainer
-import inference.utils
-from inference.strategies import SegNet
+import utils.utils
+from utils.strategies import SegNet
 
 import os
 from typing import List, Optional, Set, Dict, List, Union, Tuple, Any
@@ -61,17 +64,18 @@ from transformers import AutoImageProcessor, AutoModelForSemanticSegmentation
 import segmentation_models_pytorch as smp
 
 from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType
-from inference.palettes import ade_palette
-from inference.utils import compute_metrics, extract_logits_info, analyze_prediction
-from inference.strategies import segment_image_unified
+from utils.palettes import ade_palette
+from utils.utils import compute_metrics, extract_logits_info, analyze_prediction
+from utils.strategies import segment_image_unified
+
+num_classes: int = 150
 
 class SegmentationBenchmark:
     """Полноценный бенчмарк для сравнения архитектур сегментации"""
-    
     def __init__(
         self, 
         device: str = "cuda", 
-        num_classes: int = 150, 
+        num_classes: int = num_classes, 
         ignore_index: int = 255, 
         class_names: list = None, 
         gt_mask: Optional[Union[np.ndarray, Image.Image]] = None,
@@ -92,15 +96,13 @@ class SegmentationBenchmark:
             palette = palette()
     
         self.device: str = device
-        self.num_classes: int = num_classes
+        self.num_classes: int = int(num_classes)
         self.ignore_index: int = ignore_index
         self.models: Dict[str, Dict[str, Any]] = {}
         self.palette: List[List[int]] = palette if palette else ade_palette()
         self.results: Dict[str, Dict[str, Any]] = {}  # {model_name: {metrics, time, overlay, ...}}
         self.class_names: List[str] = class_names or [f"Class {i}" for i in range(num_classes)]
         self.gt_mask: Optional[Union[np.ndarray, Image.Image]] = gt_mask
-
-    # Загрузка моделей для инференса
 
     def load_trained_model(
         self,
@@ -127,7 +129,6 @@ class SegmentationBenchmark:
             num_classes=self.num_classes,
             **kwargs
         )
-        
         self.models[key] = {
             "model": model,
             "processor": processor,
@@ -136,7 +137,6 @@ class SegmentationBenchmark:
         }
         print(f"✅ Loaded {key} from {checkpoint_path}")
         return self
-    
     
     def load_all_trained_models(
         self,
@@ -151,14 +151,12 @@ class SegmentationBenchmark:
             "fcn_resnet50_trained": (ModelType.FCN_TV, "./../models/fcn_resnet50_ade20k_best.pth", {"variant": "fcn_resnet50"}),
             "segnet_trained": (ModelType.SEGNET, "./../models/segnet_ade20k_best.pth", {"encoder_name": "resnet34"}),
         }
-        
         for key, (model_type, checkpoint_file, kwargs) in checkpoints.items():
             checkpoint_path = os.path.join(checkpoint_dir, checkpoint_file)
             if os.path.exists(checkpoint_path):
                 self.load_trained_model(key, model_type, checkpoint_path, **kwargs)
             else:
                 print(f"⚠️ Checkpoint not found: {checkpoint_path}")
-        
         return self
     
     # ============ ЗАГРУЗКА ПРЕДОБУЧЕННЫХ МОДЕЛЕЙ ============
@@ -191,24 +189,23 @@ class SegmentationBenchmark:
         Raises:
             ValueError: Если указана неизвестная версия
         """
-        # 🔥 Используем NeuralModelFactory вместо прямой загрузки!
         model, processor, model_type_str = NeuralModelFactory.load_segformer_variant(
             variant=variant,
             device=self.device
         )
-        
-        # 🔥 Регистрируем через load_model (единый интерфейс)
         key = f"segformer_{variant}"
         self.models[key] = {
             "model": model,
             "processor": processor,
             "type": model_type_str
         }
-        
         print(f"✅ Loaded SegFormer-{variant} from HuggingFace")
         return self
     
-    def load_mask2former(self, name: str = "facebook/mask2former-swin-base-ade-semantic") -> "SegmentationBenchmark":
+    def load_mask2former(
+        self, 
+        name: str = "facebook/mask2former-swin-base-ade-semantic"
+    ) -> "SegmentationBenchmark":
         """Загрузка Mask2Former модели"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.MASK2FORMER,
@@ -224,7 +221,10 @@ class SegmentationBenchmark:
         print(f"✅ Loaded Mask2Former from {name}")
         return self
     
-    def load_oneformer(self, name: str = "shi-labs/oneformer_ade20k_swin_large") -> "SegmentationBenchmark":
+    def load_oneformer(
+        self, 
+        name: str = "shi-labs/oneformer_ade20k_swin_large"
+    ) -> "SegmentationBenchmark":
         """Загрузка OneFormer модели"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.ONEFORMER,
@@ -240,7 +240,10 @@ class SegmentationBenchmark:
         print(f"✅ Loaded OneFormer from {name}")
         return self
     
-    def load_dpt(self, model_name: str = "Intel/dpt-large-ade") -> "SegmentationBenchmark":
+    def load_dpt(
+        self, 
+        model_name: str = "Intel/dpt-large-ade"
+    ) -> "SegmentationBenchmark":
         """Загрузка DPT модели"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.DPT,
@@ -256,7 +259,10 @@ class SegmentationBenchmark:
         print(f"✅ Loaded DPT from {model_name}")
         return self
     
-    def load_upernet(self, model_name: str = "openmmlab/upernet-convnext-small") -> "SegmentationBenchmark":
+    def load_upernet(
+        self, 
+        model_name: str = "openmmlab/upernet-convnext-small"
+    ) -> "SegmentationBenchmark":
         """Загрузка UPerNet модели"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.UPERNET,
@@ -272,7 +278,10 @@ class SegmentationBenchmark:
         print(f"✅ Loaded UPerNet from {model_name}")
         return self
     
-    def load_sam(self, model_name: str = "mobile_sam.pt") -> "SegmentationBenchmark":
+    def load_sam(
+        self, 
+        model_name: str = "mobile_sam.pt"
+    ) -> "SegmentationBenchmark":
         """Загрузка SAM-моделей"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.SAM,
@@ -289,7 +298,11 @@ class SegmentationBenchmark:
         print(f"✅ Loaded SAM from {model_name}")
         return self
     
-    def load_fpn_mit_pretrained(self, variant: str = "b5", checkpoint_path: Optional[str] = None) -> "SegmentationBenchmark":
+    def load_fpn_mit_pretrained(
+        self, 
+        variant: str = "b5", 
+        checkpoint_path: Optional[str] = None
+    ) -> "SegmentationBenchmark":
         """Загрузка FPN + MiT"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.FPN_SMP,
@@ -308,7 +321,11 @@ class SegmentationBenchmark:
         print(f"✅ Loaded FPN+MiT-{variant}")
         return self
     
-    def load_psp_mit_pretrained(self, variant: str = "b5", checkpoint_path: Optional[str] = None) -> "SegmentationBenchmark":
+    def load_psp_mit_pretrained(
+        self, 
+        variant: str = "b5", 
+        checkpoint_path: Optional[str] = None
+    ) -> "SegmentationBenchmark":
         """Загрузка PSPNet + MiT"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.PSPNET_SMP,
@@ -327,7 +344,10 @@ class SegmentationBenchmark:
         print(f"✅ Loaded PSPNet+MiT-{variant}")
         return self
     
-    def load_fcn_resnet50_pretrained(self, variant: str = "fcn_resnet50") -> "SegmentationBenchmark":
+    def load_fcn_resnet50_pretrained(
+        self, 
+        variant: str = "fcn_resnet50"
+    ) -> "SegmentationBenchmark":
         """Загрузка FCN"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.FCN_TV,
@@ -344,7 +364,10 @@ class SegmentationBenchmark:
         print(f"✅ Loaded {variant}")
         return self
     
-    def load_segnet_pretrained(self, encoder_name: str = "resnet34") -> "SegmentationBenchmark":
+    def load_segnet_pretrained(
+        self, 
+        encoder_name: str = "resnet34"
+    ) -> "SegmentationBenchmark":
         """Загрузка SegNet"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.SEGNET,
@@ -361,7 +384,10 @@ class SegmentationBenchmark:
         print(f"✅ Loaded SegNet-like")
         return self
     
-    def load_mask_rcnn_pretrained(self, variant: str = "maskrcnn_resnet50_fpn") -> "SegmentationBenchmark":
+    def load_mask_rcnn_pretrained(
+        self, 
+        variant: str = "maskrcnn_resnet50_fpn"
+    ) -> "SegmentationBenchmark":
         """Загрузка Mask R-CNN"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.MASKRCNN_TV,
@@ -440,23 +466,21 @@ class SegmentationBenchmark:
         print(f"✅ Loaded deeplab pretrained")
         return self
     
-    def load_all_pretrained_cnn(self, checkpoint_dir: str = "./checkpoints") -> "SegmentationBenchmark":
+    def load_all_pretrained_cnn(
+        self, 
+        checkpoint_dir: str = "./checkpoints"
+    ) -> "SegmentationBenchmark":
         """Загрузка всех CNN-моделей"""
         print("\n" + "="*60)
         print("📦 Loading all pre-trained CNN models for benchmark")
         print("="*60)
-        
         self.load_mask_rcnn_pretrained(variant="maskrcnn_resnet50_fpn")
-        
         fpn_checkpoint = os.path.join(checkpoint_dir, "fpn_mit_b5_best.pth")
         self.load_fpn_mit_pretrained(variant="b5", checkpoint_path=fpn_checkpoint)
-        
         psp_checkpoint = os.path.join(checkpoint_dir, "psp_mit_b5_best.pth")
         self.load_psp_mit_pretrained(variant="b5", checkpoint_path=psp_checkpoint)
-        
         self.load_fcn_resnet50_pretrained(variant="fcn_resnet50")
         self.load_segnet_pretrained(encoder_name="resnet34")
-        
         print("\n✅ All pre-trained CNN models loaded!")
         print(f"   Total models in benchmark: {len(self.models)}")
         return self
@@ -483,8 +507,6 @@ class SegmentationBenchmark:
         Raises:
             ValueError: Если модель с указанным ключом не загружена
         """
-
-        # Загрузка изображения
         if isinstance(image_input, str):
             image = Image.open(image_input).convert("RGB")
         elif isinstance(image_input, Image.Image):
@@ -496,8 +518,7 @@ class SegmentationBenchmark:
         model = model_cfg["model"]
         processor = model_cfg["processor"]
         model_type = model_cfg["type"]
-        n_classes = self.get_model_num_classes(model_key)
-
+        n_classes = int(self.get_model_num_classes(model_key))
         torch.cuda.empty_cache()
         gc.collect()
 
@@ -509,8 +530,6 @@ class SegmentationBenchmark:
 
         torch.cuda.synchronize()
         t0 = time.time()
-        
-        # Инференс
         overlay, resd = segment_image_unified(model, processor, image, model_type, 
                                        alpha=alpha, palette=self.palette, device=self.device, num_classes=n_classes, 
                                        gt_mask=self.gt_mask)
@@ -537,7 +556,6 @@ class SegmentationBenchmark:
             "output_shape": mask.shape,
             "unique_classes": len(np.unique(mask))
         }
-        
         self.results[model_key] = result
         return result
     
@@ -567,8 +585,16 @@ class SegmentationBenchmark:
             raise ValueError(f"Model {model_key} not loaded. Available: {list(self.models.keys())}")
         model, processor = self.models[model_key]
         n_classes = self.get_model_num_classes(model_key)
-        return segment_image_unified(model, processor, image_input, model_key, 
-                                    alpha=alpha, palette=self.palette, device=self.device, num_classes=n_classes, gt_mask=gt_mask)[0]
+        return segment_image_unified(
+            model, 
+            processor, 
+            image_input, 
+            model_key, 
+            alpha=alpha, 
+            palette=self.palette, 
+            device=self.device, 
+            num_classes=n_classes, 
+            gt_mask=gt_mask)[0]
     
     def compare(
         self,
@@ -586,21 +612,16 @@ class SegmentationBenchmark:
             summary: Сводная таблица метрик по всем моделям
         """
         print(f"🚀 Starting benchmark on {len(self.models)} models...")
-        model_keys = list(self.models.keys())  # Копия ключей
-    
+        model_keys = list(self.models.keys())
         for i, key in enumerate(model_keys):
             print(f"\n🔹 Running {key}...")
-            
             self.run_single(image_input, key, alpha=alpha)
-            
-            # 🔥 ОСВОБОЖДЕНИЕ ПАМЯТИ ПОСЛЕ МОДЕЛИ
-            if i < len(model_keys) - 1:  # Не удаляем последнюю (может понадобиться)
+            if i < len(model_keys) - 1:
                 del self.models[key]["model"]
                 del self.models[key]["processor"]
                 torch.cuda.empty_cache()
                 gc.collect()
                 print(f"   🗑️  Freed {key} from VRAM")
-        
         return self.get_summary()
 
     def get_summary(self) -> Dict[str, Dict[str, Any]]:
@@ -645,7 +666,6 @@ class SegmentationBenchmark:
                 return model.classifier[-1].out_channels
         
         # SMP / Custom: ищем последний Conv2d
-        import torch
         for module in reversed(list(model.modules())):
             if isinstance(module, torch.nn.Conv2d):
                 return module.out_channels
@@ -653,14 +673,18 @@ class SegmentationBenchmark:
         # Fallback
         return self.num_classes
 
-
     # ============ ВИЗУАЛИЗАЦИЯ ============
-    def plot_comparison_chart(self, metric_name: str, title: str = None, 
-                          figsize=(12, 6), show_values: bool = True, path: str = './data/ade20k_test_trained/plot_comparison_chart.jpg'):
+    def plot_comparison_chart(
+        self, 
+        metric_name: str, 
+        title: str = None, 
+        figsize=(12, 6), 
+        show_values: bool = True, 
+        path: str = './data/ade20k_test_trained/plot_comparison_chart.jpg'
+    ) -> None:
         """
         Строит бар-чарт сравнения одной метрики.
         
-        🔧 FIX:
         - Корректное масштабирование для маленьких значений
         - Автоматический выбор формата (проценты или десятичные)
         - Улучшенное размещение подписей
@@ -682,11 +706,9 @@ class SegmentationBenchmark:
         
         models, values = zip(*valid)
         
-        # Определяем, нужно ли умножать на 100 (для процентов)
         is_percentage = metric_name in ["mIoU", "pixel_acc", "f1_weighted"]
         multiplier = 100 if is_percentage else 1
         
-        # Проверяем диапазон значений
         max_val = max(values) * multiplier
         use_percent_format = max_val < 1.0
         
@@ -703,13 +725,10 @@ class SegmentationBenchmark:
             for bar, val in zip(bars, values):
                 height = bar.get_height()
                 
-                # Форматируем значение
                 if use_percent_format:
-                    label = f"{val * 100:.3f}%"  # 0.137%
+                    label = f"{val * 100:.3f}%"
                 else:
                     label = f"{val:.1f}" if val >= 1 else f"{val:.3f}"
-                
-                # Размещаем подпись
                 plt.text(bar.get_x() + bar.get_width()/2., height,
                         label, ha='center', va='bottom', 
                         fontsize=8, rotation=0)
@@ -717,7 +736,7 @@ class SegmentationBenchmark:
         # Настройка оси Y
         if use_percent_format:
             plt.ylabel(f"{metric_name} (%)", fontsize=10)
-            plt.ylim(0, max_val * 1.2)  # 20% запас сверху
+            plt.ylim(0, max_val * 1.2)
         else:
             plt.ylabel(metric_name, fontsize=10)
             if metric_name == "time_ms":
@@ -733,13 +752,13 @@ class SegmentationBenchmark:
         plt.title(title or f"Model Comparison: {metric_name}", 
                 fontsize=12, fontweight='bold', pad=20)
         plt.grid(axis='y', alpha=0.3, linestyle='--', linewidth=0.5)
-        
-        # Улучшенный tight_layout
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        plt.savefig(path, dpi=300,
-                bbox_inches='tight',
-                facecolor='white',
-                format='png')
+        plt.savefig(
+            path, 
+            dpi=300,
+            bbox_inches='tight',
+            facecolor='white',
+            format='png')
         plt.show()
 
     def plot_per_class_iou(
@@ -749,37 +768,28 @@ class SegmentationBenchmark:
         cmap: str = "RdYlGn",
         show_only_present_classes: bool = True,
         path: str = './data/ade20k_test_trained/plot_per_class_iou.jpg'
-    ):
+    ) -> None:
         """
         Строит heatmap per-class IoU только для классов, присутствующих в GT.
         """
         
         data = []
         model_names = []
-        
-        # Собираем все per_class_iou
         for model_name, res in self.results.items():
             iou_arr = res["metrics"].get("per_class_iou")
-            
             if iou_arr is not None and len(iou_arr) > 0:
                 iou_arr = np.array(iou_arr[:self.num_classes])
-                
-                # Фильтруем только валидные (не NaN) значения
                 if np.any(np.isfinite(iou_arr)):
                     data.append(iou_arr)
                     model_names.append(model_name)
                 else:
                     print(f"⚠️  {model_name}: all NaN IoU")
-        
         if not data:
             print("❌ No valid per-class IoU data.")
             return
         
         data = np.array(data)  # [n_models, n_classes]
-        
-        # Находим классы, которые есть в ground truth хотя бы одной модели
         if show_only_present_classes:
-            # Класс считается "present" если хотя бы одна модель дала валидный IoU
             valid_classes = np.any(np.isfinite(data), axis=0)
             class_indices = np.where(valid_classes)[0]
         else:
@@ -796,8 +806,6 @@ class SegmentationBenchmark:
         
         # Подписи классов
         class_labels = [f"Class {c}" for c in top_class_indices]
-        
-        # Фильтруем данные
         data_filtered = data[:, top_class_indices]
         
         plt.figure(figsize=figsize)
@@ -816,22 +824,27 @@ class SegmentationBenchmark:
         plt.xticks(rotation=45, ha='right', fontsize=8)
         plt.yticks(fontsize=9)
         plt.tight_layout()
-        plt.savefig(path, dpi=300,
-                bbox_inches='tight',
-                facecolor='white',
-                format='png')
+        plt.savefig(
+            path, 
+            dpi=300,
+            bbox_inches='tight',
+            facecolor='white',
+            format='png')
         plt.show()
-        
-        # Дополнительная статистика
         print(f"\n📊 Per-class IoU Statistics:")
         print(f"  Total classes in dataset: {self.num_classes}")
         print(f"  Classes present in GT: {len(class_indices)}")
         print(f"  Showing top {len(top_class_indices)} classes")
         print(f"  Mean IoU (all classes): {np.nanmean(data):.3f}")
 
-    def plot_confusion_matrix(self, model_key: str, normalize: str = 'true', 
-                          figsize=(10, 8), show_values: bool = True,
-        path: str = './data/ade20k_test_trained/plot_confusion_matrix.jpg'):
+    def plot_confusion_matrix(
+        self, 
+        model_key: str, 
+        normalize: str = 'true', 
+        figsize=(10, 8), 
+        show_values: bool = True,
+        path: str = './data/ade20k_test_trained/plot_confusion_matrix.jpg'
+    ) -> None:
         """
         Строит матрицу ошибок с отображением значений.
         """
@@ -857,8 +870,6 @@ class SegmentationBenchmark:
             cm_display = cm
             title_suffix = "(counts)"
             fmt = 'd'
-        
-        # Показываем только классы, которые есть в ground truth
         gt_classes = np.where(cm.sum(axis=1) > 0)[0][:20]
         if len(gt_classes) == 0:
             print("⚠️  No ground truth classes found!")
@@ -888,30 +899,28 @@ class SegmentationBenchmark:
                 format='png')
         plt.show()
 
-    def plot_all_metrics(self, figsize=(15, 5), skip_empty: bool = True,
-        path: str = './data/ade20k_test_trained/plot_all_metrix.jpg'):
+    def plot_all_metrics(
+        self, 
+        figsize=(15, 5), 
+        skip_empty: bool = True,
+        path: str = './data/ade20k_test_trained/plot_all_metrix.jpg'
+    ) -> None:
         """
         Строит сводные графики по всем основным метрикам.
         
-        🔧 FIX: 
         - Пропускаем пустые метрики до создания subplot
         - Уменьшаем шрифт подписей для длинных названий
         - Добавляем отступ для suptitle
         """
-        
-        summary = self.get_summary()
+        summary: Dict[str, Dict[str, Any]] = self.get_summary()
         if not summary:
             print("⚠️ No results to plot.")
             return
-        
-        # Определяем, какие метрики имеют валидные данные
         metrics_to_plot = [
             ("mIoU", "Mean IoU ↑", lambda x: x*100),
             ("pixel_acc", "Pixel Accuracy ↑", lambda x: x*100),
             ("time_ms", "Inference Time ↓ (ms)", lambda x: x)
         ]
-        
-        # Фильтруем только метрики с валидными данными
         valid_metrics = []
         for metric, label, transform in metrics_to_plot:
             values = [summary[m].get(metric, np.nan) for m in summary]
@@ -921,34 +930,23 @@ class SegmentationBenchmark:
         if not valid_metrics:
             print("⚠️ No valid metrics to plot")
             return
-        
-        # Создаём нужное количество subplot'ов
         n_plots = len(valid_metrics)
         fig, axes = plt.subplots(1, n_plots, figsize=(figsize[0] * n_plots / 3, figsize[1]))
         if n_plots == 1:
-            axes = [axes]  # Ensure axes is always a list
-        
+            axes = [axes]
         colors = plt.cm.Set2(np.linspace(0, 1, len(summary)))
-        
         for ax, (metric, label, transform) in zip(axes, valid_metrics):
             models = list(summary.keys())
             values = [transform(summary[m].get(metric, np.nan)) for m in models]
-            
-            # Фильтруем валидные значения
             valid = [(m, v) for m, v in zip(models, values) if not np.isnan(v)]
             
             if valid:
                 plot_models, plot_values = zip(*valid)
-                
-                # Уменьшаем шрифт если моделей много
                 fontsize = 7 if len(plot_models) > 10 else 8
                 
                 bars = ax.bar(range(len(plot_models)), plot_values, 
                             color=colors[:len(plot_models)], edgecolor='black')
-                
-                # Подписи с переносом названий моделей
                 for bar, val, name in zip(bars, plot_values, plot_models):
-                    # Перенос длинных названий
                     display_name = name.replace('_', '_\n') if len(name) > 15 else name
                     ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), 
                         f"{val:.1f}", ha='center', va='bottom', fontsize=fontsize-1)
@@ -960,8 +958,6 @@ class SegmentationBenchmark:
                 ax.set_ylabel(label, fontsize=9)
                 ax.set_title(metric, fontsize=10, fontweight='bold')
                 ax.grid(axis='y', alpha=0.3, linestyle='--')
-                
-                # Авто-масштабирование оси Y
                 if metric == "time_ms":
                     ax.set_ylim(0, max(plot_values) * 1.2)
                 else:
@@ -974,22 +970,25 @@ class SegmentationBenchmark:
         
         plt.suptitle("Model Comparison Summary", fontsize=14, fontweight='bold', y=1.02)
         plt.tight_layout(rect=[0, 0, 1, 0.95])
-        plt.savefig(path, dpi=300,
-                bbox_inches='tight',
-                facecolor='white',
-                format='png')
+        plt.savefig(
+            path, 
+            dpi=300,
+            bbox_inches='tight',
+            facecolor='white',
+            format='png')
         plt.show()
 
-    def plot_summary(self, metrics: list = ["mIoU", "pixel_acc", "time_ms"],
-        path: str = './data/ade20k_test_trained/plot_summary.jpg'):
+    def plot_summary(
+        self, 
+        metrics: list = ["mIoU", "pixel_acc", "time_ms"],
+        path: str = './data/ade20k_test_trained/plot_summary.jpg'
+    ) -> None:
         """Визуализация сводных результатов"""
         summary = self.get_summary()
-        
         for metric in metrics:
             values = [summary[k].get(metric, np.nan) for k in summary]
             if all(np.isnan(v) for v in values):
-                continue
-                
+                continue    
             plt.figure(figsize=(10, 5))
             plt.bar(summary.keys(), values, color=plt.cm.Set2(np.linspace(0, 1, len(summary))))
             plt.ylabel(metric)
@@ -1011,8 +1010,6 @@ class SegmentationBenchmark:
             output_dir: Директория для сохранения результатов
         """
         os.makedirs(output_dir, exist_ok=True)
-        
-        # Сохранение изображений и масок
         for key, res in self.results.items():
             if res["overlay"] is not None:
                 res["overlay"].save(f"{output_dir}/overlay_{key}.jpg")
@@ -1053,7 +1050,6 @@ class SegmentationBenchmark:
         
         with open(f"{output_dir}/detailed.json", "w") as f:
             json.dump(detailed, f, indent=2, default=str)
-        
         print(f"✅ Results saved to {output_dir}/")
 
     def export_latex_table(self, caption: str = "Segmentation Benchmark Results") -> str:
@@ -1066,11 +1062,11 @@ class SegmentationBenchmark:
         Returns:
             latex_code: Строка с LaTeX кодом таблицы
         """
-        summary = self.get_summary()
+        summary: Dict[str, Dict[str, Any]] = self.get_summary()
         if not summary:
             return ""
         
-        lines = [
+        lines: List[str] = [
             r"\begin{table}[htbp]",
             r"\centering",
             r"\caption{" + caption + r"}",
@@ -1087,21 +1083,19 @@ class SegmentationBenchmark:
             time = f"{metrics['time_ms']:.1f}"
             model_clean = model.replace("_", r"\_").replace("-", r"\-")
             lines.append(f"{model_clean} & {mIoU} & {acc} & {time} \\\\")
-        
         lines.extend([r"\bottomrule", r"\end{tabular}", r"\end{table}"])
         return "\n".join(lines)
     
 
 def export_comparison_table(
     bench: SegmentationBenchmark, 
-    output_file: str = "model_comparison.md"
+    output_file: str = "./../reports/model_comparison.md"
 ) -> pd.DataFrame:
     """Экспорт сравнительной таблицы всех моделей"""
-    
-    df = pd.DataFrame(bench.get_summary()).T.sort_values("mIoU", ascending=False)
+    df^ pd.DataFrame = pd.DataFrame(bench.get_summary()).T.sort_values("mIoU", ascending=False)
     
     # Категоризация
-    categories = {
+    categories: Dict[str, str] = {
         "segformer": "Transformer",
         "mask2former": "Universal",
         "oneformer": "Multi-task",
@@ -1116,7 +1110,6 @@ def export_comparison_table(
         "sam": "Promptable",
         "sam2": "Promptable",
     }
-    
     df["Category"] = df.index.map(lambda x: categories.get(x.split("_")[0], "Other"))
     
     # Форматирование
@@ -1130,6 +1123,5 @@ def export_comparison_table(
     with open(output_file, "w") as f:
         f.write("# Segmentation Models Comparison\n\n")
         f.write(md_table)
-    
     print(f"✅ Table saved to {output_file}")
     return df

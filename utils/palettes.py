@@ -1,4 +1,4 @@
-# inference/palettes.py
+# utils/palettes.py
 
 from typing import List, Dict
 
@@ -23,8 +23,6 @@ def get_ade_class_names() -> Dict[int, str]:
         132: "sculpture",133: "hood",134: "sconce",135: "vase",136: "traffic light",137: "tray",138: "ashcan",139: "fan",140: "pier",141: "crt screen",142: "plate",
         143: "monitor",144: "bulletin board",145: "shower",146: "radiator",147: "glass",148: "clock",149: "flag"
     }
-
-    # Проверка
     print(f"✅ ADE20K classes loaded: {len(ade20k_class_names)} classes")
     print(f"   Range: [{min(ade20k_class_names.keys())}..{max(ade20k_class_names.keys())}]")
     return ade20k_class_names
@@ -85,8 +83,6 @@ def get_coco_class_names() -> Dict[int, str]:
     61: "toilet",62: "tv",63: "laptop",64: "mouse",65: "remote",66: "keyboard",67: "cell phone",68: "microwave",69: "oven",70: "toaster",
     71: "sink",72: "refrigerator",73: "book",74: "clock",75: "vase",76: "scissors",77: "teddy bear",78: "hair drier",79: "toothbrush"
     }
-
-    # Проверка
     print(f"✅ COCO classes loaded: {len(COCO_class_names)} classes")
     print(f"   Range: [{min(COCO_class_names.keys())}..{max(COCO_class_names.keys())}]")
     return COCO_class_names
@@ -129,7 +125,6 @@ def get_cityscapes_extended_class_names() -> Dict[int, str]:
         27: "license plate", 28: "ground", 29: "static",
         30: "dynamic", 31: "unlabeled", 32: "ego vehicle", 33: "rectification border"
     }
-    # Для бенчмарка используйте стандартные 19 классов
     print(f"✅ Cityscapes Extended classes loaded: {len(cityscapes_extended_class_names)} classes")
     print(f"   Range: [{min(cityscapes_extended_class_names.keys())}..{max(cityscapes_extended_class_names.keys())}]")
     return cityscapes_extended_class_names
@@ -155,8 +150,6 @@ def get_cityscapes_class_names() -> Dict[int, str]:
         0: "road", 1: "sidewalk", 2: "building", 3: "wall", 4: "fence", 5: "pole", 6: "traffic light", 7: "traffic sign", 8: "vegetation",
         9: "terrain", 10: "sky", 11: "person", 12: "rider", 13: "car", 14: "truck", 15: "bus", 16: "train", 17: "motorcycle", 18: "bicycle"
     }
-
-    # Проверка
     print(f"✅ Cityscapes classes loaded: {len(cityscapes_class_names)} classes")
     print(f"   Range: [{min(cityscapes_class_names.keys())}..{max(cityscapes_class_names.keys())}]")
     return cityscapes_class_names
@@ -185,7 +178,6 @@ def get_chexpert_observation_class_names() -> Dict[int, str]:
         1: "lung"         # Lung field (left + right)
     }
 
-    # Проверка
     print(f"✅ CheXpert observations: {len(chexpert_observation_names)} classes")
     print(f"✅ Chest segmentation: {len(chest_segmentation_class_names)} classes (binary)")
     return chexpert_observation_names
@@ -207,7 +199,6 @@ def get_isic_class_names() -> Dict[int, str]:
         1: "lesion"       # Skin lesion (melanoma, nevus, etc.)
     }
 
-    # Проверка
     print(f"✅ ISIC classes loaded: {len(isic_class_names)} classes (binary)")
     print(f"   Classes: {list(isic_class_names.values())}")
     return isic_class_names

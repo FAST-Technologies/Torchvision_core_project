@@ -1,16 +1,17 @@
+# segmenters/ModelTrainer.py
+
+# Импорт основных библиотек
 import sys
 import os
 
-# Добавляем корень проекта в PYTHONPATH
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# Теперь импорт сработает
 from datasets.ADE20KDataset import ADE20KDataset
 from NeuralTrainer import NeuralTrainer
-import inference.utils
-from inference.strategies import SegNet
+import utils.utils
+from utils.strategies import SegNet
 
 import os
 from typing import List, Optional, Set, Dict, List, Tuple, Any
@@ -62,9 +63,16 @@ from transformers import AutoImageProcessor, AutoModelForSemanticSegmentation
 
 import segmentation_models_pytorch as smp
 
-device="cuda"
+device: str = "cuda"
+num_classes: int = 150
 
-def train_unet_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, device="cuda"):
+def train_unet_ade20k(
+    epochs: int = 20, 
+    batch_size: int = 4, 
+    subset_fraction: float = 0.05, 
+    lr: float = 1e-4, 
+    device: str = "cuda"
+) -> Tuple[Any, Dict[str, List]]:
     """Обучение U-Net на ADE20K"""
     print("🔹 Training U-Net (SMP) on ADE20K...")
     
@@ -84,15 +92,15 @@ def train_unet_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, de
         subset_fraction=subset_fraction
     )
     
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    train_loader: DataLoader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    val_loader: DataLoader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     
     # Модель
     model = smp.Unet(
         encoder_name="resnet34",      # Можно заменить на "resnet50", "efficientnet-b0"
         encoder_weights="imagenet",   # Предобученный encoder
         in_channels=3,
-        classes=150,                  # ADE20K имеет 150 классов
+        classes=num_classes,                  # ADE20K имеет num_classes классов
         activation=None               # Без активации (CrossEntropy применяет softmax)
     )
     
@@ -101,7 +109,7 @@ def train_unet_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, de
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
-        num_classes=150,
+        num_classes=num_classes,
         lr=lr,
         device=device,
         ignore_index=255
@@ -115,14 +123,18 @@ def train_unet_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, de
     assert masks.min() >= 0 and masks.max() <= 149, "Mask values out of range!"
     
     # Обучение
-    history = trainer.fit(
+    history: Dict[str, List] = trainer.fit(
         epochs=epochs,
         checkpoint_path="./../models/unet_ade20k_best.pth"
     )
-    
     return model, history
 
-def train_deeplab_ade20k(epochs: int = 20, batch_size: int = 4, subset_fraction: float = 0.05, lr: float = 1e-5) -> Tuple[Any, Dict[str, List]]:
+def train_deeplab_ade20k(
+    epochs: int = 20, 
+    batch_size: int = 4, 
+    subset_fraction: float = 0.05, 
+    lr: float = 1e-5
+) -> Tuple[Any, Dict[str, List]]:
     """Fine-tuning DeepLabV3+ на ADE20K"""
     print("🔹 Training DeepLabV3+ (Torchvision) on ADE20K...")
     
@@ -148,15 +160,14 @@ def train_deeplab_ade20k(epochs: int = 20, batch_size: int = 4, subset_fraction:
     # Загрузка предобученной модели
     model = tv_seg.deeplabv3_resnet101(weights="COCO_WITH_VOC_LABELS_V1")
     
-    # 🔥 Адаптация head под 150 классов
     in_channels = model.classifier[4].in_channels
-    model.classifier[4] = nn.Conv2d(in_channels, 150, kernel_size=1)
+    model.classifier[4] = nn.Conv2d(in_channels, num_classes, kernel_size=1)
     
     # Инициализация нового слоя
     nn.init.normal_(model.classifier[4].weight, 0, 0.01)
     nn.init.constant_(model.classifier[4].bias, 0)
     
-    # 🔥 Заморозка backbone на первые эпохи
+    # Заморозка backbone на первые эпохи
     for param in model.backbone.parameters():
         param.requires_grad = False
     
@@ -169,11 +180,11 @@ def train_deeplab_ade20k(epochs: int = 20, batch_size: int = 4, subset_fraction:
         weight_decay=1e-4
     )
     
-    trainer = NeuralTrainer.__new__(NeuralTrainer)  # Создаём без __init__
+    trainer = NeuralTrainer.__new__(NeuralTrainer)
     trainer.model = model
     trainer.train_loader = train_loader
     trainer.val_loader = val_loader
-    trainer.num_classes = 150
+    trainer.num_classes = num_classes
     trainer.device = device
     trainer.criterion = nn.CrossEntropyLoss(ignore_index=0)
     trainer.optimizer = optimizer
@@ -185,7 +196,7 @@ def train_deeplab_ade20k(epochs: int = 20, batch_size: int = 4, subset_fraction:
     print(f"🎯 Starting training (backbone frozen for first 5 epochs)...")
     
     for epoch in range(epochs):
-        # 🔥 Разморозка backbone после 5 эпох
+        # Разморозка backbone после 5 эпох
         if epoch == 5:
             for param in model.backbone.parameters():
                 param.requires_grad = True
@@ -219,7 +230,14 @@ def train_deeplab_ade20k(epochs: int = 20, batch_size: int = 4, subset_fraction:
     print(f"\n✅ Training complete! Best mIoU: {trainer.best_miou:.4f}")
     return model, trainer.history
 
-def train_fpn_mit_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5, device="cuda", variant="b5"):
+def train_fpn_mit_ade20k(
+    epochs: int = 20, 
+    batch_size: int = 4, 
+    subset_fraction: float = 0.05, 
+    lr: float = 5e-5, 
+    device: str = "cuda", 
+    variant: str = "b5"
+) -> Tuple[Any, Dict[str, List]]:
     """Обучение FPN + Mix Transformer на ADE20K"""
     print(f"🔹 Training FPN + MiT-{variant} on ADE20K...")
     
@@ -246,9 +264,9 @@ def train_fpn_mit_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5,
     encoder = f"mit_{variant}"
     model = smp.FPN(
         encoder_name=encoder,
-        encoder_weights="imagenet",  # Предобученный encoder
+        encoder_weights="imagenet",
         in_channels=3,
-        classes=150,
+        classes=num_classes,
         activation=None
     )
     
@@ -257,7 +275,7 @@ def train_fpn_mit_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5,
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
-        num_classes=150,
+        num_classes=num_classes,
         lr=lr,
         device=device,
         ignore_index=255
@@ -270,15 +288,20 @@ def train_fpn_mit_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5,
     print(f"   Mask range: [{masks.min()}, {masks.max()}]")
     assert masks.min() >= 0 and masks.max() <= 149, "Mask values out of range!"
     
-    # Обучение
     history = trainer.fit(
         epochs=epochs,
         checkpoint_path=f"./../models/fpn_mit_{variant}_ade20k_best.pth"
     )
-    
     return model, history
 
-def train_psp_mit_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5, device="cuda", variant="b5"):
+def train_psp_mit_ade20k(
+    epochs: int = 20, 
+    batch_size: int = 4, 
+    subset_fraction: float = 0.05, 
+    lr: float = 5e-5, 
+    device: str = "cuda", 
+    variant: str = "b5"
+) -> Tuple[Any, Dict[str, List]]:
     """Обучение PSPNet + Mix Transformer на ADE20K"""
     print(f"🔹 Training PSPNet + MiT-{variant} on ADE20K...")
     
@@ -309,7 +332,7 @@ def train_psp_mit_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5,
         encoder_name=encoder,
         encoder_weights="imagenet",
         in_channels=3,
-        classes=150,
+        classes=num_classes,
         activation=None,
         psp_size=psp_size
     )
@@ -319,7 +342,7 @@ def train_psp_mit_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5,
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
-        num_classes=150,
+        num_classes=num_classes,
         lr=lr,
         device=device,
         ignore_index=255
@@ -337,11 +360,16 @@ def train_psp_mit_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5,
         epochs=epochs,
         checkpoint_path=f"./../models/psp_mit_{variant}_ade20k_best.pth"
     )
-    
     return model, history
 
-
-def train_fcn_resnet50_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-5, device="cuda", variant="fcn_resnet50"):
+def train_fcn_resnet50_ade20k(
+    epochs: int = 20, 
+    batch_size: int = 4, 
+    subset_fraction: float = 0.05, 
+    lr: float = 5e-5, 
+    device: str = "cuda", 
+    variant: str = "fcn_resnet50"
+) -> Tuple[Any, Dict[str, List]]:
     """Обучение FCN ResNet-50 на ADE20K (fine-tuning)"""
     print(f"🔹 Training {variant} on ADE20K...")
     
@@ -375,9 +403,8 @@ def train_fcn_resnet50_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=
     # Загрузка с предобученным backbone (ImageNet)
     model = variants[variant](weights="DEFAULT")
     
-    # Адаптация head под 150 классов
     in_channels = model.classifier[4].in_channels
-    model.classifier[4] = nn.Conv2d(in_channels, 150, kernel_size=1)
+    model.classifier[4] = nn.Conv2d(in_channels, num_classes, kernel_size=1)
     
     # Инициализация нового слоя
     nn.init.normal_(model.classifier[4].weight, 0, 0.01)
@@ -401,7 +428,7 @@ def train_fcn_resnet50_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=
     trainer.model = model
     trainer.train_loader = train_loader
     trainer.val_loader = val_loader
-    trainer.num_classes = 150
+    trainer.num_classes = num_classes
     trainer.device = device
     trainer.criterion = nn.CrossEntropyLoss(ignore_index=255)
     trainer.optimizer = optimizer
@@ -446,7 +473,13 @@ def train_fcn_resnet50_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=
     print(f"\n✅ Training complete! Best mIoU: {trainer.best_miou:.4f}")
     return model, trainer.history
 
-def train_segnet_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, device="cuda"):
+def train_segnet_ade20k(
+    epochs: int = 20, 
+    batch_size: int = 4, 
+    subset_fraction: float = 0.05, 
+    lr: float = 1e-4, 
+    device: str = "cuda"
+) -> Tuple[Any, Dict[str, List]]:
     """Обучение SegNet на ADE20K"""
     print("🔹 Training SegNet on ADE20K...")
     
@@ -476,13 +509,13 @@ def train_segnet_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, 
             encoder_name="resnet34",
             encoder_weights="imagenet",
             in_channels=3,
-            classes=150,
+            classes=num_classes,
             activation=None
         )
         print("   Using SMP U-Net as SegNet proxy")
     except:
         # Fallback к кастомной реализации
-        model = SegNet(num_classes=150)
+        model = SegNet(num_classes=num_classes)
         
         def _init_weights(m):
             if isinstance(m, (nn.Conv2d, nn.Linear)):
@@ -500,7 +533,7 @@ def train_segnet_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, 
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
-        num_classes=150,
+        num_classes=num_classes,
         lr=lr,
         device=device,
         ignore_index=255
@@ -518,10 +551,9 @@ def train_segnet_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, 
         epochs=epochs,
         checkpoint_path="./../models/segnet_ade20k_best.pth"
     )
-    
     return model, history
 
-def compare_trained_models():
+def compare_trained_models() -> Dict[str, Any]:
     """Сравнение обученных моделей на валидационном наборе"""
     print("\n" + "="*60)
     print("📊 COMPARING TRAINED MODELS ON ADE20K VALIDATION")
@@ -536,7 +568,7 @@ def compare_trained_models():
             encoder_name="resnet34",
             encoder_weights="imagenet", 
             in_channels=3,
-            classes=150,
+            classes=num_classes,
             activation=None
         )
         checkpoint = torch.load("./../models/unet_ade20k_best.pth", map_location=device)
@@ -547,7 +579,7 @@ def compare_trained_models():
     # === DeepLabV3+ ===
     if os.path.exists("./../models/deeplab_ade20k_best.pth"):
         deeplab = tv_seg.deeplabv3_resnet101(weights=None)
-        deeplab.classifier[4] = nn.Conv2d(256, 150, kernel_size=1)
+        deeplab.classifier[4] = nn.Conv2d(256, num_classes, kernel_size=1)
         checkpoint = torch.load("./../models/deeplab_ade20k_best.pth", map_location=device)
         model_keys = {k: v for k, v in checkpoint.items() if not k.startswith('aux_classifier')}
         deeplab.load_state_dict(model_keys, strict=False)
@@ -560,7 +592,7 @@ def compare_trained_models():
     if os.path.exists("./../models/maskrcnn_ade20k_semantic_best.pth"):
         mrcnn = tv_det.maskrcnn_resnet50_fpn(weights=None, pretrained=False)
         mrcnn.roi_heads.box_predictor = tv_det.faster_rcnn.FastRCNNPredictor(
-            mrcnn.roi_heads.box_predictor.cls_score.in_features, 151
+            mrcnn.roi_heads.box_predictor.cls_score.in_features, num_classes + 1
         )
         checkpoint = torch.load("./../models/maskrcnn_ade20k_semantic_best.pth", map_location=device)
         mrcnn.load_state_dict(checkpoint, strict=False)
@@ -573,7 +605,7 @@ def compare_trained_models():
             encoder_name="mit_b5",
             encoder_weights="imagenet",
             in_channels=3,
-            classes=150,
+            classes=num_classes,
             activation=None
         )
         checkpoint = torch.load("./../models/fpn_mit_b5_ade20k_best.pth", map_location=device)
@@ -590,7 +622,7 @@ def compare_trained_models():
             encoder_name="mit_b5",
             encoder_weights="imagenet",
             in_channels=3,
-            classes=150,
+            classes=num_classes,
             activation=None,
             psp_size=2048
         )
@@ -605,7 +637,7 @@ def compare_trained_models():
     # === FCN ResNet-50 ===
     if os.path.exists("./../models/fcn_resnet50_ade20k_best.pth"):
         fcn = tv_seg.fcn_resnet50(weights=None)
-        fcn.classifier[4] = nn.Conv2d(512, 150, kernel_size=1)
+        fcn.classifier[4] = nn.Conv2d(512, num_classes, kernel_size=1)
         checkpoint = torch.load("./../models/fcn_resnet50_ade20k_best.pth", map_location=device)
         fcn.load_state_dict(checkpoint, strict=False)
         models["FCN ResNet-50"] = fcn.to(device).eval()
@@ -618,11 +650,11 @@ def compare_trained_models():
                 encoder_name="resnet34",
                 encoder_weights="imagenet",
                 in_channels=3,
-                classes=150,
+                classes=num_classes,
                 activation=None
             )
         except:
-            segnet = SegNet(num_classes=150)
+            segnet = SegNet(num_classes=num_classes)
         
         checkpoint = torch.load("./../models/segnet_ade20k_best.pth", map_location=device)
         if 'model_state_dict' in checkpoint:
@@ -663,7 +695,7 @@ def compare_trained_models():
                     # Особый инференс для Mask R-CNN
                     images_list = [images[i] for i in range(images.shape[0])]
                     outputs = model(images_list)
-                    for out, gt in zip(outputs, masks_gt):
+                    for pred, gt in zip(outputs, masks_gt):
                         # pred = convert_maskrcnn_to_semantic([out], gt.shape)
                         all_preds.extend(pred.cpu().flatten().tolist())
                         all_targets.extend(gt.cpu().flatten().tolist())
@@ -684,7 +716,7 @@ def compare_trained_models():
         miou = jaccard_score(
             all_targets, all_preds,
             average='weighted',
-            labels=range(150),
+            labels=range(num_classes),
             zero_division=0
         )
         results[name] = miou
@@ -696,13 +728,16 @@ def compare_trained_models():
     print("="*60)
     for name, miou in sorted(results.items(), key=lambda x: x[1], reverse=True):
         print(f"{name:20s} : {miou*100:6.2f}% mIoU")
-    
     return results
 
-def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"):
+def evaluate_trained_models_on_val(
+    checkpoints: Dict[str, str], 
+    val_fraction: float = 0.05, 
+    device: str = "cuda"
+):
     """Оценка обученных моделей на валидационном наборе"""
     
-    # Валидационный датасет (тот же, что использовали при обучении)
+    # Валидационный датасет
     val_dataset = ADE20KDataset(
         root_dir='./../data/ade20k',
         split='validation',
@@ -720,7 +755,6 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
             print(f"   ⚠️  Checkpoint not found: {checkpoint_path}")
             continue
         
-        # 🔥 Инициализируем model = None перед условиями
         model = None
         
         # Загрузка модели
@@ -729,7 +763,7 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
                 encoder_name="resnet34",
                 encoder_weights="imagenet", 
                 in_channels=3,
-                classes=150,
+                classes=num_classes,
                 activation=None
             )
             checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -741,20 +775,20 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
             
         elif "deeplab" in model_name.lower():
             model = tv_seg.deeplabv3_resnet101(weights=None)
-            model.classifier[4] = nn.Conv2d(256, 150, kernel_size=1)
+            model.classifier[4] = nn.Conv2d(256, num_classes, kernel_size=1)
             checkpoint = torch.load(checkpoint_path, map_location=device)
             # Фильтруем aux_classifier если есть
             model_keys = {k: v for k, v in checkpoint.items() if not k.startswith('aux_classifier')}
             model.load_state_dict(model_keys, strict=False)
             print(f"   ✅ Loaded DeepLabV3+ from {checkpoint_path}")
 
-        # 🔥 FPN + MiT
+        # FPN + MiT
         elif "fpn" in model_name.lower() or "fpn_mit" in model_name.lower() :
             model = smp.FPN(
                 encoder_name="mit_b5",
                 encoder_weights="imagenet",
                 in_channels=3,
-                classes=150,
+                classes=num_classes,
                 activation=None
             )
             checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -764,13 +798,13 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
                 model.load_state_dict(checkpoint)
             print(f"   ✅ Loaded FPN+MiT from {checkpoint_path}")
         
-        # 🔥 PSPNet + MiT
+        # PSPNet + MiT
         elif "psp" in model_name.lower() or "psp_mit" in model_name.lower() :
             model = smp.PSPNet(
                 encoder_name="mit_b5",
                 encoder_weights="imagenet",
                 in_channels=3,
-                classes=150,
+                classes=num_classes,
                 activation=None,
                 psp_size=2048
             )
@@ -781,26 +815,26 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
                 model.load_state_dict(checkpoint)
             print(f"   ✅ Loaded PSPNet+MiT from {checkpoint_path}")
 
-        # 🔥 FCN
+        # FCN
         elif "fcn" in model_name.lower() :
             model = tv_seg.fcn_resnet50(weights=None)
-            model.classifier[4] = nn.Conv2d(512, 150, kernel_size=1)
+            model.classifier[4] = nn.Conv2d(512, num_classes, kernel_size=1)
             checkpoint = torch.load(checkpoint_path, map_location=device)
             model.load_state_dict(checkpoint, strict=False)
             print(f"   ✅ Loaded FCN from {checkpoint_path}")
         
-        # 🔥 SegNet
+        # SegNet
         elif "segnet" in model_name.lower() :
             try:
                 model = smp.Unet(
                     encoder_name="resnet34",
                     encoder_weights="imagenet",
                     in_channels=3,
-                    classes=150,
+                    classes=num_classes,
                     activation=None
                 )
             except:
-                model = SegNet(num_classes=150)
+                model = SegNet(num_classes=num_classes)
             
             checkpoint = torch.load(checkpoint_path, map_location=device)
             if 'model_state_dict' in checkpoint:
@@ -812,12 +846,9 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
         
         else:
             print(f"   ⚠️  Unknown model type: {model_name}. Skipping...")
-            continue  # 🔥 Пропускаем неизвестные модели
+            continue
         
-        # 🔥 Теперь model гарантированно определён
         model = model.to(device).eval()
-        
-        # Инференс на всём валидационном наборе
         all_preds = []
         all_targets = []
         
@@ -842,13 +873,11 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
         miou = jaccard_score(
             all_targets, all_preds,
             average='weighted',
-            labels=range(150),
+            labels=range(num_classes),
             zero_division=0
         )
         results[model_name] = miou
         print(f"   ✅ mIoU: {miou*100:.2f}%")
-        
-        # Очистка памяти
         del model
         torch.cuda.empty_cache()
         gc.collect()
@@ -859,7 +888,6 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
     print("="*60)
     for name, miou in sorted(results.items(), key=lambda x: x[1], reverse=True):
         print(f"{name:20s} : {miou*100:6.2f}% mIoU")
-    
     return results
 
 # Запуск обучения (для теста: 20 эпох, 5% данных)

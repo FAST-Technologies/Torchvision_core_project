@@ -1,4 +1,6 @@
-# inference/utils.py
+# utils/utils.py
+
+# Импорт основных библиотек
 import torch
 import numpy as np
 import pandas as pd
@@ -40,7 +42,7 @@ def compute_metrics(
     pred_valid = pred_mask[valid]
     gt_valid = np.clip(gt_mask[valid], 0, num_classes - 1)
 
-    # значения в ground truth должны быть в диапазоне [0, num_classes-1]
+    # Значения в ground truth должны быть в диапазоне [0, num_classes-1]
     gt_min, gt_max = gt_valid.min(), gt_valid.max()
     if gt_min < 0 or gt_max >= num_classes:
         print(f"⚠️ Warning: gt_mask values out of range [{gt_min}, {gt_max}], expected [0, {num_classes-1}]")
@@ -79,8 +81,10 @@ def compute_metrics(
         "valid_pixels": int(np.sum(valid))
     }
 
-
-def extract_logits_info(outputs, model_type: str) -> Dict[str, Any]:
+def extract_logits_info(
+    outputs, 
+    model_type: str
+) -> Dict[str, Any]:
     """
     Извлекает информацию о логитах из outputs модели.
     
@@ -246,7 +250,6 @@ def generate_class_report(
         "top_class_pct": df.iloc[0]["percentage"] if len(df) > 0 else None,
         "dataframe": df
     }
-    
     return summary
 
 def export_class_report(
@@ -271,5 +274,4 @@ def export_class_report(
                 "summary": {k: v for k, v in report.items() if k != "dataframe"},
                 "classes": report["dataframe"].to_dict(orient="records")
             }, f, indent=2, ensure_ascii=False)
-    
     print(f"✅ Report exported to {output_file}")

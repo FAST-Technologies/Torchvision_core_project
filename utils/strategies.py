@@ -1,9 +1,9 @@
-# inference/strategies.py
+# utils/strategies.py
 
+# Импорт основных библиотек
 import sys
 import os
 
-# Добавляем корень проекта в PYTHONPATH
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
@@ -18,13 +18,16 @@ import segmentation_models_pytorch as smp
 from typing import Tuple, Any, Optional, Union, List, Dict
 import torch
 import numpy as np
+import requests
+from io import BytesIO
 from PIL import Image
 import time
 from scipy.ndimage import zoom
 
-from inference.utils import compute_metrics, analyze_prediction, generate_class_report, export_class_report
-from inference.palettes import ade_palette
+from utils.utils import compute_metrics, analyze_prediction, generate_class_report, export_class_report
+from utils.palettes import ade_palette
 
+num_classes: int = 150
 
 def infer_segformer(
     model: Any, 
@@ -75,7 +78,7 @@ def infer_oneformer(
     processor: Any, 
     image: Image.Image, 
     device: str = "cuda"
-):
+) -> Tuple[np.ndarray, Image.Image]:
     inputs = processor(images=image, task_inputs=["semantic"], return_tensors="pt").to(device)
     print(inputs)
     with torch.no_grad():
@@ -97,7 +100,6 @@ def infer_deeplab_torchvision(
     target_size: Tuple[int, int] = (512, 512)
 ) -> Tuple[np.ndarray, Image.Image]:
     """Инференс для DeepLabV3+ из torchvision"""
-    from torchvision import transforms as T
     
     # Preprocessing
     preprocess = T.Compose([
@@ -123,7 +125,6 @@ def infer_deeplab_torchvision(
     else:
         logits = raw_output[0] if hasattr(raw_output, '__getitem__') else raw_output # [C, H, W]
 
-    
     predicted_mask = logits.argmax(0).cpu().numpy() # [H, W]
     
     # Ресайз к оригиналу
@@ -144,7 +145,6 @@ def infer_unet_smp(
     """
     Универсальный инференс для SMP-моделей и SegNet.
     """
-    
     # Preprocessing
     try:
         # Для SMP-моделей с encoder
@@ -192,7 +192,6 @@ def infer_unet_smp(
     if output_stride > 1 and (pad_h > 0 or pad_w > 0):
         predicted_mask = predicted_mask[:image.size[1], :image.size[0]]
     
-    # Если модель работала на ресайзнутом изображении — интерполируем к оригиналу:
     if predicted_mask.shape != image.size[::-1]:
         sh, sw = image.size[1]/predicted_mask.shape[0], image.size[0]/predicted_mask.shape[1]
         predicted_mask = zoom(predicted_mask, (sh, sw), order=0)
@@ -204,7 +203,7 @@ def infer_sam(
     processor: Any,  
     image: Image.Image, 
     device: str = "cuda"
-):
+) -> Tuple[np.ndarray, Image.Image]:
     img_w, img_h = image.size
     
     # Инференс (без prompts=None!)
@@ -237,7 +236,7 @@ def infer_dpt(
     processor: Any, 
     image: Image.Image, 
     device: str = "cuda"
-):
+) -> Tuple[np.ndarray, Image.Image]:
     inputs = processor(images=image, return_tensors="pt").to(device)
     print(inputs)
     with torch.no_grad():
@@ -259,7 +258,7 @@ def infer_smp_model(
     device: str = "cuda", 
     output_stride: int = 32, 
     log_logits: bool = True
-):
+) -> Tuple[np.ndarray, Image.Image]:
     """
     Универсальный инференс для SMP-моделей (U-Net, FPN, PSPNet, DeepLabV3+)
     с авто-паддингом под output_stride.
@@ -273,7 +272,7 @@ def infer_smp_model(
     try:
         encoder_name = model.encoder.name
     except:
-        encoder_name = "mit_b5"  # fallback
+        encoder_name = "mit_b5"
     
     preprocess_fn = smp.encoders.get_preprocessing_fn(encoder_name, "imagenet")
     print(preprocess_fn)
@@ -325,21 +324,19 @@ def infer_smp_model_fixed(
     target_size: Tuple[int, int] = (512, 512)
 ) -> Tuple[np.ndarray, Image.Image]:
     """
-    🔧 ИСПРАВЛЕННЫЙ инференс для SMP-моделей
+    Инференс для SMP-моделей
     
     Args:
         target_size: Размер для ресайза (должен совпадать с обучением!)
         output_stride: 32 для FPN, 8 для PSPNet, 1 для U-Net
     """
-
-    import segmentation_models_pytorch as smp
     
     orig_w, orig_h = image.size
     
-    # ШАГ 1: Ресайз к target_size
+    # Ресайз к target_size
     image_resized = image.resize(target_size, Image.BILINEAR)
     
-    # ШАГ 2: Получаем encoder_name и preprocessing функцию
+    # Получаем encoder_name и preprocessing функцию
     try:
         encoder_name = model.encoder.name
     except:
@@ -347,12 +344,12 @@ def infer_smp_model_fixed(
     
     preprocess_fn = smp.encoders.get_preprocessing_fn(encoder_name, "imagenet")
     
-    # ШАГ 3: Preprocessing
+    # Preprocessing
     image_np = np.array(image_resized)
     input_tensor = preprocess_fn(image_np)
     input_tensor = torch.from_numpy(input_tensor).permute(2, 0, 1).float()
     
-    # ШАГ 4: Паддинг под output_stride
+    # Паддинг под output_stride
     h, w = input_tensor.shape[1], input_tensor.shape[2]
     pad_h = pad_w = 0
     if output_stride > 1:
@@ -367,21 +364,21 @@ def infer_smp_model_fixed(
     
     input_tensor = input_tensor.unsqueeze(0).to(device)
     
-    # ШАГ 5: Инференс
+    # Инференс
     with torch.no_grad():
         outputs = model(input_tensor)
 
     logits_info = extract_logits_info(outputs, "smp")
     print(f"📈 SMP logits: {logits_info}")
     
-    # ШАГ 6: Пост-процессинг
+    # Пост-процессинг
     pred_mask = outputs.argmax(1).squeeze(0).cpu().numpy()
     
     # Кроппинг паддинга
     if pad_h > 0 or pad_w > 0:
         pred_mask = pred_mask[:target_size[1], :target_size[0]]
     
-    # ШАГ 7: Ресайз к оригинальному размеру
+    # Ресайз к оригинальному размеру
     if pred_mask.shape != (orig_h, orig_w):
         sh, sw = orig_h / pred_mask.shape[0], orig_w / pred_mask.shape[1]
         pred_mask = zoom(pred_mask, (sh, sw), order=0)
@@ -393,7 +390,7 @@ def infer_fcn_torchvision(
     processor: Any,  
     image: Image.Image, 
     device: str = "cuda"
-):
+) -> Tuple[np.ndarray, Image.Image]:
     """Инференс для FCN из torchvision"""
     
     preprocess = T.Compose([
@@ -410,7 +407,6 @@ def infer_fcn_torchvision(
     logits_info = extract_logits_info(outputs, "fcn_tv")
     print(f"📈 FCN logits: {logits_info}")
     
-    # Извлечение логитов
     if isinstance(outputs, dict):
         logits = outputs['out'][0]  # [C, H, W]
     elif isinstance(outputs, (tuple, list)):
@@ -422,7 +418,6 @@ def infer_fcn_torchvision(
     
     # Ресайз к оригиналу
     if pred_mask.shape != image.size[::-1]:
-        from scipy.ndimage import zoom
         sh, sw = image.size[1]/pred_mask.shape[0], image.size[0]/pred_mask.shape[1]
         pred_mask = zoom(pred_mask, (sh, sw), order=0)
     
@@ -434,14 +429,11 @@ def infer_fcn_torchvision_fixed(
     image: Image.Image, 
     device: str = "cuda", 
     target_size: Tuple[int, int] = (512, 512)
-):
-    """
-    🔧 ИСПРАВЛЕННЫЙ инференс для FCN
-    """
+) -> Tuple[np.ndarray, Image.Image]:
     
     orig_w, orig_h = image.size
     
-    # 🔥 Ресайз к target_size
+    # Ресайз к target_size
     image_resized = image.resize(target_size, Image.BILINEAR)
     
     # Preprocessing (ImageNet stats)
@@ -455,7 +447,6 @@ def infer_fcn_torchvision_fixed(
     with torch.no_grad():
         outputs = model(input_tensor)
     
-    # Извлечение логитов
     if isinstance(outputs, dict):
         logits = outputs['out'][0]
     else:
@@ -463,7 +454,7 @@ def infer_fcn_torchvision_fixed(
     
     pred_mask = logits.argmax(0).cpu().numpy()
     
-    # 🔥 Ресайз к оригиналу
+    # Ресайз к оригиналу
     if pred_mask.shape != (orig_h, orig_w):
         sh, sw = orig_h / pred_mask.shape[0], orig_w / pred_mask.shape[1]
         pred_mask = zoom(pred_mask, (sh, sw), order=0)
@@ -477,7 +468,7 @@ def infer_mask_rcnn(
     device: str = "cuda", 
     log_logits: bool = True,
     score_threshold: float = 0.5
-):
+) -> Tuple[np.ndarray, Image.Image]:
     """
     Инференс Mask R-CNN с конверсией instance → semantic.
     """
@@ -492,11 +483,10 @@ def infer_mask_rcnn(
     with torch.no_grad():
         outputs = model(input_tensor)
     
-    
     logits_info = extract_logits_info(outputs, "maskrcnn_tv")
     print(f"📈 Mask R-CNN: {logits_info}")
     
-    result = outputs[0]  # Берём первое изображение из batch
+    result = outputs[0]
     
     # Извлекаем маски и классы
     masks = result['masks'].cpu().numpy()  # [N, 1, H, W]
@@ -521,7 +511,7 @@ def infer_mask_rcnn(
         # mask: [1, H, W] → [H, W]
         mask_bin = (mask[0] > 0.5).astype(np.uint8)
         
-        # Ресайз если нужно
+        # Ресайз
         if mask_bin.shape != (img_h, img_w):
             mask_pil = Image.fromarray(mask_bin)
             mask_bin = np.array(mask_pil.resize((img_w, img_h), Image.NEAREST))
@@ -535,7 +525,7 @@ class SegNet(torch.nn.Module):
     Простая реализация SegNet для бенчмарка.
     Encoder-Decoder с max pooling indices.
     """
-    def __init__(self, num_classes: int = 150) -> None:
+    def __init__(self, num_classes: int = num_classes) -> None:
         super().__init__()
         
         # Encoder (VGG16-like)
@@ -599,7 +589,7 @@ class SegNet(torch.nn.Module):
         """
         Encoder step: conv → batchnorm → relu → maxpool
         
-        🔧 FIX: max_pool2d возвращает (output, indices), берём только output
+        max_pool2d возвращает (output, indices), берём только output
         """
         x = encoder(x)
         pooled, indices = torch.nn.functional.max_pool2d(x, 2, 2, return_indices=True)
@@ -623,7 +613,7 @@ def segment_image_unified(
     palette: Optional[Union[List[List[int]], callable]] = None,
     device: str = "cuda",
     verbose: bool = True,
-    num_classes: int = 150,
+    num_classes: int = num_classes,
     class_names: Optional[dict] = None,
     gt_mask = None
 ) -> Tuple[Image.Image, Dict[str, Any]]:
@@ -651,8 +641,6 @@ def segment_image_unified(
     # Загрузка изображения
     if isinstance(image_input, str):
         if image_input.startswith(('http://', 'https://')):
-            import requests
-            from io import BytesIO
             resp = requests.get(image_input)
             image = Image.open(BytesIO(resp.content)).convert("RGB")
         else:
@@ -660,7 +648,7 @@ def segment_image_unified(
     elif isinstance(image_input, Image.Image):
         image = image_input.convert("RGB")
     elif isinstance(image_input, np.ndarray):
-        # 🔥 Конвертация numpy array в PIL.Image
+        # Конвертация numpy array в PIL.Image
         if len(image_input.shape) == 2:
             # Grayscale → RGB
             image = Image.fromarray(image_input).convert("RGB")
@@ -731,7 +719,6 @@ def segment_image_unified(
     
     return overlay, result_info
 
-
 def _log_inference_details_standalone(
     image: Image.Image,
     seg_map: np.ndarray,
@@ -739,7 +726,7 @@ def _log_inference_details_standalone(
     model: Any,
     class_names: Optional[dict] = None,
     gt_mask = None,
-    num_classes: int = 150,
+    num_classes: int = num_classes,
     initial_time: float = 0.0,
     palette = None
 ) -> Dict[str, Any]:
@@ -825,7 +812,11 @@ def _log_inference_details_standalone(
     }
 
 
-def _get_num_classes_standalone(model: Any, model_type: str, fallback: int = 150) -> int:
+def _get_num_classes_standalone(
+    model: Any, 
+    model_type: str, 
+    fallback: int = num_classes
+) -> int:
     """Безопасно получает число классов из модели (standalone версия)"""
     try:
         if hasattr(model, 'config') and hasattr(model.config, 'id2label'):
@@ -845,11 +836,9 @@ def _get_num_classes_standalone(model: Any, model_type: str, fallback: int = 150
         
         if model_type in ["sam", "mobile_sam", "sam2"]:
             return None
-        
         return fallback
     except:
         return fallback
-
 
 def _create_overlay_standalone(
     image: Image.Image,
@@ -888,9 +877,7 @@ def _create_overlay_standalone(
     
     return Image.fromarray(overlay)
 
-# === РЕЕСТР СТРАТЕГИЙ ИНФЕРЕНСА ===
 INFERENCE_STRATEGIES = {
-    # Инференс в зависимости от типа модели
     # === Transformer-based HuggingFace модели ===
     "segformer": infer_segformer,
     "segformer_b2": infer_segformer,
@@ -902,7 +889,7 @@ INFERENCE_STRATEGIES = {
     
     # Torchvision модели
     "deeplab_tv": infer_deeplab_torchvision,
-    "fcn_tv": infer_fcn_torchvision_fixed,  # same pattern
+    "fcn_tv": infer_fcn_torchvision_fixed,
     "maskrcnn_tv": infer_mask_rcnn,
     
     # SMP модели с разными output_stride

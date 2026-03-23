@@ -1,3 +1,7 @@
+# datasets/load_datasets.py
+
+# Импорт основных библиотек
+
 from typing import (
     List, Union, Tuple, Dict, Any, TypeVar, Optional, 
     Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
@@ -46,8 +50,6 @@ def download_ade20k(root_dir: str = './../data/ade20k') -> None:
     
     zip_size = os.path.getsize(zip_path) / (1024*1024*1024)
     print(f"   Размер архива: {zip_size:.2f} GB")
-    
-    # Распаковываем архив
     extract_dir = os.path.join(root_dir, 'extracted')
     
     if not os.path.exists(os.path.join(root_dir, 'ADEChallengeData2016')):
@@ -59,10 +61,8 @@ def download_ade20k(root_dir: str = './../data/ade20k') -> None:
                 zip_ref.extract(file, extract_dir)
         
         print("✅ Распаковка завершена!")
-        
         print("\n🔍 Анализ структуры распакованных файлов...")
         found_structure = False
-        
         for root, dirs, files in os.walk(extract_dir):
             if 'images' in dirs and 'annotations' in dirs:
                 source_dir = root
@@ -75,14 +75,12 @@ def download_ade20k(root_dir: str = './../data/ade20k') -> None:
             os.makedirs(target_dir, exist_ok=True)
             print("📋 Организация файлов в правильную структуру...")
             
-            # Копируем images
             source_images = os.path.join(source_dir, 'images')
             target_images = os.path.join(target_dir, 'images')
             if os.path.exists(source_images):
                 print(f"   Копирование {source_images} -> {target_images}")
                 shutil.copytree(source_images, target_images, dirs_exist_ok=True)
             
-            # Копируем annotations
             source_annotations = os.path.join(source_dir, 'annotations')
             target_annotations = os.path.join(target_dir, 'annotations')
             if os.path.exists(source_annotations):
@@ -102,27 +100,21 @@ def download_ade20k(root_dir: str = './../data/ade20k') -> None:
                     print(f'{subindent}📁 {d}/')
                 for f in files[:5]:
                     print(f'{subindent}📄 {f}')
-        
-        # Очищаем временную папку
         print("\n🧹 Очистка временных файлов...")
         shutil.rmtree(extract_dir, ignore_errors=True)
         print("✅ Готово")
     
     else:
         print(f"✅ Датасет уже распакован в {os.path.join(root_dir, 'ADEChallengeData2016')}")
-    
-    # Проверяем финальную структуру
     print("\n📂 Финальная структура датасета:")
     ade_dir = os.path.join(root_dir, 'ADEChallengeData2016')
     if os.path.exists(ade_dir):
         for split in ['training', 'validation']:
             img_dir = os.path.join(ade_dir, 'images', split)
             ann_dir = os.path.join(ade_dir, 'annotations', split)
-            
             if os.path.exists(img_dir):
                 n_images = len([f for f in os.listdir(img_dir) if f.endswith('.jpg')])
                 print(f"   {split} images: {n_images} файлов")
-            
             if os.path.exists(ann_dir):
                 n_masks = len([f for f in os.listdir(ann_dir) if f.endswith('.png')])
                 print(f"   {split} masks: {n_masks} файлов")
@@ -157,7 +149,6 @@ def load_test_image_from_hf(
     except Exception as e:
         print(f"   ❌ Failed to load {repo_id}: {e}")
         return None
-
 
 print("="*50)
 print("ADE20K Dataset Downloader")

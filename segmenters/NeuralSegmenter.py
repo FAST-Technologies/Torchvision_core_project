@@ -1,13 +1,10 @@
-# NeuralSegmenter.py
+# segmenters/NeuralSegmenter.py
 
 # Импорт основных библиотек
-
 from segmenters.BaseSegmenter import BaseSegmenter
 from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType
-from inference.strategies import INFERENCE_STRATEGIES
-from inference.utils import extract_logits_info, analyze_prediction, generate_class_report, export_class_report
-from inference.strategies import segment_image_unified as infer_unified
-from inference.palettes import ade_palette, get_ade_class_names, get_coco_class_names, coco_palette, get_cityscapes_extended_class_names, cityscapes_extended_palette, get_cityscapes_class_names, cityscapes_palette
+from utils.strategies import segment_image_unified as infer_unified
+from utils.palettes import ade_palette, get_ade_class_names, get_coco_class_names, coco_palette, get_cityscapes_extended_class_names, cityscapes_extended_palette, get_cityscapes_class_names, cityscapes_palette
 
 from typing import (
     List, Union, Tuple, Dict, Any, TypeVar, Optional, 
@@ -19,62 +16,72 @@ from io import BytesIO
 from PIL import Image
 
 import numpy as np
+from scipy.ndimage import zoom
 
 import torch
 import cv2
 
-try:
-    from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
-    TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    TRANSFORMERS_AVAILABLE = False
-    print("Warning: transformers not installed. Install with: pip install transformers")
+TRANSFORMERS_AVAILABLE = True
+num_classes: int = 150
 
 class NeuralSegmenter(BaseSegmenter):
     """
     Универсальный сегментатор с поддержкой множественных нейронных архитектур
     """
-    
     def __init__(
         self, 
         model_type: str = "segformer",
         model_name: str = "nvidia/segformer-b5-finetuned-ade-640-640",
+        variant: Optional[str] = None,
         device: str = None,
         local_path: str = None,
-        num_classes: int = 150,
+        num_classes: int = num_classes,
         palette: List[List[int]] = None,
+        checkpoint_path: Optional[str] = None,
         **kwargs
     ) -> None:
         super().__init__()
-        
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library is required. Install with: pip install transformers")
-        
-        self.model_type_str = model_type
-        self.model_type = ModelType(model_type)
+        self.model_type_str: str = model_type
+        self.model_type: ModelType = ModelType(model_type)
         self.model_name: str = model_name
         self.local_path: str = local_path
+        self.variant: str = variant
         self.device: str = torch.device(device if device else ("cuda" if torch.cuda.is_available() else "cpu"))
         self.params: Dict[str, Any] = kwargs
-        self.num_classes = num_classes
+        self.num_classes: int = int(num_classes)
 
         start_time: float = time.time()
-        self.model, self.processor, self.model_type_str = NeuralModelFactory.create_model(
-            model_type=self.model_type,
-            model_name=model_name,
-            local_path=local_path,
-            device=str(self.device),
-            num_classes=num_classes,
-            **kwargs
-        )
+        if variant is not None:
+            # Загрузка из YAML конфига
+            model, processor, model_type_str = NeuralModelFactory.create_model_from_config(
+                model_type=model_type,
+                variant=variant,
+                device=str(self.device),
+                checkpoint_path=checkpoint_path,
+                **kwargs
+            )
+        else:
+            # Прямая загрузка
+            model, processor, model_type_str = NeuralModelFactory.create_model(
+                model_type=self.model_type,
+                model_name=model_name,
+                local_path=local_path,
+                checkpoint_path=checkpoint_path,
+                device=str(self.device),
+                num_classes=num_classes,
+                **kwargs
+            )
+        self.model = model
+        self.processor = processor
+        self.model_type_str: str = model_type_str
         print(f"Модель загружена за {time.time() - start_time:.4f} секунд")
-        
-        # Палитра ADE20K
         self.palette: List[List[int]] = palette if palette else self._get_default_palette()
         
         print(f"✅ Нейросетевая модель загружена!")
         print(f"   Тип: {self.model_type_str}")
-        print(f"   Источник: {self.local_path if self.local_path else self.model_name}")
+        print(f"   Источник: {self.local_path if self.local_path else (self.model_name if self.model_name else f'config:{variant}')}")
         print(f"   Устройство: {self.device}")
         print(f"   Количество классов: {self.num_classes}")
 
@@ -179,9 +186,11 @@ class NeuralSegmenter(BaseSegmenter):
         return [[120, 120, 120], [180, 120, 120]]
     
     @staticmethod
-    def _resize_mask_to_original(mask: np.ndarray, target_size: tuple) -> np.ndarray:
+    def _resize_mask_to_original(
+        mask: np.ndarray, 
+        target_size: tuple
+    ) -> np.ndarray:
         """Утилита для ресайза маски — используется в стратегиях при необходимости"""
-        from scipy.ndimage import zoom
         if mask.shape != target_size:
             sh, sw = target_size[0] / mask.shape[0], target_size[1] / mask.shape[1]
             return zoom(mask, (sh, sw), order=0)
@@ -246,8 +255,7 @@ class NeuralSegmenter(BaseSegmenter):
             class_names=class_names,
             gt_mask=gt_mask
         )
-        
-        # Возвращаем маску + инфо (как было раньше)
+        # Возвращаем маску + инфо
         return result_info["mask"], result_info
 
     def segment_image_unified(
@@ -261,8 +269,6 @@ class NeuralSegmenter(BaseSegmenter):
         """
         Универсальная функция сегментации для любой архитектуры.
         """
-
-        # Получаем маску и инфо
         return infer_unified(
             model=self.model,
             processor=self.processor,
@@ -277,7 +283,10 @@ class NeuralSegmenter(BaseSegmenter):
             gt_mask=gt_mask
         )
     
-    def prepare_mask_for_overlay(self, mask_input) -> np.ndarray:
+    def prepare_mask_for_overlay(
+        self, 
+        mask_input
+    ) -> np.ndarray:
         """
         Конвертирует маску в 2D numpy array для create_overlay.
         
@@ -286,7 +295,6 @@ class NeuralSegmenter(BaseSegmenter):
         - numpy array with extra dimensions
         - RGB label images (converts to single channel)
         """
-        
         # Конвертируем PIL → numpy если нужно
         if isinstance(mask_input, Image.Image):
             mask = np.array(mask_input)
@@ -301,13 +309,11 @@ class NeuralSegmenter(BaseSegmenter):
                 # RGB изображение → нужно конвертировать в классы
                 # Для Cityscapes: используем первый канал или конвертируем через палитру
                 print(f"⚠️  RGB mask detected, using first channel")
-                mask = mask[:, :, 0]  # или используйте proper label conversion
+                mask = mask[:, :, 0]
             else:
                 raise ValueError(f"Unexpected mask shape: {mask.shape}")
         elif mask.ndim > 3:
             mask = np.squeeze(mask)
-        
-        # Финальная проверка
         if mask.ndim != 2:
             raise ValueError(f"Mask must be 2D after processing, got {mask.ndim}D")
         
@@ -407,7 +413,6 @@ class NeuralSegmenter(BaseSegmenter):
         result = cv2.addWeighted(result_np, alpha, overlay, 1 - alpha, 0)
         
         print(f"Neural segmentation completed in {time.time() - start_time:.2f}s")
-        
         return result, mask
     
     def detailed_segmentation(
@@ -442,7 +447,6 @@ class NeuralSegmenter(BaseSegmenter):
         unique_classes, counts = np.unique(seg_map, return_counts=True)
         class_distribution = {}
         total_pixels: int = seg_map.size
-        
         for cls, count in zip(unique_classes, counts):
             class_name: str = self.model.config.id2label.get(cls, f"Class_{cls}")
             percentage = (count / total_pixels) * 100
@@ -451,7 +455,6 @@ class NeuralSegmenter(BaseSegmenter):
                 'pixel_count': int(count),
                 'percentage': float(percentage)
             }
-        
         return {
             'original': img,
             'segmentation_map': seg_map,
@@ -481,11 +484,10 @@ class NeuralSegmenter(BaseSegmenter):
             if isinstance(module, torch.nn.Conv2d):
                 return {
                     'num_classes': int(module.out_channels),
-                    'id2label': {},  # Нет mapping для SMP
+                    'id2label': {},
                     'label2id': {}
                 }
         
-        # Fallback
         return {
             'num_classes': self.num_classes,
             'id2label': {},

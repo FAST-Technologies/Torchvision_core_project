@@ -1,7 +1,6 @@
-# SegmentationComparator.py
+# testing/SegmentationComparator.py
 
 # Импорт основных библиотек
-
 import os
 import time
 import warnings
@@ -30,7 +29,6 @@ class SegmentationComparator:
     Использует готовые реализации из реализованных сегментаторов (OpenCVSegmenter, TorchSegmenter, SklearnSegmenter)
     для валидации кастомных реализаций.
     """
-    
     def __init__(self) -> None:
         self.results = {}
     
@@ -57,14 +55,14 @@ class SegmentationComparator:
             Ключи адаптированы для удобного чтения в отчетах компаратора.
         """
         # Бинаризируем маски
-        raw_metrics = SegmentationMetrics.calculate_all_metrics(
+        raw_metrics: Dict[str, float] = SegmentationMetrics.calculate_all_metrics(
            pred_mask=mask1,
            gt_mask=mask2,
            threshold=0.5,
            include_hausdorff=True 
         )
         
-        metrics = {
+        metrics: Dict[str, float] = {
             'accuracy': raw_metrics.get('pixel_accuracy', 0.0),
             'precision': raw_metrics.get('precision', 0.0),
             'recall': raw_metrics.get('recall', 0.0),
@@ -89,7 +87,6 @@ class SegmentationComparator:
             'false_negative': raw_metrics.get('false_negative', 0),
             'true_negative': raw_metrics.get('true_negative', 0),
         }
-        
         return metrics
     
     def compare_methods(
@@ -120,7 +117,6 @@ class SegmentationComparator:
         m1_name = name1 or getattr(segmenter1, 'method', 'Method1')
         m2_name = name2 or getattr(segmenter2, 'method', 'Method2')
         
-        # Сегментация первым методом
         start_time_1 = time.time()
         mask1 = segmenter1.segment(image)
         time_1 = time.time() - start_time_1
@@ -131,10 +127,8 @@ class SegmentationComparator:
         time_2 = time.time() - start_time_2
         info2 = {'execution_time': time_2, 'method': m2_name}
         
-        # Вычисляем метрики
-        metrics = self.compute_metrics(mask1, mask2, m1_name, m2_name)
+        metrics: Dict[str, float] = self.compute_metrics(mask1, mask2, m1_name, m2_name)
         
-        # Сохраняем результаты
         result_key = f"{m1_name}_vs_{m2_name}"
         self.results[result_key] = {
             'mask1': mask1,
@@ -144,7 +138,6 @@ class SegmentationComparator:
             'metrics': metrics
         }
         
-        # Визуализация
         if save_comparison:
             self.visualize_comparison(
                 image, mask1, mask2,
@@ -153,7 +146,6 @@ class SegmentationComparator:
                 method2_name=m2_name,
                 output_path=output_path
             )
-        
         return self.results[result_key]
     
     def visualize_comparison(
@@ -173,7 +165,6 @@ class SegmentationComparator:
         """
         fig, axes = plt.subplots(2, 4, figsize=(20, 10))
         
-        # Оригинальное изображение
         if len(image.shape) == 2:
             axes[0, 0].imshow(image, cmap='gray')
         else:
@@ -181,13 +172,11 @@ class SegmentationComparator:
         axes[0, 0].set_title("Original Image")
         axes[0, 0].axis('off')
         
-        # Маска 1
         axes[0, 1].imshow(mask1, cmap='gray')
         time1 = info1.get('execution_time', 0)
         axes[0, 1].set_title(f"{method1_name}\nTime: {time1:.3f}s")
         axes[0, 1].axis('off')
         
-        # Маска 2
         axes[0, 2].imshow(mask2, cmap='gray')
         time2 = info2.get('execution_time', 0)
         axes[0, 2].set_title(f"{method2_name}\nTime: {time2:.3f}s")
@@ -220,8 +209,8 @@ class SegmentationComparator:
         
         # Комбинированное наложение
         combined = image.copy() if len(image.shape) == 3 else np.stack([image] * 3, axis=-1)
-        combined[mask1 > 127] = [255, 0, 0]  # Красный для метода 1
-        combined[mask2 > 127] = [0, 255, 0]  # Зеленый для метода 2
+        combined[mask1 > 127] = [255, 0, 0]
+        combined[mask2 > 127] = [0, 255, 0]
         
         # Желтый для пересечения
         intersection = (mask1 > 127) & (mask2 > 127)
@@ -244,18 +233,18 @@ class SegmentationComparator:
             f"Hausdorff:     {metrics.get('hausdorff_distance', 0):.2f}\n"
             f"Area Diff:     {metrics.get('area_difference', 0):.0f}"
         )
-        
         axes[1, 3].text(0.1, 0.6, text_str, fontsize=10,
                        verticalalignment='center',
                        transform=axes[1, 3].transAxes)
         
         plt.suptitle(f"Segmentation Methods Comparison: {method1_name} vs {method2_name}", fontsize=14)
         plt.tight_layout()
-        
         if output_path:
-            plt.savefig(output_path, dpi=150, bbox_inches='tight')
+            plt.savefig(
+                output_path, 
+                dpi=150, 
+                bbox_inches='tight')
             print(f"✅ Визуализация сохранена: {output_path}")
-        
         plt.show()
     
     def batch_comparison(
@@ -285,10 +274,7 @@ class SegmentationComparator:
         if save_results:
             os.makedirs(output_dir, exist_ok=True)
         
-        # Получаем референсную маску
         ref_name = reference_name or getattr(reference_segmenter, 'method', 'Reference')
-
-        # Получаем референсную маску
         start_time_ref = time.time()
         ref_mask = reference_segmenter.segment(image)
         ref_time = time.time() - start_time_ref
@@ -299,11 +285,9 @@ class SegmentationComparator:
         for config in methods_config:
             segmenter = config.get('segmenter')
             method_name = config.get('name') or getattr(segmenter, 'method', 'Unknown')
-            
             if segmenter is None:
                 print(f"⚠️ Пропущен конфиг без сегментера: {config}")
                 continue
-            
             try:
                 start_time_test = time.time()
                 test_mask = segmenter.segment(image)
@@ -343,18 +327,13 @@ class SegmentationComparator:
                 print(f"❌ Ошибка при тестировании {method_name}: {e}")
                 traceback.print_exc()
                 continue
-        
-        # Создаем DataFrame
+    
         df = pd.DataFrame(comparison_results)
-        
         if save_results and not df.empty:
             csv_path = os.path.join(output_dir, "comparison_results.csv")
             df.to_csv(csv_path, index=False)
             print(f"📊 Результаты сохранены в CSV: {csv_path}")
-            
-            # Создаем сводную визуализацию
             self._create_summary_visualization(df, output_dir)
-        
         return df
     
     def _create_summary_visualization(
@@ -408,13 +387,6 @@ class SegmentationComparator:
             axes[1, 0].set_xticklabels(area_data.index, rotation=45)
             axes[1, 0].set_title('Average Mask Areas')
             axes[1, 0].set_ylabel('Pixels')
-
-        # if 'area_difference' in df.columns:
-        #     axes[1, 0].hist(df['area_difference'], bins=20, color='salmon', edgecolor='black', alpha=0.7)
-        #     axes[1, 0].set_xlabel('Absolute Area Difference (pixels)')
-        #     axes[1, 0].set_ylabel('Frequency')
-        #     axes[1, 0].set_title('Distribution of Area Differences')
-        #     axes[1, 0].grid(axis='y', alpha=0.3)
         
         # График 4: Корреляционная матрица метрик
         numeric_cols = df.select_dtypes(include=[np.number]).columns
@@ -430,17 +402,18 @@ class SegmentationComparator:
         
         plt.suptitle('Segmentation Methods Comparison Summary', fontsize=16)
         plt.tight_layout()
-        
         summary_path = os.path.join(output_dir, "comparison_summary.jpg")
-        plt.savefig(summary_path, dpi=150, bbox_inches='tight')
+        plt.savefig(
+            summary_path, 
+            dpi=150, 
+            bbox_inches='tight')
         plt.close()
-        
         print(f"📈 Сводная визуализация сохранена: {summary_path}")
 
     def matrix_comparison(
         self,
         image: np.ndarray,
-        methods_config: List[Dict[str, Any]], # Ожидается список словарей вида {"name": "...", "segmenter": obj}
+        methods_config: List[Dict[str, Any]], # Список словарей вида {"name": "...", "segmenter": obj}
         reference_method: Optional[str] = None,
         comparison_type: str = "all_vs_all",
         save_results: bool = True,
@@ -456,16 +429,13 @@ class SegmentationComparator:
             os.makedirs(output_dir, exist_ok=True)
         
         method_names = []
-        segmenters_map = {} # Маппинг: Имя -> Объект сегментера
-        
+        segmenters_map = {} # Маппинг: Имя -> Объект сегментер
         for config in methods_config:
             name = config.get('name')
             segmenter = config.get('segmenter')
-            
             if name is None or segmenter is None:
                 print(f"⚠️ Пропущен конфиг без имени или сегментера: {config}")
-                continue
-                
+                continue 
             method_names.append(name)
             segmenters_map[name] = segmenter
         
@@ -490,13 +460,11 @@ class SegmentationComparator:
                 print(f"  ❌ {name}: {e}")
                 import traceback
                 traceback.print_exc()
-                # Создаем пустую маску при ошибке
                 h, w = image.shape[:2] if len(image.shape) >= 2 else (256, 256)
                 masks[name] = np.zeros((h, w), dtype=np.uint8)
                 execution_times[name] = 0
                 method_infos[name] = {'error': str(e)}
         
-        # Выбираем стратегию сравнения
         if comparison_type == "all_vs_ref" and reference_method:
             comparison_pairs = [(reference_method, other) for other in method_names 
                             if other != reference_method]
@@ -509,21 +477,15 @@ class SegmentationComparator:
                             for m2 in method_names]
             ref_name = None
         
-        # Выполняем сравнения
         print(f"\nВыполняем сравнение {len(comparison_pairs)} пар...")
         comparison_results = []
-        
         for i, (method1, method2) in enumerate(comparison_pairs):
-            # Проверка наличия масок (теперь ключи совпадают!)
             if method1 not in masks or method2 not in masks:
                 continue
-            
             mask1 = masks[method1]
             mask2 = masks[method2]
-            
             try:
                 metrics = self.compute_metrics(mask1, mask2, method1, method2)
-                
                 result = {
                     'method1': method1,
                     'method2': method2,
@@ -533,28 +495,19 @@ class SegmentationComparator:
                     'time_diff': abs(execution_times.get(method1, 0) - 
                                 execution_times.get(method2, 0))
                 }
-                
                 comparison_results.append(result)
-                
                 if (i + 1) % 10 == 0:
-                    print(f"  Обработано {i + 1}/{len(comparison_pairs)} пар...")
-                    
+                    print(f"  Обработано {i + 1}/{len(comparison_pairs)} пар...")      
             except Exception as e:
                 print(f"  Ошибка сравнения {method1} vs {method2}: {e}")
         
-        # Создаем DataFrame
         df_comparisons = pd.DataFrame(comparison_results)
-        
         if save_results:
-            # Сохраняем все маски
             masks_dir = os.path.join(output_dir, "masks")
             os.makedirs(masks_dir, exist_ok=True)
-            
             for name, mask in masks.items():
                 mask_path = os.path.join(masks_dir, f"{name}_mask.png")
                 plt.imsave(mask_path, mask, cmap='gray')
-            
-            # Сохраняем все изображения
             images_dir = os.path.join(output_dir, "images")
             os.makedirs(images_dir, exist_ok=True)
             
@@ -562,21 +515,17 @@ class SegmentationComparator:
                 plt.imsave(os.path.join(images_dir, "original.png"), image, cmap='gray')
             else:
                 plt.imsave(os.path.join(images_dir, "original.png"), image)
-            
-            # Сохраняем оверлеи
             for name, mask in masks.items():
                 if len(image.shape) == 2:
                     overlay = np.stack([image] * 3, axis=-1)
                 else:
                     overlay = image.copy()
-                
                 overlay[mask > 127] = [255, 0, 0]
                 overlay_path = os.path.join(images_dir, f"{name}_overlay.png")
                 plt.imsave(overlay_path, overlay)
             
             self._save_matrix_results(df_comparisons, masks, method_infos, 
                                     output_dir, comparison_type, ref_name)
-        
         return {
             'df_comparisons': df_comparisons,
             'masks': masks,
@@ -594,14 +543,12 @@ class SegmentationComparator:
         reference_method: Optional[str] = None
     ):
         """Сохраняет результаты матричного сравнения."""
-        
-        # 1. Сохраняем DataFrame
         csv_path = os.path.join(output_dir, "comparisons.csv")
         df_comparisons.to_csv(csv_path, index=False)
         print(f"📊 CSV с результатами: {csv_path}")
         
-        # 2. Сводная таблица метрик
-        summary_metrics = ['accuracy', 'precision', 'recall', 'f1_score', 'jaccard', 'dice_coefficient', 
+        # Сводная таблица метрик
+        summary_metrics: List[str] = ['accuracy', 'precision', 'recall', 'f1_score', 'jaccard', 'dice_coefficient', 
                            'intersection_over_union', 'pixel_agreement', 'area_difference']
         
         if comparison_type == "all_vs_ref" and reference_method:
@@ -617,11 +564,10 @@ class SegmentationComparator:
                 
                 print(f"📋 Сводная таблица (vs {reference_method}): {summary_path}")
         
-        # 3. Матрицы сравнения
+        # Матрицы сравнения
         methods = sorted(list(masks.keys()))
         n_methods = len(methods)
         
-        # Создаем матрицы для каждой метрики
         for metric in ['accuracy', 'precision', 'recall', 'f1_score', 'jaccard', 'dice_coefficient', 
                            'intersection_over_union', 'pixel_agreement', 'area_difference']:
             if metric not in df_comparisons.columns:
@@ -633,9 +579,8 @@ class SegmentationComparator:
             for i, m1 in enumerate(methods):
                 for j, m2 in enumerate(methods):
                     if i == j:
-                        matrix[i, j] = 1.0  # Само с собой - идеальное совпадение
+                        matrix[i, j] = 1.0
                     else:
-                        # Ищем сравнение в DataFrame
                         mask = ((df_comparisons['method1'] == m1) & 
                                (df_comparisons['method2'] == m2)) | \
                                ((df_comparisons['method1'] == m2) & 
@@ -646,10 +591,7 @@ class SegmentationComparator:
                         else:
                             matrix[i, j] = np.nan
             
-            # Визуализируем матрицу
             fig, ax = plt.subplots(figsize=(12, 10))
-            
-            # Сокращаем имена методов для подписей
             short_names = [name[:15] + "..." if len(name) > 15 else name 
                           for name in methods]
             
@@ -658,8 +600,6 @@ class SegmentationComparator:
             ax.set_yticks(np.arange(n_methods))
             ax.set_xticklabels(short_names, rotation=45, ha='right')
             ax.set_yticklabels(short_names)
-            
-            # Добавляем значения в ячейки
             for i in range(n_methods):
                 for j in range(n_methods):
                     if not np.isnan(matrix[i, j]):
@@ -673,15 +613,18 @@ class SegmentationComparator:
             plt.tight_layout()
             
             matrix_path = os.path.join(output_dir, f"{metric}_matrix.png")
-            plt.savefig(matrix_path, dpi=150, bbox_inches='tight')
+            plt.savefig(
+                matrix_path, 
+                dpi=150, 
+                bbox_inches='tight')
             plt.close()
             
             print(f"📈 Матрица {metric}: {matrix_path}")
         
-        # 4. Визуализация всех масок
+        # Визуализация всех масок
         self._visualize_all_masks(masks, output_dir)
         
-        # 5. Создаем HTML отчет
+        # Создаем HTML отчет
         self._create_html_report(df_comparisons, masks, method_infos, 
                                 output_dir, comparison_type, reference_method)
     
@@ -689,12 +632,10 @@ class SegmentationComparator:
         self,
         masks: Dict[str, np.ndarray],
         output_dir: str
-    ):
+    ) -> None:
         """Визуализирует все маски в одной фигуре."""
         methods = list(masks.keys())
         n_methods = len(methods)
-        
-        # Определяем размер сетки
         n_cols = 4
         n_rows = (n_methods + n_cols - 1) // n_cols
         
@@ -707,7 +648,6 @@ class SegmentationComparator:
             ax.set_title(f"{name}", fontsize=10)
             ax.axis('off')
         
-        # Скрываем пустые оси
         for j in range(i + 1, len(axes)):
             axes[j].axis('off')
         
@@ -715,7 +655,11 @@ class SegmentationComparator:
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         
         all_masks_path = os.path.join(output_dir, "all_masks.png")
-        plt.savefig(all_masks_path, dpi=150, bbox_inches='tight')
+        plt.savefig(
+            all_masks_path, 
+            dpi=150, 
+            bbox_inches='tight'
+        )
         plt.close()
         
         print(f"🖼️ Все маски: {all_masks_path}")
@@ -728,12 +672,9 @@ class SegmentationComparator:
         output_dir: str,
         comparison_type: str,
         reference_method: Optional[str] = None
-    ):
+    ) -> None:
         """Создает HTML отчет с результатами."""
-        
         html_path = os.path.join(output_dir, "report.html")
-        
-        # Статистика по методам
         methods_stats = []
         for name, mask in masks.items():
             mask_binary = mask > 127
@@ -749,7 +690,7 @@ class SegmentationComparator:
                 'time': method_infos.get(name, {}).get('execution_time', 0)
             })
         
-        # Топ методов по F1 (если есть референс)
+        # Топ методов по F1
         top_methods_html = "<p>Нет данных</p>"
         if reference_method and 'f1_score' in df_comparisons.columns:
             ref_df = df_comparisons[df_comparisons['method1'] == reference_method]
