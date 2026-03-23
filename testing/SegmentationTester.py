@@ -53,6 +53,9 @@ class SegmentationTester:
                 print(f"✅ Ground truth загружен: {gt_path}")
             else:
                 raise ValueError(f"Неизвестный формат ground truth: {gt_path}")
+
+            if self.ground_truth_mask is None:
+                raise ValueError(f"Не удалось прочитать файл (возвращён None)")
         except Exception as e:
             print(f"❌ Ошибка загрузки ground truth: {e}")
             self.ground_truth_mask = None
@@ -504,60 +507,6 @@ class SegmentationTester:
             self._save_method_results(result_data, output_dir, method_name)
         
         return result_data
-    
-    def _calculate_segmentation_metrics(
-        self, 
-        pred_mask: np.ndarray, 
-        gt_mask: np.ndarray
-    ) -> Dict[str, float]:
-        """Вычисляет метрики качества сегментации"""
-        # Бинаризация
-        pred_flat = pred_mask.flatten()
-        gt_flat = gt_mask.flatten()
-        
-        try:
-            tn, fp, fn, tp = confusion_matrix(gt_flat, pred_flat, labels=[0, 1]).ravel()
-        except ValueError:
-            # Если только один класс присутствует
-            if np.all(pred_flat == 0) and np.all(gt_flat == 0):
-                tn, fp, fn, tp = len(pred_flat), 0, 0, 0
-            elif np.all(pred_flat == 1) and np.all(gt_flat == 1):
-                tn, fp, fn, tp = 0, 0, 0, len(pred_flat)
-            else:
-                tn, fp, fn, tp = 0, 0, 0, 0
-        
-        metrics = {}
-        
-        # Basic metrics
-        total = tp + tn + fp + fn
-        metrics['accuracy'] = (tp + tn) / (total + 1e-8)
-        metrics['precision'] = tp / (tp + fp + 1e-8)
-        metrics['recall'] = tp / (tp + fn + 1e-8)
-        
-        # F1 Score
-        if metrics['precision'] + metrics['recall'] > 0:
-            metrics['f1_score'] = 2 * (metrics['precision'] * metrics['recall']) / \
-                                (metrics['precision'] + metrics['recall'] + 1e-8)
-        else:
-            metrics['f1_score'] = 0.0
-        
-        # IoU
-        intersection = np.sum(pred_flat & gt_flat)
-        union = np.sum(pred_flat | gt_flat)
-        metrics['iou'] = intersection / (union + 1e-8)
-        
-        # Dice
-        metrics['dice'] = (2 * intersection) / (np.sum(pred_flat) + np.sum(gt_flat) + 1e-8)
-        
-        # Pixel accuracy
-        metrics['pixel_accuracy'] = np.sum(pred_flat == gt_flat) / len(pred_flat)
-        
-        # Area
-        metrics['predicted_area'] = float(np.sum(pred_flat))
-        metrics['ground_truth_area'] = float(np.sum(gt_flat))
-        metrics['area_difference'] = abs(metrics['predicted_area'] - metrics['ground_truth_area'])
-        
-        return metrics
     
     def compare_methods(
         self, 
@@ -1120,7 +1069,7 @@ class SegmentationTester:
         save_results: bool = True
     ) -> pd.DataFrame:
         """Бенчмарк методов (требует pandas) с сохранением результатов"""
-        
+        original_img = Image.fromarray(image.astype(np.uint8)) if isinstance(image, np.ndarray) else (Image.open(image).convert('RGB') if isinstance(image, str) else image.convert('RGB'))
         benchmark_results = []
 
         # Создаем директорию для бенчмарка
@@ -1136,18 +1085,32 @@ class SegmentationTester:
         if isinstance(image, str):
             original_img = Image.open(image).convert('RGB')
             image_array = np.array(original_img)
-            # Сохраняем оригинальное изображение
-            orig_path = os.path.join(bench_dir, "images", "original.jpg")
-            original_img.save(orig_path)
-            print(f"📸 Оригинальное изображение сохранено: {orig_path}")
         elif isinstance(image, Image.Image):
-            original_img = image
-            image_array = np.array(image)
+            original_img = image.convert('RGB')
+            image_array = np.array(original_img)
         elif isinstance(image, np.ndarray):
-            original_img = Image.fromarray(image.astype(np.uint8))
+            original_img = Image.fromarray(image.astype(np.uint8)).convert('RGB')
             image_array = image
-            orig_path = os.path.join(bench_dir, "images", "original.jpg")
-            original_img.save(orig_path)
+        else:
+            raise ValueError(f"Unsupported image type: {type(image)}")
+        
+        # Сохраняем оригинальное изображение
+        orig_path: str = os.path.join(bench_dir, "images", "original.jpg")
+        original_img.save(orig_path)
+        print(f"📸 Оригинальное изображение сохранено: {orig_path}")
+
+        has_gt = self.ground_truth_mask is not None
+        gt_binary = None
+        
+        if has_gt:
+            print(f"🎯 Обнаружен Ground Truth. Будет выполнен расчет метрик качества.")
+            # Приводим GT к формату uint8 0-255 если нужно
+            if self.ground_truth_mask.max() <= 1.0:
+                gt_binary = (self.ground_truth_mask * 255).astype(np.uint8)
+            else:
+                gt_binary = self.ground_truth_mask.astype(np.uint8)
+        else:
+            print("⚠️ Ground Truth не найден. Метрики качества рассчитываться не будут.")
         
         print(f"🏃 Запуск бенчмарка ({n_runs} прогонов)...")
         
@@ -1159,79 +1122,114 @@ class SegmentationTester:
             masks_list: List[np.ndarray] = []
 
             is_neural = (
-                "neural" in method_name.lower() or 
-                "segformer" in method_name.lower()
+                "neural" in method_name.lower() or
+                "segformer" in method_name.lower() or
+                "mask2former" in method_name.lower() or  # 🔥 Добавить все нейронные модели
+                "deeplab" in method_name.lower() or
+                "unet" in method_name.lower() or
+                "fpn" in method_name.lower() or
+                "psp" in method_name.lower() or
+                "fcn" in method_name.lower() or
+                "segnet" in method_name.lower()
             )
 
             input_arg_for_method = image
             
             if is_neural:
                 if isinstance(image, str):
-                    input_arg_for_method = image # Путь как есть
+                    input_arg_for_method = image
                 else:
-                    # Если был массив или PIL, конвертируем в путь для надежности
-                    # Сохраняем временный файл или используем уже сохраненный original_img
                     temp_path = os.path.join(bench_dir, "images", "temp_input.jpg")
                     original_img.save(temp_path)
                     input_arg_for_method = temp_path
             else:
-                # Для OpenCV/Sklearn/Torch лучше передавать ndarray
-                if isinstance(image, str):
-                    input_arg_for_method = image_array
-                elif isinstance(image, Image.Image):
-                    input_arg_for_method = image_array
-                else:
-                    input_arg_for_method = image
+                input_arg_for_method = image_array
 
             for run in range(n_runs):
                 start_time: float = time.time()
                 result: np.ndarray
                 mask: np.ndarray
-                result, mask = self.methods[method_name].segment_with_mask(input_arg_for_method)
-                times.append(time.time() - start_time)
-                if run == 0:  # Сохраняем только первую маску для статистики
-                    masks_list.append(mask)
-                    results_list.append(result)
+                try:
+                    result, mask = self.methods[method_name].segment_with_mask(input_arg_for_method)
+                    times.append(time.time() - start_time)
+                    if run == 0:
+                        masks_list.append(mask)
+                        results_list.append(result)
+                except Exception as e:
+                    print(f"    ❌ Ошибка в {method_name} (запуск {run+1}): {e}")
+                    if run == 0:
+                        break
             
-            mask_area: np.bool
-            total_pixels: int
+            mask_area = 0
+            total_pixels = 1
+            metrics_dict = {} # Словарь для новых метрик
             if masks_list and results_list:
                 mask = masks_list[0]
                 result_img: np.ndarray = results_list[0]
                 mask_area = np.sum(mask > 0)
                 total_pixels = mask.shape[0] * mask.shape[1]
+                if has_gt and gt_binary is not None:
+                    try:
+                        # Ресайз GT под размер предсказания, если они не совпадают
+                        if gt_binary.shape != mask.shape:
+                            from skimage.transform import resize
+                            gt_resized = resize(
+                                gt_binary, 
+                                mask.shape, 
+                                order=0, 
+                                preserve_range=True, 
+                                anti_aliasing=False
+                            ).astype(np.uint8)
+                        else:
+                            gt_resized = gt_binary
+                        
+                        # Расчет метрик
+                        metrics_dict = SegmentationMetrics.calculate_all_metrics(
+                            pred_mask=mask, 
+                            gt_mask=gt_resized, 
+                            threshold=0.5,
+                            include_hausdorff=True
+                        )
+                        
+                        # Вывод основных метрик в консоль
+                        iou = metrics_dict.get('iou', 0)
+                        dice = metrics_dict.get('dice', 0)
+                        status = "✅" if iou > 0.5 else "⚠️" if iou > 0.2 else "❌"
+                        print(f"    {status} IoU: {iou:.4f}, Dice: {dice:.4f}")
+                        
+                    except Exception as metric_err:
+                        print(f"    ⚠️ Ошибка расчета метрик: {metric_err}")
+                        metrics_dict = {'error': str(metric_err)}
+                # ===============================
             else:
-                mask_area = 0
-                total_pixels = 1
+                # Если произошла ошибка выполнения
+                if not times:
+                     print(f"    ❌ Метод {method_name} не вернул результат.")
             
-            mean_time = np.mean(times)
-            std_time = np.std(times)
+            mean_time = np.mean(times) if times else 0
+            std_time = np.std(times) if times else 0
 
             if save_results and masks_list and results_list:
                 try:
                     # Сохраняем результат сегментации
                     result_path: str = os.path.join(bench_dir, "images", f"{method_name}_result.jpg")
-                    result_pil: Image.Image = Image.fromarray(result_img.astype(np.uint8))
-                    result_pil.save(result_path)
+                    result_pil: Image.Image = Image.fromarray(result_img.astype(np.uint8)).save(result_path)
                     
                     # Сохраняем маску
                     mask_path: str = os.path.join(bench_dir, "masks", f"{method_name}_mask.png")
-                    mask_pil: Image.Image = Image.fromarray(mask.astype(np.uint8))
-                    mask_pil.save(mask_path)
+                    mask_pil: Image.Image = Image.fromarray(mask.astype(np.uint8)).save(mask_path)
                     
                     # Сохраняем overlay (30% оригинал + 70% результат)
                     if image_array is not None:
-                        overlay: np.ndarray = image_array * 0.3 + result_img * 0.7
-                        overlay: np.ndarray = overlay.astype(np.uint8)
+                        overlay: np.ndarray = (image_array * 0.3 + result_img * 0.7).astype(np.uint8)
                         overlay_path: str = os.path.join(bench_dir, "images", f"{method_name}_overlay.jpg")
-                        overlay_pil: Image.Image = Image.fromarray(overlay)
-                        overlay_pil.save(overlay_path)
+                        overlay_pil: Image.Image = Image.fromarray(overlay).save(overlay_path)
                         
                         print(f"    💾 Результаты сохранены в {bench_dir}")
                 except Exception as e:
                     print(f"    ⚠️ Ошибка сохранения результатов: {e}")
             
-            benchmark_results.append({
+            row_data = {
                 'Method': method_name,
                 'Mean_Time_s': mean_time,
                 'Std_Time_s': std_time,
@@ -1240,8 +1238,22 @@ class SegmentationTester:
                 'Mask_Percentage': (mask_area / total_pixels * 100) if total_pixels > 0 else 0,
                 'Min_Time_s': min(times) if times else 0,
                 'Max_Time_s': max(times) if times else 0,
-                'Num_Runs': n_runs
-            })
+                'Num_Runs': len(times), # Реальное количество успешных запусков
+                'Has_GT': has_gt
+            }
+
+            if has_gt and metrics_dict:
+                row_data['IoU'] = metrics_dict.get('iou', 0)
+                row_data['Dice'] = metrics_dict.get('dice', 0)
+                row_data['F1_Score'] = metrics_dict.get('f1_score', 0)
+                row_data['Precision'] = metrics_dict.get('precision', 0)
+                row_data['Recall'] = metrics_dict.get('recall', 0)
+                row_data['Accuracy'] = metrics_dict.get('pixel_accuracy', 0)
+                row_data['Hausdorff'] = metrics_dict.get('hausdorff_distance', 0)
+                if 'error' in metrics_dict:
+                    row_data['Metrics_Error'] = metrics_dict['error']
+
+            benchmark_results.append(row_data)
         
         df: pd.DataFrame = pd.DataFrame(benchmark_results)
         if 'Mean_Time_s' in df.columns:
@@ -1252,6 +1264,8 @@ class SegmentationTester:
         print("\n" + "="*80)
         print("РЕЗУЛЬТАТЫ БЕНЧМАРКА:")
         print("="*80)
+        pd.set_option('display.max_columns', None)
+        pd.set_option('display.width', 1000)
         print(df.to_string(index=False))
         print("="*80)
         
@@ -1295,17 +1309,26 @@ class SegmentationTester:
             f.write("ТАБЛИЦА РЕЗУЛЬТАТОВ:\n")
             f.write("-"*80 + "\n")
             
-            # Заголовок таблицы
-            f.write(f"{'Метод':<30} {'Время (с)':<20} {'Площадь маски':<15} {'Процент':<10}\n")
-            f.write("-"*80 + "\n")
-            
-            # Данные таблицы
-            for _, row in df.iterrows():
-                time_str = row.get('Time_String', f"{row.get('Mean_Time_s', 0):.3f} ± {row.get('Std_Time_s', 0):.3f}")
-                mask_area: int = int(row.get('Mask_Area', 0))
-                mask_percentage: float = row.get('Mask_Percentage', 0)
-                f.write(f"{row['Method']:<30} {time_str:<20} "
-                    f"{mask_area:<15,} {mask_percentage:.1f}%\n")
+            if 'Has_GT' in df.columns and df['Has_GT'].any():
+                f.write("Режим: С расчетом метрик качества (Ground Truth available)\n")
+                f.write("-"*80 + "\n")
+                f.write(f"{'Метод':<30} {'Время (с)':<20} {'IoU':<10} {'Dice':<10} {'F1':<10}\n")
+                f.write("-"*80 + "\n")
+                for _, row in df.iterrows():
+                    iou = row.get('IoU', 'N/A')
+                    dice = row.get('Dice', 'N/A')
+                    f1 = row.get('F1_Score', 'N/A')
+                    if isinstance(iou, float):
+                        f.write(f"{row['Method']:<30} {row['Time_String']:<20} {iou:.4f}     {dice:.4f}     {f1:.4f}\n")
+                    else:
+                        f.write(f"{row['Method']:<30} {row['Time_String']:<20} {iou}     {dice}     {f1}\n")
+            else:
+                f.write("Режим: Только производительность (без Ground Truth)\n")
+                f.write("-"*80 + "\n")
+                f.write(f"{'Метод':<30} {'Время (с)':<20} {'Площадь маски':<15} {'Процент':<10}\n")
+                f.write("-"*80 + "\n")
+                for _, row in df.iterrows():
+                    f.write(f"{row['Method']:<30} {row['Time_String']:<20} {int(row['Mask_Area']):<15,} {row['Mask_Percentage']:.1f}%\n")
             
             # Сводка
             f.write("\n" + "="*80 + "\n")
@@ -1318,6 +1341,10 @@ class SegmentationTester:
                 f.write(f"Самый медленный метод: {slowest['Method']} ({slowest['Mean_Time_s']:.3f} с)\n")
                 f.write(f"Среднее время: {df['Mean_Time_s'].mean():.3f} с\n")
                 f.write(f"Стандартное отклонение: {df['Mean_Time_s'].std():.3f} с\n")
+
+                if 'IoU' in df.columns:
+                    best_iou_row = df.loc[df['IoU'].idxmax()]
+                    f.write(f"Лучший метод по IoU: {best_iou_row['Method']} (IoU={best_iou_row['IoU']:.4f})\n")
         
         print(f"📋 Отчет бенчмарка сохранен: {report_path}")
         print(f"📊 CSV с результатами: {csv_path}")
@@ -1385,9 +1412,27 @@ class SegmentationTester:
             plt.savefig(bench_scatter_path, dpi=150, bbox_inches='tight')
             plt.close()
 
-        # График 3: Сравнительная визуализация результатов (маленькие превью)
+        # График 3: IoU vs Время (если есть GT)
+        if 'IoU' in df.columns:
+            plt.figure(figsize=(10, 6))
+            scatter = plt.scatter(df['Mean_Time_s'], df['IoU'], s=100, alpha=0.7, c=range(len(df)), cmap='viridis')
+            
+            for i, row in df.iterrows():
+                plt.annotate(row['Method'][:15], (row['Mean_Time_s'], row['IoU']), textcoords="offset points", xytext=(0,10), ha='center', fontsize=8)
+                
+            plt.xlabel('Время выполнения (секунды)')
+            plt.ylabel('IoU Score')
+            plt.title('Соотношение точности (IoU) и скорости')
+            plt.grid(True, alpha=0.3)
+            plt.colorbar(scatter, label='Ранг метода')
+            plt.tight_layout()
+            plt.savefig(os.path.join(comp_dir, "iou_vs_time.png"), dpi=150, bbox_inches='tight')
+            plt.close()
+            print(f"📈 График IoU vs Time сохранен в {comp_dir}/iou_vs_time.png")
+
+        # График 4: Сравнительная визуализация результатов (маленькие превью)
         self._create_benchmark_preview(df, output_dir, comp_dir)
-        
+
         print(f"📈 Графики бенчмарка сохранены в {output_dir}/comparisons/")
 
     def _create_metrics_plots(

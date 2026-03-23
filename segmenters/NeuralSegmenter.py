@@ -3,6 +3,11 @@
 # Импорт основных библиотек
 
 from segmenters.BaseSegmenter import BaseSegmenter
+from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType
+from inference.strategies import INFERENCE_STRATEGIES
+from inference.utils import extract_logits_info, analyze_prediction, generate_class_report, export_class_report
+from inference.strategies import segment_image_unified as infer_unified
+from inference.palettes import ade_palette, get_ade_class_names, get_coco_class_names, coco_palette, get_cityscapes_extended_class_names, cityscapes_extended_palette, get_cityscapes_class_names, cityscapes_palette
 
 from typing import (
     List, Union, Tuple, Dict, Any, TypeVar, Optional, 
@@ -14,11 +19,9 @@ from io import BytesIO
 from PIL import Image
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 import torch
 import cv2
-from sklearn.metrics import confusion_matrix
 
 try:
     from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
@@ -28,13 +31,18 @@ except ImportError:
     print("Warning: transformers not installed. Install with: pip install transformers")
 
 class NeuralSegmenter(BaseSegmenter):
-    """Класс для нейросетевой сегментации"""
+    """
+    Универсальный сегментатор с поддержкой множественных нейронных архитектур
+    """
     
     def __init__(
         self, 
+        model_type: str = "segformer",
         model_name: str = "nvidia/segformer-b5-finetuned-ade-640-640",
         device: str = None,
         local_path: str = None,
+        num_classes: int = 150,
+        palette: List[List[int]] = None,
         **kwargs
     ) -> None:
         super().__init__()
@@ -42,90 +50,142 @@ class NeuralSegmenter(BaseSegmenter):
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library is required. Install with: pip install transformers")
         
+        self.model_type_str = model_type
+        self.model_type = ModelType(model_type)
         self.model_name: str = model_name
         self.local_path: str = local_path
-        self.device: str
+        self.device: str = torch.device(device if device else ("cuda" if torch.cuda.is_available() else "cpu"))
         self.params: Dict[str, Any] = kwargs
+        self.num_classes = num_classes
+
+        start_time: float = time.time()
+        self.model, self.processor, self.model_type_str = NeuralModelFactory.create_model(
+            model_type=self.model_type,
+            model_name=model_name,
+            local_path=local_path,
+            device=str(self.device),
+            num_classes=num_classes,
+            **kwargs
+        )
+        print(f"Модель загружена за {time.time() - start_time:.4f} секунд")
         
-        if device is None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device(device)
-        
-        self._initialize_model()
-        
-        # Палитта ADE20K
-        self.palette: List[List[int]] = self.ade_palette()
+        # Палитра ADE20K
+        self.palette: List[List[int]] = palette if palette else self._get_default_palette()
         
         print(f"✅ Нейросетевая модель загружена!")
-        print(f"   Источник: {self.model_name if not self.local_path else self.local_path}")
+        print(f"   Тип: {self.model_type_str}")
+        print(f"   Источник: {self.local_path if self.local_path else self.model_name}")
         print(f"   Устройство: {self.device}")
-        print(f"   Количество классов: {len(self.model.config.id2label)}")
-        print("Текущие имена классов:")
-        for class_id, class_name in self.model.config.id2label.items():
-            print(f"{class_id}: {class_name}")
-    
-    def _initialize_model(self) -> None:
-        """Инициализация модели и процессора"""
-        start_time: float = time.time()
-        try:
-            self.processor: SegformerImageProcessor = SegformerImageProcessor(do_resize=False)
-            self.model: SegformerForSemanticSegmentation
-            if self.local_path:
-                print(f"Загрузка модели из локального пути: {self.local_path}")
-                self.model = SegformerForSemanticSegmentation.from_pretrained(self.local_path)
-            else:
-                print(f"Загрузка модели из Hugging Face: {self.model_name}")
-                self.model = SegformerForSemanticSegmentation.from_pretrained(self.model_name)
-            self.model.to(self.device)
-            self.model.eval()
-            print(f"Модель загружена за {time.time() - start_time:.4f} секунд")
-            print(f"Модель загружена за {time.time() - start_time:.4f} секунд")
-            print(f"Текущая конфигурация модели: {self.model.config}")
-        except Exception as e:
-            raise RuntimeError(f"Ошибка загрузки модели: {e}")
+        print(f"   Количество классов: {self.num_classes}")
+
+        if hasattr(self.model, 'config') and hasattr(self.model.config, 'id2label'):
+            print(f"   Количество классов: {len(self.model.config.id2label)}")
+            print("Текущие имена классов:")
+            for class_id, class_name in self.model.config.id2label.items():
+                print(f"{class_id}: {class_name}")
+
+    def _get_default_palette(self) -> List[List[int]]:
+        """Палитра ADE20K по умолчанию"""
+        return ade_palette()
+
+    @staticmethod
+    def get_ade_class_names() -> Dict[int, str]:
+        # ADE20K Class Names (0-indexed, 150 classes)
+        # Source: http://sceneparsing.csail.mit.edu/
+        return get_ade_class_names()
     
     @staticmethod
     def ade_palette() -> List[List[int]]:
         """ADE20K palette that maps each class to RGB values."""
+        return ade_palette()
+    
+    @staticmethod
+    def get_coco_class_names() -> Dict[int, str]:
+        # COCO Class Names (0-indexed, 80 classes)
+        # Source: https://docs.ultralytics.com/datasets/detect/coco/#dataset-yaml
+        return get_coco_class_names()
+    
+    @staticmethod
+    def coco_palette() -> List[List[int]]:
+        """ADE20K palette that maps each class to RGB values."""
+        return coco_palette()
+    
+    @staticmethod
+    def get_cityscapes_extended_class_names() -> Dict[int, str]:
+        # Cityscapes Extended (34 classes - includes "grouped" categories)
+        return get_cityscapes_extended_class_names()
+    
+    @staticmethod
+    def cityscapes_extended_palette() -> List[List[int]]:
+        """ADE20K palette that maps each class to RGB values."""
+        return cityscapes_extended_palette()
+    
+    @staticmethod
+    def get_cityscapes_class_names() -> Dict[int, str]:
+        # Cityscapes Class Names (0-indexed, 19 classes for semantic segmentation)
+        # Source: https://www.cityscapes-dataset.com/
+        return get_cityscapes_class_names()
+    
+    @staticmethod
+    def cityscapes_palette() -> List[List[int]]:
+        """ADE20K palette that maps each class to RGB values."""
+        return cityscapes_palette
+    
+    @staticmethod
+    def get_chexpert_observation_class_names() -> Dict[int, str]:
+        # CheXpert Observation Classes (14 labels for classification)
+        # Source: https://stanfordmlgroup.github.io/competitions/chexpert/
+        chexpert_observation_names: Dict[int, str] = {
+            0: "No Finding", 1: "Enlarged Cardiomediastinum", 2: "Cardiomegaly", 3: "Lung Opacity", 4: "Lung Lesion", 5: "Edema", 6: "Consolidation",
+            7: "Pneumonia", 8: "Atelectasis", 9: "Pneumothorax", 10: "Pleural Effusion", 11: "Pleural Other", 12: "Fracture", 13: "Support Devices"
+        }
+
+        # Для сегментации лёгких (если есть маски):
+        chest_segmentation_class_names: Dict[int, str] = {
+            0: "background",  # Non-lung area
+            1: "lung"         # Lung field (left + right)
+        }
+
+        # Проверка
+        print(f"✅ CheXpert observations: {len(chexpert_observation_names)} classes")
+        print(f"✅ Chest segmentation: {len(chest_segmentation_class_names)} classes (binary)")
+        return chexpert_observation_names
+    
+    @staticmethod
+    def chexpert_observation_palette() -> List[List[int]]:
+        """ADE20K palette that maps each class to RGB values."""
         return [[120, 120, 120], [180, 120, 120], [6, 230, 230], [80, 50, 50],
-            [4, 200, 3], [120, 120, 80], [140, 140, 140], [204, 5, 255],
-            [230, 230, 230], [4, 250, 7], [224, 5, 255], [235, 255, 7],
-            [150, 5, 61], [120, 120, 70], [8, 255, 51], [255, 6, 82],
-            [143, 255, 140], [204, 255, 4], [255, 51, 7], [204, 70, 3],
-            [0, 102, 200], [61, 230, 250], [255, 6, 51], [11, 102, 255],
-            [255, 7, 71], [255, 9, 224], [9, 7, 230], [220, 220, 220],
-            [255, 9, 92], [112, 9, 255], [8, 255, 214], [7, 255, 224],
-            [255, 184, 6], [10, 255, 71], [255, 41, 10], [7, 255, 255],
-            [224, 255, 8], [102, 8, 255], [255, 61, 6], [255, 194, 7],
-            [255, 122, 8], [0, 255, 20], [255, 8, 41], [255, 5, 153],
-            [6, 51, 255], [235, 12, 255], [160, 150, 20], [0, 163, 255],
-            [140, 140, 140], [250, 10, 15], [20, 255, 0], [31, 255, 0],
-            [255, 31, 0], [255, 224, 0], [153, 255, 0], [0, 0, 255],
-            [255, 71, 0], [0, 235, 255], [0, 173, 255], [31, 0, 255],
-            [11, 200, 200], [255, 82, 0], [0, 255, 245], [0, 61, 255],
-            [0, 255, 112], [0, 255, 133], [255, 0, 0], [255, 163, 0],
-            [255, 102, 0], [194, 255, 0], [0, 143, 255], [51, 255, 0],
-            [0, 82, 255], [0, 255, 41], [0, 255, 173], [10, 0, 255],
-            [173, 255, 0], [0, 255, 153], [255, 92, 0], [255, 0, 255],
-            [255, 0, 245], [255, 0, 102], [255, 173, 0], [255, 0, 20],
-            [255, 184, 184], [0, 31, 255], [0, 255, 61], [0, 71, 255],
-            [255, 0, 204], [0, 255, 194], [0, 255, 82], [0, 10, 255],
-            [0, 112, 255], [51, 0, 255], [0, 194, 255], [0, 122, 255],
-            [0, 255, 163], [255, 153, 0], [0, 255, 10], [255, 112, 0],
-            [143, 255, 0], [82, 0, 255], [163, 255, 0], [255, 235, 0],
-            [8, 184, 170], [133, 0, 255], [0, 255, 92], [184, 0, 255],
-            [255, 0, 31], [0, 184, 255], [0, 214, 255], [255, 0, 112],
-            [92, 255, 0], [0, 224, 255], [112, 224, 255], [70, 184, 160],
-            [163, 0, 255], [153, 0, 255], [71, 255, 0], [255, 0, 163],
-            [255, 204, 0], [255, 0, 143], [0, 255, 235], [133, 255, 0],
-            [255, 0, 235], [245, 0, 255], [255, 0, 122], [255, 245, 0],
-            [10, 190, 212], [214, 255, 0], [0, 204, 255], [20, 0, 255],
-            [255, 255, 0], [0, 153, 255], [0, 41, 255], [0, 255, 204],
-            [41, 0, 255], [41, 255, 0], [173, 0, 255], [0, 245, 255],
-            [71, 0, 255], [122, 0, 255], [0, 255, 184], [0, 92, 255],
-            [184, 255, 0], [0, 133, 255], [255, 214, 0], [25, 194, 194],
-            [102, 255, 0], [92, 0, 255]]
+                [4, 200, 3], [120, 120, 80], [140, 140, 140], [204, 5, 255],
+                [230, 230, 230], [4, 250, 7], [224, 5, 255], [235, 255, 7],
+                [150, 5, 61], [120, 120, 70]]
+    
+    @staticmethod
+    def get_isic_class_names() -> Dict[int, str]:
+        # ISIC 2018 Class Names (Binary: skin lesion segmentation)
+        # Source: https://challenge.isic-archive.com/
+        isic_class_names: Dict[int, str] = {
+            0: "background",  # Healthy skin / non-lesion area
+            1: "lesion"       # Skin lesion (melanoma, nevus, etc.)
+        }
+
+        # Проверка
+        print(f"✅ ISIC classes loaded: {len(isic_class_names)} classes (binary)")
+        print(f"   Classes: {list(isic_class_names.values())}")
+        return isic_class_names
+    
+    @staticmethod
+    def binary_palette() -> List[List[int]]:
+        """ADE20K palette that maps each class to RGB values."""
+        return [[120, 120, 120], [180, 120, 120]]
+    
+    @staticmethod
+    def _resize_mask_to_original(mask: np.ndarray, target_size: tuple) -> np.ndarray:
+        """Утилита для ресайза маски — используется в стратегиях при необходимости"""
+        from scipy.ndimage import zoom
+        if mask.shape != target_size:
+            sh, sw = target_size[0] / mask.shape[0], target_size[1] / mask.shape[1]
+            return zoom(mask, (sh, sw), order=0)
+        return mask
     
     def load_image(
         self, 
@@ -157,6 +217,134 @@ class NeuralSegmenter(BaseSegmenter):
             raise ValueError("Unsupported input type. Provide a file path, URL, or PIL.Image.")
         return img
     
+    def predict_segmentation_map(
+        self, 
+        input_image: Union[str, Image.Image],
+        verbose: bool = True,
+        class_names: dict = None,
+        gt_mask = None
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """
+        Предсказание карты сегментации с опциональной вербозностью и метриками.
+        Инференс полностью делегируется стратегиям из inference/strategies.py
+        ДЕЛЕГИРУЕТ standalone функции из strategies.py
+        
+        Returns:
+            Tuple[np.ndarray, Dict]: (seg_map, result_dict)
+        """
+        # Вызываем standalone функцию
+        overlay, result_info = infer_unified(
+            model=self.model,
+            processor=self.processor,
+            image_input=input_image,
+            model_type=self.model_type_str,
+            alpha=0.5,
+            palette=self.palette,
+            device=str(self.device),
+            verbose=verbose,
+            num_classes=self.num_classes,
+            class_names=class_names,
+            gt_mask=gt_mask
+        )
+        
+        # Возвращаем маску + инфо (как было раньше)
+        return result_info["mask"], result_info
+
+    def segment_image_unified(
+        self,
+        input_image: Union[str, Image.Image],
+        alpha: float = 0.5,
+        verbose: bool = True,
+        class_names: dict = None,
+        gt_mask = None
+    ) -> Tuple[Image.Image, Dict[str, Any]]:
+        """
+        Универсальная функция сегментации для любой архитектуры.
+        """
+
+        # Получаем маску и инфо
+        return infer_unified(
+            model=self.model,
+            processor=self.processor,
+            image_input=input_image,
+            model_type=self.model_type_str,
+            alpha=alpha,
+            palette=self.palette,
+            device=str(self.device),
+            verbose=verbose,
+            num_classes=self.num_classes,
+            class_names=class_names,
+            gt_mask=gt_mask
+        )
+    
+    def prepare_mask_for_overlay(self, mask_input) -> np.ndarray:
+        """
+        Конвертирует маску в 2D numpy array для create_overlay.
+        
+        Handles:
+        - PIL Image (RGB or L)
+        - numpy array with extra dimensions
+        - RGB label images (converts to single channel)
+        """
+        
+        # Конвертируем PIL → numpy если нужно
+        if isinstance(mask_input, Image.Image):
+            mask = np.array(mask_input)
+        else:
+            mask = np.array(mask_input)
+        
+        if mask.ndim == 3:
+            if mask.shape[2] == 1:
+                # (H, W, 1) → (H, W)
+                mask = mask.squeeze(2)
+            elif mask.shape[2] == 3:
+                # RGB изображение → нужно конвертировать в классы
+                # Для Cityscapes: используем первый канал или конвертируем через палитру
+                print(f"⚠️  RGB mask detected, using first channel")
+                mask = mask[:, :, 0]  # или используйте proper label conversion
+            else:
+                raise ValueError(f"Unexpected mask shape: {mask.shape}")
+        elif mask.ndim > 3:
+            mask = np.squeeze(mask)
+        
+        # Финальная проверка
+        if mask.ndim != 2:
+            raise ValueError(f"Mask must be 2D after processing, got {mask.ndim}D")
+        
+        return mask
+    
+    def segment_image(
+        self, 
+        input_image: Union[str, Image.Image], 
+        alpha: float = 0.5
+    ) -> Image.Image:
+        """
+        Performs semantic segmentation on an image and returns an overlay mask.
+
+        Args:
+            input_image (str or PIL.Image): Path to an image file, URL, or a PIL Image instance.
+            alpha (float): Blending factor for overlay. 0 = only original, 1 = only mask.
+
+        Returns:
+            PIL.Image: The original image blended with the segmentation mask.
+        """
+        img: Image.Image = self.load_image(input_image)
+        
+        # Получаем карту сегментации
+        seg_map, _ = self.predict_segmentation_map(image, verbose=False)
+        
+        # Create color mask
+        palette_array: np.ndarray = np.array(self.palette, dtype=np.uint8)
+        h, w = seg_map.shape
+        color_mask = np.zeros((seg_map.shape[0], seg_map.shape[1], 3), dtype=np.uint8)
+        for label, color in enumerate(palette_array[:seg_map.max()+1]):
+            color_mask[seg_map == label] = color
+        
+        # Blend original and mask
+        orig_arr: np.ndarray = np.array(img.convert("RGB"))
+        overlay: np.ndarray = (orig_arr * (1 - alpha) + color_mask * alpha).astype(np.uint8)
+        return Image.fromarray(overlay)
+    
     def segment(
         self, 
         image: Union[str, Image.Image], 
@@ -177,7 +365,7 @@ class NeuralSegmenter(BaseSegmenter):
     def segment_with_mask(
         self, 
         image: Union[str, Image.Image], 
-        alpha: float = 0.5
+        alpha: float = 0.2
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Сегментация с возвратом визуализации и маски.
@@ -197,7 +385,7 @@ class NeuralSegmenter(BaseSegmenter):
         result_np: np.ndarray = np.array(result_img)
         
         # Получаем карту сегментации
-        seg_map: np.ndarray = self.predict_segmentation_map(image)
+        seg_map, _ = self.predict_segmentation_map(image, verbose=False)
 
         unique_classes = np.unique(seg_map)
         print("Предугаданные классы:", unique_classes)
@@ -210,80 +398,17 @@ class NeuralSegmenter(BaseSegmenter):
         # Создаем бинарную маску (все, что не фон)
         mask: np.ndarray = (seg_map > 0).astype(np.uint8) * 255
         
-        if len(result_np.shape) == 2:
-            result_np = cv2.cvtColor(result_np, cv2.COLOR_GRAY2RGB)
+        # if len(result_np.shape) == 2:
+        #     result_np = cv2.cvtColor(result_np, cv2.COLOR_GRAY2RGB)
         
-        overlay = result_np.copy()
-        mask_bool: np.ndarray = mask > 0
-        overlay[mask_bool] = [255, 0, 0]
-        result = cv2.addWeighted(result_np, 0.2, overlay, 0.8, 0)
+        # overlay = result_np.copy()
+        # mask_bool: np.ndarray = mask > 0
+        # overlay[mask_bool] = [255, 0, 0]
+        # result = cv2.addWeighted(result_np, alpha, overlay, 1 - alpha, 0)
         
         print(f"Neural segmentation completed in {time.time() - start_time:.2f}s")
         
-        return result, mask
-
-    def segment_image(
-        self, 
-        input_image: Union[str, Image.Image], 
-        alpha: float = 0.5
-    ) -> Image.Image:
-        """
-        Performs semantic segmentation on an image and returns an overlay mask.
-
-        Args:
-            input_image (str or PIL.Image): Path to an image file, URL, or a PIL Image instance.
-            alpha (float): Blending factor for overlay. 0 = only original, 1 = only mask.
-
-        Returns:
-            PIL.Image: The original image blended with the segmentation mask.
-        """
-        img: Image.Image = self.load_image(input_image)
-        
-        # Получаем карту сегментации
-        seg_map: np.ndarray = self.predict_segmentation_map(img)
-        
-        # Create color mask
-        palette_array: np.ndarray = np.array(self.palette, dtype=np.uint8)
-        color_mask = np.zeros((seg_map.shape[0], seg_map.shape[1], 3), dtype=np.uint8)
-        for label, color in enumerate(palette_array):
-            color_mask[seg_map == label] = color
-        
-        # Blend original and mask
-        orig_arr = np.array(img)
-        overlay = (orig_arr * (1 - alpha) + color_mask * alpha).astype(np.uint8)
-        return Image.fromarray(overlay)
-    
-    def predict_segmentation_map(
-        self, 
-        input_image: Union[str, Image.Image]
-    ) -> np.ndarray:
-        """Предсказание карты сегментации"""
-        # Load image
-        img: Image.Image = self.load_image(input_image)
-        
-        # Preprocess
-        pixel_values = self.processor(img, return_tensors="pt").pixel_values.to(self.device)
-        
-        # Forward pass
-        with torch.no_grad():
-            outputs = self.model(pixel_values)
-            logits = outputs.logits
-        
-        # Post-process to get mask
-        seg_map = self.processor.post_process_semantic_segmentation(
-            outputs, target_sizes=[img.size[::-1]]
-        )[0].cpu().numpy()
-        print(seg_map)
-
-        unique_classes = np.unique(seg_map)
-        print("Предугаданные классы:", unique_classes)
-
-        # Проверяем количество пикселей для каждого класса
-        for cls in unique_classes:
-            count = (seg_map == cls).sum()
-            print(f"Class {cls}: {count} pixels")
-        
-        return seg_map
+        return result_np, mask
     
     def detailed_segmentation(
         self, 
@@ -295,7 +420,7 @@ class NeuralSegmenter(BaseSegmenter):
         img: Image.Image = self.load_image(input_image)
         
         # Получаем карту сегментации
-        seg_map: np.ndarray = self.predict_segmentation_map(img)
+        seg_map, _ = self.predict_segmentation_map(image, verbose=False)
         
         # Создаем цветную сегментацию
         palette_array: np.ndarray = np.array(self.palette, dtype=np.uint8)
@@ -336,152 +461,33 @@ class NeuralSegmenter(BaseSegmenter):
             'total_classes': len(unique_classes)
         }
     
-    def get_class_info(self) -> None:
+    def get_class_info(self) -> Dict[str, Any]:
         """Получить информацию о классах модели"""
-        if hasattr(self, 'model') and hasattr(self.model, 'config'):
-            return {
-                'num_classes': self.model.config.num_labels,
-                'id2label': self.model.config.id2label,
-                'label2id': self.model.config.label2id
-            }
-    
-    def visualize_segmentation(
-        self, 
-        input_image: Union[str, Image.Image],
-        alpha: float = 0.5,
-        figsize: Tuple[int, int] = (15, 5)
-    ) -> Image.Image:
-        """Базовая визуализация сегментации"""
-        img: Image.Image = self.load_image(input_image)
-        result_img: Image.Image = self.segment_image(input_image, alpha)
+        if not hasattr(self, 'model'):
+            return {'error': 'Model not initialized'}
         
-        fig, axes = plt.subplots(1, 2, figsize=figsize)
+        # 🔥 HuggingFace модели
+        if hasattr(self.model, 'config'):
+            config = self.model.config
+            if hasattr(config, 'num_labels'):
+                return {
+                    'num_classes': int(config.num_labels),
+                    'id2label': getattr(config, 'id2label', {}),
+                    'label2id': getattr(config, 'label2id', {})
+                }
         
-        axes[0].imshow(img)
-        axes[0].set_title("Original Image")
-        axes[0].axis('off')
+        # 🔥 SMP / Torchvision модели: ищем последний Conv2d
+        for module in reversed(list(self.model.modules())):
+            if isinstance(module, torch.nn.Conv2d):
+                return {
+                    'num_classes': int(module.out_channels),
+                    'id2label': {},  # Нет mapping для SMP
+                    'label2id': {}
+                }
         
-        axes[1].imshow(result_img)
-        axes[1].set_title(f"Neural Segmentation (alpha={alpha})")
-        axes[1].axis('off')
-        
-        plt.tight_layout()
-        plt.show()
-        
-        return result_img
-    
-    def segment_and_evaluate(
-        self, 
-        image: Union[str, np.ndarray, Image.Image],
-        ground_truth: np.ndarray,
-        threshold: float = 0.5
-    ) -> Tuple[Dict[str, float], np.ndarray]:
-        """
-        Сегментирует изображение и вычисляет метрики относительно ground truth.
-        
-        Args:
-            image: Входное изображение
-            ground_truth: Ground truth маска
-            threshold: Порог для метрик
-            
-        Returns:
-            Tuple[Dict[str, float], np.ndarray]: (метрики, предсказанная маска)
-        """
-        # Получаем сегментированное изображение и маску
-        result_img, pred_mask = self.segment_with_mask(image)
-        
-        # Для нейросетевого сегментатора: получаем карту сегментации
-        seg_map = self.predict_segmentation_map(image)
-        
-        # Определяем фон как самый частый класс
-        unique_classes, counts = np.unique(seg_map, return_counts=True)
-        if len(unique_classes) > 0:
-            bg_class = unique_classes[np.argmax(counts)]
-            # Создаем бинарную маску (все не-фоновые классы = объект)
-            pred_mask_binary = (seg_map != bg_class).astype(np.uint8) * 255
-        else:
-            pred_mask_binary = np.zeros_like(seg_map, dtype=np.uint8)
-        
-        # Приводим к одинаковому размеру с ground truth
-        h, w = min(pred_mask_binary.shape[0], ground_truth.shape[0]), \
-            min(pred_mask_binary.shape[1], ground_truth.shape[1])
-        
-        pred_mask_resized = pred_mask_binary[:h, :w]
-        gt_mask_resized = ground_truth[:h, :w]
-        
-        # Вычисляем метрики
-        metrics = self._calculate_segmentation_metrics(pred_mask_resized, gt_mask_resized)
-        
-        return metrics, pred_mask_binary
-
-    def _calculate_segmentation_metrics(
-        self, 
-        pred_mask: np.ndarray, 
-        gt_mask: np.ndarray
-    ) -> Dict[str, float]:
-        """Вычисляет метрики качества сегментации"""
-        # Бинаризация
-        pred_bin = (pred_mask > 127).astype(np.uint8).flatten()
-        gt_bin = (gt_mask > 127).astype(np.uint8).flatten()
-        
-        # Вычисляем базовые метрики
-        
-        try:
-            tn, fp, fn, tp = confusion_matrix(gt_bin, pred_bin, labels=[0, 1]).ravel()
-        except ValueError:
-            # Если только один класс присутствует
-            if np.all(pred_bin == 0) and np.all(gt_bin == 0):
-                tn, fp, fn, tp = len(pred_bin), 0, 0, 0
-            elif np.all(pred_bin == 1) and np.all(gt_bin == 1):
-                tn, fp, fn, tp = 0, 0, 0, len(pred_bin)
-            else:
-                tn, fp, fn, tp = 0, 0, 0, 0
-        
-        metrics = {}
-        
-        # Accuracy
-        metrics['accuracy'] = (tp + tn) / (tp + tn + fp + fn + 1e-8)
-        
-        # Precision
-        metrics['precision'] = tp / (tp + fp + 1e-8)
-        
-        # Recall
-        metrics['recall'] = tp / (tp + fn + 1e-8)
-        
-        # F1 Score
-        if metrics['precision'] + metrics['recall'] > 0:
-            metrics['f1_score'] = 2 * (metrics['precision'] * metrics['recall']) / \
-                                (metrics['precision'] + metrics['recall'] + 1e-8)
-        else:
-            metrics['f1_score'] = 0.0
-        
-        # IoU (Jaccard)
-        intersection = np.sum(pred_bin & gt_bin)
-        union = np.sum(pred_bin | gt_bin)
-        metrics['iou'] = intersection / (union + 1e-8)
-        
-        # Dice Coefficient
-        metrics['dice'] = (2 * intersection) / (np.sum(pred_bin) + np.sum(gt_bin) + 1e-8)
-        
-        # Pixel Accuracy
-        metrics['pixel_accuracy'] = np.sum(pred_bin == gt_bin) / len(pred_bin)
-        
-        # MAE
-        if pred_mask.max() > 1:
-            pred_norm = pred_mask.astype(float) / 255.0
-        else:
-            pred_norm = pred_mask.astype(float)
-        
-        if gt_mask.max() > 1:
-            gt_norm = gt_mask.astype(float) / 255.0
-        else:
-            gt_norm = gt_mask.astype(float)
-        
-        metrics['mae'] = np.abs(pred_norm - gt_norm).mean()
-        
-        # Area metrics
-        metrics['predicted_area'] = float(np.sum(pred_bin))
-        metrics['ground_truth_area'] = float(np.sum(gt_bin))
-        metrics['area_difference'] = abs(metrics['predicted_area'] - metrics['ground_truth_area'])
-        
-        return metrics
+        # Fallback
+        return {
+            'num_classes': self.num_classes,
+            'id2label': {},
+            'label2id': {}
+        }

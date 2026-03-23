@@ -1186,6 +1186,7 @@ class TorchSegmenter(BaseSegmenter):
     def _segment_with_visualization(
         self, 
         tensor: torch.Tensor,
+        alpha: float = 0.9,
         **kwargs
     ) -> Tuple[Union[torch.Tensor, np.ndarray], torch.Tensor]:
         """Сегментация с визуализацией для конкретного метода"""
@@ -1236,7 +1237,7 @@ class TorchSegmenter(BaseSegmenter):
                 red_mask[mask_bool, 2] = 0    # Синий канал
             
             # Смешиваем с оригиналом
-            result = cv2.addWeighted(img_np, 0.5, red_mask, 0.5, 0)
+            result = cv2.addWeighted(img_np, alpha, red_mask, (1 - alpha), 0)
             
             mask_tensor = torch.from_numpy(mask_np).float().to(self.device) if not isinstance(mask, torch.Tensor) else mask
             return result, mask_tensor

@@ -323,7 +323,8 @@ class SklearnSegmenter(BaseSegmenter):
     
     def segment_with_mask(
         self, 
-        image: np.ndarray, 
+        image: np.ndarray,
+        alpha: float = 0.9, 
         **kwargs
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -355,9 +356,7 @@ class SklearnSegmenter(BaseSegmenter):
             original_rgb = image
         
         # Смешивание
-        alpha = 0.9
-        beta = 0.1
-        result = (alpha * overlay + beta * original_rgb).astype(np.uint8)
+        result = (alpha * overlay + (1 - alpha) * original_rgb).astype(np.uint8)
 
         print(f"Mask after sklearn segment_with_mask: {mask}")
         print(f"Result after sklearn segment_with_mask: {result}")

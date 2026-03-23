@@ -1,2 +1,0 @@
-accuracy,precision,recall,f1_score,iou,dice,pixel_accuracy,mae,predicted_area,ground_truth_area,area_difference,method,time
-0.38751086658124806,0.0,0.0,0.0,0.0,0.0,0.38751086658125916,0.6054811529296932,214185.0,0.0,214185.0,Neural_SegFormer,0.6141023635864258

@@ -57,3 +57,5 @@ __pycache__/
 *.pyc
 
 MLvenv/
+data/
+data_9/

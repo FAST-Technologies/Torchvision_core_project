@@ -13,8 +13,6 @@ from typing import (
     Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
 )
 from PIL import Image
-import requests
-from io import BytesIO
 
 class TorchImplementationValidator:
     """
@@ -41,39 +39,39 @@ class TorchImplementationValidator:
             ("canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
         ]
 
-        # self.region_methods: List[Tuple[str, Dict[str, Any]]] = [
-        #     ("region_growing", {'tolerance': 0.1}),
-        #     ("split_and_merge", {'min_size': 50, 'threshold': 20}),
-        #     ("floodfill", {'tolerance': 0.15}),
-        # ]
+        self.region_methods: List[Tuple[str, Dict[str, Any]]] = [
+            ("region_growing", {'tolerance': 0.1}),
+            ("split_and_merge", {'min_size': 50, 'threshold': 20}),
+            ("floodfill", {'tolerance': 0.15}),
+        ]
 
-        # self.clastering_methods: List[Tuple[str, Dict[str, Any]]] = [
-        #     ("kmeans_segmentation", {'k': 3}),
-        #     ("dbscan_segmentation", {'eps': 0.1, 'min_samples': 10}),
-        #     ("meanshift", {'bandwidth': 0.5, 'spatial_radius': 35, 'color_radius': 60, 'max_level': 1}),
-        # ]
+        self.clastering_methods: List[Tuple[str, Dict[str, Any]]] = [
+            ("kmeans_segmentation", {'k': 3}),
+            ("dbscan_segmentation", {'eps': 0.1, 'min_samples': 10}),
+            ("meanshift", {'bandwidth': 0.5, 'spatial_radius': 35, 'color_radius': 60, 'max_level': 1}),
+        ]
 
-        # self.active_contour_methods: List[Tuple[str, Dict[str, Any]]] = [
-        #     ("active_contour", {'alpha': 0.015, 'beta': 10, 'gamma': 0.001, 'max_iterations': 2000, 'w_edge': 1, 'w_line': 0}),
-        #     ("gvf_contour", {'mu': 0.1, 'iterations': 50}),
-        #     ("morphological_snakes", {'iterations': 100, 'smoothing': 1, 'threshold': 0.5}),
-        #     ("chan_vese", {'mu': 0.25, 'lambda1': 1.0, 'lambda2': 1.0, 'tol': 1e-3, 'max_iter': 100, 'dt': 0.5, 'eps': 1.0, 'init_level_set': 'checkerboard'}),
-        # ]
+        self.active_contour_methods: List[Tuple[str, Dict[str, Any]]] = [
+            ("active_contour", {'alpha': 0.015, 'beta': 10, 'gamma': 0.001, 'max_iterations': 2000, 'w_edge': 1, 'w_line': 0}),
+            ("gvf_contour", {'mu': 0.1, 'iterations': 50}),
+            ("morphological_snakes", {'iterations': 100, 'smoothing': 1, 'threshold': 0.5}),
+            ("chan_vese", {'mu': 0.25, 'lambda1': 1.0, 'lambda2': 1.0, 'tol': 1e-3, 'max_iter': 100, 'dt': 0.5, 'eps': 1.0, 'init_level_set': 'checkerboard'}),
+        ]
 
-        # self.watershed_methods: List[Tuple[str, Dict[str, Any]]] = [
-        #     ("watershed", {}),
-        #     ("random_walker", {'beta': 130, 'tol': 1e-3, 'max_iter': 300, 'target_label': 2}),
-        # ]
+        self.watershed_methods: List[Tuple[str, Dict[str, Any]]] = [
+            ("watershed", {}),
+            ("random_walker", {'beta': 130, 'tol': 1e-3, 'max_iter': 300, 'target_label': 2}),
+        ]
 
-        # self.super_pixel_methods: List[Tuple[str, Dict[str, Any]]] = [
-        #     # ("quickshift", {'kernel_size': 5, 'max_dist': 10, 'ratio': 1.0, 'sigma': 0.0, 'convert2lab': True}),
-        #     ("slic", {'n_segments': 100, 'compactness': 10.0, 'max_iter': 10, 'sigma': 0.0, 'enforce_connectivity': True, 'min_size_factor': 0.5, 'max_size_factor': 3.0, 'ruler': 10.0, 'region_size': 20}),
-        #     ("felzenszwalb", {'scale': 100, 'sigma': 0.5, 'min_size': 50}),
-        # ]
+        self.super_pixel_methods: List[Tuple[str, Dict[str, Any]]] = [
+            # ("quickshift", {'kernel_size': 5, 'max_dist': 10, 'ratio': 1.0, 'sigma': 0.0, 'convert2lab': True}),
+            ("slic", {'n_segments': 100, 'compactness': 10.0, 'max_iter': 10, 'sigma': 0.0, 'enforce_connectivity': True, 'min_size_factor': 0.5, 'max_size_factor': 3.0, 'ruler': 10.0, 'region_size': 20}),
+            ("felzenszwalb", {'scale': 100, 'sigma': 0.5, 'min_size': 50}),
+        ]
 
-        # self.interactive_methods: List[Tuple[str, Dict[str, Any]]] = [
-        #     ("grabcut", {'num_iterations': 5}),
-        # ]
+        self.interactive_methods: List[Tuple[str, Dict[str, Any]]] = [
+            ("grabcut", {'num_iterations': 5}),
+        ]
         
         # Пороги успешности валидации
         self.success_thresholds: Dict[str, float] = {
@@ -138,7 +136,7 @@ class TorchImplementationValidator:
         print(f"Референс: {reference.upper()}")
         print(f"{'='*60}")
         results = {}
-        img_array = self._load_image(image_path)
+        img_array: np.ndarray = self._load_image(image_path)
         
         for (method_name, params) in methods_list:
             print(f"\n📊 Метод: {method_name}")
@@ -163,6 +161,10 @@ class TorchImplementationValidator:
                 metrics = SegmentationMetrics.calculate_all_metrics(
                     torch_mask, ref_mask, threshold=0.5, include_hausdorff=True
                 )
+
+                metrics["first_method_time"] = execution_method_1_time
+                metrics["second_method_time"] = execution_method_2_time
+                metrics["methods_time_difference"] = difference_methods_time
                 
                 # Определяем статус валидации
                 validation_status = self._check_validation_status(metrics)
@@ -421,12 +423,23 @@ class TorchImplementationValidator:
                 metrics = data['metrics']
                 report_lines.append(
                     f"{icon} {method}: "
+                    f"Accuracy={metrics['accuracy']:.3f}, "
                     f"IoU={metrics['iou']:.3f}, "
                     f"Dice={metrics['dice']:.3f}, "
-                    f"Acc={metrics['pixel_accuracy']:.3f} "
+                    f"Precision={metrics['precision']:.3f}, "
+                    f"Recall={metrics['recall']:.3f}, "
+                    f"F1_Score={metrics['f1_score']:.3f}, "
+                    f"Pixel_accuracy={metrics['pixel_accuracy']:.3f} "
+                    f"MAE={metrics['mae']:.3f} "
+                    f"Hausdorf_distance={metrics['mae']:.3f} "
+                    f"Area_ratio={metrics['area_ratio']:.3f} "
+                    f"Area_difference={metrics['area_difference']:.3f} "
+                    f"Segmenter_1_time={metrics['first_method_time']:.3f} "
+                    f"Segmenter_2_time={metrics['second_method_time']:.3f} "
+                    f"Segmenter_difference_time={metrics['methods_time_difference']:.3f} "
                     f"[{status}]"
                 )
-        
+
         report_lines.append("")
         report_lines.append("="*60)
         report_lines.append("СВОДНАЯ СТАТИСТИКА")
@@ -434,9 +447,9 @@ class TorchImplementationValidator:
         report_lines.append(f"Всего методов: {total_methods}")
         
         if total_methods > 0:
-            report_lines.append(f"✅ PASS: {passed_methods} ({passed_methods/total_methods*100:.1f}%)")
-            report_lines.append(f"⚠️ WARNING: {warning_methods} ({warning_methods/total_methods*100:.1f}%)")
-            report_lines.append(f"❌ FAIL: {failed_methods} ({failed_methods/total_methods*100:.1f}%)")
+            report_lines.append(f"✅ PASS: {passed_methods} ({passed_methods/total_methods*100:.2f}%)")
+            report_lines.append(f"⚠️ WARNING: {warning_methods} ({warning_methods/total_methods*100:.2f}%)")
+            report_lines.append(f"❌ FAIL: {failed_methods} ({failed_methods/total_methods*100:.2f}%)")
         else:
             report_lines.append("⚠️ Нет данных для статистики (все методы не прошли)")
         

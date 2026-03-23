@@ -1,0 +1,49 @@
+# configs/neural_models.yaml
+models:
+  segformer:
+    variants:
+      b0: "nvidia/segformer-b0-finetuned-ade-512-512"
+      b1: "nvidia/segformer-b1-finetuned-ade-512-512"
+      b2: "nvidia/segformer-b2-finetuned-ade-512-512"
+      b3: "nvidia/segformer-b3-finetuned-ade-640-640"
+      b4: "nvidia/segformer-b4-finetuned-ade-640-640"
+      b5: "nvidia/segformer-b5-finetuned-ade-640-640"
+    default: "b5"
+  
+  mask2former:
+    variants:
+      swin_base: "facebook/mask2former-swin-base-ade-semantic"
+      swin_large: "facebook/mask2former-swin-large-ade-semantic"
+    default: "swin_base"
+  
+  oneformer:
+    variants:
+      swin_large: "shi-labs/oneformer_ade20k_swin_large"
+    default: "swin_large"
+  
+  deeplab:
+    variants:
+      resnet50: "deeplabv3_resnet50"
+      resnet101: "deeplabv3_resnet101"
+    default: "resnet101"
+  
+  unet:
+    encoders:
+      - "resnet34"
+      - "resnet50"
+      - "efficientnet-b0"
+      - "mit_b5"
+    default: "resnet34"
+
+training:
+  ade20k:
+    image_size: [512, 512]
+    batch_size: 4
+    epochs: 50
+    lr: 1.0e-4
+    weight_decay: 1.0e-4
+    early_stop_patience: 5
+
+metrics:
+  threshold: 0.5
+  include_hausdorff: true

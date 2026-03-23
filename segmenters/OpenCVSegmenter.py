@@ -166,7 +166,9 @@ class OpenCVSegmenter(BaseSegmenter):
     
     def segment_with_mask(
         self, 
-        image: np.ndarray, **kwargs
+        image: np.ndarray,
+        alpha: float = 0.9, 
+        **kwargs
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Сегментация с возвратом визуализации и маски.
@@ -196,9 +198,9 @@ class OpenCVSegmenter(BaseSegmenter):
             overlay = image.copy()
         
         overlay[mask > 0] = [255, 0, 0]
-        result = cv2.addWeighted(overlay, 0.9, 
+        result = cv2.addWeighted(overlay, alpha, 
                                 cv2.cvtColor(image, cv2.COLOR_GRAY2RGB) if len(image.shape)==2 else image, 
-                                0.1, 0)
+                                1 - alpha, 0)
         
         print(f"Mask after OpenCV segment_with_mask: {mask}")
         print(f"Result after OpenCV segment_with_mask: {result}")
