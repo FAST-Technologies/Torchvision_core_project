@@ -750,13 +750,13 @@ def _log_inference_details_standalone(
             name = class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
             pct = 100 * count / total_pixels
             class_stats.append((cls, name, count, pct))
-            print(f"     Class {cls:3d}: {count:6d} px ({pct:5.1f}%)")
+            print(f"     Class {cls:3d}: {count:6d} px ({pct:5.3f}%)")
     
     n_classes = _get_num_classes_standalone(model, model_type, fallback=num_classes)
     
     class_stats.sort(key=lambda x: x[2], reverse=True)
     for cls, name, count, pct in class_stats[:10]:
-        print(f"     {cls:3d}: {name:25s} {count:7,} px ({pct:5.1f}%)")
+        print(f"     {cls:3d}: {name:25s} {count:7,} px ({pct:5.3f}%)")
     
     # Вывод информации о классах
     if hasattr(model, 'config') and hasattr(model.config, 'id2label'):

@@ -66,7 +66,6 @@ from skimage.filters import (
     threshold_sauvola, gaussian, sobel, prewitt, roberts,
     scharr, laplace, farid, butterworth
 )
-# from skimage.future import graph
 from skimage.measure import label, regionprops
 from skimage.morphology import (
     disk, square, dilation, erosion, opening, closing,

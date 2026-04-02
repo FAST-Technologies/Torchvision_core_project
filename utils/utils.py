@@ -175,7 +175,7 @@ def analyze_prediction(
     total: int = len(mask_valid)
     
     print(f"\n📊 Prediction Analysis")
-    print(f"   Valid pixels: {total:,} / {mask.size:,} ({100*total/mask.size:.1f}%)")
+    print(f"   Valid pixels: {total:,} / {mask.size:,} ({100*total/mask.size:.3f}%)")
     print(f"   Unique classes: {len(unique)}")
     
     # Топ классы
@@ -187,12 +187,12 @@ def analyze_prediction(
         cnt = counts[idx]
         pct = 100 * cnt / total
         name = class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
-        print(f"     {cls:3d}: {name:25s} {cnt:7,} px ({pct:5.1f}%)")
+        print(f"     {cls:3d}: {name:25s} {cnt:7,} px ({pct:5.3f}%)")
     
     # Проверка на доминирующий класс
     if len(counts) > 0 and counts[0] / total > 0.5:
         dominant_cls = unique[np.argmax(counts)]
-        print(f"\n   ⚠️  Dominant class: {dominant_cls} ({100*counts.max()/total:.1f}% of pixels)")
+        print(f"\n   ⚠️  Dominant class: {dominant_cls} ({100*counts.max()/total:.3f}% of pixels)")
         print(f"      This may indicate under-segmentation or background bias")
     
     return {

@@ -877,7 +877,7 @@ class NeuralModelFactory:
             raise ImportError("ultralytics library required for SAM")
         
         if os.path.exists(model_name):
-            print(f"   📁 Found: {model_name} ({os.path.getsize(model_name) / 1024**2:.1f} MB)")
+            print(f"   📁 Found: {model_name} ({os.path.getsize(model_name) / 1024**2:.3f} MB)")
         elif not model_name.startswith("sam2"):
             print(f"   ⚠️ Warning: {model_name} not found in current directory")
         
@@ -899,7 +899,7 @@ class NeuralModelFactory:
     ) -> None:
         """Вывод параметров SAM"""
         if os.path.exists(model_name):
-            print(f"   📁 Found: {model_name} ({os.path.getsize(model_name) / 1024**2:.1f} MB)")
+            print(f"   📁 Found: {model_name} ({os.path.getsize(model_name) / 1024**2:.3f} MB)")
         elif not model_name.startswith("sam2"):
             print(f"   ⚠️ Warning: {model_name} not found in current directory")
         

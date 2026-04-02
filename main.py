@@ -5,6 +5,7 @@ from segmenters.NeuralSegmenter import NeuralSegmenter
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
 from segmenters.TorchSegmenter import TorchSegmenter
+from segmenters.ModelTrainer import ModelTrainer, TrainingConfig
 from segmenters.NeuralTrainer import NeuralTrainer
 from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType
 from testing.SegmentationTester import SegmentationTester
@@ -36,6 +37,8 @@ import time
 import requests
 from io import BytesIO
 from PIL import Image
+import json
+import glob
 
 from huggingface_hub import hf_hub_download
 import matplotlib.pyplot as plt
@@ -52,7 +55,8 @@ warnings.filterwarnings('ignore')
 num_classes: int = 150
 
 def main():
-    test_neural_logic: bool = False
+    test_neural_logic: bool = True
+    test_classic_logic: bool = False
     print(f"📍 CWD: {os.getcwd()}")
     print(f"📍 __file__: {__file__}")
     print(f"📍 sys.path: {sys.path[:3]}...")
@@ -84,7 +88,7 @@ def main():
     tester = SegmentationTester(
         base_output_dir="./data/segmentation_tester_results",
         enable_warmup=True,
-        n_warmup_runs=3
+        n_warmup_runs=5
     )
     
     print("\n1. Загрузка методов OpenCV...")
@@ -168,12 +172,13 @@ def main():
         # "GrabCut_Torch": TorchSegmenter("grabcut", rect=(100, 100, 200, 200), num_iterations=5),
     }
 
-    try:
-        for name, segmenter in {**cv2_methods, **sklearn_methods, **torch_methods}.items():
-            tester.add_method(name, segmenter)
-            print(f"   ✅ {name}")
-    except Exception as e:
-        print(f"  ⚠️ Загружаемые методы недоступны: {e}")
+    if test_classic_logic==True:
+        try:
+            for name, segmenter in {**cv2_methods, **sklearn_methods, **torch_methods}.items():
+                tester.add_method(name, segmenter)
+                print(f"   ✅ {name}")
+        except Exception as e:
+            print(f"  ⚠️ Загружаемые методы недоступны: {e}")
 
     print("🧹 Очистка памяти CUDA перед загрузкой тяжелой модели...")
     if torch.cuda.is_available():
@@ -187,12 +192,12 @@ def main():
             {"name": "SegFormer_B5", "type": "segformer", "model_name": "nvidia/segformer-b5-finetuned-ade-640-640", "local_path": "/home/yamshchikov/models/segformer-b5-ready"},
             {"name": "Mask2Former", "type": "mask2former", "model_name": "facebook/mask2former-swin-base-ade-semantic"},
             # Обученные
-            {"name": "DeepLabV3+_Trained", "type": "deeplab_tv", "checkpoint_path": "./models/deeplab_ade20k_best.pth"},
-            {"name": "U-Net_Trained", "type": "unet_smp", "checkpoint_path": "./models/unet_ade20k_best.pth"},
-            {"name": "FPN_MiT-B5_Trained", "type": "fpn_smp", "checkpoint_path": "./models/fpn_mit_b5_ade20k_best.pth"},
-            {"name": "PSPNet_MiT-B5_Trained", "type": "pspnet_smp", "checkpoint_path": "./models/psp_mit_b5_ade20k_best.pth"},
-            {"name": "FCN_ResNet50_Trained", "type": "fcn_tv", "checkpoint_path": "./models/fcn_resnet50_ade20k_best.pth"},
-            {"name": "SegNet_Trained", "type": "segnet", "checkpoint_path": "./models/segnet_ade20k_best.pth"},
+            {"name": "DeepLabV3+_Trained", "type": "deeplab_tv", "checkpoint_path": "./models/deeplab_ade20k_best_200_epochs.pth"},
+            {"name": "U-Net_Trained", "type": "unet_smp", "checkpoint_path": "./models/unet_ade20k_best_200_epochs.pth"},
+            {"name": "FPN_MiT-B5_Trained", "type": "fpn_smp", "checkpoint_path": "./models/fpn_mit_b5_ade20k_best_200_epochs.pth"},
+            {"name": "PSPNet_MiT-B5_Trained", "type": "pspnet_smp", "checkpoint_path": "./models/psp_mit_b5_ade20k_best_200_epochs.pth"},
+            {"name": "FCN_ResNet50_Trained", "type": "fcn_tv", "checkpoint_path": "./models/fcn_resnet50_ade20k_best_200_epochs.pth"},
+            {"name": "SegNet_Trained", "type": "segnet", "checkpoint_path": "./models/segnet_ade20k_best_200_epochs.pth"},
         ]
         print("\n4. Загрузка нейросетевых методов...")
         for config in neural_models_config:
@@ -266,7 +271,7 @@ def main():
             {"name": "SegFormer_B2", "type": "segformer", "variant": "b2"},
             {"name": "Mask2Former", "type": "mask2former", "variant": "swin_base"},
             {"name": "U-Net", "type": "unet_smp", "encoder_name": "resnet34"},
-            {"name": "FPN_MiT", "type": "fpn_smp", "encoder_name": "mit_b5", "checkpoint_path": "./models/fpn_mit_b5_best.pth"},
+            {"name": "FPN_MiT", "type": "fpn_smp", "encoder_name": "mit_b5", "checkpoint_path": "./models/fpn_mit_b5_ade20k_best_200_epochs.pth"},
         ]
 
         for config in neural_models_config:
@@ -297,56 +302,109 @@ def main():
                 print(f"   ✅ {config['name']}")
             except Exception as e:
                 print(f"   ❌ {config['name']} - {e}")
-    
-    # ============ 🔥 ЗАПУСК WARM-UP ============
-    print("\n" + "="*60)
-    print("ЗАПУСК WARM-UP ПЕРЕД БЕНЧМАРКОМ")
-    print("="*60)
-    
-    warmup_utility = SegmentationWarmUp(n_warmup_runs=3)
-    
-    # Warm-up всех методов
-    warmup_results = warmup_utility.warmup_all_segmenters(
-        segmenters_dict=tester.methods,
-        verbose=True
-    )
-    
-    # Специализированный warm-up для пороговых методов
-    threshold_warmup = ThresholdWarmUp.warmup_threshold_methods(
-        segmenters_dict=tester.methods,
-        image_sizes=[(128, 128), (256, 256)]
-    )
-    
-    # Специализированный warm-up для граничных методов
-    edge_warmup = ThresholdWarmUp.warmup_edge_methods(
-        segmenters_dict=tester.methods
-    )
-    
-    # Сохраняем отчёт о warm-up
-    with open("./data/warmup_report.txt", "w") as f:
-        f.write("WARM-UP ОТЧЁТ\n")
-        f.write("="*60 + "\n\n")
-        f.write(warmup_utility.get_warmup_summary())
-        f.write("\n\nПороговые методы:\n")
-        f.write(str(threshold_warmup))
-        f.write("\n\nГраничные методы:\n")
-        f.write(str(edge_warmup))
-    
-    print(f"\n✅ Отчёт о warm-up сохранён в ./data/warmup_report.txt")
 
     # ============ 3. БЕНЧМАРК ============
-    print("\n3. Бенчмарк производительности и оценка качества...")
-    for img_name, (img_path, img_pil, gt_mask) in test_images.items():
-        print(f"\n--- Обработка изображения: {img_name} ---")
-        img_array = np.array(img_pil)
-        df_benchmark = tester.benchmark_methods(
-            img_array,
-            n_runs=5,
-            test_name=f"benchmark_{img_name}",
-            save_results=True,
-            force_warmup=False
-        )
-        print(f"   ✅ Бенчмарк для {img_name} завершён")
+    # print("\n3. Бенчмарк производительности и оценка качества перед warm up...")
+    # first_img_array = None
+    # all_comparisons = []
+    # for img_name, (img_path, img_pil, gt_mask) in test_images.items():
+    #     print(f"\n--- Обработка изображения: {img_name} ---")
+    #     img_array = np.array(img_pil)
+    #     if first_img_array is None:
+    #         first_img_array = img_array.copy()
+    #     df_benchmark_before_warm_up = tester.benchmark_methods(
+    #         img_array,
+    #         n_runs=10,
+    #         test_name=f"benchmark_{img_name}_cold_before_warm_up",
+    #         save_results=True,
+    #         force_warmup=False,
+    #         ground_truth=gt_mask
+    #     )
+    #     print(f"   ✅ Бенчмарк для {img_name} завершён")
+    
+    # # ============ 🔥 ЗАПУСК WARM-UP ============
+    # print("\n" + "="*60)
+    # print("ЗАПУСК WARM-UP ПЕРЕД БЕНЧМАРКОМ")
+    # print("="*60)
+
+    # if first_img_array is not None:
+    #     warmup_utility = SegmentationWarmUp(n_warmup_runs=10)
+        
+    #     warmup_results = warmup_utility.warmup_all_segmenters(
+    #         segmenters_dict=tester.methods,
+    #         image=first_img_array,  # ← Используем сохранённое
+    #         verbose=True
+    #     )
+        
+    #     threshold_warmup = ThresholdWarmUp.warmup_threshold_methods(
+    #         segmenters_dict=tester.methods,
+    #         image_sizes=[(128, 128), (256, 256)]
+    #     )
+        
+    #     edge_warmup = ThresholdWarmUp.warmup_edge_methods(
+    #         segmenters_dict=tester.methods
+    #     )
+        
+    #     with open(f"./data/warmup_report.txt", "w") as f:
+    #         f.write("WARM-UP ОТЧЁТ\n")
+    #         f.write("="*60 + "\n\n")
+    #         f.write(warmup_utility.get_warmup_summary())
+    #         f.write("\n\nПороговые методы:\n")
+    #         f.write(str(threshold_warmup))
+    #         f.write("\n\nГраничные методы:\n")
+    #         f.write(str(edge_warmup))
+        
+    #     print(f"\n✅ Отчёт о warm-up сохранён в ./data/warmup_report.txt")
+        
+    #     if torch.cuda.is_available():
+    #         torch.cuda.synchronize()  # Дождаться завершения всех ядер
+    #         # torch.cuda.empty_cache()  # Очистить кэш (опционально)
+
+    # # ============ БЕНЧМАРК ПОСЛЕ WARM-UP ============
+    # print("\n3.1. Бенчмарк производительности после warm up...")
+    # for img_name, (img_path, img_pil, gt_mask) in test_images.items():
+    #     print(f"\n--- Обработка изображения: {img_name} ---")
+    #     img_array = np.array(img_pil)
+        
+    #     df_benchmark_after_warm_up = tester.benchmark_methods(
+    #         img_array,
+    #         n_runs=10,
+    #         test_name=f"benchmark_{img_name}_hot_after_warm_up",
+    #         save_results=True,
+    #         force_warmup=False,
+    #         ground_truth=gt_mask
+    #     )
+        
+    #     # 🔥 Сравниваем cold vs hot
+    #     # df_before = pd.read_csv(f"./data/segmentation_tester_results/benchmark_{img_name}_cold_before_warm_up_*/statistics/benchmark_results.csv")
+    #     # df_after = pd.read_csv(f"./data/segmentation_tester_results/benchmark_{img_name}_hot_after_warm_up_*/statistics/benchmark_results.csv")
+        
+    #     comparison = pd.DataFrame({
+    #         'method': df_benchmark_before_warm_up['Method'],
+    #         'image': img_name,
+    #         'cold_mean_ms': df_benchmark_before_warm_up['Mean_Time_s'] * 1000,
+    #         'hot_mean_ms': df_benchmark_after_warm_up['Mean_Time_s'] * 1000,
+    #     })
+    #     comparison['speedup'] = comparison.apply(
+    #         lambda row: row['cold_mean_ms'] / row['hot_mean_ms'] if row['hot_mean_ms'] > 0 else float('inf'),
+    #         axis=1
+    #     )
+    #     all_comparisons.append(comparison)
+        
+    #     comparison.to_csv(f"./data/cold_hot_comparison_{img_name}.csv", index=False)
+    #     print("\n" + "="*70)
+    #     print(f"🔥 COLD vs HOT BENCHMARK COMPARISON ({img_name})")
+    #     print("="*70)
+    #     print(comparison.sort_values('speedup', ascending=False).to_string(float_format=lambda x: f"{x:.2f}" if not np.isinf(x) else "∞"))
+
+    # if all_comparisons:
+    #     summary = pd.concat(all_comparisons)
+    #     summary.to_csv("./data/cold_hot_comparison_summary.csv")
+    #     print("\n" + "="*70)
+    #     print("🔥 СВОДНЫЙ COLD vs HOT BENCHMARK (все изображения)")
+    #     print("="*70)
+    #     avg_speedup = summary.groupby('method')['speedup'].mean().sort_values(ascending=False)
+    #     print(avg_speedup)
 
     if test_neural_logic==True:
         # ============ 4. СЕГМЕНТАЦИОННЫЙ БЕНЧМАРК (опционально) ============
@@ -413,18 +471,18 @@ def main():
         benchmark_ade.load_segformer("/home/yamshchikov/models/segformer-b5-ready")
         benchmark_ade.load_mask2former("facebook/mask2former-swin-base-ade-semantic")
         benchmark_ade.load_oneformer("shi-labs/oneformer_ade20k_swin_large")
-        benchmark_ade.load_unet_trained(checkpoint_path="unet_ade20k_best.pth")
-        benchmark_ade.load_deeplab_trained(checkpoint_path="deeplab_ade20k_best.pth")
+        benchmark_ade.load_unet_trained(checkpoint_path="models/unet_ade20k_best_200_epochs.pth")
+        benchmark_ade.load_deeplab_trained(checkpoint_path="models/deeplab_ade20k_best_200_epochs.pth")
         benchmark_ade.load_sam("mobile_sam.pt")
         benchmark_ade.load_sam("sam2_t.pt")
         benchmark_ade.load_dpt("Intel/dpt-large-ade")
         benchmark_ade.load_upernet("openmmlab/upernet-convnext-small")
         benchmark_ade.load_segformer_variant("b2")
         benchmark_ade.load_mask_rcnn_pretrained(variant="maskrcnn_resnet50_fpn")
-        benchmark_ade.load_fpn_mit_pretrained(variant="b5", checkpoint_path="fpn_mit_b5_best.pth")
-        benchmark_ade.load_psp_mit_pretrained(variant="b5", checkpoint_path="psp_mit_b5_best.pth")
-        benchmark_ade.load_fcn_resnet50_pretrained(variant="fcn_resnet50")
-        benchmark_ade.load_segnet_pretrained(encoder_name="resnet34")
+        benchmark_ade.load_fpn_mit_pretrained(variant="b5", checkpoint_path="models/fpn_mit_b5_ade20k_best_200_epochs.pth")
+        benchmark_ade.load_psp_mit_pretrained(variant="b5", checkpoint_path="models/psp_mit_b5_ade20k_best_200_epochs.pth")
+        benchmark_ade.load_fcn_resnet50_pretrained(variant="fcn_resnet50", checkpoint_path="models/fcn_resnet50_ade20k_best_200_epochs.pth")
+        benchmark_ade.load_segnet_pretrained(encoder_name="resnet34", checkpoint_path="models/segnet_ade20k_best_200_epochs.pth")
 
         print("=" * 50)
         print("CUDA DIAGNOSTICS")
@@ -576,205 +634,206 @@ def main():
         df = pd.DataFrame(benchmark_ade.get_summary()).T
         print(df.sort_values("mIoU", ascending=False).to_string())
 
-    # ============ 4. ВАЛИДАЦИЯ (Torch vs OpenCV/Sklearn) ============
-    print("\n4. Валидация реализаций...")
-    validator = TorchImplementationValidator(output_dir="./data/validation")
+    if test_classic_logic==True:
+        # ============ 4. ВАЛИДАЦИЯ (Torch vs OpenCV/Sklearn) ============
+        print("\n4. Валидация реализаций...")
+        validator = TorchImplementationValidator(output_dir="./data/validation")
 
-    all_results = {}
-    # test_images['ade20k_sample'][0]
-    # test_images['countryside'][0]
-    all_results = validator.validate_all_methods(test_images['mountain'][0])
-    validator.generate_validation_report(all_results)
-    print(f"\n✅ Все результаты сохранены в: {validator.output_dir}")
-    
-    # ============ 5. МАТРИЧНОЕ СРАВНЕНИЕ ============
-    print("\n5. Матричное сравнение методов...")
-    comparator = SegmentationComparator()
+        all_results = {}
+        # test_images['ade20k_sample'][0]
+        # test_images['countryside'][0]
+        all_results = validator.validate_all_methods(test_images['countryside'][0])
+        validator.generate_validation_report(all_results)
+        print(f"\n✅ Все результаты сохранены в: {validator.output_dir}")
+        
+        # ============ 5. МАТРИЧНОЕ СРАВНЕНИЕ ============
+        print("\n5. Матричное сравнение методов...")
+        comparator = SegmentationComparator()
 
-    all_segmenters = {**cv2_methods, **sklearn_methods, **torch_methods}
+        all_segmenters = {**cv2_methods, **sklearn_methods, **torch_methods}
 
-    methods_config_list = [
-        {
-            "name": name,
-            "segmenter": segmenter,
-            # "type": "custom" 
-        }
-        for name, segmenter in all_segmenters.items()
-    ]
+        methods_config_list = [
+            {
+                "name": name,
+                "segmenter": segmenter,
+                # "type": "custom" 
+            }
+            for name, segmenter in all_segmenters.items()
+        ]
 
-    ref_segmenter = sklearn_methods["Otsu_Thresholding_Sklearn"]
-    original_segmenter = cv2_methods["Otsu_Thresholding_CV2"]
+        ref_segmenter = sklearn_methods["Otsu_Thresholding_Sklearn"]
+        original_segmenter = cv2_methods["Otsu_Thresholding_CV2"]
 
-    for img_name, (img_path, img, gt) in test_images.items():
-        img_array = np.array(img)
-        print(f"\n--- Обработка изображения: {img_name} ---")
-        try:
-            results = comparator.matrix_comparison(
-                image=img_array,
-                methods_config=methods_config_list,
-                comparison_type="all_vs_all",
-                save_results=True,
-                output_dir=f"./data/matrix_comparison_{img_name}"
-            )
-            print(f"   ✅ Матрица сравнения для {img_name}")
-            print(f"      - Сравнено пар: {len(results['df_comparisons'])}")
-        except Exception as e:
-            print(f"   ❌ Ошибка матричного сравнения: {e}")
-            traceback.print_exc()
+        for img_name, (img_path, img, gt) in test_images.items():
+            img_array = np.array(img)
+            print(f"\n--- Обработка изображения: {img_name} ---")
+            try:
+                results = comparator.matrix_comparison(
+                    image=img_array,
+                    methods_config=methods_config_list,
+                    comparison_type="all_vs_all",
+                    save_results=True,
+                    output_dir=f"./data/matrix_comparison_{img_name}"
+                )
+                print(f"   ✅ Матрица сравнения для {img_name}")
+                print(f"      - Сравнено пар: {len(results['df_comparisons'])}")
+            except Exception as e:
+                print(f"   ❌ Ошибка матричного сравнения: {e}")
+                traceback.print_exc()
 
-        try:
-            df_results = comparator.batch_comparison(
-                image=img_array,
-                methods_config=methods_config_list,
-                reference_segmenter=ref_segmenter,
-                reference_name="Sklearn_Otsu_Ref",
-                save_results=True,
-                output_dir="./data/batch_comparison"
-            )
-            print(f"   ✅ Пакетное сравнение завершено. Топ-3 метода сохранены.")
-        except Exception as e:
-            print(f"   ❌ Ошибка пакетного сравнения: {e}")
+            try:
+                df_results = comparator.batch_comparison(
+                    image=img_array,
+                    methods_config=methods_config_list,
+                    reference_segmenter=ref_segmenter,
+                    reference_name="Sklearn_Otsu_Ref",
+                    save_results=True,
+                    output_dir="./data/batch_comparison"
+                )
+                print(f"   ✅ Пакетное сравнение завершено. Топ-3 метода сохранены.")
+            except Exception as e:
+                print(f"   ❌ Ошибка пакетного сравнения: {e}")
 
-        try:
-            df_compare_methods = comparator.compare_methods(
-                image=img_array,
-                segmenter1=original_segmenter,
-                segmenter2=ref_segmenter,
-                name1="Original_CV2_Global",
-                name2="Reference_Sklearn_Otsu",
-                save_comparison=True,
-                output_path=f"./data/compare_methods_{img_name}"
-            )
-            print(f"   ✅ Попарное сравнение сохранено.")
-        except TypeError as te:
-            print(f"   ⚠️ Метод compare_methods требует старой сигнатуры. Пропускаем или используем альтернативу.")
-        except Exception as e:
-            print(f"   ❌ Ошибка попарного сравнения: {e}")
+            try:
+                df_compare_methods = comparator.compare_methods(
+                    image=img_array,
+                    segmenter1=original_segmenter,
+                    segmenter2=ref_segmenter,
+                    name1="Original_CV2_Global",
+                    name2="Reference_Sklearn_Otsu",
+                    save_comparison=True,
+                    output_path=f"./data/compare_methods_{img_name}"
+                )
+                print(f"   ✅ Попарное сравнение сохранено.")
+            except TypeError as te:
+                print(f"   ⚠️ Метод compare_methods требует старой сигнатуры. Пропускаем или используем альтернативу.")
+            except Exception as e:
+                print(f"   ❌ Ошибка попарного сравнения: {e}")
     
     # ============ 6. СРАВНЕНИЕ С GROUND TRUTH (если есть) ============
-    print("\n6. Сравнение с Ground Truth и оценка качества...") 
-    has_gt_images = False
-    for img_name, (img_path, img, gt_mask) in test_images.items():
-        if gt_mask is None:
-            print(f"⚠️ Пропуск {img_name}: Ground Truth не найден.")
-            continue
-        
-        has_gt_images = True
-        print(f"\n🎯 Обработка изображения: {img_name} (GT available)")
-        print(f"🎯 Ground Truth найден ({gt_mask.shape}). Запуск оценки метрик...")
-        metrics_all = {}
-
-        if gt.max() <= 1.0:
-            gt_binary = (gt * 255).astype(np.uint8)
-        else:
-            gt_binary = gt.astype(np.uint8)
-
-        # Запускаем бенчмарк вручную по каждому методу, чтобы сразу собрать метрики
-        all_segmenters = {**cv2_methods, **sklearn_methods, **torch_methods}
+    if test_classic_logic==True:
+        print("\n6. Сравнение с Ground Truth и оценка качества...") 
+        has_gt_images = False
+        for img_name, (img_path, img, gt_mask) in test_images.items():
+            if gt_mask is None:
+                print(f"⚠️ Пропуск {img_name}: Ground Truth не найден.")
+                continue
             
-        for name, segmenter in all_segmenters.items():
-            try:
-                start_time = time.time()
-                pred_mask = segmenter.segment(img_path)
-                exec_time = time.time() - start_time
+            has_gt_images = True
+            print(f"\n🎯 Обработка изображения: {img_name} (GT available)")
+            print(f"🎯 Ground Truth найден ({gt_mask.shape}). Запуск оценки метрик...")
+            metrics_all = {}
 
-                if pred_mask.shape != gt_binary.shape:
-                    from skimage.transform import resize
-                    # order=0 для бинарных масок (ближайший сосед)
-                    pred_mask_resized = resize(pred_mask, gt_binary.shape, order=0, preserve_range=True).astype(np.uint8)
-                else:
-                    pred_mask_resized = pred_mask
-    
-                metrics = SegmentationMetrics.calculate_all_metrics(
-                    pred_mask, 
-                    gt_binary, 
-                    threshold=0.5,
-                    include_hausdorff=True
-                )
-                metrics['execution_time'] = exec_time # Добавляем время в метрики
-                metrics_all[name] = metrics
-                status = "✅" if metrics['iou'] > 0.5 else "⚠️" if metrics['iou'] > 0.2 else "❌"
-                print(f"   {status} {name}: IoU={metrics['iou']:.4f}, Dice={metrics['dice']:.4f}, Time={exec_time:.3f}s")
-                print(f"Mask after {name} segment: {pred_mask_resized[:3, :3]}") 
-                        
-            except Exception as e:
-                print(f"   💥 Критическая ошибка в методе {name}: {e}")
-                traceback.print_exc()
-                metrics_all[name] = {'error': str(e)}
-                # traceback.print_exc()
-
-        gt_results_summary[img_name] = metrics_all
-        save_metrics_report(metrics_all, f"./data/gt_metrics_{img_name}.json")
-        print(f"   💾 Детальные метрики сохранены в ./data/gt_metrics_{img_name}.json")
-
-    if not has_gt_images:
-        print("⚠️ Ground Truth маски не найдены ни для одного изображения. Пропускаем этап оценки качества.")
-    else:
-        # Запуск визуализации по всем изображениям с GT
-        print("\n📈 Построение сводных графиков по результатам Ground Truth...")
-        visualize_gt_results(gt_results_summary, output_dir="./data/gt_visualization")
-        
-        # Вывод топ-5 методов в консоль
-        print("\n🏆 ТОП-5 методов по среднему IoU:")
-        # Плоский список всех результатов
-        flat_results = []
-        for img, methods in gt_results_summary.items():
-            for method, metrics in methods.items():
-                if 'iou' in metrics and 'error' not in metrics:
-                    flat_results.append({'Method': method, 'IoU': metrics['iou'], 'Image': img})
-        
-        if flat_results:
-            df_flat = pd.DataFrame(flat_results)
-            top_methods = df_flat.groupby('Method')['IoU'].mean().sort_values(ascending=False).head(5)
-            for i, (method, iou) in enumerate(top_methods.items(), 1):
-                print(f"   {i}. {method}: IoU = {iou:.4f}")
-        else:
-            print("   Нет успешных результатов для ранжирования.")
-
-        print("\n" + "="*60)
-        print("СВОДНЫЙ ОТЧЕТ ПО GROUND TRUTH")
-        print("="*60)
-    
-        rows = []
-        for img_name, methods_data in gt_results_summary.items():
-            for method_name, metrics in methods_data.items():
-                if 'error' not in metrics and 'iou' in metrics:
-                    rows.append({
-                        'Image': img_name,
-                        'Method': method_name,
-                        'IoU': metrics['iou'],
-                        'Dice': metrics['dice'],
-                        'Precision': metrics['precision'],
-                        'Recall': metrics['recall'],
-                        'F1_Score': metrics['f1_score'],
-                        'Time_s': metrics.get('execution_time', 0)
-                    })
-        
-        if rows:
-            df_gt = pd.DataFrame(rows)
-            df_gt_sorted = df_gt.sort_values(by=['Image', 'IoU'], ascending=[True, False])
-            print("\nТоп методов по IoU:")
-            print(df_gt_sorted[['Method', 'Image', 'IoU', 'Dice', 'Time_s']].to_string(index=False))
-            df_gt_sorted.to_csv("./data/gt_summary_report.csv", index=False)
-            print("\n💾 Общая сводка сохранена в ./data/gt_summary_report.csv")
-            plt.figure(figsize=(12, 6))
-            first_img = list(gt_results_summary.keys())[0]
-            df_plot = df_gt[df_gt['Image'] == first_img].sort_values('IoU', ascending=False).head(10)
-            if not df_plot.empty:
-                plt.barh(df_plot['Method'], df_plot['IoU'])
-                plt.xlabel('IoU Score')
-                plt.title(f'Top 10 Methods by IoU ({first_img})')
-                plt.xlim(0, 1)
-                plt.gca().invert_yaxis()
-                plt.tight_layout()
-                plt.savefig("./data/gt_iu_comparison_chart.png")
-                print("📊 График сохранен в ./data/gt_iu_comparison_chart.png")
+            if gt_mask.max() <= 1.0:
+                gt_binary = (gt_mask * 255).astype(np.uint8)
             else:
-                print("⚠️ Не удалось построить график: нет данных для первого изображения.")
-            plt.close()
-        else:
-            print("Нет успешных метрик для отображения.")
+                gt_binary = gt_mask.astype(np.uint8)
 
+            # Запускаем бенчмарк вручную по каждому методу, чтобы сразу собрать метрики
+            all_segmenters = {**cv2_methods, **sklearn_methods, **torch_methods}
+                
+            for name, segmenter in all_segmenters.items():
+                try:
+                    start_time = time.time()
+                    pred_mask = segmenter.segment(img_path)
+                    exec_time = time.time() - start_time
+
+                    if pred_mask.shape != gt_binary.shape:
+                        from skimage.transform import resize
+                        # order=0 для бинарных масок (ближайший сосед)
+                        pred_mask_resized = resize(pred_mask, gt_binary.shape, order=0, preserve_range=True).astype(np.uint8)
+                    else:
+                        pred_mask_resized = pred_mask
+        
+                    metrics = SegmentationMetrics.calculate_all_metrics(
+                        pred_mask, 
+                        gt_binary, 
+                        threshold=0.5,
+                        include_hausdorff=True
+                    )
+                    metrics['execution_time'] = exec_time # Добавляем время в метрики
+                    metrics_all[name] = metrics
+                    status = "✅" if metrics['iou'] > 0.5 else "⚠️" if metrics['iou'] > 0.2 else "❌"
+                    print(f"   {status} {name}: IoU={metrics['iou']:.4f}, Dice={metrics['dice']:.4f}, Time={exec_time:.3f}s")
+                    print(f"Mask after {name} segment: {pred_mask_resized[:3, :3]}") 
+                            
+                except Exception as e:
+                    print(f"   💥 Критическая ошибка в методе {name}: {e}")
+                    traceback.print_exc()
+                    metrics_all[name] = {'error': str(e)}
+                    # traceback.print_exc()
+
+            gt_results_summary[img_name] = metrics_all
+            save_metrics_report(metrics_all, f"./data/gt_metrics_{img_name}.json")
+            print(f"   💾 Детальные метрики сохранены в ./data/gt_metrics_{img_name}.json")
+
+        if not has_gt_images:
+            print("⚠️ Ground Truth маски не найдены ни для одного изображения. Пропускаем этап оценки качества.")
+        else:
+            # Запуск визуализации по всем изображениям с GT
+            print("\n📈 Построение сводных графиков по результатам Ground Truth...")
+            visualize_gt_results(gt_results_summary, output_dir="./data/gt_visualization")
+            
+            # Вывод топ-5 методов в консоль
+            print("\n🏆 ТОП-5 методов по среднему IoU:")
+            # Плоский список всех результатов
+            flat_results = []
+            for img, methods in gt_results_summary.items():
+                for method, metrics in methods.items():
+                    if 'iou' in metrics and 'error' not in metrics:
+                        flat_results.append({'Method': method, 'IoU': metrics['iou'], 'Image': img})
+            
+            if flat_results:
+                df_flat = pd.DataFrame(flat_results)
+                top_methods = df_flat.groupby('Method')['IoU'].mean().sort_values(ascending=False).head(5)
+                for i, (method, iou) in enumerate(top_methods.items(), 1):
+                    print(f"   {i}. {method}: IoU = {iou:.4f}")
+            else:
+                print("   Нет успешных результатов для ранжирования.")
+
+            print("\n" + "="*60)
+            print("СВОДНЫЙ ОТЧЕТ ПО GROUND TRUTH")
+            print("="*60)
+        
+            rows = []
+            for img_name, methods_data in gt_results_summary.items():
+                for method_name, metrics in methods_data.items():
+                    if 'error' not in metrics and 'iou' in metrics:
+                        rows.append({
+                            'Image': img_name,
+                            'Method': method_name,
+                            'IoU': metrics['iou'],
+                            'Dice': metrics['dice'],
+                            'Precision': metrics['precision'],
+                            'Recall': metrics['recall'],
+                            'F1_Score': metrics['f1_score'],
+                            'Time_s': metrics.get('execution_time', 0)
+                        })
+            
+            if rows:
+                df_gt = pd.DataFrame(rows)
+                df_gt_sorted = df_gt.sort_values(by=['Image', 'IoU'], ascending=[True, False])
+                print("\nТоп методов по IoU:")
+                print(df_gt_sorted[['Method', 'Image', 'IoU', 'Dice', 'Time_s']].to_string(index=False))
+                df_gt_sorted.to_csv("./data/gt_summary_report.csv", index=False)
+                print("\n💾 Общая сводка сохранена в ./data/gt_summary_report.csv")
+                plt.figure(figsize=(12, 6))
+                first_img = list(gt_results_summary.keys())[0]
+                df_plot = df_gt[df_gt['Image'] == first_img].sort_values('IoU', ascending=False).head(10)
+                if not df_plot.empty:
+                    plt.barh(df_plot['Method'], df_plot['IoU'])
+                    plt.xlabel('IoU Score')
+                    plt.title(f'Top 10 Methods by IoU ({first_img})')
+                    plt.xlim(0, 1)
+                    plt.gca().invert_yaxis()
+                    plt.tight_layout()
+                    plt.savefig("./data/gt_iu_comparison_chart.png")
+                    print("📊 График сохранен в ./data/gt_iu_comparison_chart.png")
+                else:
+                    print("⚠️ Не удалось построить график: нет данных для первого изображения.")
+                plt.close()
+            else:
+                print("Нет успешных метрик для отображения.")
 
     print("\n" + "=" * 60)
     print("ТЕСТИРОВАНИЕ ЗАВЕРШЕНО")
@@ -784,54 +843,344 @@ def main():
     print(f"✓ Результаты в: ./data/")
 
     if test_neural_logic==True:
-        # ============ НЕЙРОННЫЕ МОДЕЛИ ============
-        # ============ ОБУЧЕНИЕ (опционально) ============
-        print("\n5. Fine-tuning (опционально)...")
+        # ====================================================================
+        # 5. ОБУЧЕНИЕ МОДЕЛЕЙ С РАЗНЫМИ УРОВНЯМИ АУГМЕНТАЦИЙ
+        # ====================================================================
+        print("\n5.1. Обучение с разными уровнями аугментаций...")
         
-        # Пример обучения U-Net на ADE20K
-        train_dataset = ADE20KDataset(
-            root_dir='./data/ade20k',
-            split='training',
-            image_size=(512, 512),
-            augment=True,
-            subset_fraction=0.05  # 5% для быстрого теста
-        )
-        
-        val_dataset = ADE20KDataset(
-            root_dir='./data/ade20k',
-            split='validation',
-            image_size=(512, 512),
-            augment=False,
-            subset_fraction=0.05
-        )
-        
-        train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=0)
-        val_loader = DataLoader(val_dataset, batch_size=4, shuffle=False, num_workers=0)
-        
-        # Создание модели для обучения
-        model, _, _ = NeuralModelFactory.create_model(
-            model_type=ModelType.UNET_SMP,
-            device="cuda",
-            num_classes=num_classes,
-            encoder_name="resnet34"
+        trainer = ModelTrainer(
+            checkpoint_dir="./models",
+            root_dir="./data/ade20k",
+            device="cuda"
         )
 
-        trainer = NeuralTrainer(
-            model=model,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            num_classes=num_classes,
-            device="cuda",
-            lr=1e-4
+        # Конфигурации для сравнения
+        augmentation_configs = [
+            {'level': 'none', 'epochs': 200, 'lr': 1e-4, 'subset_fraction': 0.05},
+            {'level': 'basic', 'epochs': 200, 'lr': 1e-4, 'subset_fraction': 0.05},
+            {'level': 'medium', 'epochs': 200, 'lr': 1e-4, 'subset_fraction': 0.05},
+            # {'level': 'aggressive', 'epochs': 50, 'lr': 5e-5},
+        ]
+        model_types: List[str] = [
+            "unet_smp",      # U-Net
+            "fpn_smp",       # FPN + MiT-B5
+            "psp_smp",       # PSPNet + MiT-B5
+            "deeplab_tv",    # DeepLabV3+
+            "fcn_tv",        # FCN ResNet-50
+            "segnet"         # SegNet
+        ]
+        results_by_model_and_aug: Dict[str, Dict[str, Any]] = {
+            model_type: {} for model_type in model_types
+        }
+
+        print(f"\n{'='*80}")
+        print(f"ОБУЧЕНИЕ {len(model_types)} МОДЕЛЕЙ × {len(augmentation_configs)} УРОВНЕЙ АУГМЕНТАЦИЙ")
+        print(f"{'='*80}")
+            
+        for config in augmentation_configs:
+            for model_type in model_types:
+                print(f"\n{'='*60}")
+                print(f"🔹 Модель: {model_type} | Аугментации: {config['level']}")
+                print(f"{'='*60}")
+
+                if model_type in ["fpn_smp", "psp_smp"]:
+                    encoder_name = "mit_b5"
+                else:
+                    encoder_name = "resnet34"
+                
+                training_config = TrainingConfig(
+                    experiment_name=f"{model_type}_aug_{config['level']}",
+                    model_type=model_type,
+                    augmentation_level=config['level'],
+                    epochs=config['epochs'],
+                    batch_size=4,
+                    lr=config['lr'],
+                    encoder_name=encoder_name,
+                    variant="b5" if "mit" in encoder_name else "b5",
+                    subset_fraction=0.05
+                )
+                result = trainer.train_experiment(training_config)
+                results_by_model_and_aug[model_type][config['level']] = result
+                print(f"✅ {model_type} ({config['level']}): Best mIoU = {result['best_miou']*100:.2f}%")
+        
+        # ====================================================================
+        # 5.2. СРАВНЕНИЕ РЕЗУЛЬТАТОВ ПО АУГМЕНТАЦИЯМ
+        # ====================================================================
+        print("\n" + "="*60)
+        print("СРАВНЕНИЕ УРОВНЕЙ АУГМЕНТАЦИЙ")
+        print("="*60)
+        
+        for model_type in model_types:
+            print(f"\n🔹 {model_type}:")
+            print("-" * 60)
+            
+            for level, result in results_by_model_and_aug[model_type].items():
+                print(f"   {level:10s}: {result['best_miou']*100:6.2f}% mIoU")
+        
+        # ====================================================================
+        # 5.3. ВИЗУАЛИЗАЦИЯ: Влияние аугментаций на каждую модель
+        # ====================================================================
+        trainer.plot_experiment_comparison(
+            output_path='./data/augmentation_comparison.png'
+        )
+
+        print("\n" + "="*80)
+        print("ВИЗУАЛИЗАЦИЯ РЕЗУЛЬТАТОВ")
+        print("="*80)
+        
+        # График 1: Сравнение аугментаций для каждой модели
+        fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+        axes = axes.flatten()
+        
+        for idx, model_type in enumerate(model_types):
+            ax = axes[idx]
+            
+            levels = list(results_by_model_and_aug[model_type].keys())
+            miou_values = [
+                results_by_model_and_aug[model_type][level]['best_miou'] * 100
+                for level in levels
+            ]
+            
+            colors = ['#ffcccc', '#ff9999', '#ff6666'][:len(levels)]
+            bars = ax.bar(levels, miou_values, color=colors, edgecolor='black', linewidth=1.5)
+            
+            ax.set_title(f'{model_type}', fontsize=12, fontweight='bold')
+            ax.set_ylabel('Best mIoU (%)')
+            ax.set_ylim(0, max(miou_values) * 1.2)
+            ax.grid(axis='y', alpha=0.3)
+            
+            # Добавляем значения на столбцы
+            for bar, val in zip(bars, miou_values):
+                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
+                    f'{val:.2f}%', ha='center', va='bottom', fontsize=10)
+        
+        plt.tight_layout()
+        plt.savefig('./data/augmentation_comparison_all_models.png', dpi=300, bbox_inches='tight')
+        print(f"📊 График сохранён: ./data/augmentation_comparison_all_models.png")
+        plt.show()
+        
+        # График 2: Сравнение моделей для каждого уровня аугментаций
+        fig, axes = plt.subplots(1, len(augmentation_configs), figsize=(6*len(augmentation_configs), 5))
+        if len(augmentation_configs) == 1:
+            axes = [axes]
+        
+        for idx, config in enumerate(augmentation_configs):
+            ax = axes[idx]
+            
+            model_names = []
+            miou_values = []
+            
+            for model_type in model_types:
+                if config['level'] in results_by_model_and_aug[model_type]:
+                    model_names.append(model_type.replace('_smp', '').replace('_tv', ''))
+                    miou_values.append(
+                        results_by_model_and_aug[model_type][config['level']]['best_miou'] * 100
+                    )
+            
+            colors = plt.cm.viridis(np.linspace(0, 1, len(model_names)))
+            bars = ax.bar(model_names, miou_values, color=colors, edgecolor='black', linewidth=1.5)
+            
+            ax.set_title(f'Аугментации: {config["level"]}', fontsize=12, fontweight='bold')
+            ax.set_ylabel('Best mIoU (%)')
+            ax.set_ylim(0, max(miou_values) * 1.2)
+            ax.grid(axis='y', alpha=0.3)
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+            
+            # Добавляем значения на столбцы
+            for bar, val in zip(bars, miou_values):
+                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
+                    f'{val:.2f}%', ha='center', va='bottom', fontsize=10)
+        
+        plt.tight_layout()
+        plt.savefig('./data/model_comparison_by_augmentation.png', dpi=300, bbox_inches='tight')
+        print(f"📊 График сохранён: ./data/model_comparison_by_augmentation.png")
+        plt.show()
+
+        # ====================================================================
+        # 5.4. ОЦЕНКА ОБУЧЕННЫХ МОДЕЛЕЙ (compare_trained_models)
+        # ====================================================================
+        print("\n5.4. Оценка обученных моделей на валидации...")
+        
+        # Сравниваем модели, обученные с medium аугментациями
+        comparison_results = trainer.compare_trained_models(
+            augmentation_level='medium'
+        )
+        print(f"Training results: {comparison_results}")
+
+        # 🔥 Собираем чекпоинты для всех моделей с medium аугментациями
+        checkpoints = {}
+        
+        for model_type in model_types:
+            # Ищем чекпоинт с medium аугментациями
+            pattern = f"./models/{model_type}_medium_*.pth"
+            files = glob.glob(pattern)
+            
+            if files:
+                # Берём самый свежий
+                checkpoint_path = max(files, key=os.path.getctime)
+                checkpoints[f"{model_type} (medium)"] = checkpoint_path
+                print(f"   ✅ {model_type} (medium): {checkpoint_path}")
+            else:
+                print(f"   ⚠️  {model_type} (medium): не найден")
+        
+        # Также добавим чекпоинты с none и basic для сравнения
+        for model_type in model_types:
+            for level in ['none', 'basic']:
+                pattern = f"./models/{model_type}_{level}_*.pth"
+                files = glob.glob(pattern)
+                
+                if files:
+                    checkpoint_path = max(files, key=os.path.getctime)
+                    checkpoints[f"{model_type} ({level})"] = checkpoint_path
+                    print(f"   ✅ {model_type} ({level}): {checkpoint_path}")
+        
+        if checkpoints:
+            eval_results = trainer.evaluate_checkpoints(
+                checkpoint_paths=list(checkpoints.values()),
+                model_type="unet_smp",  # 🔥 Нужно указать тип модели или сделать универсально
+                val_fraction=0.05
+            )
+
+        # ====================================================================
+        # 5.5. ОЦЕНКА ПО КОНКРЕТНЫМ ЧЕКПОИНТАМ (evaluate_trained_models_on_val)
+        # ====================================================================
+        print("\n5.5. Оценка по конкретным чекпоинтам...")
+        
+        checkpoints = {
+            "U-Net (none)": "./models/unet_smp_none_*.pth",
+            "U-Net (basic)": "./models/unet_smp_basic_*.pth",
+            "U-Net (medium)": "./models/unet_smp_medium_*.pth",
+            "DeepLabV3+ (none)": "./models/deeplab_tv_none_*.pth",
+            "DeepLabV3+ (basic)": "./models/deeplab_tv_basic_*.pth",
+            "DeepLabV3+ (medium)": "./models/deeplab_tv_medium_*.pth",
+            "FPN+MiT-B5 (none)": "./models/fpn_smp_none_*.pth",
+            "FPN+MiT-B5 (basic)": "./models/fpn_smp_basic_*.pth",
+            "FPN+MiT-B5 (medium)": "./models/fpn_smp_medium_*.pth",
+            "PSPNet+MiT-B5 (none)": "./models/psp_smp_none_*.pth",
+            "PSPNet+MiT-B5 (basic)": "./models/psp_smp_basic_*.pth",
+            "PSPNet+MiT-B5 (medium)": "./models/psp_smp_medium_*.pth",
+            "FCN ResNet-50 (none)": "./models/fcn_tv_none_*.pth",
+            "FCN ResNet-50 (basic)": "./models/fcn_tv_basic_*.pth",
+            "FCN ResNet-50 (meduim)": "./models/fcn_tv_medium_*.pth",
+            "SegNet (none)": "./models/segnet_none_*.pth",
+            "SegNet (basic)": "./models/segnet_basic_*.pth",
+            "SegNet (medium)": "./models/segnet_medium_*.pth"
+        }
+        
+        # Находим актуальные файлы чекпоинтов
+        import glob
+        checkpoint_paths = {}
+        for name, pattern in checkpoints.items():
+            files = glob.glob(pattern)
+            if files:
+                checkpoint_paths[name] = max(files, key=os.path.getctime)
+                print(f"   ✅ {name}: {checkpoint_paths[name]}")
+            else:
+                print(f"   ⚠️  {name}: не найден")
+        
+        if checkpoint_paths:
+            eval_results = trainer.evaluate_trained_models_on_val(
+                checkpoints=checkpoint_paths,
+                val_fraction=0.05
+            )
+
+        # ====================================================================
+        # 5.6. СВОДНАЯ ТАБЛИЦА РЕЗУЛЬТАТОВ
+        # ====================================================================
+        print("\n" + "="*80)
+        print("СВОДНАЯ ТАБЛИЦА: ВЛИЯНИЕ АУГМЕНТАЦИЙ НА КАЧЕСТВО")
+        print("="*80)
+        
+        summary_data = []
+        for model_type in model_types:
+            for level, result in results_by_model_and_aug[model_type].items():
+                summary_data.append({
+                    'Model': model_type,
+                    'Augmentation Level': level,
+                    'Best mIoU (%)': result['best_miou'] * 100,
+                    'Epochs': result['epochs_trained'],
+                    'Final Val Loss': result['final_val_loss'] if result['final_val_loss'] else 'N/A'
+                })
+        
+        summary_df = pd.DataFrame(summary_data)
+        # Сортировка по модели и mIoU
+        summary_df = summary_df.sort_values(['Model', 'Best mIoU (%)'], ascending=[True, False])
+        print(summary_df.to_string(index=False))
+        
+        # Сохранение сводки
+        summary_df.to_csv('./data/augmentation_impact_full_summary.csv', index=False)
+        print(f"\n📊 Сводка сохранена: ./data/augmentation_impact_full_summary.csv")
+
+        # ====================================================================
+        # 5.7. ГРАФИК: Тепловая карта влияния аугментаций
+        # ====================================================================
+        print("\n" + "="*80)
+        print("ТЕПЛОВАЯ КАРТА: МОДЕЛИ × АУГМЕНТАЦИИ")
+        print("="*80)
+        
+        # Создаём pivot таблицу для тепловой карты
+        pivot_data = summary_df.pivot(
+            index='Model',
+            columns='Augmentation Level',
+            values='Best mIoU (%)'
         )
         
-        # Обучение (раскомментировать для реального обучения)
-        history = trainer.fit(
-            train_loader=train_loader,
-            val_loader=val_loader,
-            epochs=20,
-            checkpoint_path="./models/unet_ade20k_best.pth"
-        )
+        plt.figure(figsize=(12, 8))
+        sns.heatmap(pivot_data, annot=True, fmt='.2f', cmap='YlOrRd', 
+                    linewidths=0.5, linecolor='white',
+                    annot_kws={'fontsize': 12, 'fontweight': 'bold'})
+        
+        plt.title('Влияние уровня аугментаций на качество сегментации (mIoU %)', 
+                fontsize=14, fontweight='bold', pad=20)
+        plt.xlabel('Уровень аугментаций', fontsize=12)
+        plt.ylabel('Модель', fontsize=12)
+        
+        plt.tight_layout()
+        plt.savefig('./data/augmentation_heatmap.png', dpi=300, bbox_inches='tight')
+        print(f"📊 Тепловая карта сохранена: ./data/augmentation_heatmap.png")
+        plt.show()
+        
+        # ====================================================================
+        # 5.8. ТОП-3 ЛУЧШИХ КОМБИНАЦИЙ
+        # ====================================================================
+        print("\n" + "="*80)
+        print("🏆 ТОП-3 ЛУЧШИХ КОМБИНАЦИЙ (МОДЕЛЬ + АУГМЕНТАЦИИ)")
+        print("="*80)
+        
+        top_combinations = summary_df.nlargest(3, 'Best mIoU (%)')
+        
+        for idx, row in top_combinations.iterrows():
+            print(f"\n{idx+1}. {row['Model']} + {row['Augmentation Level']}")
+            print(f"   mIoU: {row['Best mIoU (%)']:.2f}%")
+            print(f"   Epochs: {row['Epochs']}")
+            print(f"   Final Val Loss: {row['Final Val Loss']}")
+        
+        # Сохранение топ-3
+        top_combinations.to_csv('./data/top_3_combinations.csv', index=False)
+        print(f"\n📊 Топ-3 сохранён: ./data/top_3_combinations.csv")
+
+    if test_classic_logic==True:
+        print("\n" + "="*80)
+        print("ДОПОЛНИТЕЛЬНЫЕ ИССЛЕДОВАНИЯ")
+        print("="*80)
+        
+        # Выбираем тестовое изображение
+        test_image = None
+        for img_name, (img_path, img_pil, gt_mask) in test_images.items():
+            test_image = np.array(img_pil)
+            print(f"✅ Используем изображение: {img_name} ({test_image.shape})")
+            break
+        
+        if test_image is not None:
+            # Бенчмарк CPU vs CUDA для классических методов
+            cpu_cuda_results = run_cpu_cuda_benchmark(
+                cv2_methods=cv2_methods,
+                sklearn_methods=sklearn_methods,
+                torch_methods=torch_methods,
+                test_image=test_image
+            )
+
+        print(cpu_cuda_results)
 
     return tester, results, comparator
 
@@ -868,7 +1217,6 @@ def prepare_mask_for_overlay(mask_input) -> np.ndarray:
     # Финальная проверка
     if mask.ndim != 2:
         raise ValueError(f"Mask must be 2D after processing, got {mask.ndim}D")
-    
     return mask
 
 def visualize_gt_results(
@@ -892,7 +1240,7 @@ def visualize_gt_results(
             if 'error' in metrics or 'iou' not in metrics:
                 continue
             
-            row = {
+            row: Dict[str, Any] = {
                 'Image': img_name,
                 'Method': method_name,
                 'Library': method_name.split('_')[-1] if '_' in method_name else 'Unknown', # Извлекаем CV2/Sklearn/Torch
@@ -909,9 +1257,7 @@ def visualize_gt_results(
     if not all_rows:
         print("⚠️ Нет данных для визуализации.")
         return
-
     df = pd.DataFrame(all_rows)
-    
     # Группировка по методам для усреднения (если изображений несколько)
     df_avg = df.groupby(['Method', 'Library']).agg({
         'IoU': 'mean', 'Dice': 'mean', 'F1_Score': 'mean', 
@@ -1114,7 +1460,6 @@ def load_test_images(use_image_with_mask: bool = False) -> Dict[str, Tuple[str, 
 
 def save_metrics_report(metrics_all: Dict, path: str):
     """Сохранение отчёта с метриками"""
-    import json
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(metrics_all, f, indent=2, ensure_ascii=False, default=str)
 
@@ -1202,13 +1547,79 @@ def test_neural_segmentation_variants():
         print(f"❌ Ошибка тестирования нейросетевых вариантов: {e}")
         print(traceback.format_exc())
         return None, None
+    
+# main.py (добавить в конец, перед return)
+
+def run_cpu_cuda_benchmark(
+    cv2_methods: Dict,
+    sklearn_methods: Dict,
+    torch_methods: Dict,
+    test_image: np.ndarray
+):
+    """
+    Запуск бенчмарка CPU vs CUDA для классических методов.
+    """
+    from testing.CpuCudaBenchmark import CpuCudaBenchmark
+    
+    print("\n" + "="*80)
+    print("ЗАПУСК БЕНЧМАРКА: CPU vs CUDA")
+    print("="*80)
+    
+    # Объединяем все классические методы
+    all_classical_methods = {**cv2_methods, **sklearn_methods, **torch_methods}
+    
+    # Исключаем нейронные сети из этого бенчмарка
+    classical_only = {
+        name: seg for name, seg in all_classical_methods.items()
+        if not any(x in name.lower() for x in ['neural', 'segformer', 'mask2former', 'unet', 'fpn', 'psp', 'fcn', 'deeplab'])
+    }
+    
+    print(f"Количество классических методов: {len(classical_only)}")
+    
+    # Создаём бенчмарк
+    benchmark = CpuCudaBenchmark(
+        base_output_dir="./data/cpu_cuda_benchmark",
+        n_runs=5,  # Количество прогонов
+        warmup_runs=2  # Warm-up прогонов
+    )
+    
+    # Запускаем бенчмарк
+    df_results = benchmark.benchmark_all_methods(
+        methods_dict=classical_only,
+        image=test_image,
+        test_name="classical_methods_cpu_cuda"
+    )
+    
+    # Вывод сводки
+    print("\n" + "="*80)
+    print("СВОДКА ПО БЕНЧМАРКУ CPU vs CUDA")
+    print("="*80)
+    
+    if torch.cuda.is_available():
+        # Группировка по методам
+        for method in df_results['method'].unique():
+            method_data = df_results[df_results['method'] == method]
+            cpu_data = method_data[method_data['device'] == 'cpu']
+            cuda_data = method_data[method_data['device'] == 'cuda']
+            
+            if not cpu_data.empty and not cuda_data.empty:
+                cpu_time = cpu_data['mean_time'].values[0] * 1000
+                cuda_time = cuda_data['mean_time'].values[0] * 1000
+                
+                if cuda_time > 0:
+                    speedup = cpu_time / cuda_time
+                    print(f"{method:40s}: CPU={cpu_time:7.2f}ms, CUDA={cuda_time:7.2f}ms, ⚡ Speedup={speedup:.2f}x")
+    
+    print("="*80)
+    
+    return df_results
 
 if __name__ == "__main__":
     # Основной тест
     print("ЗАПУСК ОСНОВНОГО ТЕСТА")
     print("=" * 60)
     tester, results, comparator = main()
-
+    
     print("\n\nЗАПУСК ДОПОЛНИТЕЛЬНОГО ТЕСТА НЕЙРОСЕТЕВЫХ ВАРИАНТОВ")
     print("=" * 60)
     segmenter, detailed_result = test_neural_segmentation_variants()

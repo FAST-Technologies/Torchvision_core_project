@@ -14,7 +14,7 @@ class SegmentationWarmUp:
     """
     def __init__(
         self,
-        n_warmup_runs: int = 3,
+        n_warmup_runs: int = 10,
         image_size: Tuple[int, int] = (256, 256),
         device: str = "cuda" if torch.cuda.is_available() else "cpu"
     ) -> None:
@@ -74,8 +74,9 @@ class SegmentationWarmUp:
         self,
         segmenter: Any,
         method_name: str,
-        image: Optional[np.ndarray] = None,
-        verbose: bool = True
+        real_image: Optional[np.ndarray] = None,
+        verbose: bool = True,
+        use_real_image: bool = False, 
     ) -> Dict[str, float]:
         """
         Прогрев конкретного сегментера.
@@ -89,7 +90,9 @@ class SegmentationWarmUp:
         Returns:
             Dict с временем warm-up и статистикой
         """
-        if image is None:
+        if use_real_image and real_image is not None:
+            image = real_image
+        else:
             image = self.create_test_image(pattern="gradient")
         
         warmup_times = []
@@ -123,6 +126,7 @@ class SegmentationWarmUp:
         stats = {
             'method': method_name,
             'n_runs': len(warmup_times),
+            'median_time_ms': np.median(warmup_times) * 1000 if warmup_times else float('inf'),
             'mean_time_ms': np.mean(warmup_times) * 1000 if warmup_times else float('inf'),
             'std_time_ms': np.std(warmup_times) * 1000 if warmup_times else float('inf'),
             'min_time_ms': np.min(warmup_times) * 1000 if warmup_times else float('inf'),
@@ -150,7 +154,7 @@ class SegmentationWarmUp:
         torch.cuda.synchronize()
         
         # Несколько дополнительных прогонов для CUDA
-        for _ in range(2):
+        for _ in range(self.n_warmup_runs):
             try:
                 if hasattr(segmenter, 'segment_with_mask'):
                     segmenter.segment_with_mask(image)

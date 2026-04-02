@@ -4,7 +4,10 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from typing import Dict, List, Optional, Any
+from typing import (
+    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+)
 import numpy as np
 from pathlib import Path
 from sklearn.metrics import jaccard_score
@@ -127,7 +130,7 @@ class NeuralTrainer:
     def fit(
         self,
         epochs: int = 20,
-        checkpoint_path: str = "./../models/best_model.pth",
+        checkpoint_path: str = "./models/best_model.pth",
         early_stop_patience: int = 5
     ) -> Dict[str, List]:
         """Полный цикл обучения"""
@@ -141,7 +144,7 @@ class NeuralTrainer:
             self.history["train_loss"].append(train_loss)
             self.history["val_loss"].append(val_loss)
             self.history["val_miou"].append(val_miou)
-            print(f"📊 Epoch {epoch+1}/{epochs} | Time: {epoch_time:.1f}s")
+            print(f"📊 Epoch {epoch+1}/{epochs} | Time: {epoch_time:.3f}s")
             print(f"   Train Loss: {train_loss:.4f}")
             print(f"   Val Loss:   {val_loss:.4f}")
             print(f"   Val mIoU:   {val_miou:.4f}")

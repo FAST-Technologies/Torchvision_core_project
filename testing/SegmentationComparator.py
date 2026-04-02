@@ -685,7 +685,7 @@ class SegmentationComparator:
             methods_stats.append({
                 'method': name,
                 'area': area,
-                'coverage': f"{coverage:.1f}%",
+                'coverage': f"{coverage:.3f}%",
                 'pixels': f"{area:,}",
                 'time': method_infos.get(name, {}).get('execution_time', 0)
             })

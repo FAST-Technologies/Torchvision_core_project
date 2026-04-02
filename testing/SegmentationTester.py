@@ -81,8 +81,9 @@ class SegmentationTester:
             self.warmup_utility.warmup_segmenter(
                 segmenter=segmenter,
                 method_name=method_name,
-                image=image,
-                verbose=True
+                real_image=image,
+                verbose=True,
+                use_real_image=True
             )
             self.warmup_completed[method_name] = True
 
@@ -208,7 +209,7 @@ class SegmentationTester:
             result_pil = Image.fromarray(result.astype(np.uint8))
             result_pil.save(save_path)
             print(f"✅ Результат сохранен: {save_path}")
-        print(f"   ⏱️ Время: {execution_time:.2f}s, 📏 Площадь: {result_data['mask_percentage']:.1f}%")
+        print(f"   ⏱️ Время: {execution_time:.2f}s, 📏 Площадь: {result_data['mask_percentage']:.3f}%")
         return result_data
     
     def _save_overlay_image(
@@ -321,7 +322,7 @@ class SegmentationTester:
                 f.write("Метрики (без Ground Truth):\n")
                 f.write("-"*50 + "\n")
                 f.write(f"Площадь маски: {result_data.get('mask_area', 0):,} пикселей\n")
-                f.write(f"Процент покрытия: {result_data.get('mask_percentage', 0):.1f}%\n")
+                f.write(f"Процент покрытия: {result_data.get('mask_percentage', 0):.3f}%\n")
         print(f"    📊 Метрики сохранены для {method_name}")
     
     def _save_method_info(
@@ -374,7 +375,7 @@ class SegmentationTester:
                     if hasattr(mask, 'size'):
                         mask_binary = mask > 127 if mask.max() > 1 else mask > 0.5
                         f.write(f"Площадь: {np.sum(mask_binary):,} пикселей\n")
-                        f.write(f"Покрытие: {np.sum(mask_binary) / mask.size * 100:.1f}%\n")
+                        f.write(f"Покрытие: {np.sum(mask_binary) / mask.size * 100:.3f}%\n")
                 
                 # Информация о ground truth
                 if result_data.get('has_ground_truth', False):
@@ -576,11 +577,11 @@ class SegmentationTester:
                 all_stats.append(stats)
                 
                 axes[i].imshow(result_data['result'])
-                title: str = f"{method_name}\n{result_data['time']:.2f}s, {result_data['mask_percentage']:.1f}%"
+                title: str = f"{method_name}\n{result_data['time']:.2f}s, {result_data['mask_percentage']:.3f}%"
                 axes[i].set_title(title, fontsize=9)
                 axes[i].axis('off')
                 
-                print(f"{method_name}: {result_data['time']:.2f}s, {result_data['mask_percentage']:.1f}% площади")
+                print(f"{method_name}: {result_data['time']:.2f}s, {result_data['mask_percentage']:.3f}% площади")
                 
             except Exception as e:
                 error_msg: str = str(e)[:50]
@@ -710,7 +711,7 @@ class SegmentationTester:
                 else:
                     title = (f"{method_name}\n"
                             f"Time: {result_data['time']:.2f}s\n"
-                            f"Area: {result_data['mask_percentage']:.1f}%")
+                            f"Area: {result_data['mask_percentage']:.3f}%")
                 
                 axes[i].set_title(title, fontsize=9)
                 axes[i].axis('off')
@@ -1019,7 +1020,8 @@ class SegmentationTester:
         save_benchmark: bool = True,
         test_name: str = None,
         save_results: bool = True,
-        force_warmup: bool = True
+        force_warmup: bool = False,
+        ground_truth: Optional[np.ndarray] = None
     ) -> pd.DataFrame:
         """Бенчмарк методов (требует pandas) с сохранением результатов и warm-up"""
         original_img = Image.fromarray(image.astype(np.uint8)) if isinstance(image, np.ndarray) else (Image.open(image).convert('RGB') if isinstance(image, str) else image.convert('RGB'))
@@ -1059,15 +1061,16 @@ class SegmentationTester:
             for method_name, segmenter in self.methods.items():
                 self._ensure_warmup(method_name, segmenter, image_array)
 
-        has_gt = self.ground_truth_mask is not None
+        gt_mask_to_use = ground_truth if ground_truth is not None else self.ground_truth_mask
+        has_gt = gt_mask_to_use is not None
         gt_binary = None
         
         if has_gt:
             print(f"🎯 Обнаружен Ground Truth. Будет выполнен расчет метрик качества.")
-            if self.ground_truth_mask.max() <= 1.0:
-                gt_binary = (self.ground_truth_mask * 255).astype(np.uint8)
+            if gt_mask_to_use.max() <= 1.0:
+                gt_binary = (gt_mask_to_use * 255).astype(np.uint8)
             else:
-                gt_binary = self.ground_truth_mask.astype(np.uint8)
+                gt_binary = gt_mask_to_use.astype(np.uint8)
         else:
             print("⚠️ Ground Truth не найден. Метрики качества рассчитываться не будут.")
         
@@ -1075,6 +1078,11 @@ class SegmentationTester:
         
         for method_name in self.methods.keys():
             print(f"  📊 Тестируем {method_name}...")
+
+            segmenter = self.methods[method_name]
+    
+            if not force_warmup:
+                self._ensure_warmup(method_name, segmenter, image)
             
             times: List[float] = []
             results_list: List[np.ndarray] = []
@@ -1127,6 +1135,7 @@ class SegmentationTester:
                 result_img: np.ndarray = results_list[0]
                 mask_area = np.sum(mask > 0)
                 total_pixels = mask.shape[0] * mask.shape[1]
+                metrics_dict = {}
                 if has_gt and gt_binary is not None:
                     try:
                         # Ресайз GT под размер предсказания
@@ -1197,16 +1206,18 @@ class SegmentationTester:
                 'Has_GT': has_gt
             }
 
-            if has_gt and metrics_dict:
-                row_data['IoU'] = metrics_dict.get('iou', 0)
-                row_data['Dice'] = metrics_dict.get('dice', 0)
-                row_data['F1_Score'] = metrics_dict.get('f1_score', 0)
-                row_data['Precision'] = metrics_dict.get('precision', 0)
-                row_data['Recall'] = metrics_dict.get('recall', 0)
-                row_data['Accuracy'] = metrics_dict.get('pixel_accuracy', 0)
-                row_data['Hausdorff'] = metrics_dict.get('hausdorff_distance', 0)
-                if 'error' in metrics_dict:
-                    row_data['Metrics_Error'] = metrics_dict['error']
+            if has_gt and metrics_dict and 'error' not in metrics_dict:
+                row_data.update({
+                    'IoU': metrics_dict.get('iou', 0),
+                    'Dice': metrics_dict.get('dice', 0),
+                    'F1_Score': metrics_dict.get('f1_score', 0),
+                    'Precision': metrics_dict.get('precision', 0),
+                    'Recall': metrics_dict.get('recall', 0),
+                    'Accuracy': metrics_dict.get('pixel_accuracy', 0),
+                    'Hausdorff': metrics_dict.get('hausdorff_distance', 0),
+                    'MAE': metrics_dict.get('mae', 0),
+                    'Area_Difference': metrics_dict.get('area_difference', 0)
+                })
 
             benchmark_results.append(row_data)
         
@@ -1281,7 +1292,7 @@ class SegmentationTester:
                 f.write(f"{'Метод':<30} {'Время (с)':<20} {'Площадь маски':<15} {'Процент':<10}\n")
                 f.write("-"*80 + "\n")
                 for _, row in df.iterrows():
-                    f.write(f"{row['Method']:<30} {row['Time_String']:<20} {int(row['Mask_Area']):<15,} {row['Mask_Percentage']:.1f}%\n")
+                    f.write(f"{row['Method']:<30} {row['Time_String']:<20} {int(row['Mask_Area']):<15,} {row['Mask_Percentage']:.3f}%\n")
             f.write("\n" + "="*80 + "\n")
             f.write("СВОДКА:\n")
             f.write("-"*80 + "\n")
@@ -1474,7 +1485,7 @@ class SegmentationTester:
                 if not method_data.empty:
                     time_val = method_data.iloc[0]['Mean_Time_s']
                     mask_percent: float = method_data.iloc[0]['Mask_Percentage'] if 'Mask_Percentage' in method_data.columns else 0
-                    title: str = f"{method}\n{time_val:.3f}s, {mask_percent:.1f}%"
+                    title: str = f"{method}\n{time_val:.3f}s, {mask_percent:.3f}%"
                 else:
                     title = method
                 titles.append(title)
@@ -1527,7 +1538,7 @@ class SegmentationTester:
                 
                 # Маска
                 axes[1, i].imshow(result['mask'], cmap='gray')
-                mask_title: str = f"Mask\n{result['mask_percentage']:.1f}%"
+                mask_title: str = f"Mask\n{result['mask_percentage']:.3f}%"
                 axes[1, i].set_title(mask_title, fontsize=10)
                 axes[1, i].axis('off')
         else:
@@ -1535,7 +1546,7 @@ class SegmentationTester:
             
             for i, (method_name, result) in enumerate(results.items()):
                 axes[i].imshow(result['result'])
-                title: str = f"{method_name}\n{result['time']:.2f}s, {result['mask_percentage']:.1f}%"
+                title: str = f"{method_name}\n{result['time']:.2f}s, {result['mask_percentage']:.3f}%"
                 axes[i].set_title(title, fontsize=10)
                 axes[i].axis('off')
         

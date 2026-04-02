@@ -346,40 +346,46 @@ class SegmentationBenchmark:
     
     def load_fcn_resnet50_pretrained(
         self, 
-        variant: str = "fcn_resnet50"
+        variant: str = "fcn_resnet50", 
+        checkpoint_path: Optional[str] = None
     ) -> "SegmentationBenchmark":
         """Загрузка FCN"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.FCN_TV,
             device=self.device,
             num_classes=self.num_classes,
-            variant=variant
+            variant=variant,
+            checkpoint_path=checkpoint_path
         )
         key = f"fcn_{variant.replace('fcn_', '')}_pretrained"
         self.models[key] = {
             "model": model,
             "processor": processor,
-            "type": model_type_str
+            "type": model_type_str,
+            "checkpoint": checkpoint_path
         }
         print(f"✅ Loaded {variant}")
         return self
     
     def load_segnet_pretrained(
         self, 
-        encoder_name: str = "resnet34"
+        encoder_name: str = "resnet34", 
+        checkpoint_path: Optional[str] = None
     ) -> "SegmentationBenchmark":
         """Загрузка SegNet"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.SEGNET,
             device=self.device,
             num_classes=self.num_classes,
-            encoder_name=encoder_name
+            encoder_name=encoder_name,
+            checkpoint_path=checkpoint_path
         )
         key = f"segnet_{encoder_name.replace('-', '_')}_pretrained"
         self.models[key] = {
             "model": model,
             "processor": processor,
-            "type": model_type_str
+            "type": model_type_str,
+            "checkpoint": checkpoint_path
         }
         print(f"✅ Loaded SegNet-like")
         return self
@@ -728,7 +734,7 @@ class SegmentationBenchmark:
                 if use_percent_format:
                     label = f"{val * 100:.3f}%"
                 else:
-                    label = f"{val:.1f}" if val >= 1 else f"{val:.3f}"
+                    label = f"{val:.3f}" if val >= 1 else f"{val:.3f}"
                 plt.text(bar.get_x() + bar.get_width()/2., height,
                         label, ha='center', va='bottom', 
                         fontsize=8, rotation=0)
@@ -949,7 +955,7 @@ class SegmentationBenchmark:
                 for bar, val, name in zip(bars, plot_values, plot_models):
                     display_name = name.replace('_', '_\n') if len(name) > 15 else name
                     ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), 
-                        f"{val:.1f}", ha='center', va='bottom', fontsize=fontsize-1)
+                        f"{val:.3f}", ha='center', va='bottom', fontsize=fontsize-1)
                 
                 ax.set_xticks(range(len(plot_models)))
                 ax.set_xticklabels([m.replace('_', '_\n') for m in plot_models], 
@@ -1078,9 +1084,9 @@ class SegmentationBenchmark:
         ]
         
         for model, metrics in summary.items():
-            mIoU = f"{metrics['mIoU']*100:.1f}" if not np.isnan(metrics['mIoU']) else "-"
-            acc = f"{metrics['pixel_acc']*100:.1f}" if not np.isnan(metrics['pixel_acc']) else "-"
-            time = f"{metrics['time_ms']:.1f}"
+            mIoU = f"{metrics['mIoU']*100:.3f}" if not np.isnan(metrics['mIoU']) else "-"
+            acc = f"{metrics['pixel_acc']*100:.3f}" if not np.isnan(metrics['pixel_acc']) else "-"
+            time = f"{metrics['time_ms']:.3f}"
             model_clean = model.replace("_", r"\_").replace("-", r"\-")
             lines.append(f"{model_clean} & {mIoU} & {acc} & {time} \\\\")
         lines.extend([r"\bottomrule", r"\end{tabular}", r"\end{table}"])
@@ -1092,7 +1098,7 @@ def export_comparison_table(
     output_file: str = "./../reports/model_comparison.md"
 ) -> pd.DataFrame:
     """Экспорт сравнительной таблицы всех моделей"""
-    df^ pd.DataFrame = pd.DataFrame(bench.get_summary()).T.sort_values("mIoU", ascending=False)
+    df: pd.DataFrame = pd.DataFrame(bench.get_summary()).T.sort_values("mIoU", ascending=False)
     
     # Категоризация
     categories: Dict[str, str] = {

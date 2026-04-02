@@ -58,6 +58,9 @@ __pycache__/
 
 MLvenv/
 data/
+data_*/
 data_9/
 models/
 reports/
+mobile_sam.pt
+sam2_t.pt
