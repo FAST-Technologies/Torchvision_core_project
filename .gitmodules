@@ -1,3 +1,7 @@
 [submodule "Neural_networks_University"]
     path = Neural_networks_University
     url = https://github.com/FAST-Technologies/Torchvision_core_project.git
+
+[submodule "SHIFT_ML_Tech_Task"]
+    path = SHIFT_ML_Tech_Task
+    url = https://github.com/FAST-Technologies/Torchvision_core_project.git
