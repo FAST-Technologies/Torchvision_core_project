@@ -1,6 +1,10 @@
 # utils/palettes.py
 
-from typing import List, Dict
+# Импорт основных библиотек
+from typing import (
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
+    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+)
 
 @staticmethod
 def get_ade_class_names() -> Dict[int, str]:

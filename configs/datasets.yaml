@@ -1,0 +1,25 @@
+ade20k:
+  dataset_type: semantic
+  source_type: hf
+  source_url: "scene-parse/ade20k"
+  num_classes: 150
+  description: "ADE20K Scene Parsing Dataset"
+  expected_structure:
+    images/training: ["*.jpg"]
+    annotations/training: ["*.png"]
+
+coco:
+  dataset_type: instance
+  source_type: hf
+  source_url: "cocodataset/coco2017"
+  num_classes: 80
+  description: "COCO 2017 Dataset"
+
+chexpert:
+  dataset_type: medical
+  source_type: zip
+  source_url: "https://aimi.stanford.edu/files/chexpert/CheXpert-v1.0.zip"
+  num_classes: 14
+  modality: X-ray
+  anatomy: chest
+  checksum: "abc123..."  # SHA256 хеш для валидации

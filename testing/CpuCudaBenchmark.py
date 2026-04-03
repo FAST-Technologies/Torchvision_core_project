@@ -1,11 +1,16 @@
 # testing/CpuCudaBenchmark.py
+
+# Импорт основных библиотек
 import os
 import time
 import torch
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from typing import Dict, List, Tuple, Any, Optional
+from typing import (
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
+    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+)
 from datetime import datetime
 from PIL import Image
 

@@ -6,7 +6,7 @@
 
 # Импорт основных библиотек
 from typing import (
-    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
     Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
 )
 import warnings
@@ -104,8 +104,7 @@ class SegmentationMetrics:
     def calculate_jaccard_sklearn(
         pred_mask: np.ndarray, 
         gt_mask: np.ndarray, 
-        threshold: float = 0.5,
-        average: str = 'binary'
+        threshold: float = 0.5
     ) -> float:
         """
         Jaccard Score через sklearn.metrics.jaccard_score.
@@ -115,8 +114,6 @@ class SegmentationMetrics:
             pred_mask: Предсказанная маска
             gt_mask: Ground truth маска
             threshold: Порог для бинаризации
-            average: Стратегия усреднения ('binary', 'micro', 'macro', 'weighted').
-                     Для бинарной сегментации используйте 'binary'.
         
         Returns:
             Значение Jaccard score от 0 до 1

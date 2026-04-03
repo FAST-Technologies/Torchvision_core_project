@@ -34,7 +34,7 @@ from .NeuralTrainer import NeuralTrainer
 from utils.strategies import SegNet
 
 from typing import (
-    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
     Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
 )
 

@@ -6,12 +6,13 @@ from segmenters.BaseSegmenter import BaseSegmenter
 import cv2
 import numpy as np
 from typing import (
-    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
     Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
 )
 import warnings
 from collections import deque
 from scipy import ndimage
+from scipy.ndimage import gaussian_filter, laplace
 import math
 import time
 
@@ -48,7 +49,23 @@ class OpenCVSegmenter(BaseSegmenter):
             "chan_vese",
             "threshold_niblack",
             "threshold_sauvola",
-            "random_walker"
+            "random_walker",
+            "threshold_bernsen",
+            "threshold_phansalkar",
+            "threshold_kittler_illingworth",
+            "threshold_entropy_kapur",
+            "threshold_triangle",
+            "threshold_multi_otsu",
+            "threshold_percentile",
+            "threshold_local_contrast",
+            "prewitt_edge",
+            "scharr_edge",
+            "roberts_cross_edge",
+            "log_edge",
+            "dog_edge",
+            "marr_hildreth_edge",
+            "gradient_magnitude_direction",
+            "phase_congruency_edge",
         ]
         self._setup_methods()
     
@@ -61,7 +78,7 @@ class OpenCVSegmenter(BaseSegmenter):
         
         # Конвертация значений (0.0-1.0 -> 0-255) ---
         # Параметры, которые точно являются порогами яркости
-        intensity_params = ['threshold', 'low', 'high']
+        intensity_params = ['threshold', 'low', 'high', 't1', 't2']
         for key in intensity_params:
             if key in adapted:
                 val = adapted[key]
@@ -69,7 +86,7 @@ class OpenCVSegmenter(BaseSegmenter):
                     adapted[key] = int(val * 255)
         
         # Параметры, зависящие от интенсивности (смещения)
-        offset_params = ['C', 'tolerance'] 
+        offset_params = ['C', 'tolerance', 'c', 'k'] 
         for key in offset_params:
             if key in adapted:
                 val = adapted[key]
@@ -102,10 +119,26 @@ class OpenCVSegmenter(BaseSegmenter):
             "otsu_thresholding": self._opencv_otsu_thresholding,
             "threshold_niblack": self._opencv_threshold_niblack,
             "threshold_sauvola": self._opencv_threshold_sauvola,
+            "threshold_bernsen": self._opencv_threshold_bernsen,
+            "threshold_phansalkar": self._opencv_threshold_phansalkar,
+            "threshold_kittler_illingworth": self._opencv_threshold_kittler_illingworth,
+            "threshold_entropy_kapur": self._opencv_threshold_entropy_kapur,
+            "threshold_triangle": self._opencv_threshold_triangle,
+            "threshold_multi_otsu": self._opencv_threshold_multi_otsu,
+            "threshold_percentile": self._opencv_threshold_percentile,
+            "threshold_local_contrast": self._opencv_threshold_local_contrast,
 
              # ============ КРАЕВЫЕ СЕГМЕНТАЦИОННЫЕ МЕТОДЫ ============
             "sobel_edge": self._opencv_sobel_edge,
             "canny_edge": self._opencv_canny_edge,
+            "prewitt_edge": self._opencv_prewitt_edge,
+            "scharr_edge": self._opencv_scharr_edge,
+            "roberts_cross_edge": self._opencv_roberts_cross_edge,
+            "log_edge": self._opencv_log_edge,
+            "dog_edge": self._opencv_dog_edge,
+            "marr_hildreth_edge": self._opencv_marr_hildreth_edge,
+            "gradient_magnitude_direction": self._opencv_gradient_magnitude_direction,
+            "phase_congruency_edge": self._opencv_phase_congruency_edge,
 
             # ============ РЕГИОНАЛЬНЫЕ СЕГМЕНТАЦИОННЫЕ МЕТОДЫ ============
             "region_growing": self._opencv_region_growing,
@@ -139,6 +172,19 @@ class OpenCVSegmenter(BaseSegmenter):
         if self.method not in self.methods:
             raise ValueError(f"Неизвестный метод: {self.method}. "
                            f"Доступные методы: {list(self.methods.keys())}")
+        
+    def _log_info(
+        self, 
+        method_name: str, 
+        exec_time: float, 
+        params: Dict[str, Any]
+    ) -> None:
+        """Вспомогательный метод для логирования информации о выполнении."""
+        self.info = {
+            'method': method_name,
+            'parameters': params,
+            'execution_time': exec_time
+        }
     
     def segment(
         self, 
@@ -158,10 +204,10 @@ class OpenCVSegmenter(BaseSegmenter):
             image, 
             as_gray=self._needs_gray
         )
-        print(f"Image after OpenCV preprocessing: {image}")
+        # print(f"Image after OpenCV preprocessing: {image}")
 
         mask = self.methods[self.method](img_array, **kwargs)
-        print(f"Mask after OpenCV segment: {mask}")
+        # print(f"Mask after OpenCV segment: {mask}")
         return mask
     
     def segment_with_mask(
@@ -182,7 +228,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 - Маска: бинарная маска (0–255, grayscale).
         """
         image: np.ndarray = self.preprocess_image(image)
-        print(f"Image after OpenCV preprocessing with mask: {image}")
+        # print(f"Image after OpenCV preprocessing with mask: {image}")
         mask: np.ndarray = self.segment(image, **kwargs)
         
         if mask.dtype != np.uint8:
@@ -197,13 +243,13 @@ class OpenCVSegmenter(BaseSegmenter):
         else:
             overlay = image.copy()
         
-        overlay[mask > 0] = [255, 0, 0]
+        overlay[mask > 127] = [255, 0, 0]
         result = cv2.addWeighted(overlay, alpha, 
                                 cv2.cvtColor(image, cv2.COLOR_GRAY2RGB) if len(image.shape)==2 else image, 
                                 1 - alpha, 0)
         
-        print(f"Mask after OpenCV segment_with_mask: {mask}")
-        print(f"Result after OpenCV segment_with_mask: {result}")
+        # print(f"Mask after OpenCV segment_with_mask: {mask}")
+        # print(f"Result after OpenCV segment_with_mask: {result}")
         return result, mask
     
     # ============ РЕАЛИЗАЦИИ МЕТОДОВ ============
@@ -467,6 +513,495 @@ class OpenCVSegmenter(BaseSegmenter):
         
         return mask
     
+    def _opencv_threshold_bernsen(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Пороговая обработка по методу Бернсена.
+        
+        Локальный адаптивный порог на основе контраста в окне.
+        T = (min + max) / 2, если контраст > порог, иначе фон.
+        
+        Args:
+            img: Входное изображение (grayscale)
+            window_size: Размер окна для локального анализа (по умолчанию 15)
+            contrast_threshold: Минимальный контраст для разделения (по умолчанию 25)
+        
+        Returns:
+            np.ndarray: Бинарная маска (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        window_size: int = self.params.get('window_size', 15)
+        contrast_threshold: int = self.params.get('contrast_threshold', 25)
+        
+        if window_size % 2 == 0:
+            window_size += 1
+        
+        # Вычисляем локальные min и max
+        min_filter = cv2.erode(gray, np.ones((window_size, window_size), np.uint8))
+        max_filter = cv2.dilate(gray, np.ones((window_size, window_size), np.uint8))
+        
+        # Контраст
+        contrast = max_filter - min_filter
+        
+        # Порог Бернсена
+        threshold = (min_filter.astype(np.float32) + max_filter.astype(np.float32)) / 2.0
+        # Бинаризация
+        mask = np.zeros_like(gray, dtype=np.uint8)
+        high_contrast = contrast >= contrast_threshold
+        mask[high_contrast] = (gray[high_contrast] > threshold[high_contrast]).astype(np.uint8) * 255
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('bernsen_thresholding_opencv', exec_time, 
+                      {'window_size': window_size, 'contrast_threshold': contrast_threshold, **kwargs})
+        
+        return mask
+    
+    def _opencv_threshold_phansalkar(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Пороговая обработка по методу Фансалкара.
+        
+        Улучшенная версия Ниблака для документов с низким контрастом.
+        T = μ + k·σ·(σ/R) + m·(μ/128 - 1), где μ, σ — локальные среднее и СКО.
+
+        Проверить T = μ·[1 + p·(σ/R - 1)]
+        
+        Args:
+            img: Входное изображение (grayscale)
+            window_size: Размер окна (по умолчанию 15)
+            k: Параметр чувствительности (по умолчанию 0.25)
+            r: Динамический диапазон (по умолчанию 0.5)
+            m: Параметр смещения (по умолчанию 0.5)
+        
+        Returns:
+            np.ndarray: Бинарная маска (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        window_size: int = self.params.get('window_size', 15)
+        k: float = self.params.get('k', 0.25)
+        r: float = self.params.get('r', 0.5)
+        m: float = self.params.get('m', 0.5)
+        
+        if window_size % 2 == 0:
+            window_size += 1
+        
+        # Локальные статистики
+        mean = cv2.boxFilter(gray, cv2.CV_32F, (window_size, window_size))
+        mean_sq = cv2.boxFilter(gray.astype(np.float32)**2, cv2.CV_32F, (window_size, window_size))
+        std = np.sqrt(np.maximum(mean_sq - mean**2, 0))
+         # Порог Фансалкара
+        threshold = mean + k * std * (std / r) + m * (mean / 128.0 - 1)
+        
+        mask = (gray.astype(np.float32) > threshold).astype(np.uint8) * 255
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('phansalkar_thresholding_opencv', exec_time,
+                      {'window_size': window_size, 'k': k, 'r': r, 'm': m, **kwargs})
+        
+        return mask
+    
+    def _opencv_threshold_kittler_illingworth(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Пороговая обработка по методу Киттлера-Иллингуорта.
+        
+        Минимизация ошибки классификации на основе гистограммы.
+        Предполагает бимодальное распределение интенсивностей.
+        
+        Args:
+            img: Входное изображение (grayscale)
+            num_bins: Количество бинов гистограммы (по умолчанию 256)
+        
+        Returns:
+            np.ndarray: Бинарная маска (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        num_bins: int = self.params.get('num_bins', 256)
+        
+        # Гистограмма
+        hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=[0, 256])
+        hist = hist.astype(np.float64)
+        
+        # Нормализация
+        hist = hist / hist.sum()
+        
+        # Кумулятивные суммы
+        cum_hist = np.cumsum(hist)
+        cum_mean = np.cumsum(hist * np.arange(num_bins))
+        
+        total_mean = cum_mean[-1]
+        min_error = np.inf
+        best_threshold = 128
+        # Поиск оптимального порога
+        for t in range(1, num_bins - 1):
+            if cum_hist[t] < 1e-6 or (1 - cum_hist[t]) < 1e-6:
+                continue
+            
+            # Статистики для фона и объекта
+            w0 = cum_hist[t]
+            w1 = 1 - w0
+            mu0 = cum_mean[t] / w0
+            mu1 = (total_mean - cum_mean[t]) / w1
+            
+            # Дисперсии
+            cum_mean_sq = np.cumsum(hist * np.arange(num_bins)**2)
+            sigma0_sq = cum_mean_sq[t] / w0 - mu0**2
+            sigma1_sq = (cum_mean_sq[-1] - cum_mean_sq[t]) / w1 - mu1**2
+            
+            if sigma0_sq <= 1e-6 or sigma1_sq <= 1e-6:
+                continue
+            
+            # Критерий Киттлера-Иллингуорта
+            error = (w0 * np.log(sigma0_sq) + w1 * np.log(sigma1_sq) 
+                    - 2 * (w0 * np.log(w0) + w1 * np.log(w1)))
+            
+            if error < min_error:
+                min_error = error
+                best_threshold = t
+        
+        # Бинаризация
+        _, mask = cv2.threshold(gray, best_threshold, 255, cv2.THRESH_BINARY)
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('kittler_illingworth_thresholding_opencv', exec_time,
+                      {'num_bins': num_bins, 'optimal_threshold': best_threshold, **kwargs})
+        
+        return mask
+    
+    def _opencv_threshold_entropy_kapur(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Пороговая обработка на основе энтропии Капура.
+        
+        Максимизация суммы энтропий фона и объекта.
+        
+        Args:
+            img: Входное изображение (grayscale)
+            num_bins: Количество бинов гистограммы (по умолчанию 256)
+        
+        Returns:
+            np.ndarray: Бинарная маска (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        num_bins: int = self.params.get('num_bins', 256)
+        
+        # Гистограмма
+        hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=[0, 256])
+        hist = hist.astype(np.float64) + 1e-10  # Избегаем log(0)
+        hist = hist / hist.sum()
+        
+        # Кумулятивная гистограмма и энтропия
+        cum_hist = np.cumsum(hist)
+        cum_entropy = np.cumsum(-hist * np.log(hist))
+        
+        max_entropy = -np.inf
+        best_threshold = 128
+        
+        # Поиск порога
+        for t in range(1, num_bins - 1):
+            if cum_hist[t] < 1e-6 or (1 - cum_hist[t]) < 1e-6:
+                continue
+            # Энтропия фона
+            h0 = cum_entropy[t] / cum_hist[t] + np.log(cum_hist[t])
+            # Энтропия объекта
+            h1 = (cum_entropy[-1] - cum_entropy[t]) / (1 - cum_hist[t]) + np.log(1 - cum_hist[t])
+            
+            total_entropy = h0 + h1
+            if total_entropy > max_entropy:
+                max_entropy = total_entropy
+                best_threshold = t
+        
+        # Бинаризация
+        _, mask = cv2.threshold(gray, best_threshold, 255, cv2.THRESH_BINARY)
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('entropy_kapur_thresholding_opencv', exec_time,
+                      {'num_bins': num_bins, 'optimal_threshold': best_threshold, **kwargs})
+        
+        return mask
+    
+    def _opencv_threshold_triangle(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Пороговая обработка треугольным методом.
+        
+        Геометрический метод для бимодальных гистограмм.
+        Находит порог как точку максимального расстояния от линии пик-минимум.
+        
+        Args:
+            img: Входное изображение (grayscale)
+            num_bins: Количество бинов гистограммы (по умолчанию 256)
+        
+        Returns:
+            np.ndarray: Бинарная маска (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        num_bins: int = self.params.get('num_bins', 256)
+        
+        # Гистограмма
+        hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=[0, 256])
+        
+        # Находим пик гистограммы
+        peak_idx = np.argmax(hist)
+        
+        # Линия от пика до конца диапазона
+        x = np.arange(num_bins)
+        y_peak = hist[peak_idx]
+        y_end = hist[-1]
+        # Уравнение линии: y = mx + b
+        m = (y_end - y_peak) / (num_bins - 1 - peak_idx) if (num_bins - 1 != peak_idx) else 0
+        
+        # Находим точку максимального расстояния
+        max_dist = 0
+        best_threshold = peak_idx
+        
+        for t in range(peak_idx + 1, num_bins):
+            # Расстояние от точки до линии
+            y_line = y_peak + m * (t - peak_idx)
+            dist = abs(hist[t] - y_line) / np.sqrt(1 + m**2)
+            
+            if dist > max_dist:
+                max_dist = dist
+                best_threshold = t
+        
+        # Бинаризация
+        _, mask = cv2.threshold(gray, best_threshold, 255, cv2.THRESH_BINARY)
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('triangle_thresholding_opencv', exec_time,
+                      {'num_bins': num_bins, 'optimal_threshold': best_threshold, **kwargs})
+        
+        return mask
+    
+    def _opencv_threshold_multi_otsu(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Многоуровневая пороговая обработка по методу Оцу.
+        
+        Расширение метода Оцу для нескольких порогов.
+        
+        Args:
+            img: Входное изображение (grayscale)
+            n_thresholds: Количество порогов (по умолчанию 2)
+            num_bins: Количество бинов гистограммы (по умолчанию 256)
+        
+        Returns:
+            np.ndarray: Бинарная маска (0/255) - объект = самый яркий класс
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        n_thresholds: int = self.params.get('n_thresholds', 2)
+        num_bins: int = self.params.get('num_bins', 256)
+        
+        # Гистограмма
+        hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=[0, 256])
+        hist = hist.astype(np.float64)
+        
+        if n_thresholds == 1:
+            # Обычный Оцу
+            _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            return mask
+        
+        # Упрощённый поиск порогов (для 2 порогов)
+        if n_thresholds == 2:
+            best_var = -np.inf
+            best_t1, best_t2 = 64, 192
+            
+            cum_sum = np.cumsum(hist)
+            cum_mean = np.cumsum(hist * np.arange(num_bins))
+            total = cum_sum[-1]
+            total_mean = cum_mean[-1] / total
+            
+            for t1 in range(1, num_bins - 2):
+                for t2 in range(t1 + 1, num_bins - 1):
+                    # Класс 0: [0, t1)
+                    w0 = cum_sum[t1] / total
+                    m0 = cum_mean[t1] / cum_sum[t1] if cum_sum[t1] > 0 else 0
+                    
+                    # Класс 1: [t1, t2)
+                    w1 = (cum_sum[t2] - cum_sum[t1]) / total
+                    m1 = (cum_mean[t2] - cum_mean[t1]) / (cum_sum[t2] - cum_sum[t1]) if (cum_sum[t2] > cum_sum[t1]) else 0
+                    
+                    # Класс 2: [t2, 256)
+                    w2 = (total - cum_sum[t2]) / total
+                    m2 = (total_mean * total - cum_mean[t2]) / (total - cum_sum[t2]) if (total > cum_sum[t2]) else 0
+                    
+                    # Межклассовая дисперсия
+                    var_between = (w0 * (m0 - total_mean)**2 + 
+                                  w1 * (m1 - total_mean)**2 + 
+                                  w2 * (m2 - total_mean)**2)
+                    
+                    if var_between > best_var:
+                        best_var = var_between
+                        best_t1, best_t2 = t1, t2
+            
+            # Бинаризация: объект = самый яркий класс
+            mask = (gray >= best_t2).astype(np.uint8) * 255
+            
+            exec_time: float = time.time() - start_time
+            self._log_info('multi_otsu_thresholding_opencv', exec_time,
+                          {'n_thresholds': n_thresholds, 'thresholds': [best_t1, best_t2], **kwargs})
+            return mask
+        
+        # Для >2 порогов используем рекурсивный Оцу (упрощённо)
+        thresholds = []
+        current_gray = gray.copy()
+        
+        for _ in range(n_thresholds):
+            _, thresh = cv2.threshold(current_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            thresholds.append(thresh)
+            current_gray = cv2.threshold(current_gray, thresh, 255, cv2.THRESH_BINARY_INV)[1]
+        
+        # Используем последний порог для бинаризации
+        _, mask = cv2.threshold(gray, thresholds[-1], 255, cv2.THRESH_BINARY)
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('multi_otsu_thresholding_opencv', exec_time,
+                      {'n_thresholds': n_thresholds, 'thresholds': thresholds, **kwargs})
+        
+        return mask
+    
+    def _opencv_threshold_percentile(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Процентильная пороговая обработка.
+        
+        Порог выбирается как заданный процентиль распределения интенсивностей гистограммы.
+        
+        Args:
+            img: Входное изображение (grayscale)
+            percentile: Процентиль для порога (по умолчанию 90)
+        
+        Returns:
+            np.ndarray: Бинарная маска (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        percentile: float = self.params.get('percentile', 90)
+        
+        # Вычисляем процентиль
+        threshold = np.percentile(gray, percentile)
+        
+        # Бинаризация
+        _, mask = cv2.threshold(gray, int(threshold), 255, cv2.THRESH_BINARY)
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('percentile_thresholding_opencv', exec_time,
+                      {'percentile': percentile, 'threshold': int(threshold), **kwargs})
+        
+        return mask
+    
+    def _opencv_threshold_local_contrast(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Пороговая обработка на основе локального контраста.
+        
+        Пиксель считается объектом, если его интенсивность значительно
+        отличается от локального среднего.
+        T = μ + k·(max-min) в окне
+        
+        Args:
+            img: Входное изображение (grayscale)
+            window_size: Размер окна для локального анализа (по умолчанию 15)
+            contrast_factor: Коэффициент контраста (по умолчанию 0.1)
+        
+        Returns:
+            np.ndarray: Бинарная маска (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        window_size: int = self.params.get('window_size', 15)
+        contrast_factor: float = self.params.get('contrast_factor', 0.1)
+        
+        if window_size % 2 == 0:
+            window_size += 1
+        
+        # Локальное среднее
+        local_mean = cv2.boxFilter(gray, cv2.CV_32F, (window_size, window_size))
+        
+        # Локальный контраст (разница от среднего)
+        local_contrast = np.abs(gray.astype(np.float32) - local_mean)
+        
+        # Глобальный порог контраста
+        global_contrast_threshold = np.percentile(local_contrast, 100 * (1 - contrast_factor))
+        # Бинаризация по контрасту
+        mask = (local_contrast > global_contrast_threshold).astype(np.uint8) * 255
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('local_contrast_thresholding_opencv', exec_time,
+                      {'window_size': window_size, 'contrast_factor': contrast_factor, **kwargs})
+        
+        return mask
+    
     # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
     def _opencv_sobel_edge(
         self, 
@@ -567,6 +1102,439 @@ class OpenCVSegmenter(BaseSegmenter):
 
         print(f"Mask after OpenCV_canny_edge: {mask}")
         print(f"Info after OpenCV_canny_edge: {info}")
+        return mask
+    
+    def _opencv_prewitt_edge(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ оператором Превитта.
+        
+        Вычисляет градиент с использованием ядер 3×3 (использование весов [1,1,1]).
+        Менее чувствителен к шуму, чем Собель.
+        
+        Args:
+            img: Входное изображение (grayscale)
+            threshold: Порог для бинаризации градиента (по умолчанию 50)
+            direction: Направление градиента ('x', 'y', 'both') (по умолчанию 'both')
+        
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        threshold: int = self.params.get('threshold', 50)
+        direction: str = self.params.get('direction', 'both')
+        
+        # Ядра Превитта
+        kernel_x = np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], dtype=np.float32)
+        kernel_y = np.array([[-1, -1, -1], [0, 0, 0], [1, 1, 1]], dtype=np.float32)
+        
+        if direction in ['x', 'both']:
+            grad_x = cv2.filter2D(gray, cv2.CV_32F, kernel_x)
+        else:
+            grad_x = np.zeros_like(gray, dtype=np.float32)
+        if direction in ['y', 'both']:
+            grad_y = cv2.filter2D(gray, cv2.CV_32F, kernel_y)
+        else:
+            grad_y = np.zeros_like(gray, dtype=np.float32)
+        
+        # Магнитуда градиента
+        magnitude = np.sqrt(grad_x**2 + grad_y**2)
+        magnitude = np.uint8(255 * magnitude / (np.max(magnitude) + 1e-8))
+        
+        # Бинаризация
+        _, mask = cv2.threshold(magnitude, threshold, 255, cv2.THRESH_BINARY)
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('prewitt_edge_opencv', exec_time,
+                      {'threshold': threshold, 'direction': direction, **kwargs})
+        
+        return mask
+    
+    def _opencv_scharr_edge(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ оператором Шара.
+        
+        Улучшенная версия Собеля с лучшей точностью вычисления градиента.
+        Использует оптимизированные ядра 3×3.
+        
+        Args:
+            img: Входное изображение (grayscale)
+            threshold: Порог для бинаризации градиента (по умолчанию 50)
+            direction: Направление градиента ('x', 'y', 'both') (по умолчанию 'both')
+        
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        threshold: int = self.params.get('threshold', 50)
+        direction: str = self.params.get('direction', 'both')
+        
+        # Ядра Шара (более точные, чем Собель)
+        if direction in ['x', 'both']:
+            grad_x = cv2.Scharr(gray, cv2.CV_64F, 1, 0)
+        else:
+            grad_x = np.zeros_like(gray, dtype=np.float64)
+            
+        if direction in ['y', 'both']:
+            grad_y = cv2.Scharr(gray, cv2.CV_64F, 0, 1)
+        else:
+            grad_y = np.zeros_like(gray, dtype=np.float64)
+        
+        # Магнитуда градиента
+        magnitude = np.sqrt(grad_x**2 + grad_y**2)
+        magnitude = np.uint8(255 * magnitude / (np.max(magnitude) + 1e-8))
+        # Бинаризация
+        _, mask = cv2.threshold(magnitude, threshold, 255, cv2.THRESH_BINARY)
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('scharr_edge_opencv', exec_time,
+                      {'threshold': threshold, 'direction': direction, **kwargs})
+        
+        return mask
+    
+    def _opencv_roberts_cross_edge(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ оператором Робертса (Cross).
+        
+        Простой оператор для обнаружения диагональных границ.
+        Использует ядра 2×2 для вычисления градиента.
+        Диагональные разности
+        [[+1,0],[0,-1]]
+        [[0,+1],[-1,0]]
+        
+        Args:
+            img: Входное изображение (grayscale)
+            threshold: Порог для бинаризации градиента (по умолчанию 50)
+        
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        threshold: int = self.params.get('threshold', 50)
+        
+        # Ядра Робертса (2×2)
+        kernel_x = np.array([[1, 0], [0, -1]], dtype=np.float32)
+        kernel_y = np.array([[0, 1], [-1, 0]], dtype=np.float32)
+        
+        grad_x = cv2.filter2D(gray, cv2.CV_32F, kernel_x)
+        grad_y = cv2.filter2D(gray, cv2.CV_32F, kernel_y)
+        
+        # Магнитуда градиента
+        magnitude = np.sqrt(grad_x**2 + grad_y**2)
+        magnitude = np.uint8(255 * magnitude / (np.max(magnitude) + 1e-8))
+        
+        # Бинаризация
+        _, mask = cv2.threshold(magnitude, threshold, 255, cv2.THRESH_BINARY)
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('roberts_cross_edge_opencv', exec_time,
+                      {'threshold': threshold, **kwargs})
+        
+        return mask
+    
+    def _opencv_log_edge(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ Лапласианом Гауссиана (LoG / Laplacian of Gaussian).
+        
+        Применяет Гауссово размытие, затем Лапласиан.
+        Границы обнаруживаются по пересечению нуля (zero-crossing).
+        ∇²(G * I) — детекция по нулевым пересечениям
+        
+        Args:
+            img: Входное изображение (grayscale)
+            sigma: Стандартное отклонение Гаусса (по умолчанию 1.0)
+            kernel_size: Размер ядра Лапласиана (по умолчанию 5)
+            threshold: Порог для бинаризации (по умолчанию 10)
+        
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        sigma: float = self.params.get('sigma', 1.0)
+        kernel_size: int = self.params.get('kernel_size', 5)
+        threshold: int = self.params.get('threshold', 10)
+        
+        if kernel_size % 2 == 0:
+            kernel_size += 1
+        
+        # Гауссово размытие
+        blurred = gaussian_filter(gray.astype(np.float32), sigma=sigma)
+        
+        # Лапласиан
+        laplacian = laplace(blurred)
+        # Zero-crossing detection
+        zero_crossing = np.zeros_like(laplacian, dtype=np.uint8)
+        
+        for i in range(1, laplacian.shape[0] - 1):
+            for j in range(1, laplacian.shape[1] - 1):
+                neighborhood = laplacian[i-1:i+2, j-1:j+2]
+                if np.min(neighborhood) < 0 < np.max(neighborhood):
+                    if np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood)) > threshold:
+                        zero_crossing[i, j] = 255
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('log_edge_opencv', exec_time,
+                      {'sigma': sigma, 'kernel_size': kernel_size, 'threshold': threshold, **kwargs})
+        
+        return zero_crossing
+    
+    def _opencv_dog_edge(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ разностью Гауссианов (DoG / Difference of Gaussians).
+        
+        Аппроксимация LoG через разность двух Гауссианов с разными σ.
+        Аппроксимация LoG: G₁*I - G₂*I
+        Эффективно для обнаружения границ разного масштаба.
+        
+        Args:
+            img: Входное изображение (grayscale)
+            sigma1: Стандартное отклонение первого Гаусса (по умолчанию 1.0)
+            sigma2: Стандартное отклонение второго Гаусса (по умолчанию 2.0)
+            threshold: Порог для бинаризации (по умолчанию 10)
+        
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        sigma1: float = self.params.get('sigma1', 1.0)
+        sigma2: float = self.params.get('sigma2', 2.0)
+        threshold: int = self.params.get('threshold', 10)
+        
+        # Применяем два Гауссовых фильтра
+        g1 = gaussian_filter(gray.astype(np.float32), sigma=sigma1)
+        g2 = gaussian_filter(gray.astype(np.float32), sigma=sigma2)
+        
+        # Разность Гауссианов
+        dog = g1 - g2
+        # Zero-crossing detection
+        zero_crossing = np.zeros_like(dog, dtype=np.uint8)
+        
+        for i in range(1, dog.shape[0] - 1):
+            for j in range(1, dog.shape[1] - 1):
+                neighborhood = dog[i-1:i+2, j-1:j+2]
+                if np.min(neighborhood) < 0 < np.max(neighborhood):
+                    if np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood)) > threshold:
+                        zero_crossing[i, j] = 255
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('dog_edge_opencv', exec_time,
+                      {'sigma1': sigma1, 'sigma2': sigma2, 'threshold': threshold, **kwargs})
+        
+        return zero_crossing
+    
+    def _opencv_marr_hildreth_edge(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ методом Марра-Хилдрета.
+        
+        Комбинация Гауссова размытия и Лапласиана с zero-crossing.
+        Нулевые пересечения LoG с порогом.
+        Классический метод для обнаружения границ.
+        
+        Args:
+            img: Входное изображение (grayscale)
+            sigma: Стандартное отклонение Гаусса (по умолчанию 1.0)
+            threshold: Порог для отсечения слабого zero-crossing (по умолчанию 10)
+        
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        sigma: float = self.params.get('sigma', 1.0)
+        threshold: int = self.params.get('threshold', 10)
+        
+        # Лапласиан Гауссиана через OpenCV
+        laplacian = cv2.Laplacian(
+            cv2.GaussianBlur(gray, (0, 0), sigma), 
+            cv2.CV_64F
+        )
+        
+        # Zero-crossing detection
+        zero_crossing = np.zeros_like(laplacian, dtype=np.uint8)
+        for i in range(1, laplacian.shape[0] - 1):
+            for j in range(1, laplacian.shape[1] - 1):
+                neighborhood = laplacian[i-1:i+2, j-1:j+2]
+                if np.min(neighborhood) < 0 < np.max(neighborhood):
+                    if np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood)) > threshold:
+                        zero_crossing[i, j] = 255
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('marr_hildreth_edge_opencv', exec_time,
+                      {'sigma': sigma, 'threshold': threshold, **kwargs})
+        
+        return zero_crossing
+    
+    def _opencv_gradient_magnitude_direction(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ через магнитуду и направление градиента.
+        
+        Вычисляет градиент с направлением и позволяет фильтрацию по углу.
+        
+        Args:
+            img: Входное изображение (grayscale)
+            threshold: Порог магнитуды (по умолчанию 50)
+            angle_range: Диапазон углов для фильтрации в градусах (по умолчанию None - все углы)
+        
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        threshold: int = self.params.get('threshold', 50)
+        angle_range: Optional[Tuple[float, float]] = self.params.get('angle_range', None)
+        
+        # Градиенты Собеля
+        grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+        grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+        
+        # Магнитуда и направление
+        magnitude = np.sqrt(grad_x**2 + grad_y**2)
+        direction = np.arctan2(grad_y, grad_x) * 180 / np.pi  # В градусах
+        # Фильтрация по магнитуде
+        mask = (magnitude > threshold).astype(np.uint8) * 255
+        
+        # Опциональная фильтрация по направлению
+        if angle_range is not None:
+            angle_mask = ((direction >= angle_range[0]) & (direction <= angle_range[1])) | \
+                        ((direction + 180 >= angle_range[0]) & (direction + 180 <= angle_range[1]))
+            mask = mask & (angle_mask.astype(np.uint8) * 255)
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('gradient_magnitude_direction_opencv', exec_time,
+                      {'threshold': threshold, 'angle_range': angle_range, **kwargs})
+        
+        return mask
+    
+    def _opencv_phase_congruency_edge(
+        self, 
+        img: np.ndarray, 
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ через фазовую конгруэнтность (упрощённая реализация).
+        
+        Метод, инвариантный к изменению контраста и яркости.
+        Основан на согласованности фаз Фурье-компонент.
+        
+        Примечание: Полная реализация требует pyphase или аналогичной библиотеки.
+        Здесь используется аппроксимация через много-масштабные градиенты.
+        
+        Args:
+            img: Входное изображение (grayscale)
+            nscales: Количество масштабов (по умолчанию 4)
+            threshold: Порог для бинаризации (по умолчанию 0.2)
+        
+        Returns:
+            np.ndarray: Бинарная маска границ (0/255)
+        """
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        
+        start_time: float = time.time()
+        
+        nscales: int = self.params.get('nscales', 4)
+        threshold: float = self.params.get('threshold', 0.2)
+        
+        # Аппроксимация фазовой конгруэнтности через много-масштабные градиенты
+        pc_map = np.zeros_like(gray, dtype=np.float32)
+        
+        for scale in range(nscales):
+            sigma = 2 ** scale
+            # Гауссово размытие на текущем масштабе
+            blurred = gaussian_filter(gray.astype(np.float32), sigma=sigma)
+            # Градиенты
+            grad_x = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
+            grad_y = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
+            
+            # Магнитуда
+            mag = np.sqrt(grad_x**2 + grad_y**2)
+            
+            # Нормализация и добавление к карте
+            mag_norm = mag / (np.max(mag) + 1e-8)
+            pc_map += mag_norm
+        
+        # Усреднение по масштабам
+        pc_map /= nscales
+        
+        # Нормализация к [0, 1]
+        pc_map = (pc_map - np.min(pc_map)) / (np.max(pc_map) - np.min(pc_map) + 1e-8)
+        
+        # Бинаризация
+        mask = (pc_map > threshold).astype(np.uint8) * 255
+        
+        exec_time: float = time.time() - start_time
+        self._log_info('phase_congruency_edge_opencv', exec_time,
+                      {'nscales': nscales, 'threshold': threshold, **kwargs})
+        
         return mask
     
     # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============

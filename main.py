@@ -24,7 +24,7 @@ from segmenters.NeuralSegmenter import NeuralSegmenter
 from torch.utils.data import Dataset, DataLoader
 
 from typing import (
-    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
     Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
 )
 
@@ -473,8 +473,8 @@ def main():
         benchmark_ade.load_oneformer("shi-labs/oneformer_ade20k_swin_large")
         benchmark_ade.load_unet_trained(checkpoint_path="models/unet_ade20k_best_200_epochs.pth")
         benchmark_ade.load_deeplab_trained(checkpoint_path="models/deeplab_ade20k_best_200_epochs.pth")
-        benchmark_ade.load_sam("mobile_sam.pt")
-        benchmark_ade.load_sam("sam2_t.pt")
+        benchmark_ade.load_sam("models/mobile_sam.pt")
+        benchmark_ade.load_sam("models/sam2_t.pt")
         benchmark_ade.load_dpt("Intel/dpt-large-ade")
         benchmark_ade.load_upernet("openmmlab/upernet-convnext-small")
         benchmark_ade.load_segformer_variant("b2")

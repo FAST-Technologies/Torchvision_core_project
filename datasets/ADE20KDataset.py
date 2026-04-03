@@ -3,7 +3,7 @@
 # Импорт основных библиотек
 import os
 from typing import (
-    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
     Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
 )
 import random
@@ -94,7 +94,7 @@ class ADE20KDataset(Dataset):
         rotation_prob: float = 0.0,
         color_jitter_prob: float = 0.0,
         scale_range: Tuple[float, float] = (0.8, 1.2)
-    ):
+    ) -> None:
         """Настройка параметров аугментаций в зависимости от уровня"""
         
         if self.augmentation_level == 'none':
@@ -242,7 +242,6 @@ class ADE20KDataset(Dataset):
         
         # 2. Random Grayscale
         if self.augmentation_level == 'aggressive' and random.random() < 0.1:
-            img = TF.grayscale(img)
             img = TF.grayscale(img)  # Конвертируем обратно в RGB
         
         # 3. Random Gamma
@@ -307,7 +306,7 @@ class ADE20KDatasetWithTransforms(Dataset):
         augment: bool = False,
         subset_fraction: float = None,
         ignore_index: int = 255
-    ):
+    ) -> None:
         self.image_size = image_size
         self.augment = augment
         self.ignore_index = ignore_index
@@ -336,19 +335,7 @@ class ADE20KDatasetWithTransforms(Dataset):
             n = int(len(self.valid_indices) * subset_fraction)
             self.valid_indices = self.valid_indices[:n]
     
-    def _get_train_transforms(self):
-        """Трансформации для обучения"""
-        return {
-            'image': transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            ]),
-            'mask': transforms.Compose([
-                # Только ToTensor, без нормализации!
-            ])
-        }
-    
-    def _get_val_transforms(self):
+    def _get_val_transforms(self) -> Dict[str, transforms.Compose]:
         """Трансформации для валидации"""
         return {
             'image': transforms.Compose([
@@ -359,10 +346,11 @@ class ADE20KDatasetWithTransforms(Dataset):
                 # Без аугментаций
             ])
         }
-    def __len__(self):
+    
+    def __len__(self) -> int:
         return len(self.valid_indices)
     
-    def __getitem__(self, idx):
+    def __getitem__(self, idx) -> Dict[str, Any]:
         real_idx = self.valid_indices[idx]
         img_file = self.image_files[real_idx]
         

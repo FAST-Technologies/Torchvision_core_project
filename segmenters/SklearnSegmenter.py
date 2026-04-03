@@ -4,7 +4,7 @@
 
 from segmenters.BaseSegmenter import BaseSegmenter
 from typing import (
-    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
     Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
 )
 import numpy as np
@@ -49,6 +49,7 @@ from sklearn.svm import SVC, OneClassSVM
 from sklearn.tree import DecisionTreeClassifier
 
 from scipy import ndimage, signal, sparse
+from scipy.ndimage import gaussian_filter, laplace, sobel, prewitt
 from scipy.sparse.linalg import eigsh
 from skimage.util import img_as_float, img_as_ubyte
 
@@ -60,7 +61,7 @@ from skimage import (
 )
 from skimage.color import label2rgb
 from skimage.draw import polygon
-from skimage.feature import canny
+from skimage.feature import canny, corner_hessian, structure_tensor
 from skimage.filters import (
     threshold_otsu, threshold_local, threshold_niblack,
     threshold_sauvola, gaussian, sobel, prewitt, roberts,
@@ -111,10 +112,28 @@ class SklearnSegmenter(BaseSegmenter):
             "global_thresholding",
             "adaptive_thresholding", 
             "otsu_thresholding",
+            "threshold_niblack",
+            "threshold_sauvola",
+            "threshold_bernsen",
+            "threshold_phansalkar", 
+            "threshold_kittler_illingworth",
+            "threshold_entropy_kapur", 
+            "threshold_triangle", 
+            "threshold_multi_otsu",
+            "threshold_percentile", 
+            "threshold_local_contrast",
             "region_growing",
             "split_and_merge",
             "sobel_edge",
             "canny_edge",
+            "prewitt_edge", 
+            "scharr_edge",
+            "roberts_cross_edge", 
+            "log_edge", 
+            "dog_edge", 
+            "marr_hildreth_edge",
+            "gradient_magnitude_direction", 
+            "phase_congruency_edge"
             "active_contour",
             "gvf_contour",
             "watershed",
@@ -123,8 +142,6 @@ class SklearnSegmenter(BaseSegmenter):
             "floodfill",
             "morphological_snakes",
             "chan_vese",
-            "threshold_niblack",
-            "threshold_sauvola",
             "random_walker"
         ]
     
@@ -142,10 +159,26 @@ class SklearnSegmenter(BaseSegmenter):
             "otsu_thresholding": self._sklearn_otsu_thresholding,
             "threshold_niblack": self._sklearn_threshold_niblack,
             "threshold_sauvola": self._sklearn_threshold_sauvola,
+            "threshold_bernsen": self._sklearn_threshold_bernsen,
+            "threshold_phansalkar": self._sklearn_threshold_phansalkar,
+            "threshold_kittler_illingworth": self._sklearn_threshold_kittler_illingworth,
+            "threshold_entropy_kapur": self._sklearn_threshold_entropy_kapur,
+            "threshold_triangle": self._sklearn_threshold_triangle,
+            "threshold_multi_otsu": self._sklearn_threshold_multi_otsu,
+            "threshold_percentile": self._sklearn_threshold_percentile,
+            "threshold_local_contrast": self._sklearn_threshold_local_contrast,
 
             # ============ КРАЕВЫЕ СЕГМЕНТАЦИОННЫЕ МЕТОДЫ ============
             "sobel_edge": self._sklearn_sobel_edge,
             "canny_edge": self._sklearn_canny_edge,
+            "prewitt_edge": self._sklearn_prewitt_edge,
+            "scharr_edge": self._sklearn_scharr_edge,
+            "roberts_cross_edge": self._sklearn_roberts_cross_edge,
+            "log_edge": self._sklearn_log_edge,
+            "dog_edge": self._sklearn_dog_edge,
+            "marr_hildreth_edge": self._sklearn_marr_hildreth_edge,
+            "gradient_magnitude_direction": self._sklearn_gradient_magnitude_direction,
+            "phase_congruency_edge": self._sklearn_phase_congruency_edge,
 
             # ============ РЕГИОНАЛЬНЫЕ СЕГМЕНТАЦИОННЫЕ МЕТОДЫ ============
             "region_growing": self._sklearn_region_growing,
@@ -299,26 +332,70 @@ class SklearnSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска сегментации (0-255)
         """
-        img_processed: np.ndarray = self.preprocess_image(
-            image, 
-            as_gray=self._needs_gray
-        )
-        print(f"Image after sklearn preprocessing: {img_processed}")
-        
-        mask, info = self.methods[self.method](img_processed, **kwargs)
-        print(f"Info Sklearn segment: {info}")
-        if mask.dtype != np.uint8:
-            if mask.max() <= 1.0:
-                mask = (mask * 255).astype(np.uint8)
-            else:
-                mask = mask.astype(np.uint8)
-        if self.method in ['canny_edge', 'sobel_edge']:
-            pass
-        elif self.params.get('postprocess', True):
-            mask = self._postprocess_mask(mask)
+        try:
+            img_processed: np.ndarray = self.preprocess_image(
+                image, 
+                as_gray=self._needs_gray
+            )
+            print(f"Image after sklearn preprocessing: {img_processed}")
 
-        print(f"Mask after sklearn segment: {mask}")
-        return mask
+            if self.method not in self.methods:
+                raise ValueError(f"Метод {self.method} не реализован")
+            
+            mask, info = self.methods[self.method](img_processed, **kwargs)
+            print(f"Info Sklearn segment: {info}")
+            if mask.dtype != np.uint8:
+                if mask.max() <= 1.0:
+                    mask = (mask * 255).astype(np.uint8)
+                else:
+                    mask = mask.astype(np.uint8)
+            if self.params.get('postprocess', True) and self.method not in ['canny_edge', 'sobel_edge']:
+                mask = self._postprocess_mask(mask)
+
+            print(f"Mask after sklearn segment: {mask}")
+            return mask
+        except Exception as e:
+            warnings.warn(
+                f"Ошибка в методе {self.method}: {e}. "
+                f"Возвращаем пустую маску.",
+                RuntimeWarning
+            )
+            # Возвращаем пустую маску того же размера
+            h, w = img_processed.shape[:2]
+            return np.zeros((h, w), dtype=np.uint8)
+    
+    def segment_and_evaluate(
+        self,
+        image: ImageInput,
+        ground_truth: np.ndarray,
+        threshold: float = 0.5,
+        **kwargs
+    ) -> Tuple[Dict[str, float], np.ndarray]:
+        """
+        Сегментация с немедленным вычислением метрик.
+        
+        Args:
+            image: Входное изображение
+            ground_truth: Ground truth маска
+            threshold: Порог для бинаризации
+            
+        Returns:
+            Tuple[Dict[str, float], np.ndarray]: Метрики и предсказанная маска
+        """
+        from metrics.SegmentationMetrics import SegmentationMetrics
+        
+        # Выполняем сегментацию
+        pred_mask = self.segment(image, **kwargs)
+        
+        # Вычисляем метрики
+        metrics = SegmentationMetrics.calculate_all_metrics(
+            pred_mask=pred_mask,
+            gt_mask=ground_truth,
+            threshold=threshold,
+            include_hausdorff=True
+        )
+        
+        return metrics, pred_mask
     
     def segment_with_mask(
         self, 
@@ -584,7 +661,7 @@ class SklearnSegmenter(BaseSegmenter):
         start_time = time.time()
         block_size = self.params.get('block_size', 11)
         C = self.params.get('C', 2)
-        adaptive_thresh = threshold_local(gray, block_size=block_size, offset=C/255.0)
+        adaptive_thresh = threshold_local(gray, block_size=block_size, offset=C/255.0, method='gaussian')
         mask = gray > adaptive_thresh
         mask = (mask * 255).astype(np.uint8)
         exec_time = time.time() - start_time
@@ -747,6 +824,324 @@ class SklearnSegmenter(BaseSegmenter):
         
         return mask, info
     
+    def _sklearn_threshold_bernsen(
+        self,
+        img: np.ndarray,
+        window_size: int = 15,
+        contrast_threshold: float = 0.1,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Пороговая обработка по методу Бернсена.
+        Локальный адаптивный порог на основе контраста в окне.
+        T = (min + max) / 2, если контраст > порог, иначе фон.
+        """
+        h, w = img.shape
+        pad = window_size // 2
+        img_padded = np.pad(img, pad, mode='reflect')
+        mask = np.zeros_like(img)
+        
+        for i in range(h):
+            for j in range(w):
+                window = img_padded[i:i+window_size, j:j+window_size]
+                local_min = np.min(window)
+                local_max = np.max(window)
+                contrast = local_max - local_min
+                
+                if contrast > contrast_threshold:
+                    threshold = (local_min + local_max) / 2
+                    mask[i, j] = 1 if img[i, j] > threshold else 0
+                else:
+                    mask[i, j] = 0  # Фон при низком контрасте
+        
+        return mask.astype(np.float32)
+    
+    def _sklearn_threshold_phansalkar(
+        self,
+        img: np.ndarray,
+        window_size: int = 15,
+        k: float = 0.25,
+        r: float = 0.5,
+        m: float = 0.5,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Пороговая обработка по методу Фансалкара.
+        Улучшенная версия Ниблака для документов с низким контрастом.
+        T = μ + k·σ·(σ/R) + m·(μ/128 - 1)
+        """
+        h, w = img.shape
+        pad = window_size // 2
+        img_padded = np.pad(img, pad, mode='reflect')
+        mask = np.zeros_like(img)
+        
+        for i in range(h):
+            for j in range(w):
+                window = img_padded[i:i+window_size, j:j+window_size]
+                local_mean = np.mean(window)
+                local_std = np.std(window)
+                
+                # Порог Фансалкара
+                threshold = local_mean + k * local_std * (local_std / r) + m * (local_mean / 128 - 1)
+                mask[i, j] = 1 if img[i, j] > threshold else 0
+        
+        return mask.astype(np.float32)
+    
+    def _sklearn_threshold_kittler_illingworth(
+        self,
+        img: np.ndarray,
+        num_bins: int = 256,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Пороговая обработка по методу Киттлера-Иллингуорта.
+        Минимизация ошибки классификации на основе гистограммы.
+        """
+        # Гистограмма изображения
+        hist, bin_edges = np.histogram(img.flatten(), bins=num_bins, range=[0, 1])
+        hist = hist.astype(np.float64)
+        
+        # Нормализация гистограммы
+        hist = hist / hist.sum()
+        
+        # Кумулятивные суммы
+        cum_sum = np.cumsum(hist)
+        cum_mean = np.cumsum(hist * np.arange(num_bins) / num_bins)
+        
+        total_mean = cum_mean[-1]
+        min_error = np.inf
+        best_threshold = 0.5
+        
+        # Поиск оптимального порога
+        for t in range(1, num_bins - 1):
+            if cum_sum[t] < 1e-6 or (1 - cum_sum[t]) < 1e-6:
+                continue
+            
+            # Статистики для фона и объекта
+            w0 = cum_sum[t]
+            w1 = 1 - w0
+            mu0 = cum_mean[t] / w0
+            mu1 = (total_mean - cum_mean[t]) / w1
+            
+            # Дисперсии
+            cum_mean_sq = np.cumsum(hist * (np.arange(num_bins) / num_bins)**2)
+            sigma0_sq = cum_mean_sq[t] / w0 - mu0**2
+            sigma1_sq = (cum_mean_sq[-1] - cum_mean_sq[t]) / w1 - mu1**2
+            if sigma0_sq <= 1e-6 or sigma1_sq <= 1e-6:
+                continue
+            
+            # Критерий Киттлера-Иллингуорта
+            error = (w0 * np.log(sigma0_sq) + w1 * np.log(sigma1_sq) 
+                    - 2 * (w0 * np.log(w0) + w1 * np.log(w1)))
+            
+            if error < min_error:
+                min_error = error
+                best_threshold = t / num_bins
+        
+        return (img > best_threshold).astype(np.float32)
+    
+    def _sklearn_threshold_entropy_kapur(
+        self,
+        img: np.ndarray,
+        num_bins: int = 256,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Пороговая обработка на основе энтропии Капура.
+        Максимизация суммы энтропий фона и объекта.
+        """
+        # Гистограмма изображения
+        hist, bin_edges = np.histogram(img.flatten(), bins=num_bins, range=[0, 1])
+        hist = hist.astype(np.float64) + 1e-10  # Избегаем log(0)
+        hist = hist / hist.sum()
+        
+        # Кумулятивная гистограмма и энтропия
+        cum_hist = np.cumsum(hist)
+        cum_entropy = np.cumsum(-hist * np.log(hist))
+        
+        max_entropy = -np.inf
+        best_threshold = 0.5
+        
+        # Поиск порога
+        for t in range(1, num_bins - 1):
+            if cum_hist[t] < 1e-6 or (1 - cum_hist[t]) < 1e-6:
+                continue
+            
+            # Энтропия фона
+            h0 = cum_entropy[t] / cum_hist[t] + np.log(cum_hist[t])
+            # Энтропия объекта
+            h1 = (cum_entropy[-1] - cum_entropy[t]) / (1 - cum_hist[t]) + np.log(1 - cum_hist[t])
+            
+            total_entropy = h0 + h1
+            
+            if total_entropy > max_entropy:
+                max_entropy = total_entropy
+                best_threshold = t / num_bins
+        
+        return (img > best_threshold).astype(np.float32)
+    
+    def _sklearn_threshold_triangle(
+        self,
+        img: np.ndarray,
+        num_bins: int = 256,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Пороговая обработка треугольным методом.
+        Геометрический метод для бимодальных гистограмм.
+        Находит порог как точку максимального расстояния от линии пик-минимум.
+        """
+        # Гистограмма изображения
+        hist, bin_edges = np.histogram(img.flatten(), bins=num_bins, range=[0, 1])
+        
+        # Находим пик гистограммы
+        peak_idx = np.argmax(hist)
+        
+        # Линия от пика до конца диапазона
+        x = np.arange(num_bins)
+        y_peak = hist[peak_idx]
+        y_end = hist[-1]
+        
+        # Уравнение линии: y = mx + b
+        if num_bins - 1 != peak_idx:
+            m = (y_end - y_peak) / (num_bins - 1 - peak_idx)
+        else:
+            m = 0
+        
+        # Находим точку максимального расстояния
+        max_dist = 0
+        best_threshold = peak_idx / num_bins
+        
+        for t in range(peak_idx + 1, num_bins):
+            # Расстояние от точки до линии
+            y_line = y_peak + m * (t - peak_idx)
+            dist = abs(hist[t] - y_line) / np.sqrt(1 + m**2)
+            
+            if dist > max_dist:
+                max_dist = dist
+                best_threshold = t / num_bins
+        return (img > best_threshold).astype(np.float32)
+    
+    def _sklearn_threshold_multi_otsu(
+        self,
+        img: np.ndarray,
+        n_thresholds: int = 2,
+        num_bins: int = 256,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Многоуровневая пороговая обработка по методу Оцу.
+        Расширение метода Оцу для нескольких порогов.
+        """
+        # Гистограмма изображения
+        hist, bin_edges = np.histogram(img.flatten(), bins=num_bins, range=[0, 1])
+        hist = hist.astype(np.float64)
+        
+        if n_thresholds == 1:
+            # Обычный Оцу
+            thresh = threshold_otsu(img)
+            return (img > thresh).astype(np.float32)
+        
+        # Упрощённый поиск порогов (для 2 порогов)
+        if n_thresholds == 2:
+            best_var = -np.inf
+            best_t1, best_t2 = num_bins // 3, 2 * num_bins // 3
+            
+            cum_sum = np.cumsum(hist)
+            cum_mean = np.cumsum(hist * np.arange(num_bins) / num_bins)
+            total = cum_sum[-1]
+            total_mean = cum_mean[-1] / total
+            
+            for t1 in range(1, num_bins - 2):
+                for t2 in range(t1 + 1, num_bins - 1):
+                    # Класс 0: [0, t1)
+                    w0 = cum_sum[t1] / total
+                    m0 = cum_mean[t1] / cum_sum[t1] if cum_sum[t1] > 0 else 0
+                    
+                    # Класс 1: [t1, t2)
+                    w1 = (cum_sum[t2] - cum_sum[t1]) / total
+                    m1 = (cum_mean[t2] - cum_mean[t1]) / (cum_sum[t2] - cum_sum[t1]) if (cum_sum[t2] > cum_sum[t1]) else 0
+                    
+                    # Класс 2: [t2, num_bins)
+                    w2 = (total - cum_sum[t2]) / total
+                    m2 = (total_mean * total - cum_mean[t2]) / (total - cum_sum[t2]) if (total > cum_sum[t2]) else 0
+
+                    # Межклассовая дисперсия
+                    var_between = (w0 * (m0 - total_mean)**2 + 
+                                  w1 * (m1 - total_mean)**2 + 
+                                  w2 * (m2 - total_mean)**2)
+                    
+                    if var_between > best_var:
+                        best_var = var_between
+                        best_t1, best_t2 = t1, t2
+            
+            # Бинаризация: объект = самый яркий класс
+            best_threshold = best_t2 / num_bins
+            return (img > best_threshold).astype(np.float32)
+        
+        # Для >2 порогов используем рекурсивный Оцу
+        thresholds = []
+        current_img = img.copy()
+        
+        for _ in range(n_thresholds):
+            thresh = threshold_otsu(current_img)
+            thresholds.append(thresh)
+            current_img = current_img[current_img <= thresh]
+            if len(current_img) == 0:
+                break
+        
+        # Используем последний порог для бинаризации
+        if thresholds:
+            return (img > thresholds[-1]).astype(np.float32)
+        else:
+            return np.zeros_like(img)
+        
+    def _sklearn_threshold_percentile(
+        self,
+        img: np.ndarray,
+        percentile: float = 90,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Процентильная пороговая обработка.
+        Порог выбирается как заданный процентиль распределения интенсивностей.
+        """
+        threshold = np.percentile(img, percentile)
+        return (img > threshold).astype(np.float32)
+    
+    def _sklearn_threshold_local_contrast(
+        self,
+        img: np.ndarray,
+        window_size: int = 15,
+        contrast_factor: float = 0.1,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Пороговая обработка на основе локального контраста.
+        Пиксель считается объектом, если его интенсивность значительно
+        отличается от локального среднего.
+        """
+        h, w = img.shape
+        pad = window_size // 2
+        img_padded = np.pad(img, pad, mode='reflect')
+        mask = np.zeros_like(img)
+        
+        # Вычисляем локальное среднее
+        local_mean = np.zeros_like(img)
+        for i in range(h):
+            for j in range(w):
+                window = img_padded[i:i+window_size, j:j+window_size]
+                local_mean[i, j] = np.mean(window)
+        
+        # Вычисляем локальный контраст
+        local_contrast = np.abs(img - local_mean)
+        # Глобальный порог контраста
+        global_contrast_threshold = np.percentile(local_contrast, 100 * (1 - contrast_factor))
+        
+        mask = (local_contrast > global_contrast_threshold).astype(np.float32)
+        return mask
+
+    
     # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
     
     def _sklearn_sobel_edge(
@@ -778,13 +1173,13 @@ class SklearnSegmenter(BaseSegmenter):
         
         start_time = time.time()
         threshold = self.params.get('threshold', 0.1)
-        edges = sobel(gray)
+        magnitude = sobel(gray)
         
         # Нормализация и порог
-        if edges.max() > 0:
-            edges = edges / edges.max()
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
         
-        mask = edges > threshold
+        mask = magnitude > threshold
 
         exec_time = time.time() - start_time
         mask = (mask * 255).astype(np.uint8)
@@ -865,9 +1260,240 @@ class SklearnSegmenter(BaseSegmenter):
         }
         print(f"Mask after Sklearn_canny_edge: {mask}")
         print(f"Info after Sklearn_canny_edge: {info}")
-
-
         return mask, info
+    
+    def _sklearn_prewitt_edge(
+        self,
+        img: np.ndarray,
+        threshold: float = 0.1,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ оператором Превитта.
+        Вычисляет градиент с использованием ядер 3×3.
+        Менее чувствителен к шуму, чем Собель.
+        """
+        magnitude = prewitt(img)
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
+        return (magnitude > threshold).astype(np.float32)
+    
+    def _sklearn_scharr_edge(
+        self,
+        img: np.ndarray,
+        threshold: float = 0.1,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ оператором Шара.
+        Улучшенная версия Собеля с лучшей точностью вычисления градиента.
+        Использует оптимизированные ядра 3×3.
+        """
+        # Ядра Шара
+        kernel_x = np.array([[-3, 0, 3], [-10, 0, 10], [-3, 0, 3]], dtype=np.float32) / 16
+        kernel_y = np.array([[-3, -10, -3], [0, 0, 0], [3, 10, 3]], dtype=np.float32) / 16
+        
+        # Свёртка
+        gx = ndimage.convolve(img, kernel_x, mode='reflect')
+        gy = ndimage.convolve(img, kernel_y, mode='reflect')
+        
+        # Магнитуда градиента
+        magnitude = np.sqrt(gx**2 + gy**2)
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
+        return (magnitude > threshold).astype(np.float32)
+    
+    def _sklearn_roberts_cross_edge(
+        self,
+        img: np.ndarray,
+        threshold: float = 0.1,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ оператором Робертса (Cross).
+        Простой оператор для обнаружения диагональных границ.
+        Использует ядра 2×2 для вычисления градиента.
+        """
+        # Ядра Робертса
+        kernel_x = np.array([[1, 0], [0, -1]], dtype=np.float32)
+        kernel_y = np.array([[0, 1], [-1, 0]], dtype=np.float32)
+        
+        # Свёртка
+        gx = ndimage.convolve(img, kernel_x, mode='reflect')
+        gy = ndimage.convolve(img, kernel_y, mode='reflect')
+        
+        # Магнитуда градиента
+        magnitude = np.sqrt(gx**2 + gy**2)
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
+        
+        return (magnitude > threshold).astype(np.float32)
+    
+    def _sklearn_log_edge(
+        self,
+        img: np.ndarray,
+        sigma: float = 1.0,
+        threshold: float = 0.01,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ Лапласианом Гауссиана (LoG).
+        Применяет Гауссово размытие, затем Лапласиан.
+        Границы обнаруживаются по пересечению нуля (zero-crossing).
+        """
+        # Гауссово размытие
+        img_blurred = gaussian_filter(img, sigma=sigma)
+        
+        # Лапласиан
+        laplacian = laplace(img_blurred)
+        
+        # Zero-crossing detection
+        zero_crossing = np.zeros_like(img)
+        h, w = img.shape
+        
+        for i in range(1, h - 1):
+            for j in range(1, w - 1):
+                neighborhood = laplacian[i-1:i+2, j-1:j+2]
+                if np.min(neighborhood) < 0 < np.max(neighborhood):
+                    if np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood)) > threshold:
+                        zero_crossing[i, j] = 1
+        
+        return zero_crossing.astype(np.float32)
+    
+    def _sklearn_dog_edge(
+        self,
+        img: np.ndarray,
+        sigma1: float = 1.0,
+        sigma2: float = 2.0,
+        threshold: float = 0.01,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ разностью Гауссианов (DoG).
+        Аппроксимация LoG через разность двух Гауссианов с разными σ.
+        Эффективно для обнаружения границ разного масштаба.
+        """
+        # Два Гауссовых фильтра
+        g1 = gaussian_filter(img, sigma=sigma1)
+        g2 = gaussian_filter(img, sigma=sigma2)
+        
+        # Разность Гауссианов
+        dog = g1 - g2
+        
+        # Zero-crossing detection
+        zero_crossing = np.zeros_like(img)
+        h, w = img.shape
+        
+        for i in range(1, h - 1):
+            for j in range(1, w - 1):
+                neighborhood = dog[i-1:i+2, j-1:j+2]
+                if np.min(neighborhood) < 0 < np.max(neighborhood):
+                    if np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood)) > threshold:
+                        zero_crossing[i, j] = 1
+        
+        return zero_crossing.astype(np.float32)
+    
+    def _sklearn_marr_hildreth_edge(
+        self,
+        img: np.ndarray,
+        sigma: float = 1.0,
+        threshold: float = 0.01,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ методом Марра-Хилдрета.
+        Комбинация Гауссова размытия и Лапласиана с zero-crossing.
+        Классический метод для обнаружения границ.
+        """
+        # Гауссово размытие
+        img_blurred = gaussian_filter(img, sigma=sigma)
+        
+        # Лапласиан
+        laplacian = laplace(img_blurred)
+        
+        # Zero-crossing detection
+        zero_crossing = np.zeros_like(img)
+        h, w = img.shape
+        
+        for i in range(1, h - 1):
+            for j in range(1, w - 1):
+                neighborhood = laplacian[i-1:i+2, j-1:j+2]
+                if np.min(neighborhood) < 0 < np.max(neighborhood):
+                    if np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood)) > threshold:
+                        zero_crossing[i, j] = 1
+        
+        return zero_crossing.astype(np.float32)
+    
+    def _sklearn_gradient_magnitude_direction(
+        self,
+        img: np.ndarray,
+        threshold: float = 0.1,
+        angle_range: Optional[Tuple[float, float]] = None,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ через магнитуду и направление градиента.
+        Вычисляет градиент с направлением и позволяет фильтрацию по углу.
+        """
+        # Градиенты Собеля
+        gx = sobel(img, axis=1)  # Горизонтальный градиент
+        gy = sobel(img, axis=0)  # Вертикальный градиент
+        
+        # Магнитуда и направление
+        magnitude = np.sqrt(gx**2 + gy**2)
+        direction = np.arctan2(gy, gx) * 180 / np.pi  # В градусах
+        
+        # Нормализация магнитуды
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
+        
+        # Фильтрация по направлению (если указано)
+        if angle_range is not None:
+            angle_mask = ((direction >= angle_range[0]) & (direction <= angle_range[1])) | \
+                        ((direction + 180 >= angle_range[0]) & (direction + 180 <= angle_range[1]))
+            magnitude = magnitude * angle_mask
+        
+        return (magnitude > threshold).astype(np.float32)
+    
+    def _sklearn_phase_congruency_edge(
+        self,
+        img: np.ndarray,
+        nscales: int = 4,
+        threshold: float = 0.5,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        Обнаружение границ через фазовую конгруэнтность.
+        Метод, инвариантный к изменению контраста и яркости.
+        Основан на согласованности фаз Фурье-компонент.
+        Упрощённая реализация через много-масштабные градиенты.
+        """
+        h, w = img.shape
+        
+        # Много-масштабные градиенты
+        phase_congruency = np.zeros_like(img)
+        
+        for scale in range(nscales):
+            sigma = 2 ** scale
+            
+            # Гауссово размытие на текущем масштабе
+            img_blurred = gaussian_filter(img, sigma=sigma)
+            
+            # Градиенты
+            gx = sobel(img_blurred, axis=1)
+            gy = sobel(img_blurred, axis=0)
+            
+            # Магнитуда
+            mag = np.sqrt(gx**2 + gy**2)
+            if mag.max() > 0:
+                mag = mag / mag.max()
+            
+            phase_congruency += mag
+        
+        # Усреднение по масштабам
+        phase_congruency = phase_congruency / nscales
+        
+        return (phase_congruency > threshold).astype(np.float32)
         
     # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============
     

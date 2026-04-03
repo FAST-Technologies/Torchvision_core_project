@@ -15,7 +15,10 @@ from torchvision import transforms
 import torchvision.transforms as T
 import segmentation_models_pytorch as smp
 
-from typing import Tuple, Any, Optional, Union, List, Dict
+from typing import (
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
+    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+)
 import torch
 import numpy as np
 import requests

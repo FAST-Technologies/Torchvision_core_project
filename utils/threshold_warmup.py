@@ -2,7 +2,10 @@
 
 # Импорт основных библиотек
 import numpy as np
-from typing import Any, Dict, List
+from typing import (
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
+    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+)
 import time
 
 class ThresholdWarmUp:

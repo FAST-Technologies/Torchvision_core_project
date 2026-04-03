@@ -10,7 +10,7 @@ from collections import deque
 import heapq
 import traceback
 from typing import (
-    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
     Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
 )
 
@@ -54,8 +54,25 @@ class TorchSegmenter(BaseSegmenter):
             "otsu_thresholding",
             "threshold_niblack",
             "threshold_sauvola",
+            "threshold_bernsen",
+            "threshold_phansalkar",
+            "threshold_percentile",
+            "threshold_kittler_illingworth",
+            "threshold_entropy_kapur", 
+            "threshold_triangle",
+            "threshold_multi_otsu",
+            "threshold_local_contrast",
             "sobel_edge",
             "canny_edge",
+            "prewitt_edge",
+            "scharr_edge",
+            "laplacian_edge",
+            "roberts_edge",
+            "log_edge",
+            "dog_edge",
+            "marr_hildreth_edge",
+            "gradient_magnitude_direction",
+            "phase_congruency_edge",
             "morphological_snakes",
             "chan_vese",
             "quickshift",
@@ -83,10 +100,27 @@ class TorchSegmenter(BaseSegmenter):
             "otsu_thresholding": self._otsu_thresholding,
             "threshold_niblack": self._threshold_niblack,
             "threshold_sauvola": self._threshold_sauvola,
+            "threshold_bernsen": self._threshold_bernsen,
+            "threshold_phansalkar": self._threshold_phansalkar,
+            "threshold_percentile": self._threshold_percentile,
+            "threshold_kittler_illingworth": self._threshold_kittler_illingworth,
+            "threshold_entropy_kapur": self._threshold_entropy_kapur,
+            "threshold_triangle": self._threshold_triangle,
+            "threshold_multi_otsu": self._threshold_multi_otsu,
+            "threshold_local_contrast": self._threshold_local_contrast,
 
             # ============ КРАЕВЫЕ СЕГМЕНТАЦИОННЫЕ МЕТОДЫ ============
             "sobel_edge": self._sobel_edge,
             "canny_edge": self._canny_edge,
+            "prewitt_edge": self._prewitt_edge,
+            "scharr_edge": self._scharr_edge,
+            "laplacian_edge": self._laplacian_edge,
+            "roberts_edge": self._roberts_edge,
+            "log_edge": self._log_edge,
+            "dog_edge": self._dog_edge,
+            "marr_hildreth_edge": self._marr_hildreth_edge,
+            "gradient_magnitude_direction": self._gradient_magnitude_direction,
+            "phase_congruency_edge": self._phase_congruency_edge,
 
             # ============ РЕГИОНАЛЬНЫЕ СЕГМЕНТАЦИОННЫЕ МЕТОДЫ ============
             "region_growing": self._region_growing,
@@ -1529,6 +1563,517 @@ class TorchSegmenter(BaseSegmenter):
             traceback.print_exc()
             return self._global_thresholding(tensor)
         
+    def _threshold_bernsen(
+        self,
+        tensor: torch.Tensor,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Пороговая обработка по методу Бернсена.
+        
+        Локальный адаптивный порог на основе контраста в окне.
+        Порог = (min + max) / 2 в локальном окне, если контраст > порогового.
+        
+        Args:
+            tensor: Входное изображение (B, C, H, W)
+            window_size: Размер окна (нечётное, по умолчанию 15)
+            contrast_threshold: Минимальный контраст для применения порога (по умолчанию 0.2)
+        
+        Returns:
+            torch.Tensor: Бинарная маска (B, 1, H, W)
+        """
+        gray = self._to_grayscale(tensor).squeeze(0)  # (H, W)
+        
+        start_time = time.time()
+        window_size = self.params.get('window_size', 15)
+        contrast_threshold = self.params.get('contrast_threshold', 0.2)
+        
+        if window_size % 2 == 0:
+            window_size += 1
+        pad = window_size // 2
+        
+        # Паддинг для обработки краёв
+        gray_padded = F.pad(gray.unsqueeze(0).unsqueeze(0), (pad, pad, pad, pad), mode='reflect').squeeze(0).squeeze(0)
+        
+        h, w = gray.shape
+        mask = torch.zeros_like(gray)
+        
+        # Локальное вычисление мин/макс через свёртку с ядрами
+        # Для эффективности используем pooling
+        kernel = torch.ones(1, 1, window_size, window_size, device=self.device)
+        # Локальный максимум и минимум через pooling
+        local_max = F.max_pool2d(gray.unsqueeze(0).unsqueeze(0), 
+                                kernel_size=window_size, 
+                                stride=1, 
+                                padding=pad).squeeze()
+        local_min = F.min_pool2d(gray.unsqueeze(0).unsqueeze(0), 
+                                kernel_size=window_size, 
+                                stride=1, 
+                                padding=pad).squeeze()
+        
+        # Контраст в окне
+        contrast = local_max - local_min
+        
+        # Порог Бернсена
+        threshold = (local_max + local_min) / 2.0
+        
+        # Применяем порог только там, где контраст достаточный
+        high_contrast = contrast > contrast_threshold
+        mask[high_contrast] = (gray[high_contrast] > threshold[high_contrast]).float()
+        
+        # Там, где контраст низкий — классифицируем по глобальному среднему
+        if not high_contrast.all():
+            global_mean = gray.mean()
+            mask[~high_contrast] = (gray[~high_contrast] > global_mean).float()
+        
+        exec_time = time.time() - start_time
+        self.params['execution_info'] = {
+            'method': 'bernsen_thresholding_torch',
+            'execution_time': exec_time
+        }
+        
+        return mask.unsqueeze(0).unsqueeze(0)
+    
+    def _threshold_phansalkar(
+        self,
+        tensor: torch.Tensor,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Пороговая обработка по методу Фансалкара.
+        
+        Улучшенная версия Ниблака для изображений с низким контрастом.
+        Порог: T = μ * (1 + p * (σ/R - 1) + q * (σ/R - 1)^2)
+        
+        Args:
+            tensor: Входное изображение
+            window_size: Размер окна (по умолчанию 15)
+            p, q: Параметры метода (по умолчанию 0.5, 0.0)
+            r: Динамический диапазон (по умолчанию 128)
+        
+        Returns:
+            torch.Tensor: Бинарная маска
+        """
+        gray = self._to_grayscale(tensor).squeeze(0)  # (H, W)
+        
+        start_time = time.time()
+        window_size = self.params.get('window_size', 15)
+        p = self.params.get('p', 0.5)
+        q = self.params.get('q', 0.0)
+        r = self.params.get('r', 128.0)
+        
+        if window_size % 2 == 0:
+            window_size += 1
+        
+        # Конвертируем в numpy для локальных статистик (как в Niblack/Sauvola)
+        gray_np = gray.cpu().numpy()
+        if gray_np.max() <= 1.0:
+            gray_np = (gray_np * 255).astype(np.float32)
+        else:
+            gray_np = gray_np.astype(np.float32)
+        
+        # Локальные статистики
+        local_mean = self._local_mean_numpy(gray_np, window_size)
+        local_std = self._local_std_numpy(gray_np, window_size)
+        # Формула Фансалкара
+        sigma_r = local_std / r
+        threshold = local_mean * (1 + p * (sigma_r - 1) + q * (sigma_r - 1)**2)
+        
+        # Бинаризация
+        mask_np = (gray_np > threshold).astype(np.float32)
+        mask = torch.from_numpy(mask_np).to(self.device)
+        
+        exec_time = time.time() - start_time
+        self.params['execution_info'] = {
+            'method': 'phansalkar_thresholding_torch',
+            'execution_time': exec_time
+        }
+        
+        return mask.unsqueeze(0).unsqueeze(0)
+    
+    def _threshold_percentile(
+        self,
+        tensor: torch.Tensor,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Процентильная пороговая обработка.
+        
+        Использует локальный процентиль вместо среднего для вычисления порога.
+        Устойчива к выбросам в локальном окне.
+        
+        Args:
+            tensor: Входное изображение
+            window_size: Размер окна
+            percentile: Процентиль (0-100, по умолчанию 50 = медиана)
+        
+        Returns:
+            torch.Tensor: Бинарная маска
+        """
+        gray = self._to_grayscale(tensor).squeeze(0)  # (H, W)
+        
+        start_time = time.time()
+        window_size = self.params.get('window_size', 15)
+        percentile = self.params.get('percentile', 50)
+        
+        if window_size % 2 == 0:
+            window_size += 1
+        
+        # Конвертируем в numpy для вычисления процентиля
+        gray_np = gray.cpu().numpy()
+        if gray_np.max() <= 1.0:
+            gray_np = (gray_np * 255).astype(np.float32)
+        else:
+            gray_np = gray_np.astype(np.float32)
+        
+        h, w = gray_np.shape
+        pad = window_size // 2
+        gray_padded = np.pad(gray_np, pad, mode='reflect')
+        
+        threshold = np.zeros_like(gray_np)
+        # Вычисляем локальный процентиль для каждого пикселя
+        for i in range(h):
+            for j in range(w):
+                window = gray_padded[i:i+window_size, j:j+window_size]
+                threshold[i, j] = np.percentile(window, percentile)
+        
+        # Бинаризация
+        mask_np = (gray_np > threshold).astype(np.float32)
+        mask = torch.from_numpy(mask_np).to(self.device)
+        
+        exec_time = time.time() - start_time
+        self.params['execution_info'] = {
+            'method': 'percentile_thresholding_torch',
+            'execution_time': exec_time
+        }
+        
+        return mask.unsqueeze(0).unsqueeze(0)
+    
+    def _threshold_kittler_illingworth(
+        self,
+        tensor: torch.Tensor,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Пороговая обработка по методу Киттлера-Иллингворта.
+        Минимизирует ошибку классификации, предполагая гауссово распределение классов.
+        """
+        gray = self._to_grayscale(tensor).squeeze()
+        if gray.dim() == 3 and gray.shape[0] == 1:
+            gray = gray.squeeze(0)
+        
+        start_time = time.time()
+        
+        # Гистограмма
+        hist = torch.histc(gray, bins=256, min=0, max=1)
+        total = hist.sum()
+        if total == 0:
+            return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
+        
+        # Нормализованная гистограмма
+        pdf = hist / total
+        bins = torch.arange(256, dtype=torch.float32, device=self.device) / 255.0
+        
+        # Кумулятивные суммы
+        cum_pdf = torch.cumsum(pdf, dim=0)
+        cum_mean = torch.cumsum(pdf * bins, dim=0)
+        
+        best_threshold = 128
+        min_criterion = float('inf')
+        
+        for t in range(1, 255):
+            if cum_pdf[t] < 1e-6 or (1 - cum_pdf[t]) < 1e-6:
+                continue
+            
+            # Статистики класса 0 (фон)
+            w0 = cum_pdf[t]
+            mu0 = cum_mean[t] / w0
+            var0 = (torch.cumsum(pdf * bins**2, dim=0)[t] / w0) - mu0**2
+            var0 = torch.clamp(var0, min=1e-6)
+            
+            # Статистики класса 1 (объект)
+            w1 = 1 - cum_pdf[t]
+            mu1 = (cum_mean[-1] - cum_mean[t]) / w1
+            var1 = ((torch.cumsum(pdf * bins**2, dim=0)[-1] - torch.cumsum(pdf * bins**2, dim=0)[t]) / w1) - mu1**2
+            var1 = torch.clamp(var1, min=1e-6)
+            
+            # Критерий Киттлера-Иллингворта
+            criterion = (
+                1 + 2 * (w0 * torch.log(torch.sqrt(var0)) + w1 * torch.log(torch.sqrt(var1)))
+                - 2 * (w0 * torch.log(w0) + w1 * torch.log(w1))
+            )
+            
+            if criterion < min_criterion:
+                min_criterion = criterion
+                best_threshold = t
+        
+        threshold = best_threshold / 255.0
+        mask = (gray > threshold).float()
+        
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'kittler_illingworth_torch',
+            'parameters': {'threshold': threshold, **kwargs},
+            'execution_time': exec_time,
+        }
+        
+        return mask.unsqueeze(0).unsqueeze(0)
+    
+    def _threshold_entropy_kapur(
+        self,
+        tensor: torch.Tensor,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Пороговая обработка на основе максимизации энтропии Капура.
+        """
+        gray = self._to_grayscale(tensor).squeeze()
+        if gray.dim() == 3 and gray.shape[0] == 1:
+            gray = gray.squeeze(0)
+        
+        start_time = time.time()
+        
+        # Гистограмма
+        hist = torch.histc(gray, bins=256, min=0, max=1)
+        total = hist.sum()
+        if total == 0:
+            return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
+        
+        pdf = hist / total
+        
+        best_threshold = 128
+        max_entropy = -float('inf')
+        
+        for t in range(1, 255):
+            # Класс 0: [0, t]
+            w0 = pdf[:t+1].sum()
+            if w0 < 1e-6:
+                continue
+            p0 = pdf[:t+1] / w0
+            entropy0 = -torch.sum(p0 * torch.log(p0 + 1e-10))
+            
+            # Класс 1: [t+1, 255]
+            w1 = pdf[t+1:].sum()
+            if w1 < 1e-6:
+                continue
+            p1 = pdf[t+1:] / w1
+            entropy1 = -torch.sum(p1 * torch.log(p1 + 1e-10))
+            
+            # Общая энтропия
+            total_entropy = entropy0 + entropy1
+            
+            if total_entropy > max_entropy:
+                max_entropy = total_entropy
+                best_threshold = t
+        
+        threshold = best_threshold / 255.0
+        mask = (gray > threshold).float()
+        
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'kapur_entropy_torch',
+            'parameters': {'threshold': threshold, **kwargs},
+            'execution_time': exec_time,
+        }
+        
+        return mask.unsqueeze(0).unsqueeze(0)
+    
+    def _threshold_triangle(
+        self,
+        tensor: torch.Tensor,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Треугольный метод пороговой обработки.
+        Строит линию от пика гистограммы до конца и находит точку
+        максимального перпендикулярного расстояния.
+        """
+        gray = self._to_grayscale(tensor).squeeze()
+        if gray.dim() == 3 and gray.shape[0] == 1:
+            gray = gray.squeeze(0)
+        
+        start_time = time.time()
+        
+        # Гистограмма
+        hist = torch.histc(gray, bins=256, min=0, max=1)
+        
+        # Находим пик гистограммы
+        peak_idx = torch.argmax(hist)
+        
+        # Определяем направление (левый или правый хвост)
+        if peak_idx < 128:
+            # Пик слева - ищем в правом хвосте
+            start_idx = peak_idx
+            end_idx = 255
+        else:
+            # Пик справа - ищем в левом хвосте
+            start_idx = 0
+            end_idx = peak_idx
+        
+        # Нормализуем гистограмму
+        hist_norm = hist.float() / hist.max()
+        
+        # Линия от пика до конца
+        peak_val = hist_norm[peak_idx]
+        end_val = hist_norm[end_idx]
+        
+        best_threshold = peak_idx
+        max_distance = -1
+        
+        for t in range(start_idx, end_idx + 1):
+            # Расстояние от точки до линии
+            line_val = peak_val + (end_val - peak_val) * (t - peak_idx) / (end_idx - peak_idx + 1e-10)
+            distance = torch.abs(hist_norm[t] - line_val)
+            
+            if distance > max_distance:
+                max_distance = distance
+                best_threshold = t
+        
+        threshold = best_threshold / 255.0
+        mask = (gray > threshold).float()
+        
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'triangle_torch',
+            'parameters': {'threshold': threshold, **kwargs},
+            'execution_time': exec_time,
+        }
+        
+        return mask.unsqueeze(0).unsqueeze(0)
+    
+    def _threshold_multi_otsu(
+        self,
+        tensor: torch.Tensor,
+        n_thresholds: int = 2,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Мульти-пороговый метод Оцу для разделения на несколько классов.
+        """
+        gray = self._to_grayscale(tensor).squeeze()
+        if gray.dim() == 3 and gray.shape[0] == 1:
+            gray = gray.squeeze(0)
+        
+        start_time = time.time()
+        
+        # Гистограмма
+        hist = torch.histc(gray, bins=256, min=0, max=1)
+        total = hist.sum()
+        if total == 0:
+            return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
+        
+        pdf = hist / total
+        bins = torch.arange(256, dtype=torch.float32, device=self.device) / 255.0
+        
+        # Рекурсивный поиск порогов
+        def find_thresholds(start: int, end: int, n: int) -> List[int]:
+            if n <= 1 or end - start < 2:
+                return []
+            
+            best_t = start + (end - start) // 2
+            best_var = -float('inf')
+            
+            for t in range(start + 1, end):
+                # Класс 0: [start, t]
+                w0 = pdf[start:t+1].sum()
+                if w0 < 1e-6:
+                    continue
+                mu0 = (torch.sum(pdf[start:t+1] * bins[start:t+1]) / w0)
+                
+                # Класс 1: [t+1, end]
+                w1 = pdf[t+1:end+1].sum()
+                if w1 < 1e-6:
+                    continue
+                mu1 = (torch.sum(pdf[t+1:end+1] * bins[t+1:end+1]) / w1)
+                
+                # Межклассовая дисперсия
+                var_between = w0 * w1 * (mu0 - mu1)**2
+                
+                if var_between > best_var:
+                    best_var = var_between
+                    best_t = t
+            
+            # Рекурсивный поиск для оставшихся порогов
+            thresholds = [best_t]
+            if n > 2:
+                left = find_thresholds(start, best_t, (n + 1) // 2)
+                right = find_thresholds(best_t, end, n // 2)
+                thresholds = left + thresholds + right
+            
+            return thresholds
+        
+        thresholds = find_thresholds(0, 255, n_thresholds)
+        
+        # Создаём маску: объект = всё кроме самого большого класса
+        if thresholds:
+            # Берём средний порог для бинарной маски
+            mid_threshold = thresholds[len(thresholds) // 2] / 255.0
+            mask = (gray > mid_threshold).float()
+        else:
+            mask = (gray > 0.5).float()
+        
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'multi_otsu_torch',
+            'parameters': {'n_thresholds': n_thresholds, 'thresholds': thresholds, **kwargs},
+            'execution_time': exec_time,
+        }
+        
+        return mask.unsqueeze(0).unsqueeze(0)
+    
+    def _threshold_local_contrast(
+        self,
+        tensor: torch.Tensor,
+        window_size: int = 15,
+        k: float = 0.2,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Локальный контрастный порог.
+        Порог вычисляется на основе локального контраста:
+        T = μ + k * (σ - σ_min), где σ_min - минимальный локальный контраст.
+        """
+        gray = self._to_grayscale(tensor).squeeze()
+        if gray.dim() == 3 and gray.shape[0] == 1:
+            gray = gray.squeeze(0)
+        
+        start_time = time.time()
+        
+        if window_size % 2 == 0:
+            window_size += 1
+        pad = window_size // 2
+        
+        # Паддинг для сохранения размера
+        gray_padded = F.pad(gray.unsqueeze(0).unsqueeze(0), (pad, pad, pad, pad), mode='reflect').squeeze(0).squeeze(0)
+        
+        # Локальное среднее через свёртку
+        kernel = torch.ones(1, 1, window_size, window_size, device=self.device) / (window_size ** 2)
+        local_mean = F.conv2d(gray.unsqueeze(0).unsqueeze(0), kernel, padding=pad).squeeze(0).squeeze(0)
+        
+        # Локальная дисперсия: E[X^2] - E[X]^2
+        local_mean_sq = F.conv2d((gray**2).unsqueeze(0).unsqueeze(0), kernel, padding=pad).squeeze(0).squeeze(0)
+        local_var = torch.clamp(local_mean_sq - local_mean**2, min=1e-8)
+        local_std = torch.sqrt(local_var)
+        
+        # Минимальный локальный контраст (10-й перцентиль)
+        sigma_min = torch.quantile(local_std, 0.1)
+        
+        # Порог
+        threshold = local_mean + k * (local_std - sigma_min)
+        
+        # Бинаризация
+        mask = (gray > threshold).float()
+        
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'local_contrast_torch',
+            'parameters': {'window_size': window_size, 'k': k, **kwargs},
+            'execution_time': exec_time,
+        }
+        
+        return mask.unsqueeze(0).unsqueeze(0)
+
+        
     # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
     def _sobel_edge(
         self, 
@@ -1797,6 +2342,574 @@ class TorchSegmenter(BaseSegmenter):
     #     print(f"Info after Torch_canny_edge: {info}")
         
     #     return mask
+
+    def _prewitt_edge(
+        self,
+        tensor: torch.Tensor,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Обнаружение границ оператором Прюитта.
+        
+        Аналогичен Собелю, но с более простыми ядрами.
+        Менее чувствителен к шуму, но даёт менее точные градиенты.
+        
+        Args:
+            tensor: Входное изображение
+            threshold: Порог для бинаризации градиента (по умолчанию 0.1)
+        
+        Returns:
+            torch.Tensor: Бинарная маска границ
+        """
+        gray = self._to_grayscale(tensor)  # (B, 1, H, W)
+        
+        start_time = time.time()
+        threshold = self.params.get('threshold', 0.1)
+        
+        # Ядра Прюитта
+        prewitt_x = torch.tensor([[-1, 0, 1], 
+                                [-1, 0, 1], 
+                                [-1, 0, 1]], 
+                                dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
+        prewitt_y = torch.tensor([[-1, -1, -1], 
+                                [0, 0, 0], 
+                                [1, 1, 1]], 
+                                dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
+        
+        gx = F.conv2d(gray, prewitt_x, padding=1)
+        gy = F.conv2d(gray, prewitt_y, padding=1)
+        
+        magnitude = torch.sqrt(gx**2 + gy**2)
+        
+        # Нормализация
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
+        
+        mask = (magnitude > threshold).float()
+        
+        exec_time = time.time() - start_time
+        self.params['execution_info'] = {
+            'method': 'prewitt_edge_torch',
+            'execution_time': exec_time
+        }
+        
+        return mask
+
+
+    def _scharr_edge(
+        self,
+        tensor: torch.Tensor,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Обнаружение границ оператором Шарра.
+        
+        Улучшенная версия Собеля с лучшей ротационной симметрией.
+        Ядра оптимизированы для минимизации ошибки аппроксимации градиента.
+        
+        Args:
+            tensor: Входное изображение
+            threshold: Порог для бинаризации (по умолчанию 0.1)
+        
+        Returns:
+            torch.Tensor: Бинарная маска границ
+        """
+        gray = self._to_grayscale(tensor)
+        
+        start_time = time.time()
+        threshold = self.params.get('threshold', 0.1)
+        
+        # Ядра Шарра (оптимизированные коэффициенты)
+        scharr_x = torch.tensor([[-3, 0, 3], 
+                                [-10, 0, 10], 
+                                [-3, 0, 3]], 
+                            dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
+        scharr_y = torch.tensor([[-3, -10, -3], 
+                                [0, 0, 0], 
+                                [3, 10, 3]], 
+                            dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
+        
+        gx = F.conv2d(gray, scharr_x, padding=1)
+        gy = F.conv2d(gray, scharr_y, padding=1)
+        
+        magnitude = torch.sqrt(gx**2 + gy**2)
+        
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
+        
+        mask = (magnitude > threshold).float()
+        
+        exec_time = time.time() - start_time
+        self.params['execution_info'] = {
+            'method': 'scharr_edge_torch',
+            'execution_time': exec_time
+        }
+        
+        return mask
+
+
+    def _laplacian_edge(
+        self,
+        tensor: torch.Tensor,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Обнаружение границ через лапласиан изображения.
+        
+        Применяет оператор Лапласа для выделения областей быстрого изменения интенсивности.
+        Чувствителен к шуму — рекомендуется предварительное сглаживание.
+        
+        Args:
+            tensor: Входное изображение
+            threshold: Порог для бинаризации (по умолчанию 0.1)
+            sigma: Sigma для предварительного Gaussian blur (по умолчанию 1.0)
+        
+        Returns:
+            torch.Tensor: Бинарная маска границ
+        """
+        gray = self._to_grayscale(tensor)
+        
+        start_time = time.time()
+        threshold = self.params.get('threshold', 0.1)
+        sigma = self.params.get('sigma', 1.0)
+        
+        # Предварительное сглаживание для уменьшения шума
+        if sigma > 0:
+            kernel_size = int(2 * round(3 * sigma) + 1)
+            if kernel_size % 2 == 0:
+                kernel_size += 1
+            try:
+                gray = F.gaussian_blur(gray, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma])
+            except AttributeError:
+                pass  # Fallback для старых версий PyTorch
+        
+        # Ядро Лапласа (4-связность)
+        laplacian_kernel = torch.tensor([[0, 1, 0], 
+                                        [1, -4, 1], 
+                                        [0, 1, 0]], 
+                                    dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
+        
+        # Или 8-связность (более чувствительное):
+        # laplacian_kernel = torch.tensor([[1, 1, 1], 
+        #                                  [1, -8, 1], 
+        #                                  [1, 1, 1]], 
+        #                                dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
+        
+        laplacian = F.conv2d(gray, laplacian_kernel, padding=1)
+        
+        # Абсолютное значение для обнаружения границ
+        magnitude = torch.abs(laplacian)
+        
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
+        
+        mask = (magnitude > threshold).float()
+        
+        exec_time = time.time() - start_time
+        self.params['execution_info'] = {
+            'method': 'laplacian_edge_torch',
+            'execution_time': exec_time
+        }
+        
+        return mask
+
+
+    def _roberts_edge(
+        self,
+        tensor: torch.Tensor,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Обнаружение границ оператором Робертса.
+        
+        Простой 2×2 оператор для быстрого обнаружения диагональных границ.
+        Менее точен, чем Собель/Прюитт, но очень быстрый.
+        
+        Args:
+            tensor: Входное изображение
+            threshold: Порог для бинаризации (по умолчанию 0.1)
+        
+        Returns:
+            torch.Tensor: Бинарная маска границ
+        """
+        gray = self._to_grayscale(tensor)
+        
+        start_time = time.time()
+        threshold = self.params.get('threshold', 0.1)
+        
+        # Ядра Робертса (2×2)
+        roberts_x = torch.tensor([[1, 0], 
+                                [0, -1]], 
+                                dtype=torch.float32, device=self.device).view(1, 1, 2, 2)
+        roberts_y = torch.tensor([[0, 1], 
+                                [-1, 0]], 
+                                dtype=torch.float32, device=self.device).view(1, 1, 2, 2)
+        
+        gx = F.conv2d(gray, roberts_x, padding=1)
+        gy = F.conv2d(gray, roberts_y, padding=1)
+        
+        magnitude = torch.sqrt(gx**2 + gy**2)
+        
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
+        
+        mask = (magnitude > threshold).float()
+        
+        exec_time = time.time() - start_time
+        self.params['execution_info'] = {
+            'method': 'roberts_edge_torch',
+            'execution_time': exec_time
+        }
+        
+        return mask
+    
+    def _log_edge(
+        self,
+        tensor: torch.Tensor,
+        sigma: float = 1.0,
+        threshold: float = 0.1,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Детектор границ Laplacian of Gaussian.
+        Применяет гауссово размытие, затем лапласиан, ищет пересечения нуля.
+        """
+        gray = self._to_grayscale(tensor)
+        
+        start_time = time.time()
+        
+        # 1. Gaussian blur
+        if sigma > 0:
+            kernel_size = int(2 * round(3 * sigma) + 1)
+            if kernel_size % 2 == 0:
+                kernel_size += 1
+            gray = F.gaussian_blur(gray, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma])
+        
+        # 2. Laplacian kernel
+        laplacian_kernel = torch.tensor([
+            [0,  1, 0],
+            [1, -4, 1],
+            [0,  1, 0]
+        ], dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
+        
+        # 3. Применяем лапласиан
+        laplacian = F.conv2d(gray, laplacian_kernel, padding=1)
+        
+        # 4. Zero-crossing detection
+        # Знак лапласиана
+        sign = torch.sign(laplacian)
+        
+        # Пересечение нуля: соседние пиксели имеют разные знаки
+        zero_crossing = torch.zeros_like(laplacian)
+        
+        # Проверяем горизонтальные и вертикальные соседи
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            shifted = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
+            zero_crossing |= (sign * shifted < 0)
+        
+        # Магнитуда лапласиана для порога
+        magnitude = torch.abs(laplacian)
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
+        
+        # Финальная маска: пересечение нуля + достаточная магнитуда
+        mask = (zero_crossing & (magnitude > threshold)).float()
+        
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'log_edge_torch',
+            'parameters': {'sigma': sigma, 'threshold': threshold, **kwargs},
+            'execution_time': exec_time,
+        }
+        
+        return mask
+    
+    def _dog_edge(
+        self,
+        tensor: torch.Tensor,
+        sigma1: float = 1.0,
+        sigma2: float = 2.0,
+        threshold: float = 0.1,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Детектор границ Difference of Gaussian.
+        Аппроксимация LoG через разность двух гауссовых размытий.
+        """
+        gray = self._to_grayscale(tensor)
+        
+        start_time = time.time()
+        
+        # Убеждаемся, что ядра нечётные
+        kernel_size1 = int(2 * round(3 * sigma1) + 1)
+        kernel_size2 = int(2 * round(3 * sigma2) + 1)
+        if kernel_size1 % 2 == 0: kernel_size1 += 1
+        if kernel_size2 % 2 == 0: kernel_size2 += 1
+        
+        # Два гауссовых размытия
+        blurred1 = F.gaussian_blur(gray, kernel_size=[kernel_size1, kernel_size1], sigma=[sigma1, sigma1])
+        blurred2 = F.gaussian_blur(gray, kernel_size=[kernel_size2, kernel_size2], sigma=[sigma2, sigma2])
+        
+        # Разность
+        dog = blurred1 - blurred2
+        
+        # Zero-crossing detection
+        sign = torch.sign(dog)
+        zero_crossing = torch.zeros_like(dog)
+        
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            shifted = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
+            zero_crossing |= (sign * shifted < 0)
+        
+        # Магнитуда для порога
+        magnitude = torch.abs(dog)
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
+        
+        mask = (zero_crossing & (magnitude > threshold)).float()
+        
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'dog_edge_torch',
+            'parameters': {'sigma1': sigma1, 'sigma2': sigma2, 'threshold': threshold, **kwargs},
+            'execution_time': exec_time,
+        }
+        
+        return mask
+
+    def _marr_hildreth_edge(
+        self,
+        tensor: torch.Tensor,
+        sigma: float = 1.5,
+        threshold: float = 0.1,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Детектор границ Марра-Хилдрета (LoG с нулевым пересечением).
+        Улучшенная версия LoG с подавлением немаксимумов.
+        """
+        gray = self._to_grayscale(tensor)
+        
+        start_time = time.time()
+        
+        # Gaussian blur
+        if sigma > 0:
+            kernel_size = int(2 * round(3 * sigma) + 1)
+            if kernel_size % 2 == 0:
+                kernel_size += 1
+            gray = F.gaussian_blur(gray, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma])
+        
+        # Laplacian kernel (5x5 для лучшей аппроксимации)
+        laplacian_kernel = torch.tensor([
+            [0,  0, -1,  0, 0],
+            [0, -1, -2, -1, 0],
+            [-1, -2, 16, -2, -1],
+            [0, -1, -2, -1, 0],
+            [0,  0, -1,  0, 0]
+        ], dtype=torch.float32, device=self.device).view(1, 1, 5, 5) / 8.0
+        
+        laplacian = F.conv2d(gray, laplacian_kernel, padding=2)
+        
+        # Zero-crossing с направлением
+        sign = torch.sign(laplacian)
+        magnitude = torch.abs(laplacian)
+        
+        # Нормализация магнитуды
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
+        
+        # Zero-crossing detection с проверкой магнитуды
+        zero_crossing = torch.zeros_like(laplacian)
+        
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            shifted_sign = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
+            shifted_mag = torch.roll(magnitude, shifts=(dy, dx), dims=(2, 3))
+            
+            # Пересечение нуля с достаточной магнитудой
+            crossing = (sign * shifted_sign < 0) & ((magnitude > threshold) | (shifted_mag > threshold))
+            zero_crossing |= crossing
+        
+        mask = zero_crossing.float()
+        
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'marr_hildreth_torch',
+            'parameters': {'sigma': sigma, 'threshold': threshold, **kwargs},
+            'execution_time': exec_time,
+        }
+        
+        return mask
+    
+    def _gradient_magnitude_direction(
+        self,
+        tensor: torch.Tensor,
+        threshold: float = 0.1,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Вычисление градиента с магнитудой и направлением.
+        Возвращает маску границ на основе магнитуды градиента.
+        """
+        gray = self._to_grayscale(tensor)
+        
+        start_time = time.time()
+        
+        # Градиенты Собеля
+        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
+                            dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
+        sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
+                            dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
+        
+        gx = F.conv2d(gray, sobel_x, padding=1)
+        gy = F.conv2d(gray, sobel_y, padding=1)
+        
+        # Магнитуда и направление
+        magnitude = torch.sqrt(gx**2 + gy**2 + 1e-8)
+        direction = torch.atan2(gy, gx)  # Радианы от -π до π
+        
+        # Нормализация магнитуды
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
+        
+        # Non-maximum suppression по направлению
+        suppressed = self._suppress_non_max(magnitude, direction)
+        
+        # Пороговая обработка
+        mask = (suppressed > threshold).float()
+        
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'gradient_magnitude_direction_torch',
+            'parameters': {'threshold': threshold, **kwargs},
+            'magnitude': magnitude,
+            'direction': direction,
+            'execution_time': exec_time,
+        }
+        
+        return mask
+
+    def _suppress_non_max(
+        self,
+        magnitude: torch.Tensor,
+        direction: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Подавление немаксимумов по направлению градиента.
+        """
+        # Квантование направления на 4 сектора
+        angle = torch.abs(direction) * 180 / torch.pi
+        angle = torch.fmod(angle, 180)
+        
+        # 0°, 45°, 90°, 135°
+        sectors = torch.zeros_like(angle, dtype=torch.long)
+        sectors[(angle <= 22.5) | (angle > 157.5)] = 0  # 0° (горизонталь)
+        sectors[(angle > 22.5) & (angle <= 67.5)] = 1    # 45°
+        sectors[(angle > 67.5) & (angle <= 112.5)] = 2   # 90° (вертикаль)
+        sectors[(angle > 112.5) & (angle <= 157.5)] = 3  # 135°
+        
+        suppressed = torch.zeros_like(magnitude)
+        h, w = magnitude.shape[2], magnitude.shape[3]
+        
+        # Паддинг для доступа к соседям
+        mag_padded = F.pad(magnitude, (1, 1, 1, 1), mode='reflect')
+        
+        for s in range(4):
+            mask = (sectors == s)
+            if not mask.any():
+                continue
+            
+            if s == 0:  # Горизонталь: сравниваем лево/право
+                neighbors = mag_padded[:, :, 1:-1, :-2] + mag_padded[:, :, 1:-1, 2:]
+                is_max = (magnitude >= mag_padded[:, :, 1:-1, :-2]) & (magnitude >= mag_padded[:, :, 1:-1, 2:])
+            elif s == 1:  # 45°: сравниваем UL/DR
+                is_max = (magnitude >= mag_padded[:, :, :-2, :-2]) & (magnitude >= mag_padded[:, :, 2:, 2:])
+            elif s == 2:  # Вертикаль: сравниваем верх/низ
+                is_max = (magnitude >= mag_padded[:, :, :-2, 1:-1]) & (magnitude >= mag_padded[:, :, 2:, 1:-1])
+            else:  # 135°: сравниваем UR/DL
+                is_max = (magnitude >= mag_padded[:, :, :-2, 2:]) & (magnitude >= mag_padded[:, :, 2:, :-2])
+            
+            suppressed[mask & is_max] = magnitude[mask & is_max]
+        
+        return suppressed
+    
+    def _phase_congruency_edge(
+        self,
+        tensor: torch.Tensor,
+        nscale: int = 3,
+        min_wavelength: int = 3,
+        mult: float = 2.0,
+        sigma_onf: float = 0.55,
+        threshold: float = 0.3,
+        **kwargs
+    ) -> torch.Tensor:
+        """
+        Детектор границ на основе фазовой конгруэнтности.
+        Упрощённая реализация в частотной области.
+        """
+        gray = self._to_grayscale(tensor).squeeze()
+        if gray.dim() == 3 and gray.shape[0] == 1:
+            gray = gray.squeeze(0)
+        
+        start_time = time.time()
+        
+        h, w = gray.shape
+        
+        # FFT изображения
+        fft_img = torch.fft.fft2(gray)
+        fft_shifted = torch.fft.fftshift(fft_img)
+        
+        # Создаём частотную сетку
+        y_freq = torch.fft.fftshift(torch.fft.fftfreq(h, device=self.device))
+        x_freq = torch.fft.fftshift(torch.fft.fftfreq(w, device=self.device))
+        Y, X = torch.meshgrid(y_freq, x_freq, indexing='ij')
+        radius = torch.sqrt(X**2 + Y**2)
+        
+        # Фазовая конгруэнтность через банк фильтров Габора
+        pc_map = torch.zeros_like(gray)
+        
+        for scale in range(nscale):
+            # Параметры фильтра для текущей шкалы
+            wavelength = min_wavelength * (mult ** scale)
+            sigma_f = 1.0 / (wavelength * sigma_onf)
+            
+            # Радиальный фильтр Габора
+            filter_response = torch.exp(-((radius - 1/wavelength)**2) / (2 * sigma_f**2))
+            
+            # Применяем фильтр в частотной области
+            filtered_fft = fft_shifted * filter_response
+            filtered = torch.fft.ifft2(torch.fft.ifftshift(filtered_fft))
+            
+            # Амплитуда и фаза
+            amplitude = torch.abs(filtered)
+            phase = torch.angle(filtered)
+            
+            # Вклад в фазовую конгруэнтность
+            # Упрощённая метрика: нормализованная амплитуда
+            if amplitude.max() > 0:
+                pc_map += amplitude / amplitude.max()
+        
+        # Нормализация
+        if pc_map.max() > 0:
+            pc_map = pc_map / pc_map.max()
+        
+        # Пороговая обработка
+        mask = (pc_map > threshold).float()
+        
+        exec_time = time.time() - start_time
+        info = {
+            'method': 'phase_congruency_torch',
+            'parameters': {
+                'nscale': nscale,
+                'min_wavelength': min_wavelength,
+                'mult': mult,
+                'sigma_onf': sigma_onf,
+                'threshold': threshold,
+                **kwargs
+            },
+            'execution_time': exec_time,
+        }
+        
+        return mask.unsqueeze(0).unsqueeze(0)
     
     # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============
     

@@ -62,5 +62,15 @@ data_*/
 data_9/
 models/
 reports/
+ade20k/
+chexpert/
+chexpert-merged/
+chexpert-subset/
+cityscapes/
+coco/
+coco-panoptic-val2017/
+isic_masks/
+isic2018/
+ISIC2018/
 mobile_sam.pt
 sam2_t.pt

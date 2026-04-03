@@ -14,7 +14,10 @@ import utils.utils
 from utils.strategies import SegNet
 
 import os
-from typing import List, Optional, Set, Dict, List, Union, Tuple, Any
+from typing import (
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
+    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+)
 import time
 import zipfile
 from tqdm import tqdm

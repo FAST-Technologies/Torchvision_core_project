@@ -4,7 +4,10 @@
 import time
 import numpy as np
 from PIL import Image
-from typing import Any, Dict, List, Optional, Tuple
+from typing import (
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
+    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+)
 import torch
 
 class SegmentationWarmUp:

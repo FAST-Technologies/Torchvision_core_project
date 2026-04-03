@@ -7,7 +7,7 @@ from utils.strategies import segment_image_unified as infer_unified
 from utils.palettes import ade_palette, get_ade_class_names, get_coco_class_names, coco_palette, get_cityscapes_extended_class_names, cityscapes_extended_palette, get_cityscapes_class_names, cityscapes_palette
 
 from typing import (
-    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
+    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
     Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
 )
 import time
