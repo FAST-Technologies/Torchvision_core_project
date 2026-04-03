@@ -40,7 +40,6 @@ import matplotlib.pyplot as plt
 import cv2
 from sklearn.metrics import confusion_matrix
 
-
 class SegmentationTester:
     """Класс для тестирования и сравнения методов сегментации"""
 
