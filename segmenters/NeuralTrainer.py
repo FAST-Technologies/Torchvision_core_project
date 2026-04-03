@@ -5,8 +5,19 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from typing import (
-    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
-    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+    List,
+    Union,
+    Tuple,
+    Dict,
+    Set,
+    Any,
+    TypeVar,
+    Optional,
+    Literal,
+    Protocol,
+    runtime_checkable,
+    overload,
+    TYPE_CHECKING,
 )
 import numpy as np
 from pathlib import Path
@@ -17,18 +28,20 @@ import gc
 
 num_classes: int = 150
 
+
 class NeuralTrainer:
     """Трейнер для fine-tuning нейронных моделей сегментации"""
+
     def __init__(
         self,
         model: torch.nn.Module,
-        train_loader: DataLoader, 
+        train_loader: DataLoader,
         val_loader: DataLoader,
         num_classes: int = num_classes,
         device: str = "cuda",
         lr: float = 1e-4,
         weight_decay: float = 1e-4,
-        ignore_index: int = 255
+        ignore_index: int = 255,
     ) -> None:
         self.model = model.to(device)
         self.train_loader: DataLoader = train_loader
@@ -38,9 +51,7 @@ class NeuralTrainer:
         self.ignore_index: int = ignore_index
         self.criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
         self.optimizer = torch.optim.AdamW(
-            model.parameters(), 
-            lr=lr, 
-            weight_decay=weight_decay
+            model.parameters(), lr=lr, weight_decay=weight_decay
         )
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer, T_max=len(train_loader) * 50  # 50 эпох
@@ -48,90 +59,96 @@ class NeuralTrainer:
         self.history: Dict[str, Any] = {
             "train_loss": [],
             "val_loss": [],
-            "val_miou": []
+            "val_miou": [],
         }
         self.best_miou: float = 0
-    
+
     def train_epoch(self) -> float:
         """Одна эпоха обучения"""
         self.model.train()
         total_loss = 0
-        
+
         for batch_idx, batch in enumerate(self.train_loader):
-            images = batch['image'].to(self.device)
-            masks = batch['mask'].to(self.device)
+            images = batch["image"].to(self.device)
+            masks = batch["mask"].to(self.device)
 
             if batch_idx == 0:
                 print(f"DEBUG: masks shape={masks.shape}, dtype={masks.dtype}")
                 print(f"DEBUG: masks range=[{masks.min()}, {masks.max()}]")
                 print(f"DEBUG: unique values={torch.unique(masks)[:20]}")
-            
+
             self.optimizer.zero_grad()
             # Forward pass
             outputs = self.model(images)  # [B, C, H, W]
-            
+
             if isinstance(outputs, dict):
-                outputs = outputs['out']
-            
+                outputs = outputs["out"]
+
             if torch.any(masks < 0) or torch.any(masks >= self.num_classes):
-                invalid = ((masks < 0) | (masks >= self.num_classes)) & (masks != self.criterion.ignore_index)
+                invalid = ((masks < 0) | (masks >= self.num_classes)) & (
+                    masks != self.criterion.ignore_index
+                )
                 if torch.any(invalid):
-                    print(f"⚠️  Invalid mask values: min={masks.min()}, max={masks.max()}")
+                    print(
+                        f"⚠️  Invalid mask values: min={masks.min()}, max={masks.max()}"
+                    )
                     print(f"   Unique invalid: {torch.unique(masks[invalid])}")
                     masks = torch.clamp(masks, 0, self.num_classes - 1)
             loss = self.criterion(outputs, masks.long())
             loss.backward()
-            
+
             # Gradient clipping для стабильности
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
             self.scheduler.step()
-            
+
             total_loss += loss.item()
             if (batch_idx + 1) % 10 == 0:
-                print(f"   Batch {batch_idx+1}/{len(self.train_loader)} | Loss: {loss.item():.4f}")
-        
+                print(
+                    f"   Batch {batch_idx+1}/{len(self.train_loader)} | Loss: {loss.item():.4f}"
+                )
+
         return total_loss / len(self.train_loader)
-    
+
     def validate(self) -> tuple:
         """Валидация с вычислением mIoU"""
         self.model.eval()
         total_loss = 0
         all_preds = []
         all_targets = []
-        
+
         with torch.no_grad():
             for batch in self.val_loader:
-                images = batch['image'].to(self.device)
-                masks = batch['mask'].to(self.device)
-                
+                images = batch["image"].to(self.device)
+                masks = batch["mask"].to(self.device)
+
                 outputs = self.model(images)
                 if isinstance(outputs, dict):
-                    outputs = outputs['out']
-                
+                    outputs = outputs["out"]
+
                 loss = self.criterion(outputs, masks.long())
                 total_loss += loss.item()
-                
+
                 # Предсказания
                 preds = outputs.argmax(1)  # [B, H, W]
                 all_preds.extend(preds.cpu().flatten().tolist())
                 all_targets.extend(masks.cpu().flatten().tolist())
-        
+
         avg_loss = total_loss / len(self.val_loader)
         miou = jaccard_score(
-            all_targets, 
+            all_targets,
             all_preds,
-            average='weighted',
+            average="weighted",
             labels=range(self.num_classes),
-            zero_division=0
+            zero_division=0,
         )
         return avg_loss, miou
-    
+
     def fit(
         self,
         epochs: int = 20,
         checkpoint_path: str = "./models/best_model.pth",
-        early_stop_patience: int = 5
+        early_stop_patience: int = 5,
     ) -> Dict[str, List]:
         """Полный цикл обучения"""
         print(f"🎯 Starting training for {epochs} epochs...")
@@ -150,19 +167,22 @@ class NeuralTrainer:
             print(f"   Val mIoU:   {val_miou:.4f}")
             if val_miou > self.best_miou:
                 self.best_miou = val_miou
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': self.model.state_dict(),
-                    'optimizer_state_dict': self.optimizer.state_dict(),
-                    'miou': val_miou,
-                }, checkpoint_path)
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": self.model.state_dict(),
+                        "optimizer_state_dict": self.optimizer.state_dict(),
+                        "miou": val_miou,
+                    },
+                    checkpoint_path,
+                )
                 print(f"   💾 Saved best model (mIoU: {val_miou:.4f})")
                 patience_counter = 0
             else:
                 patience_counter += 1
                 if patience_counter >= early_stop_patience:
                     print(f"   ⏹️  Early stopping")
-                    break            
+                    break
             torch.cuda.empty_cache()
             gc.collect()
         print(f"✅ Training complete! Best mIoU: {self.best_miou:.4f}")

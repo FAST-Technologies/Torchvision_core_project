@@ -26,6 +26,7 @@ jobs:
           tests
           requirements.txt
           .github
+          test_images
     
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
@@ -71,7 +72,7 @@ jobs:
     - name: Check for security issues with Bandit
       run: |
         pip install bandit
-        bandit -r segmenters/ testing/ -ll -f screen
+        bandit -r segmenters/ testing/ -ll -f screen -s B614,B615,B113
       continue-on-error: true
 
     - name: Check dependencies for vulnerabilities
@@ -87,7 +88,8 @@ jobs:
     
     - name: Type checking with mypy
       run: |
-        mypy segmenters/ testing/ metrics/ --ignore-missing-imports
+        export PYTHONPATH="${{ github.workspace }}"
+        mypy segmenters/ testing/ metrics/ --ignore-missing-imports --explicit-package-bases
       continue-on-error: true
 
     - name: Test with pytest

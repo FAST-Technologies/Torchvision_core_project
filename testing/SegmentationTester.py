@@ -11,8 +11,19 @@ import json
 from datetime import datetime
 from PIL import Image
 from typing import (
-    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
-    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+    List,
+    Union,
+    Tuple,
+    Dict,
+    Set,
+    Any,
+    TypeVar,
+    Optional,
+    Literal,
+    Protocol,
+    runtime_checkable,
+    overload,
+    TYPE_CHECKING,
 )
 
 import numpy as np
@@ -22,14 +33,16 @@ import matplotlib.pyplot as plt
 import cv2
 from sklearn.metrics import confusion_matrix
 
+
 class SegmentationTester:
     """Класс для тестирования и сравнения методов сегментации"""
+
     def __init__(
         self,
         base_output_dir: str = "./../data/segmentation_results",
         ground_truth_path: Optional[str] = None,
         enable_warmup: bool = True,
-        n_warmup_runs: int = 3
+        n_warmup_runs: int = 3,
     ) -> None:
         self.methods: dict = {}
         self.results: dict = {}
@@ -44,16 +57,13 @@ class SegmentationTester:
         if ground_truth_path:
             self.load_ground_truth(ground_truth_path)
 
-    def load_ground_truth(
-        self, 
-        gt_path: str
-    ) -> None:
+    def load_ground_truth(self, gt_path: str) -> None:
         """Загрузка ground truth маски"""
         try:
-            if gt_path.endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+            if gt_path.endswith((".png", ".jpg", ".jpeg", ".bmp")):
                 self.ground_truth_mask = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
                 print(f"✅ Ground truth загружен: {gt_path}")
-            elif gt_path.endswith('.npy'):
+            elif gt_path.endswith(".npy"):
                 self.ground_truth_mask = np.load(gt_path)
                 print(f"✅ Ground truth загружен: {gt_path}")
             else:
@@ -63,34 +73,31 @@ class SegmentationTester:
         except Exception as e:
             print(f"❌ Ошибка загрузки ground truth: {e}")
             self.ground_truth_mask = None
-    
+
     def _ensure_warmup(
-        self, 
-        method_name: str, 
-        segmenter: Any, 
-        image: np.ndarray
+        self, method_name: str, segmenter: Any, image: np.ndarray
     ) -> None:
         """
         Гарантирует выполнение warm-up перед бенчмарком метода.
         """
         if not self.enable_warmup:
             return
-        
-        if method_name not in self.warmup_completed or not self.warmup_completed[method_name]:
+
+        if (
+            method_name not in self.warmup_completed
+            or not self.warmup_completed[method_name]
+        ):
             print(f"\n🔥 Выполняем warm-up для {method_name}...")
             self.warmup_utility.warmup_segmenter(
                 segmenter=segmenter,
                 method_name=method_name,
                 real_image=image,
                 verbose=True,
-                use_real_image=True
+                use_real_image=True,
             )
             self.warmup_completed[method_name] = True
 
-    def _create_test_directory(
-        self, 
-        test_name: str = None
-    ) -> str:
+    def _create_test_directory(self, test_name: str = None) -> str:
         """Создает уникальную директорию для теста"""
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         test_dir: str
@@ -98,39 +105,35 @@ class SegmentationTester:
             test_dir = f"{test_name}_{timestamp}"
         else:
             test_dir = f"test_{timestamp}"
-        
+
         full_path: str = os.path.join(self.base_output_dir, test_dir)
         os.makedirs(full_path, exist_ok=True)
         os.makedirs(os.path.join(full_path, "images"), exist_ok=True)
         os.makedirs(os.path.join(full_path, "masks"), exist_ok=True)
         os.makedirs(os.path.join(full_path, "comparisons"), exist_ok=True)
         os.makedirs(os.path.join(full_path, "statistics"), exist_ok=True)
-        
+
         self.current_test_id: str = test_dir
         print(f"📁 Создана директория для теста: {full_path}")
         return full_path
-    
-    def add_method(
-        self, 
-        name: str, 
-        segmenter: BaseSegmenter
-    ) -> None:
+
+    def add_method(self, name: str, segmenter: BaseSegmenter) -> None:
         """Добавление метода сегментации"""
         self.methods[name] = segmenter
-    
+
     def test_single_method(
-        self, 
-        image: Union[str, np.ndarray, Image.Image], 
-        method_name: str, 
+        self,
+        image: Union[str, np.ndarray, Image.Image],
+        method_name: str,
         save_path: Optional[str] = None,
-        output_dir: Optional[str] = None
+        output_dir: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Тестирование одного метода с сохранением результатов"""
         if method_name not in self.methods:
             raise ValueError(f"Метод {method_name} не найден")
-        
+
         segmenter = self.methods[method_name]
-        
+
         # Измеряем время выполнения
         start_time: float = time.time()
         result: np.ndarray
@@ -142,7 +145,7 @@ class SegmentationTester:
         original_img: Image.Image
         img_array: np.ndarray
         if isinstance(image, str):
-            original_img = Image.open(image).convert('RGB')
+            original_img = Image.open(image).convert("RGB")
             img_array = np.array(original_img)
         elif isinstance(image, Image.Image):
             original_img = image
@@ -150,89 +153,100 @@ class SegmentationTester:
         else:
             img_array = image
             original_img = Image.fromarray(image.astype(np.uint8))
-        
+
         # Статистика
         mask_area = np.sum(mask > 0)
         total_pixels = mask.shape[0] * mask.shape[1]
-        
+
         result_data: Dict[str, Any] = {
-            'method': method_name,
-            'result': result,
-            'mask': mask,
-            'time': execution_time,
-            'mask_area': mask_area,
-            'mask_percentage': (mask_area / total_pixels) * 100,
-            'image_shape': result.shape,
-            'timestamp': datetime.now().isoformat()
+            "method": method_name,
+            "result": result,
+            "mask": mask,
+            "time": execution_time,
+            "mask_area": mask_area,
+            "mask_percentage": (mask_area / total_pixels) * 100,
+            "image_shape": result.shape,
+            "timestamp": datetime.now().isoformat(),
         }
-        
+
         # Сохранение результатов
         if output_dir:
             # Сохраняем оригинальное изображение
             orig_path: str = os.path.join(output_dir, "images", "original.jpg")
             original_img.save(orig_path)
-            
+
             # Сохраняем результат сегментации
-            result_path: str = os.path.join(output_dir, "images", f"{method_name}_result.jpg")
+            result_path: str = os.path.join(
+                output_dir, "images", f"{method_name}_result.jpg"
+            )
             result_pil: Image.Image = Image.fromarray(result.astype(np.uint8))
             result_pil.save(result_path)
-            
+
             # Сохраняем маску
-            mask_path: str = os.path.join(output_dir, "masks", f"{method_name}_mask.png")
+            mask_path: str = os.path.join(
+                output_dir, "masks", f"{method_name}_mask.png"
+            )
             mask_pil: Image.Image = Image.fromarray(mask.astype(np.uint8))
             mask_pil.save(mask_path)
-            
+
             # Сохраняем наложение (overlay)
             try:
                 overlay_alpha = 0.7  # Яркость наложения
                 original_alpha = 0.3  # Прозрачность оригинала
-                
-                overlay = (img_array * original_alpha + result * overlay_alpha).astype(np.uint8)
+
+                overlay = (img_array * original_alpha + result * overlay_alpha).astype(
+                    np.uint8
+                )
                 overlay = overlay.astype(np.uint8)
-                overlay_path: str = os.path.join(output_dir, "images", f"{method_name}_overlay.jpg")
+                overlay_path: str = os.path.join(
+                    output_dir, "images", f"{method_name}_overlay.jpg"
+                )
                 overlay_pil: Image.Image = Image.fromarray(overlay)
                 overlay_pil.save(overlay_path)
-                
-                result_data['overlay_path'] = overlay_path
+
+                result_data["overlay_path"] = overlay_path
                 bright_overlay = cv2.addWeighted(img_array, 0.1, result, 0.9, 0)
-                bright_overlay_path: str = os.path.join(output_dir, "images", f"{method_name}_bright_overlay.jpg")
-                Image.fromarray(bright_overlay.astype(np.uint8)).save(bright_overlay_path)
+                bright_overlay_path: str = os.path.join(
+                    output_dir, "images", f"{method_name}_bright_overlay.jpg"
+                )
+                Image.fromarray(bright_overlay.astype(np.uint8)).save(
+                    bright_overlay_path
+                )
             except Exception as e:
                 print(f"⚠️ Ошибка создания overlay для {method_name}: {e}")
                 pass
-            
-            result_data['result_path'] = result_path
-            result_data['mask_path'] = mask_path
-            result_data['original_path'] = orig_path
+
+            result_data["result_path"] = result_path
+            result_data["mask_path"] = mask_path
+            result_data["original_path"] = orig_path
             print(f"✅ {method_name}: сохранено в {output_dir}")
         elif save_path:
             result_pil = Image.fromarray(result.astype(np.uint8))
             result_pil.save(save_path)
             print(f"✅ Результат сохранен: {save_path}")
-        print(f"   ⏱️ Время: {execution_time:.2f}s, 📏 Площадь: {result_data['mask_percentage']:.3f}%")
+        print(
+            f"   ⏱️ Время: {execution_time:.2f}s, 📏 Площадь: {result_data['mask_percentage']:.3f}%"
+        )
         return result_data
-    
+
     def _save_overlay_image(
-        self, 
-        result_data: Dict[str, Any], 
-        method_dir: str, 
-        method_name: str
+        self, result_data: Dict[str, Any], method_dir: str, method_name: str
     ) -> None:
         """
         Сохраняет наложение маски на оригинальное изображение.
         """
         try:
-            mask = result_data.get('mask')
-            result_img = result_data.get('result')
-            
+            mask = result_data.get("mask")
+            result_img = result_data.get("result")
+
             if mask is None or result_img is None:
                 return
-            
+
             if isinstance(result_img, Image.Image):
                 result_np = np.array(result_img)
             else:
                 result_np = result_img
-            
+
             if isinstance(mask, np.ndarray):
                 mask_np = mask.copy()
                 if mask_np.dtype != np.uint8:
@@ -242,7 +256,7 @@ class SegmentationTester:
                         mask_np = mask_np.astype(np.uint8)
             else:
                 return
-            
+
             # Создаем overlay
             if len(result_np.shape) == 2:
                 # Grayscale оригинал
@@ -250,66 +264,66 @@ class SegmentationTester:
             else:
                 # RGB оригинал
                 overlay = result_np.copy()
-            
+
             if mask_np.ndim == 2:
                 mask_bool = mask_np > 127
                 overlay[mask_bool] = [255, 0, 0]  # Красный
-            
+
             # Сохраняем overlay
             overlay_path = os.path.join(method_dir, "overlay.jpg")
             Image.fromarray(overlay.astype(np.uint8)).save(overlay_path)
-            
+
             alpha = 0.5
             if len(result_np.shape) == 2:
                 result_colored = np.stack([result_np] * 3, axis=-1)
             else:
                 result_colored = result_np
-            
+
             transparent_overlay = result_colored.copy()
             if mask_np.ndim == 2:
                 mask_bool = mask_np > 127
                 transparent_overlay[mask_bool] = [255, 0, 0]  # Красный
-                blended = cv2.addWeighted(result_colored, 1 - alpha, 
-                                        transparent_overlay, alpha, 0)
-                
+                blended = cv2.addWeighted(
+                    result_colored, 1 - alpha, transparent_overlay, alpha, 0
+                )
+
                 blended_path = os.path.join(method_dir, "blended_overlay.jpg")
                 Image.fromarray(blended.astype(np.uint8)).save(blended_path)
-                
+
         except Exception as e:
             print(f"    ⚠️ Ошибка создания overlay для {method_name}: {e}")
-    
+
     def _save_metrics_file(
-        self, 
-        result_data: Dict[str, Any], 
-        method_dir: str, 
-        method_name: str
+        self, result_data: Dict[str, Any], method_dir: str, method_name: str
     ) -> None:
         """
         Сохраняет метрики в JSON и текстовый файл.
         """
-        metrics = result_data.get('metrics', {})
+        metrics = result_data.get("metrics", {})
         if not metrics:
             return
-        
+
         # JSON файл
         json_path = os.path.join(method_dir, "metrics.json")
-        with open(json_path, 'w', encoding='utf-8') as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(metrics, f, indent=2, ensure_ascii=False, default=str)
-        
+
         # Текстовый файл
         txt_path = os.path.join(method_dir, "metrics.txt")
-        with open(txt_path, 'w', encoding='utf-8') as f:
-            f.write("="*50 + "\n")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write("=" * 50 + "\n")
             f.write(f"МЕТРИКИ СЕГМЕНТАЦИИ: {method_name}\n")
-            f.write("="*50 + "\n\n")
-            
-            f.write(f"Дата тестирования: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("=" * 50 + "\n\n")
+
+            f.write(
+                f"Дата тестирования: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            )
             f.write(f"Время выполнения: {result_data.get('time', 0):.3f} секунд\n\n")
-            
-            if 'has_ground_truth' in result_data and result_data['has_ground_truth']:
+
+            if "has_ground_truth" in result_data and result_data["has_ground_truth"]:
                 f.write("Метрики качества (с Ground Truth):\n")
-                f.write("-"*50 + "\n")
-                
+                f.write("-" * 50 + "\n")
+
                 for key, value in metrics.items():
                     if isinstance(value, (int, float)):
                         if 0 <= value <= 1:
@@ -320,84 +334,86 @@ class SegmentationTester:
                         f.write(f"{key:<20}: {value}\n")
             else:
                 f.write("Метрики (без Ground Truth):\n")
-                f.write("-"*50 + "\n")
-                f.write(f"Площадь маски: {result_data.get('mask_area', 0):,} пикселей\n")
-                f.write(f"Процент покрытия: {result_data.get('mask_percentage', 0):.3f}%\n")
+                f.write("-" * 50 + "\n")
+                f.write(
+                    f"Площадь маски: {result_data.get('mask_area', 0):,} пикселей\n"
+                )
+                f.write(
+                    f"Процент покрытия: {result_data.get('mask_percentage', 0):.3f}%\n"
+                )
         print(f"    📊 Метрики сохранены для {method_name}")
-    
+
     def _save_method_info(
-        self, 
-        result_data: Dict[str, Any], 
-        method_dir: str, 
-        method_name: str
+        self, result_data: Dict[str, Any], method_dir: str, method_name: str
     ) -> None:
         """
         Сохраняет информацию о методе и параметрах.
         """
         try:
             segmenter = self.methods.get(method_name)
-            
+
             if segmenter is None:
                 return
-            
+
             info_path = os.path.join(method_dir, "method_info.txt")
-            
-            with open(info_path, 'w', encoding='utf-8') as f:
-                f.write("="*50 + "\n")
+
+            with open(info_path, "w", encoding="utf-8") as f:
+                f.write("=" * 50 + "\n")
                 f.write(f"ИНФОРМАЦИЯ О МЕТОДЕ: {method_name}\n")
-                f.write("="*50 + "\n\n")
-                
+                f.write("=" * 50 + "\n\n")
+
                 # Основная информация
                 f.write(f"Имя метода: {method_name}\n")
                 f.write(f"Тип сегментатора: {type(segmenter).__name__}\n")
-                f.write(f"Время выполнения: {result_data.get('time', 0):.3f} секунд\n\n")
-                
+                f.write(
+                    f"Время выполнения: {result_data.get('time', 0):.3f} секунд\n\n"
+                )
+
                 # Параметры метода
-                if hasattr(segmenter, 'method'):
+                if hasattr(segmenter, "method"):
                     f.write(f"Алгоритм: {segmenter.method}\n")
-                
-                if hasattr(segmenter, 'params') and segmenter.params:
+
+                if hasattr(segmenter, "params") and segmenter.params:
                     f.write("\nПараметры метода:\n")
-                    f.write("-"*30 + "\n")
+                    f.write("-" * 30 + "\n")
                     for key, value in segmenter.params.items():
                         f.write(f"{key}: {value}\n")
-                
+
                 # Информация о маске
-                mask = result_data.get('mask')
+                mask = result_data.get("mask")
                 if mask is not None:
                     f.write(f"\nИнформация о маске:\n")
-                    f.write("-"*30 + "\n")
+                    f.write("-" * 30 + "\n")
                     f.write(f"Размер: {mask.shape}\n")
                     f.write(f"Тип данных: {mask.dtype}\n")
                     f.write(f"Min значение: {mask.min()}\n")
                     f.write(f"Max значение: {mask.max()}\n")
-                    
-                    if hasattr(mask, 'size'):
+
+                    if hasattr(mask, "size"):
                         mask_binary = mask > 127 if mask.max() > 1 else mask > 0.5
                         f.write(f"Площадь: {np.sum(mask_binary):,} пикселей\n")
-                        f.write(f"Покрытие: {np.sum(mask_binary) / mask.size * 100:.3f}%\n")
-                
+                        f.write(
+                            f"Покрытие: {np.sum(mask_binary) / mask.size * 100:.3f}%\n"
+                        )
+
                 # Информация о ground truth
-                if result_data.get('has_ground_truth', False):
+                if result_data.get("has_ground_truth", False):
                     f.write("\nGround Truth:\n")
-                    f.write("-"*30 + "\n")
+                    f.write("-" * 30 + "\n")
                     f.write("Метрики качества доступны в metrics.txt\n")
                 else:
                     f.write("\nGround Truth:\n")
-                    f.write("-"*30 + "\n")
-                    f.write("Отсутствует\n")        
+                    f.write("-" * 30 + "\n")
+                    f.write("Отсутствует\n")
         except Exception as e:
             print(f"    ⚠️ Ошибка сохранения информации о методе {method_name}: {e}")
-    
+
     def _save_method_results(
-        self, 
-        result_data: Dict[str, Any], 
-        output_dir: str, 
-        method_name: str
+        self, result_data: Dict[str, Any], output_dir: str, method_name: str
     ) -> None:
         """
         Сохраняет результаты одного метода в указанную директорию.
-        
+
         Args:
             result_data: Данные результатов
             output_dir: Базовая директория для сохранения
@@ -406,9 +422,9 @@ class SegmentationTester:
         # Создаем поддиректории
         method_dir = os.path.join(output_dir, method_name)
         os.makedirs(method_dir, exist_ok=True)
-        
+
         # Сохраняем изображение результата
-        result_img = result_data.get('result')
+        result_img = result_data.get("result")
         if result_img is not None:
             if isinstance(result_img, np.ndarray):
                 result_path = os.path.join(method_dir, "result.jpg")
@@ -421,107 +437,109 @@ class SegmentationTester:
             elif isinstance(result_img, Image.Image):
                 result_path = os.path.join(method_dir, "result.jpg")
                 result_img.save(result_path)
-        
+
         # Сохраняем маску
-        mask = result_data.get('mask')
+        mask = result_data.get("mask")
         if mask is not None and isinstance(mask, np.ndarray):
             mask_path = os.path.join(method_dir, "mask.png")
-            
+
             if mask.dtype != np.uint8:
                 if mask.max() <= 1.0:
                     mask = (mask * 255).astype(np.uint8)
                 else:
                     mask = mask.astype(np.uint8)
-            
+
             Image.fromarray(mask).save(mask_path)
-        
+
         self._save_overlay_image(result_data, method_dir, method_name)
-        
+
         # Сохраняем метрики
-        if result_data.get('has_ground_truth', False):
+        if result_data.get("has_ground_truth", False):
             self._save_metrics_file(result_data, method_dir, method_name)
-        
+
         # Сохраняем информацию о методе
         self._save_method_info(result_data, method_dir, method_name)
-    
+
     def test_single_method_with_metrics(
-        self, 
+        self,
         image: Union[str, np.ndarray, Image.Image],
         method_name: str,
         ground_truth: Optional[np.ndarray] = None,
         threshold: float = 0.5,
-        output_dir: Optional[str] = None
+        output_dir: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Тестирование метода с расчётом метрик
-        
+
         Args:
             image: Входное изображение
             method_name: Название метода
             ground_truth: Ground truth маска (если None, используется загруженная)
             threshold: Порог для метрик
             output_dir: Директория для сохранения
-            
+
         Returns:
             Результаты с метриками
         """
         if method_name not in self.methods:
             raise ValueError(f"Метод {method_name} не найден")
-        
+
         # Используем ground truth
         gt_mask = ground_truth if ground_truth is not None else self.ground_truth_mask
-        
+
         segmenter = self.methods[method_name]
-        
+
         # Измеряем время выполнения
         start_time = time.time()
-        
+
         if gt_mask is not None:
-            metrics, pred_mask = segmenter.segment_and_evaluate(image, gt_mask, threshold)
+            metrics, pred_mask = segmenter.segment_and_evaluate(
+                image, gt_mask, threshold
+            )
             result_img, _ = segmenter.segment_with_mask(image)
             execution_time = time.time() - start_time
-            
+
             result_data = {
-                'method': method_name,
-                'result': result_img,
-                'mask': pred_mask,
-                'time': execution_time,
-                'metrics': metrics,
-                'has_ground_truth': True
+                "method": method_name,
+                "result": result_img,
+                "mask": pred_mask,
+                "time": execution_time,
+                "metrics": metrics,
+                "has_ground_truth": True,
             }
         else:
             result_img, pred_mask = segmenter.segment_with_mask(image)
             execution_time = time.time() - start_time
-            
+
             mask_area = np.sum(pred_mask > 0)
             total_pixels = pred_mask.shape[0] * pred_mask.shape[1]
-            
+
             result_data = {
-                'method': method_name,
-                'result': result_img,
-                'mask': pred_mask,
-                'time': execution_time,
-                'mask_area': mask_area,
-                'mask_percentage': (mask_area / total_pixels) * 100,
-                'has_ground_truth': False
+                "method": method_name,
+                "result": result_img,
+                "mask": pred_mask,
+                "time": execution_time,
+                "mask_area": mask_area,
+                "mask_percentage": (mask_area / total_pixels) * 100,
+                "has_ground_truth": False,
             }
         if output_dir:
             self._save_method_results(result_data, output_dir, method_name)
         return result_data
-    
+
     def compare_methods(
-        self, 
-        image: Union[str, np.ndarray, Image.Image], 
-        method_names: List[str] = None, 
+        self,
+        image: Union[str, np.ndarray, Image.Image],
+        method_names: List[str] = None,
         figsize: Tuple[int, int] = (20, 15),
         save_comparison: bool = True,
         test_name: str = None,
-        show_plots: bool = True
+        show_plots: bool = True,
     ) -> Dict[str, Any]:
         """Сравнение нескольких методов"""
         if method_names is None:
             method_names: List[str] = list(self.methods.keys())
-        
+
         test_dir: str = self._create_test_directory(test_name)
         results = {}
 
@@ -529,7 +547,7 @@ class SegmentationTester:
         image_path: str
 
         if isinstance(image, str):
-            original_img = Image.open(image).convert('RGB')
+            original_img = Image.open(image).convert("RGB")
             image_path = image
         elif isinstance(image, Image.Image):
             original_img = image
@@ -541,98 +559,112 @@ class SegmentationTester:
         orig_save_path: str = os.path.join(test_dir, "images", "original.jpg")
         original_img.save(orig_save_path)
         print(f"📸 Оригинальное изображение сохранено: {orig_save_path}")
-        
+
         n_methods: int = len(method_names)
         n_cols: int = min(4, n_methods + 1)
         n_rows: int = (n_methods + n_cols) // n_cols
-        
+
         fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
         axes = axes.flatten()
-        
+
         axes[0].imshow(original_img)
         axes[0].set_title("Original Image")
-        axes[0].axis('off')
-        
+        axes[0].axis("off")
+
         all_stats = []
         for i, method_name in enumerate(method_names, 1):
             if i >= len(axes):
                 break
-            
+
             try:
                 result_data: Dict[str, Any] = self.test_single_method(
-                    image, 
-                    method_name, 
-                    output_dir=test_dir
+                    image, method_name, output_dir=test_dir
                 )
                 results[method_name] = result_data
-                
+
                 # Добавляем статистику
                 stats: Dict[str, Any] = {
-                    'method': method_name,
-                    'time_seconds': result_data['time'],
-                    'mask_area_pixels': result_data['mask_area'],
-                    'mask_percentage': result_data['mask_percentage'],
-                    'image_shape': result_data['image_shape']
+                    "method": method_name,
+                    "time_seconds": result_data["time"],
+                    "mask_area_pixels": result_data["mask_area"],
+                    "mask_percentage": result_data["mask_percentage"],
+                    "image_shape": result_data["image_shape"],
                 }
                 all_stats.append(stats)
-                
-                axes[i].imshow(result_data['result'])
-                title: str = f"{method_name}\n{result_data['time']:.2f}s, {result_data['mask_percentage']:.3f}%"
+
+                axes[i].imshow(result_data["result"])
+                title: str = (
+                    f"{method_name}\n{result_data['time']:.2f}s, {result_data['mask_percentage']:.3f}%"
+                )
                 axes[i].set_title(title, fontsize=9)
-                axes[i].axis('off')
-                
-                print(f"{method_name}: {result_data['time']:.2f}s, {result_data['mask_percentage']:.3f}% площади")
-                
+                axes[i].axis("off")
+
+                print(
+                    f"{method_name}: {result_data['time']:.2f}s, {result_data['mask_percentage']:.3f}% площади"
+                )
+
             except Exception as e:
                 error_msg: str = str(e)[:50]
-                axes[i].text(0.5, 0.5, f"Error:\n{error_msg}", 
-                           ha='center', va='center', 
-                           transform=axes[i].transAxes,
-                           fontsize=8)
+                axes[i].text(
+                    0.5,
+                    0.5,
+                    f"Error:\n{error_msg}",
+                    ha="center",
+                    va="center",
+                    transform=axes[i].transAxes,
+                    fontsize=8,
+                )
                 axes[i].set_title(f"{method_name}\n(Error)", fontsize=9)
-                axes[i].axis('off')
-                
+                axes[i].axis("off")
+
                 print(f"❌ Ошибка в методе {method_name}: {e}")
-                
+
                 stats: Dict[str, Any] = {
-                    'method': method_name,
-                    'error': error_msg,
-                    'time_seconds': None,
-                    'mask_area_pixels': None,
-                    'mask_percentage': None
+                    "method": method_name,
+                    "error": error_msg,
+                    "time_seconds": None,
+                    "mask_area_pixels": None,
+                    "mask_percentage": None,
                 }
                 all_stats.append(stats)
-        
+
         for j in range(i + 1, len(axes)):
-            axes[j].axis('off')
-        
-        plt.suptitle(f"Сравнение методов сегментации\n{self.current_test_id}", 
-                    fontsize=14, fontweight='bold')
+            axes[j].axis("off")
+
+        plt.suptitle(
+            f"Сравнение методов сегментации\n{self.current_test_id}",
+            fontsize=14,
+            fontweight="bold",
+        )
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        
+
         # Сохраняем сравнение
         if save_comparison:
-            comparison_path: str = os.path.join(test_dir, "comparisons", "methods_comparison.jpg")
-            plt.savefig(comparison_path, dpi=150, bbox_inches='tight')
+            comparison_path: str = os.path.join(
+                test_dir, "comparisons", "methods_comparison.jpg"
+            )
+            plt.savefig(comparison_path, dpi=150, bbox_inches="tight")
             print(f"📊 Сравнительный график сохранен: {comparison_path}")
-            comparison_small_path: str = os.path.join(test_dir, "comparisons", "methods_comparison_small.jpg")
-            plt.savefig(comparison_small_path, dpi=100, bbox_inches='tight')
+            comparison_small_path: str = os.path.join(
+                test_dir, "comparisons", "methods_comparison_small.jpg"
+            )
+            plt.savefig(comparison_small_path, dpi=100, bbox_inches="tight")
         if show_plots:
             plt.show()
         else:
             plt.close()
-        
+
         # Сохраняем статистику
         self._save_statistics(all_stats, test_dir)
-        
+
         # Сохраняем результаты
         self._save_results_summary(results, test_dir)
-        
+
         self.results[test_dir] = results
         print(f"✅ Тестирование завершено. Результаты в: {test_dir}")
         print(f"📋 Протестировано методов: {len(results)}/{len(method_names)}")
         return results
- 
+
     def compare_methods_with_metrics(
         self,
         image: Union[str, np.ndarray, Image.Image],
@@ -641,11 +673,11 @@ class SegmentationTester:
         threshold: float = 0.5,
         figsize: Tuple[int, int] = (20, 15),
         test_name: str = None,
-        show_plots: bool = True
+        show_plots: bool = True,
     ) -> Dict[str, Dict[str, Any]]:
         """
         Сравнение методов с метриками качества
-        
+
         Args:
             image: Входное изображение
             method_names: Список методов для сравнения
@@ -654,113 +686,127 @@ class SegmentationTester:
             figsize: Размер фигуры
             test_name: Имя теста
             show_plots: Показывать графики
-            
+
         Returns:
             Результаты всех методов с метриками
         """
         if method_names is None:
             method_names = list(self.methods.keys())
-        
+
         test_dir = self._create_test_directory(test_name)
         results = {}
-        
+
         gt_mask = ground_truth if ground_truth is not None else self.ground_truth_mask
         has_gt = gt_mask is not None
-        
+
         print(f"Сравнение методов {'с' if has_gt else 'без'} ground truth")
-        
+
         n_methods = len(method_names)
         n_cols = min(4, n_methods + 1)
         n_rows = (n_methods + n_cols) // n_cols
-        
+
         fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
         axes = axes.flatten()
-        
+
         # Оригинальное изображение
-        original_img = Image.open(image).convert('RGB') if isinstance(image, str) else image
+        original_img = (
+            Image.open(image).convert("RGB") if isinstance(image, str) else image
+        )
         axes[0].imshow(original_img)
         axes[0].set_title("Original Image")
-        axes[0].axis('off')
-        
+        axes[0].axis("off")
+
         if has_gt:
-            axes[1].imshow(gt_mask, cmap='gray')
+            axes[1].imshow(gt_mask, cmap="gray")
             axes[1].set_title("Ground Truth")
-            axes[1].axis('off')
+            axes[1].axis("off")
             start_idx = 2
         else:
             start_idx = 1
-        
+
         all_metrics_data = []
-        
+
         for i, method_name in enumerate(method_names, start_idx):
             if i >= len(axes):
                 break
-            
+
             try:
                 result_data = self.test_single_method_with_metrics(
                     image, method_name, gt_mask, threshold, test_dir
                 )
                 results[method_name] = result_data
-                axes[i].imshow(result_data['result'])
-                
+                axes[i].imshow(result_data["result"])
+
                 if has_gt:
-                    metrics = result_data['metrics']
-                    title = (f"{method_name}\n"
-                            f"IoU: {metrics['iou']:.3f}, Dice: {metrics['dice']:.3f}\n"
-                            f"F1: {metrics['f1_score']:.3f}, Acc: {metrics['pixel_accuracy']:.3f}")
+                    metrics = result_data["metrics"]
+                    title = (
+                        f"{method_name}\n"
+                        f"IoU: {metrics['iou']:.3f}, Dice: {metrics['dice']:.3f}\n"
+                        f"F1: {metrics['f1_score']:.3f}, Acc: {metrics['pixel_accuracy']:.3f}"
+                    )
                 else:
-                    title = (f"{method_name}\n"
-                            f"Time: {result_data['time']:.2f}s\n"
-                            f"Area: {result_data['mask_percentage']:.3f}%")
-                
+                    title = (
+                        f"{method_name}\n"
+                        f"Time: {result_data['time']:.2f}s\n"
+                        f"Area: {result_data['mask_percentage']:.3f}%"
+                    )
+
                 axes[i].set_title(title, fontsize=9)
-                axes[i].axis('off')
-                
+                axes[i].axis("off")
+
                 if has_gt:
-                    metrics = result_data['metrics'].copy()
-                    metrics['method'] = method_name
-                    metrics['time'] = result_data['time']
+                    metrics = result_data["metrics"].copy()
+                    metrics["method"] = method_name
+                    metrics["time"] = result_data["time"]
                     all_metrics_data.append(metrics)
-                
-                print(f"{method_name}: {'метрики вычислены' if has_gt else 'без ground truth'}")
-                
+
+                print(
+                    f"{method_name}: {'метрики вычислены' if has_gt else 'без ground truth'}"
+                )
+
             except Exception as e:
                 error_msg = str(e)[:50]
-                axes[i].text(0.5, 0.5, f"Error:\n{error_msg}", 
-                           ha='center', va='center', 
-                           transform=axes[i].transAxes,
-                           fontsize=8)
+                axes[i].text(
+                    0.5,
+                    0.5,
+                    f"Error:\n{error_msg}",
+                    ha="center",
+                    va="center",
+                    transform=axes[i].transAxes,
+                    fontsize=8,
+                )
                 axes[i].set_title(f"{method_name}\n(Error)", fontsize=9)
-                axes[i].axis('off')
+                axes[i].axis("off")
                 print(f"❌ Ошибка в методе {method_name}: {e}")
-        
+
         for j in range(i + 1, len(axes)):
-            axes[j].axis('off')
-        
-        plt.suptitle(f"Сравнение методов сегментации {'с метриками' if has_gt else ''}\n{self.current_test_id}", 
-                    fontsize=14, fontweight='bold')
+            axes[j].axis("off")
+
+        plt.suptitle(
+            f"Сравнение методов сегментации {'с метриками' if has_gt else ''}\n{self.current_test_id}",
+            fontsize=14,
+            fontweight="bold",
+        )
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        
-        comparison_path = os.path.join(test_dir, "comparisons", "methods_comparison.jpg")
-        plt.savefig(comparison_path, dpi=150, bbox_inches='tight')
-        
+
+        comparison_path = os.path.join(
+            test_dir, "comparisons", "methods_comparison.jpg"
+        )
+        plt.savefig(comparison_path, dpi=150, bbox_inches="tight")
+
         if show_plots:
             plt.show()
         else:
             plt.close()
         if has_gt and all_metrics_data:
             self._save_metrics_comparison(all_metrics_data, test_dir)
-        
+
         self.results[test_dir] = results
         return results
-    
-    def _save_statistics(
-        self, 
-        stats: List[Dict], 
-        output_dir: str
-    ) -> None:
+
+    def _save_statistics(self, stats: List[Dict], output_dir: str) -> None:
         """Сохраняет статистику тестирования"""
-        
+
         # Функция для конвертации numpy типов в стандартные Python типы
         def convert_numpy_types(obj):
             if isinstance(obj, np.integer):
@@ -777,19 +823,22 @@ class SegmentationTester:
                 return [convert_numpy_types(item) for item in obj]
             else:
                 return obj
-        
+
         # Конвертируем все numpy типы перед сохранением в JSON
         serializable_stats = convert_numpy_types(stats)
-        
+
         # Сохраняем как JSON
         stats_json_path: str = os.path.join(output_dir, "statistics", "statistics.json")
         try:
-            with open(stats_json_path, 'w', encoding='utf-8') as f:
-                json.dump(serializable_stats, f, indent=2, ensure_ascii=False, default=str)
+            with open(stats_json_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    serializable_stats, f, indent=2, ensure_ascii=False, default=str
+                )
             print(f"📊 Статистика сохранена (JSON): {stats_json_path}")
         except Exception as e:
             print(f"⚠️ Ошибка сохранения JSON статистики: {e}")
             try:
+
                 def default_serializer(o):
                     if isinstance(o, np.integer):
                         return int(o)
@@ -797,20 +846,30 @@ class SegmentationTester:
                         return float(o)
                     elif isinstance(o, np.ndarray):
                         return o.tolist()
-                    elif hasattr(o, 'tolist'):
+                    elif hasattr(o, "tolist"):
                         return o.tolist()
-                    elif hasattr(o, '__dict__'):
+                    elif hasattr(o, "__dict__"):
                         return str(o)
                     else:
                         return str(o)
-                
-                with open(stats_json_path, 'w', encoding='utf-8') as f:
-                    json.dump(stats, f, indent=2, ensure_ascii=False, default=default_serializer)
+
+                with open(stats_json_path, "w", encoding="utf-8") as f:
+                    json.dump(
+                        stats,
+                        f,
+                        indent=2,
+                        ensure_ascii=False,
+                        default=default_serializer,
+                    )
             except Exception as e2:
                 print(f"❌ Критическая ошибка сохранения JSON: {e2}")
-                with open(stats_json_path.replace('.json', '_fallback.txt'), 'w', encoding='utf-8') as f:
+                with open(
+                    stats_json_path.replace(".json", "_fallback.txt"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
                     f.write(str(stats))
-        
+
         # Сохраняем как CSV
         try:
             df_stats = []
@@ -828,34 +887,42 @@ class SegmentationTester:
                     else:
                         row[key] = value
                 df_stats.append(row)
-            
+
             df: pd.DataFrame = pd.DataFrame(df_stats)
-            stats_csv_path: str = os.path.join(output_dir, "statistics", "statistics.csv")
+            stats_csv_path: str = os.path.join(
+                output_dir, "statistics", "statistics.csv"
+            )
             df.to_csv(stats_csv_path, index=False)
             print(f"📈 Статистика сохранена (CSV): {stats_csv_path}")
         except Exception as e:
             print(f"⚠️ Ошибка сохранения CSV: {e}")
-        
+
         report_path: str = os.path.join(output_dir, "statistics", "test_report.txt")
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write("="*60 + "\n")
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write("=" * 60 + "\n")
             f.write("ОТЧЕТ О ТЕСТИРОВАНИИ МЕТОДОВ СЕГМЕНТАЦИИ\n")
-            f.write("="*60 + "\n\n")
-            f.write(f"Дата тестирования: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(
+                f"Дата тестирования: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            )
             f.write(f"ID теста: {self.current_test_id}\n")
             f.write(f"Всего методов: {len(stats)}\n\n")
-            
-            successful: List[Dict] = [s for s in stats if 'error' not in s]
+
+            successful: List[Dict] = [s for s in stats if "error" not in s]
             if successful:
                 f.write("УСПЕШНЫЕ МЕТОДЫ:\n")
-                f.write("-"*40 + "\n")
+                f.write("-" * 40 + "\n")
                 for stat in successful:
                     f.write(f"{stat['method']}:\n")
                     f.write(f"  Время: {float(stat.get('time_seconds', 0)):.3f} сек\n")
-                    f.write(f"  Площадь маски: {int(stat.get('mask_area_pixels', 0)):,} пикселей\n")
-                    f.write(f"  Процент покрытия: {float(stat.get('mask_percentage', 0)):.2f}%\n")
-                    if 'image_shape' in stat:
-                        shape = stat['image_shape']
+                    f.write(
+                        f"  Площадь маски: {int(stat.get('mask_area_pixels', 0)):,} пикселей\n"
+                    )
+                    f.write(
+                        f"  Процент покрытия: {float(stat.get('mask_percentage', 0)):.2f}%\n"
+                    )
+                    if "image_shape" in stat:
+                        shape = stat["image_shape"]
                         if isinstance(shape, tuple):
                             f.write(f"  Размер результата: {shape}\n")
                         elif isinstance(shape, np.ndarray):
@@ -863,97 +930,101 @@ class SegmentationTester:
                         else:
                             f.write(f"  Размер результата: {shape}\n")
                     f.write("\n")
-            
-            failed: List[Dict] = [s for s in stats if 'error' in s]
+
+            failed: List[Dict] = [s for s in stats if "error" in s]
             if failed:
                 f.write("МЕТОДЫ С ОШИБКАМИ:\n")
-                f.write("-"*40 + "\n")
+                f.write("-" * 40 + "\n")
                 for stat in failed:
                     f.write(f"{stat['method']}: {stat.get('error', 'Unknown error')}\n")
-        
+
         print(f"📋 Текстовый отчет сохранен: {report_path}")
 
     def _save_metrics_comparison(
-        self, 
-        metrics_data: List[Dict[str, float]], 
-        output_dir: str
+        self, metrics_data: List[Dict[str, float]], output_dir: str
     ) -> None:
         """
         Сохраняет сравнение метрик в различных форматах
         """
         metrics_dir = os.path.join(output_dir, "metrics")
         os.makedirs(metrics_dir, exist_ok=True)
-        
+
         # Сохраняем как JSON
         json_path = os.path.join(metrics_dir, "metrics_comparison.json")
-        with open(json_path, 'w', encoding='utf-8') as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(metrics_data, f, indent=2, ensure_ascii=False)
         print(f"📊 Метрики сохранены (JSON): {json_path}")
-        
+
         # Сохраняем как CSV
         try:
             df = pd.DataFrame(metrics_data)
-            df = df.sort_values('iou', ascending=False)
+            df = df.sort_values("iou", ascending=False)
             csv_path = os.path.join(metrics_dir, "metrics_comparison.csv")
             df.to_csv(csv_path, index=False)
             print(f"📊 Метрики сохранены (CSV): {csv_path}")
-            
+
             self._create_metrics_table_image(df, metrics_dir)
-            
+
             # Создаем графики сравнения метрик
             # self._create_metrics_plots(df, metrics_dir)
-            
+
         except ImportError:
             print("⚠️ Pandas не установлен. Пропускаем создание CSV и графиков.")
-    
-    def _create_metrics_table_image(
-        self, 
-        df: pd.DataFrame, 
-        metrics_dir: str
-    ):
+
+    def _create_metrics_table_image(self, df: pd.DataFrame, metrics_dir: str):
         """Создает изображение со сводной таблицей метрик"""
         try:
             fig, ax = plt.subplots(figsize=(12, len(df) * 0.4 + 2))
-            ax.axis('tight')
-            ax.axis('off')
-            
-            table_columns = ['method', 'iou', 'dice', 'f1_score', 'precision', 
-                           'recall', 'pixel_accuracy', 'mae', 'time']
-        
+            ax.axis("tight")
+            ax.axis("off")
+
+            table_columns = [
+                "method",
+                "iou",
+                "dice",
+                "f1_score",
+                "precision",
+                "recall",
+                "pixel_accuracy",
+                "mae",
+                "time",
+            ]
+
             available_columns = [col for col in table_columns if col in df.columns]
             table_data = df[available_columns].copy()
             for col in table_data.columns:
-                if col != 'method':
+                if col != "method":
                     table_data[col] = table_data[col].apply(lambda x: f"{x:.4f}")
-            
-            table = ax.table(cellText=table_data.values,
-                           colLabels=table_data.columns,
-                           cellLoc='center',
-                           loc='center',
-                           colColours=['#f0f0f0']*len(table_data.columns))
-            
+
+            table = ax.table(
+                cellText=table_data.values,
+                colLabels=table_data.columns,
+                cellLoc="center",
+                loc="center",
+                colColours=["#f0f0f0"] * len(table_data.columns),
+            )
+
             table.auto_set_font_size(False)
             table.set_fontsize(9)
             table.scale(1.2, 1.5)
-            
-            plt.title("Сравнение метрик сегментации", fontsize=14, fontweight='bold')
+
+            plt.title("Сравнение метрик сегментации", fontsize=14, fontweight="bold")
             plt.tight_layout()
-            
+
             table_path = os.path.join(metrics_dir, "metrics_table.jpg")
-            plt.savefig(table_path, dpi=150, bbox_inches='tight')
+            plt.savefig(table_path, dpi=150, bbox_inches="tight")
             plt.close(fig)
             print(f"📊 Таблица метрик сохранена: {table_path}")
-            
+
         except Exception as e:
             print(f"⚠️ Ошибка создания таблицы метрик: {e}")
-    
-    def _save_results_summary(
-        self, 
-        results: Dict, 
-        output_dir: str
-    ) -> None:
+
+    def _save_results_summary(self, results: Dict, output_dir: str) -> None:
         """Сохраняет сводку результатов с конвертацией numpy типов"""
-        summary_path: str = os.path.join(output_dir, "statistics", "results_summary.json")
+        summary_path: str = os.path.join(
+            output_dir, "statistics", "results_summary.json"
+        )
+
         def convert_for_json(obj):
             if isinstance(obj, np.integer):
                 return int(obj)
@@ -969,21 +1040,21 @@ class SegmentationTester:
                 return [convert_for_json(item) for item in obj]
             else:
                 return obj
-        
+
         # Подготовка данных для сохранения
         summary_data: Dict[str, Any] = {
-            'test_id': self.current_test_id,
-            'timestamp': datetime.now().isoformat(),
-            'total_methods': len(results),
-            'methods': {}
+            "test_id": self.current_test_id,
+            "timestamp": datetime.now().isoformat(),
+            "total_methods": len(results),
+            "methods": {},
         }
-        
+
         for method_name, result in results.items():
             method_data: Dict[str, Any] = {}
             for key, value in result.items():
-                if key == 'result' or key == 'mask':
+                if key == "result" or key == "mask":
                     continue
-                elif key == 'image_shape':
+                elif key == "image_shape":
                     if isinstance(value, np.ndarray):
                         method_data[key] = value.tolist()
                     elif isinstance(value, tuple):
@@ -992,39 +1063,49 @@ class SegmentationTester:
                         method_data[key] = value
                 else:
                     method_data[key] = convert_for_json(value)
-            
-            for key in ['result_path', 'mask_path', 'overlay_path', 'original_path']:
+
+            for key in ["result_path", "mask_path", "overlay_path", "original_path"]:
                 if key in result:
                     method_data[key] = str(result[key])
-            
-            summary_data['methods'][method_name] = method_data
-        
+
+            summary_data["methods"][method_name] = method_data
+
         try:
-            with open(summary_path, 'w', encoding='utf-8') as f:
+            with open(summary_path, "w", encoding="utf-8") as f:
                 json.dump(summary_data, f, indent=2, ensure_ascii=False, default=str)
             print(f"📋 Сводка результатов сохранена: {summary_path}")
         except Exception as e:
             print(f"⚠️ Ошибка сохранения сводки результатов: {e}")
-            with open(summary_path.replace('.json', '_simple.txt'), 'w', encoding='utf-8') as f:
-                for method_name, method_data in summary_data['methods'].items():
+            with open(
+                summary_path.replace(".json", "_simple.txt"), "w", encoding="utf-8"
+            ) as f:
+                for method_name, method_data in summary_data["methods"].items():
                     f.write(f"\n{'='*40}\n")
                     f.write(f"Метод: {method_name}\n")
                     f.write(f"{'='*40}\n")
                     for key, value in method_data.items():
                         f.write(f"{key}: {value}\n")
-    
+
     def benchmark_methods(
-        self, 
-        image: Union[str, np.ndarray, Image.Image], 
+        self,
+        image: Union[str, np.ndarray, Image.Image],
         n_runs: int = 3,
         save_benchmark: bool = True,
         test_name: str = None,
         save_results: bool = True,
         force_warmup: bool = False,
-        ground_truth: Optional[np.ndarray] = None
+        ground_truth: Optional[np.ndarray] = None,
     ) -> pd.DataFrame:
         """Бенчмарк методов (требует pandas) с сохранением результатов и warm-up"""
-        original_img = Image.fromarray(image.astype(np.uint8)) if isinstance(image, np.ndarray) else (Image.open(image).convert('RGB') if isinstance(image, str) else image.convert('RGB'))
+        original_img = (
+            Image.fromarray(image.astype(np.uint8))
+            if isinstance(image, np.ndarray)
+            else (
+                Image.open(image).convert("RGB")
+                if isinstance(image, str)
+                else image.convert("RGB")
+            )
+        )
         benchmark_results = []
 
         bench_dir: str
@@ -1037,34 +1118,36 @@ class SegmentationTester:
         image_array: np.ndarray
         orig_path: str
         if isinstance(image, str):
-            original_img = Image.open(image).convert('RGB')
+            original_img = Image.open(image).convert("RGB")
             image_array = np.array(original_img)
         elif isinstance(image, Image.Image):
-            original_img = image.convert('RGB')
+            original_img = image.convert("RGB")
             image_array = np.array(original_img)
         elif isinstance(image, np.ndarray):
-            original_img = Image.fromarray(image.astype(np.uint8)).convert('RGB')
+            original_img = Image.fromarray(image.astype(np.uint8)).convert("RGB")
             image_array = image
         else:
             raise ValueError(f"Unsupported image type: {type(image)}")
-        
+
         # Сохраняем оригинальное изображение
         orig_path: str = os.path.join(bench_dir, "images", "original.jpg")
         original_img.save(orig_path)
         print(f"📸 Оригинальное изображение сохранено: {orig_path}")
 
         if force_warmup and self.enable_warmup:
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("🔥 ЗАПУСК WARM-UP ПЕРЕД БЕНЧМАРКОМ")
-            print("="*60)
-            
+            print("=" * 60)
+
             for method_name, segmenter in self.methods.items():
                 self._ensure_warmup(method_name, segmenter, image_array)
 
-        gt_mask_to_use = ground_truth if ground_truth is not None else self.ground_truth_mask
+        gt_mask_to_use = (
+            ground_truth if ground_truth is not None else self.ground_truth_mask
+        )
         has_gt = gt_mask_to_use is not None
         gt_binary = None
-        
+
         if has_gt:
             print(f"🎯 Обнаружен Ground Truth. Будет выполнен расчет метрик качества.")
             if gt_mask_to_use.max() <= 1.0:
@@ -1073,35 +1156,35 @@ class SegmentationTester:
                 gt_binary = gt_mask_to_use.astype(np.uint8)
         else:
             print("⚠️ Ground Truth не найден. Метрики качества рассчитываться не будут.")
-        
+
         print(f"🏃 Запуск бенчмарка ({n_runs} прогонов)...")
-        
+
         for method_name in self.methods.keys():
             print(f"  📊 Тестируем {method_name}...")
 
             segmenter = self.methods[method_name]
-    
+
             if not force_warmup:
                 self._ensure_warmup(method_name, segmenter, image)
-            
+
             times: List[float] = []
             results_list: List[np.ndarray] = []
             masks_list: List[np.ndarray] = []
 
             is_neural = (
-                "neural" in method_name.lower() or
-                "segformer" in method_name.lower() or
-                "mask2former" in method_name.lower() or
-                "deeplab" in method_name.lower() or
-                "unet" in method_name.lower() or
-                "fpn" in method_name.lower() or
-                "psp" in method_name.lower() or
-                "fcn" in method_name.lower() or
-                "segnet" in method_name.lower()
+                "neural" in method_name.lower()
+                or "segformer" in method_name.lower()
+                or "mask2former" in method_name.lower()
+                or "deeplab" in method_name.lower()
+                or "unet" in method_name.lower()
+                or "fpn" in method_name.lower()
+                or "psp" in method_name.lower()
+                or "fcn" in method_name.lower()
+                or "segnet" in method_name.lower()
             )
 
             input_arg_for_method = image
-            
+
             if is_neural:
                 if isinstance(image, str):
                     input_arg_for_method = image
@@ -1117,7 +1200,9 @@ class SegmentationTester:
                 result: np.ndarray
                 mask: np.ndarray
                 try:
-                    result, mask = self.methods[method_name].segment_with_mask(input_arg_for_method)
+                    result, mask = self.methods[method_name].segment_with_mask(
+                        input_arg_for_method
+                    )
                     times.append(time.time() - start_time)
                     if run == 0:
                         masks_list.append(mask)
@@ -1126,7 +1211,7 @@ class SegmentationTester:
                     print(f"    ❌ Ошибка в {method_name} (запуск {run+1}): {e}")
                     if run == 0:
                         break
-            
+
             mask_area = 0
             total_pixels = 1
             metrics_dict = {}
@@ -1141,117 +1226,132 @@ class SegmentationTester:
                         # Ресайз GT под размер предсказания
                         if gt_binary.shape != mask.shape:
                             from skimage.transform import resize
+
                             gt_resized = resize(
-                                gt_binary, 
-                                mask.shape, 
-                                order=0, 
-                                preserve_range=True, 
-                                anti_aliasing=False
+                                gt_binary,
+                                mask.shape,
+                                order=0,
+                                preserve_range=True,
+                                anti_aliasing=False,
                             ).astype(np.uint8)
                         else:
                             gt_resized = gt_binary
-                        
+
                         # Расчет метрик
                         metrics_dict = SegmentationMetrics.calculate_all_metrics(
-                            pred_mask=mask, 
-                            gt_mask=gt_resized, 
+                            pred_mask=mask,
+                            gt_mask=gt_resized,
                             threshold=0.5,
-                            include_hausdorff=True
+                            include_hausdorff=True,
                         )
-                        iou = metrics_dict.get('iou', 0)
-                        dice = metrics_dict.get('dice', 0)
+                        iou = metrics_dict.get("iou", 0)
+                        dice = metrics_dict.get("dice", 0)
                         status = "✅" if iou > 0.5 else "⚠️" if iou > 0.2 else "❌"
                         print(f"    {status} IoU: {iou:.4f}, Dice: {dice:.4f}")
-                        
+
                     except Exception as metric_err:
                         print(f"    ⚠️ Ошибка расчета метрик: {metric_err}")
-                        metrics_dict = {'error': str(metric_err)}
+                        metrics_dict = {"error": str(metric_err)}
             else:
                 if not times:
-                     print(f"    ❌ Метод {method_name} не вернул результат.")
-            
+                    print(f"    ❌ Метод {method_name} не вернул результат.")
+
             mean_time = np.mean(times) if times else 0
             std_time = np.std(times) if times else 0
 
             if save_results and masks_list and results_list:
                 try:
                     # Сохраняем результат сегментации
-                    result_path: str = os.path.join(bench_dir, "images", f"{method_name}_result.jpg")
-                    result_pil: Image.Image = Image.fromarray(result_img.astype(np.uint8)).save(result_path)
-                    
+                    result_path: str = os.path.join(
+                        bench_dir, "images", f"{method_name}_result.jpg"
+                    )
+                    result_pil: Image.Image = Image.fromarray(
+                        result_img.astype(np.uint8)
+                    ).save(result_path)
+
                     # Сохраняем маску
-                    mask_path: str = os.path.join(bench_dir, "masks", f"{method_name}_mask.png")
-                    mask_pil: Image.Image = Image.fromarray(mask.astype(np.uint8)).save(mask_path)
-                    
+                    mask_path: str = os.path.join(
+                        bench_dir, "masks", f"{method_name}_mask.png"
+                    )
+                    mask_pil: Image.Image = Image.fromarray(mask.astype(np.uint8)).save(
+                        mask_path
+                    )
+
                     # Сохраняем overlay (30% оригинал + 70% результат)
                     if image_array is not None:
-                        overlay: np.ndarray = (image_array * 0.3 + result_img * 0.7).astype(np.uint8)
-                        overlay_path: str = os.path.join(bench_dir, "images", f"{method_name}_overlay.jpg")
-                        overlay_pil: Image.Image = Image.fromarray(overlay).save(overlay_path)
-                        
+                        overlay: np.ndarray = (
+                            image_array * 0.3 + result_img * 0.7
+                        ).astype(np.uint8)
+                        overlay_path: str = os.path.join(
+                            bench_dir, "images", f"{method_name}_overlay.jpg"
+                        )
+                        overlay_pil: Image.Image = Image.fromarray(overlay).save(
+                            overlay_path
+                        )
+
                         print(f"    💾 Результаты сохранены в {bench_dir}")
                 except Exception as e:
                     print(f"    ⚠️ Ошибка сохранения результатов: {e}")
-            
+
             row_data: Dict[str, Any] = {
-                'Method': method_name,
-                'Mean_Time_s': mean_time,
-                'Std_Time_s': std_time,
-                'Time_String': f"{mean_time:.3f} ± {std_time:.3f}",
-                'Mask_Area': mask_area,
-                'Mask_Percentage': (mask_area / total_pixels * 100) if total_pixels > 0 else 0,
-                'Min_Time_s': min(times) if times else 0,
-                'Max_Time_s': max(times) if times else 0,
-                'Num_Runs': len(times),
-                'Has_GT': has_gt
+                "Method": method_name,
+                "Mean_Time_s": mean_time,
+                "Std_Time_s": std_time,
+                "Time_String": f"{mean_time:.3f} ± {std_time:.3f}",
+                "Mask_Area": mask_area,
+                "Mask_Percentage": (
+                    (mask_area / total_pixels * 100) if total_pixels > 0 else 0
+                ),
+                "Min_Time_s": min(times) if times else 0,
+                "Max_Time_s": max(times) if times else 0,
+                "Num_Runs": len(times),
+                "Has_GT": has_gt,
             }
 
-            if has_gt and metrics_dict and 'error' not in metrics_dict:
-                row_data.update({
-                    'IoU': metrics_dict.get('iou', 0),
-                    'Dice': metrics_dict.get('dice', 0),
-                    'F1_Score': metrics_dict.get('f1_score', 0),
-                    'Precision': metrics_dict.get('precision', 0),
-                    'Recall': metrics_dict.get('recall', 0),
-                    'Accuracy': metrics_dict.get('pixel_accuracy', 0),
-                    'Hausdorff': metrics_dict.get('hausdorff_distance', 0),
-                    'MAE': metrics_dict.get('mae', 0),
-                    'Area_Difference': metrics_dict.get('area_difference', 0)
-                })
+            if has_gt and metrics_dict and "error" not in metrics_dict:
+                row_data.update(
+                    {
+                        "IoU": metrics_dict.get("iou", 0),
+                        "Dice": metrics_dict.get("dice", 0),
+                        "F1_Score": metrics_dict.get("f1_score", 0),
+                        "Precision": metrics_dict.get("precision", 0),
+                        "Recall": metrics_dict.get("recall", 0),
+                        "Accuracy": metrics_dict.get("pixel_accuracy", 0),
+                        "Hausdorff": metrics_dict.get("hausdorff_distance", 0),
+                        "MAE": metrics_dict.get("mae", 0),
+                        "Area_Difference": metrics_dict.get("area_difference", 0),
+                    }
+                )
 
             benchmark_results.append(row_data)
-        
+
         df: pd.DataFrame = pd.DataFrame(benchmark_results)
-        if 'Mean_Time_s' in df.columns:
-            df = df.sort_values('Mean_Time_s')
-        elif 'Mean_Time_s (s)' in df.columns:
-            df = df.sort_values('Mean_Time_s (s)')
-            
-        print("\n" + "="*80)
+        if "Mean_Time_s" in df.columns:
+            df = df.sort_values("Mean_Time_s")
+        elif "Mean_Time_s (s)" in df.columns:
+            df = df.sort_values("Mean_Time_s (s)")
+
+        print("\n" + "=" * 80)
         print("РЕЗУЛЬТАТЫ БЕНЧМАРКА:")
-        print("="*80)
-        pd.set_option('display.max_columns', None)
-        pd.set_option('display.width', 1000)
+        print("=" * 80)
+        pd.set_option("display.max_columns", None)
+        pd.set_option("display.width", 1000)
         print(df.to_string(index=False))
-        print("="*80)
+        print("=" * 80)
         if save_benchmark:
             self._save_benchmark_results(df, bench_dir)
-        
+
         return df
-    
-    def _save_benchmark_results(
-        self, 
-        df: pd.DataFrame, 
-        output_dir: str
-    ) -> None:
+
+    def _save_benchmark_results(self, df: pd.DataFrame, output_dir: str) -> None:
         """Сохраняет результаты бенчмарка"""
         bench_stats_dir: str = os.path.join(output_dir, "statistics")
         os.makedirs(bench_stats_dir, exist_ok=True)
-        
+
         # Сохраняем как CSV
         csv_path: str = os.path.join(bench_stats_dir, "benchmark_results.csv")
         df.to_csv(csv_path, index=False)
-        
+
         # Сохраняем как Excel
         try:
             excel_path: str = os.path.join(bench_stats_dir, "benchmark_results.xlsx")
@@ -1259,129 +1359,183 @@ class SegmentationTester:
             print(f"📊 Excel отчет сохранен: {excel_path}")
         except:
             pass
-        
+
         # Создаем текстовый отчет
         report_path: str = os.path.join(bench_stats_dir, "benchmark_report.txt")
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write("="*80 + "\n")
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write("=" * 80 + "\n")
             f.write("ОТЧЕТ О БЕНЧМАРКЕ МЕТОДОВ СЕГМЕНТАЦИИ\n")
-            f.write("="*80 + "\n\n")
-            f.write(f"Дата тестирования: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Количество прогонов: {df['Num_Runs'].iloc[0] if not df.empty else 0}\n")
+            f.write("=" * 80 + "\n\n")
+            f.write(
+                f"Дата тестирования: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            )
+            f.write(
+                f"Количество прогонов: {df['Num_Runs'].iloc[0] if not df.empty else 0}\n"
+            )
             f.write(f"Всего методов: {len(df)}\n\n")
-            
+
             f.write("ТАБЛИЦА РЕЗУЛЬТАТОВ:\n")
-            f.write("-"*80 + "\n")
-            
-            if 'Has_GT' in df.columns and df['Has_GT'].any():
+            f.write("-" * 80 + "\n")
+
+            if "Has_GT" in df.columns and df["Has_GT"].any():
                 f.write("Режим: С расчетом метрик качества (Ground Truth available)\n")
-                f.write("-"*80 + "\n")
-                f.write(f"{'Метод':<30} {'Время (с)':<20} {'IoU':<10} {'Dice':<10} {'F1':<10}\n")
-                f.write("-"*80 + "\n")
+                f.write("-" * 80 + "\n")
+                f.write(
+                    f"{'Метод':<30} {'Время (с)':<20} {'IoU':<10} {'Dice':<10} {'F1':<10}\n"
+                )
+                f.write("-" * 80 + "\n")
                 for _, row in df.iterrows():
-                    iou = row.get('IoU', 'N/A')
-                    dice = row.get('Dice', 'N/A')
-                    f1 = row.get('F1_Score', 'N/A')
+                    iou = row.get("IoU", "N/A")
+                    dice = row.get("Dice", "N/A")
+                    f1 = row.get("F1_Score", "N/A")
                     if isinstance(iou, float):
-                        f.write(f"{row['Method']:<30} {row['Time_String']:<20} {iou:.4f}     {dice:.4f}     {f1:.4f}\n")
+                        f.write(
+                            f"{row['Method']:<30} {row['Time_String']:<20} {iou:.4f}     {dice:.4f}     {f1:.4f}\n"
+                        )
                     else:
-                        f.write(f"{row['Method']:<30} {row['Time_String']:<20} {iou}     {dice}     {f1}\n")
+                        f.write(
+                            f"{row['Method']:<30} {row['Time_String']:<20} {iou}     {dice}     {f1}\n"
+                        )
             else:
                 f.write("Режим: Только производительность (без Ground Truth)\n")
-                f.write("-"*80 + "\n")
-                f.write(f"{'Метод':<30} {'Время (с)':<20} {'Площадь маски':<15} {'Процент':<10}\n")
-                f.write("-"*80 + "\n")
+                f.write("-" * 80 + "\n")
+                f.write(
+                    f"{'Метод':<30} {'Время (с)':<20} {'Площадь маски':<15} {'Процент':<10}\n"
+                )
+                f.write("-" * 80 + "\n")
                 for _, row in df.iterrows():
-                    f.write(f"{row['Method']:<30} {row['Time_String']:<20} {int(row['Mask_Area']):<15,} {row['Mask_Percentage']:.3f}%\n")
-            f.write("\n" + "="*80 + "\n")
+                    f.write(
+                        f"{row['Method']:<30} {row['Time_String']:<20} {int(row['Mask_Area']):<15,} {row['Mask_Percentage']:.3f}%\n"
+                    )
+            f.write("\n" + "=" * 80 + "\n")
             f.write("СВОДКА:\n")
-            f.write("-"*80 + "\n")
+            f.write("-" * 80 + "\n")
             if not df.empty:
                 fastest = df.iloc[0]
                 slowest = df.iloc[-1]
-                f.write(f"Самый быстрый метод: {fastest['Method']} ({fastest['Mean_Time_s']:.3f} с)\n")
-                f.write(f"Самый медленный метод: {slowest['Method']} ({slowest['Mean_Time_s']:.3f} с)\n")
+                f.write(
+                    f"Самый быстрый метод: {fastest['Method']} ({fastest['Mean_Time_s']:.3f} с)\n"
+                )
+                f.write(
+                    f"Самый медленный метод: {slowest['Method']} ({slowest['Mean_Time_s']:.3f} с)\n"
+                )
                 f.write(f"Среднее время: {df['Mean_Time_s'].mean():.3f} с\n")
                 f.write(f"Стандартное отклонение: {df['Mean_Time_s'].std():.3f} с\n")
 
-                if 'IoU' in df.columns:
-                    best_iou_row = df.loc[df['IoU'].idxmax()]
-                    f.write(f"Лучший метод по IoU: {best_iou_row['Method']} (IoU={best_iou_row['IoU']:.4f})\n")
-        
+                if "IoU" in df.columns:
+                    best_iou_row = df.loc[df["IoU"].idxmax()]
+                    f.write(
+                        f"Лучший метод по IoU: {best_iou_row['Method']} (IoU={best_iou_row['IoU']:.4f})\n"
+                    )
+
         print(f"📋 Отчет бенчмарка сохранен: {report_path}")
         print(f"📊 CSV с результатами: {csv_path}")
         self._plot_benchmark_results(df, output_dir)
-    
-    def _plot_benchmark_results(
-        self, 
-        df: pd.DataFrame, 
-        output_dir: str
-    ) -> None:
+
+    def _plot_benchmark_results(self, df: pd.DataFrame, output_dir: str) -> None:
         """Создает графики результатов бенчмарка"""
-        
+
         if df.empty:
             return
-        
+
         comp_dir: str = os.path.join(output_dir, "comparisons")
         os.makedirs(comp_dir, exist_ok=True)
-        
+
         # График 1: Время выполнения
         plt.figure(figsize=(12, 6))
-        bars: plt.BarContainer = plt.barh(df['Method'], df['Mean_Time_s'])
-        plt.xlabel('Время выполнения (секунды)')
-        plt.title('Бенчмарк методов сегментации: Время выполнения')
-        
-        if 'Std_Time_s' in df.columns:
-            plt.errorbar(df['Mean_Time_s'], df['Method'], 
-                        xerr=df['Std_Time_s'], 
-                        fmt='none', ecolor='black', capsize=5)
-        
-        max_time = df['Mean_Time_s'].max() if not df.empty else 0
-        for bar, time_val in zip(bars, df['Mean_Time_s']):
-            plt.text(time_val + max_time * 0.01, 
-                    bar.get_y() + bar.get_height()/2,
-                    f'{time_val:.3f}s', 
-                    va='center', fontsize=9)
-        
+        bars: plt.BarContainer = plt.barh(df["Method"], df["Mean_Time_s"])
+        plt.xlabel("Время выполнения (секунды)")
+        plt.title("Бенчмарк методов сегментации: Время выполнения")
+
+        if "Std_Time_s" in df.columns:
+            plt.errorbar(
+                df["Mean_Time_s"],
+                df["Method"],
+                xerr=df["Std_Time_s"],
+                fmt="none",
+                ecolor="black",
+                capsize=5,
+            )
+
+        max_time = df["Mean_Time_s"].max() if not df.empty else 0
+        for bar, time_val in zip(bars, df["Mean_Time_s"]):
+            plt.text(
+                time_val + max_time * 0.01,
+                bar.get_y() + bar.get_height() / 2,
+                f"{time_val:.3f}s",
+                va="center",
+                fontsize=9,
+            )
+
         plt.tight_layout()
         bench_plot_path: str = os.path.join(comp_dir, "benchmark_time.png")
-        plt.savefig(bench_plot_path, dpi=150, bbox_inches='tight')
+        plt.savefig(bench_plot_path, dpi=150, bbox_inches="tight")
         plt.close()
-        
+
         # График 2: Время vs Площадь маски
         plt.figure(figsize=(10, 6))
-        if 'Mask_Percentage' in df.columns:
-            scatter: plt.PathCollection = plt.scatter(df['Mean_Time_s'], df['Mask_Percentage'], 
-                                s=100, alpha=0.7, c=range(len(df)), cmap='viridis')
-            for i, (x, y, method) in enumerate(zip(df['Mean_Time_s'], df['Mask_Percentage'], df['Method'])):
-                plt.annotate(method, (x, y), textcoords="offset points", 
-                            xytext=(0,10), ha='center', fontsize=9)
-            
-            plt.xlabel('Время выполнения (секунды)')
-            plt.ylabel('Площадь маски (%)')
-            plt.title('Бенчмарк: Время vs Площадь покрытия')
-            plt.colorbar(scatter, label='Ранг метода')
+        if "Mask_Percentage" in df.columns:
+            scatter: plt.PathCollection = plt.scatter(
+                df["Mean_Time_s"],
+                df["Mask_Percentage"],
+                s=100,
+                alpha=0.7,
+                c=range(len(df)),
+                cmap="viridis",
+            )
+            for i, (x, y, method) in enumerate(
+                zip(df["Mean_Time_s"], df["Mask_Percentage"], df["Method"])
+            ):
+                plt.annotate(
+                    method,
+                    (x, y),
+                    textcoords="offset points",
+                    xytext=(0, 10),
+                    ha="center",
+                    fontsize=9,
+                )
+
+            plt.xlabel("Время выполнения (секунды)")
+            plt.ylabel("Площадь маски (%)")
+            plt.title("Бенчмарк: Время vs Площадь покрытия")
+            plt.colorbar(scatter, label="Ранг метода")
             plt.grid(True, alpha=0.3)
-            
+
             bench_scatter_path: str = os.path.join(comp_dir, "benchmark_scatter.png")
-            plt.savefig(bench_scatter_path, dpi=150, bbox_inches='tight')
+            plt.savefig(bench_scatter_path, dpi=150, bbox_inches="tight")
             plt.close()
 
         # График 3: IoU vs Время (если есть GT)
-        if 'IoU' in df.columns:
+        if "IoU" in df.columns:
             plt.figure(figsize=(10, 6))
-            scatter = plt.scatter(df['Mean_Time_s'], df['IoU'], s=100, alpha=0.7, c=range(len(df)), cmap='viridis')
-            
+            scatter = plt.scatter(
+                df["Mean_Time_s"],
+                df["IoU"],
+                s=100,
+                alpha=0.7,
+                c=range(len(df)),
+                cmap="viridis",
+            )
+
             for i, row in df.iterrows():
-                plt.annotate(row['Method'][:15], (row['Mean_Time_s'], row['IoU']), textcoords="offset points", xytext=(0,10), ha='center', fontsize=8)
-                
-            plt.xlabel('Время выполнения (секунды)')
-            plt.ylabel('IoU Score')
-            plt.title('Соотношение точности (IoU) и скорости')
+                plt.annotate(
+                    row["Method"][:15],
+                    (row["Mean_Time_s"], row["IoU"]),
+                    textcoords="offset points",
+                    xytext=(0, 10),
+                    ha="center",
+                    fontsize=8,
+                )
+
+            plt.xlabel("Время выполнения (секунды)")
+            plt.ylabel("IoU Score")
+            plt.title("Соотношение точности (IoU) и скорости")
             plt.grid(True, alpha=0.3)
-            plt.colorbar(scatter, label='Ранг метода')
+            plt.colorbar(scatter, label="Ранг метода")
             plt.tight_layout()
-            plt.savefig(os.path.join(comp_dir, "iou_vs_time.png"), dpi=150, bbox_inches='tight')
+            plt.savefig(
+                os.path.join(comp_dir, "iou_vs_time.png"), dpi=150, bbox_inches="tight"
+            )
             plt.close()
             print(f"📈 График IoU vs Time сохранен в {comp_dir}/iou_vs_time.png")
 
@@ -1390,89 +1544,105 @@ class SegmentationTester:
 
         print(f"📈 Графики бенчмарка сохранены в {output_dir}/comparisons/")
 
-    def _create_metrics_plots(
-        self, 
-        df: pd.DataFrame, 
-        metrics_dir: str
-    ) -> None:
+    def _create_metrics_plots(self, df: pd.DataFrame, metrics_dir: str) -> None:
         """Создает графики сравнения метрик"""
         try:
             # График 1: Барчарт основных метрик
             fig, axes = plt.subplots(2, 2, figsize=(15, 12))
             ax1 = axes[0, 0]
-            bars1 = ax1.barh(df['method'], df['iou'])
-            ax1.set_xlabel('IoU')
-            ax1.set_title('Intersection over Union (IoU) по методам')
-            for bar, val in zip(bars1, df['iou']):
-                ax1.text(val + 0.01, bar.get_y() + bar.get_height()/2,
-                        f'{val:.3f}', va='center')
-            
+            bars1 = ax1.barh(df["method"], df["iou"])
+            ax1.set_xlabel("IoU")
+            ax1.set_title("Intersection over Union (IoU) по методам")
+            for bar, val in zip(bars1, df["iou"]):
+                ax1.text(
+                    val + 0.01,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{val:.3f}",
+                    va="center",
+                )
+
             # Dice coefficient сравнение
             ax2 = axes[0, 1]
-            bars2 = ax2.barh(df['method'], df['dice'])
-            ax2.set_xlabel('Dice Coefficient')
-            ax2.set_title('Dice Coefficient по методам')
-            for bar, val in zip(bars2, df['dice']):
-                ax2.text(val + 0.01, bar.get_y() + bar.get_height()/2,
-                        f'{val:.3f}', va='center')
-            
+            bars2 = ax2.barh(df["method"], df["dice"])
+            ax2.set_xlabel("Dice Coefficient")
+            ax2.set_title("Dice Coefficient по методам")
+            for bar, val in zip(bars2, df["dice"]):
+                ax2.text(
+                    val + 0.01,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{val:.3f}",
+                    va="center",
+                )
+
             # F1 Score сравнение
             ax3 = axes[1, 0]
-            bars3 = ax3.barh(df['method'], df['f1_score'])
-            ax3.set_xlabel('F1 Score')
-            ax3.set_title('F1 Score по методам')
-            for bar, val in zip(bars3, df['f1_score']):
-                ax3.text(val + 0.01, bar.get_y() + bar.get_height()/2,
-                        f'{val:.3f}', va='center')
-            
+            bars3 = ax3.barh(df["method"], df["f1_score"])
+            ax3.set_xlabel("F1 Score")
+            ax3.set_title("F1 Score по методам")
+            for bar, val in zip(bars3, df["f1_score"]):
+                ax3.text(
+                    val + 0.01,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{val:.3f}",
+                    va="center",
+                )
+
             # Время выполнения
             ax4 = axes[1, 1]
-            bars4 = ax4.barh(df['method'], df['time'])
-            ax4.set_xlabel('Время (секунды)')
-            ax4.set_title('Время выполнения по методам')
-            for bar, val in zip(bars4, df['time']):
-                ax4.text(val + 0.01, bar.get_y() + bar.get_height()/2,
-                        f'{val:.2f}s', va='center')
-            
+            bars4 = ax4.barh(df["method"], df["time"])
+            ax4.set_xlabel("Время (секунды)")
+            ax4.set_title("Время выполнения по методам")
+            for bar, val in zip(bars4, df["time"]):
+                ax4.text(
+                    val + 0.01,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{val:.2f}s",
+                    va="center",
+                )
+
             plt.tight_layout()
             plots_path = os.path.join(metrics_dir, "metrics_comparison_plots.jpg")
-            plt.savefig(plots_path, dpi=150, bbox_inches='tight')
+            plt.savefig(plots_path, dpi=150, bbox_inches="tight")
             plt.close(fig)
             print(f"📊 Графики метрик сохранены: {plots_path}")
-            
+
             # График 2: Scatter plot IoU vs Время
             fig, ax = plt.subplots(figsize=(10, 6))
-            scatter = ax.scatter(df['time'], df['iou'], s=100, alpha=0.7)
+            scatter = ax.scatter(df["time"], df["iou"], s=100, alpha=0.7)
             for i, row in df.iterrows():
-                ax.annotate(row['method'], (row['time'], row['iou']),
-                          textcoords="offset points", xytext=(0,10),
-                          ha='center', fontsize=8)
-            
-            ax.set_xlabel('Время выполнения (секунды)')
-            ax.set_ylabel('IoU')
-            ax.set_title('Соотношение точности и скорости')
+                ax.annotate(
+                    row["method"],
+                    (row["time"], row["iou"]),
+                    textcoords="offset points",
+                    xytext=(0, 10),
+                    ha="center",
+                    fontsize=8,
+                )
+
+            ax.set_xlabel("Время выполнения (секунды)")
+            ax.set_ylabel("IoU")
+            ax.set_title("Соотношение точности и скорости")
             ax.grid(True, alpha=0.3)
             scatter_path = os.path.join(metrics_dir, "iou_vs_time_scatter.jpg")
-            plt.savefig(scatter_path, dpi=150, bbox_inches='tight')
+            plt.savefig(scatter_path, dpi=150, bbox_inches="tight")
             plt.close(fig)
-            
+
         except Exception as e:
             print(f"⚠️ Ошибка создания графиков метрик: {e}")
 
     def _create_benchmark_preview(
-        self, 
-        df: pd.DataFrame, 
-        output_dir: str, 
-        comp_dir: str
+        self, df: pd.DataFrame, output_dir: str, comp_dir: str
     ) -> None:
         """Создает превью результатов всех методов"""
         images_dir: str = os.path.join(output_dir, "images")
-        result_files: List[str] = [f for f in os.listdir(images_dir) if f.endswith('_result.jpg')]
-        
+        result_files: List[str] = [
+            f for f in os.listdir(images_dir) if f.endswith("_result.jpg")
+        ]
+
         if not result_files:
             return
-        sorted_methods: List[Any] = df.sort_values('Mean_Time_s')['Method'].tolist()
-        
+        sorted_methods: List[Any] = df.sort_values("Mean_Time_s")["Method"].tolist()
+
         images = []
         titles = []
         for method in sorted_methods:
@@ -1481,10 +1651,14 @@ class SegmentationTester:
                 img_path: str = os.path.join(images_dir, result_file)
                 img: Image.Image = Image.open(img_path)
                 images.append(img)
-                method_data = df[df['Method'] == method]
+                method_data = df[df["Method"] == method]
                 if not method_data.empty:
-                    time_val = method_data.iloc[0]['Mean_Time_s']
-                    mask_percent: float = method_data.iloc[0]['Mask_Percentage'] if 'Mask_Percentage' in method_data.columns else 0
+                    time_val = method_data.iloc[0]["Mean_Time_s"]
+                    mask_percent: float = (
+                        method_data.iloc[0]["Mask_Percentage"]
+                        if "Mask_Percentage" in method_data.columns
+                        else 0
+                    )
                     title: str = f"{method}\n{time_val:.3f}s, {mask_percent:.3f}%"
                 else:
                     title = method
@@ -1492,31 +1666,33 @@ class SegmentationTester:
         n_images: int = len(images)
         n_cols: int = 4
         n_rows: int = (n_images + n_cols - 1) // n_cols
-        
+
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, n_rows * 3))
         axes = axes.flatten()
-        
+
         for i, (img, title) in enumerate(zip(images, titles)):
             axes[i].imshow(img)
             axes[i].set_title(title, fontsize=8)
-            axes[i].axis('off')
+            axes[i].axis("off")
         for j in range(i + 1, len(axes)):
-            axes[j].axis('off')
-        
-        plt.suptitle("Превью результатов сегментации (сортировка по скорости)", fontsize=14)
+            axes[j].axis("off")
+
+        plt.suptitle(
+            "Превью результатов сегментации (сортировка по скорости)", fontsize=14
+        )
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        
-        preview_path:str = os.path.join(comp_dir, "methods_preview.jpg")
-        plt.savefig(preview_path, dpi=150, bbox_inches='tight')
+
+        preview_path: str = os.path.join(comp_dir, "methods_preview.jpg")
+        plt.savefig(preview_path, dpi=150, bbox_inches="tight")
         plt.close()
-    
+
     def visualize_comparison(
-        self, 
-        results: Dict[str, Dict], 
+        self,
+        results: Dict[str, Dict],
         show_masks: bool = True,
         save_visualization: bool = True,
         output_dir: str = None,
-        show_plots: bool = True
+        show_plots: bool = True,
     ) -> None:
         """Визуализация сравнения результатов с сохранением"""
         output_dir: str
@@ -1525,97 +1701,104 @@ class SegmentationTester:
         elif output_dir is None:
             output_dir = self._create_test_directory("./data/visualization")
         n_methods: int = len(results)
-        
+
         if show_masks:
             fig, axes = plt.subplots(2, n_methods, figsize=(5 * n_methods, 10))
-            
+
             for i, (method_name, result) in enumerate(results.items()):
                 # Результат
-                axes[0, i].imshow(result['result'])
+                axes[0, i].imshow(result["result"])
                 title: str = f"{method_name}\n{result['time']:.2f}s"
                 axes[0, i].set_title(title, fontsize=10)
-                axes[0, i].axis('off')
-                
+                axes[0, i].axis("off")
+
                 # Маска
-                axes[1, i].imshow(result['mask'], cmap='gray')
+                axes[1, i].imshow(result["mask"], cmap="gray")
                 mask_title: str = f"Mask\n{result['mask_percentage']:.3f}%"
                 axes[1, i].set_title(mask_title, fontsize=10)
-                axes[1, i].axis('off')
+                axes[1, i].axis("off")
         else:
             fig, axes = plt.subplots(1, n_methods, figsize=(5 * n_methods, 5))
-            
+
             for i, (method_name, result) in enumerate(results.items()):
-                axes[i].imshow(result['result'])
-                title: str = f"{method_name}\n{result['time']:.2f}s, {result['mask_percentage']:.3f}%"
+                axes[i].imshow(result["result"])
+                title: str = (
+                    f"{method_name}\n{result['time']:.2f}s, {result['mask_percentage']:.3f}%"
+                )
                 axes[i].set_title(title, fontsize=10)
-                axes[i].axis('off')
-        
-        plt.suptitle("Визуализация результатов сегментации", fontsize=14, fontweight='bold')
+                axes[i].axis("off")
+
+        plt.suptitle(
+            "Визуализация результатов сегментации", fontsize=14, fontweight="bold"
+        )
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        
+
         # Сохраняем визуализацию
         if save_visualization:
             vis_dir: str = os.path.join(output_dir, "comparisons")
             os.makedirs(vis_dir, exist_ok=True)
-            
+
             vis_path: str = os.path.join(vis_dir, "results_visualization.jpg")
-            plt.savefig(vis_path, dpi=150, bbox_inches='tight')
+            plt.savefig(vis_path, dpi=150, bbox_inches="tight")
             print(f"🖼️ Визуализация сохранена: {vis_path}")
             for method_name, result in results.items():
                 result_fig, result_ax = plt.subplots(1, 1, figsize=(8, 6))
-                result_ax.imshow(result['result'])
+                result_ax.imshow(result["result"])
                 result_ax.set_title(f"{method_name} - Result", fontsize=12)
-                result_ax.axis('off')
-                
-                result_path: str = os.path.join(output_dir, "images", f"{method_name}_large.jpg")
-                result_fig.savefig(result_path, dpi=150, bbox_inches='tight')
+                result_ax.axis("off")
+
+                result_path: str = os.path.join(
+                    output_dir, "images", f"{method_name}_large.jpg"
+                )
+                result_fig.savefig(result_path, dpi=150, bbox_inches="tight")
                 plt.close(result_fig)
                 mask_fig, mask_ax = plt.subplots(1, 1, figsize=(8, 6))
-                mask_ax.imshow(result['mask'], cmap='gray')
+                mask_ax.imshow(result["mask"], cmap="gray")
                 mask_ax.set_title(f"{method_name} - Mask", fontsize=12)
-                mask_ax.axis('off')
-                
-                mask_path: str = os.path.join(output_dir, "masks", f"{method_name}_large_mask.jpg")
-                mask_fig.savefig(mask_path, dpi=150, bbox_inches='tight')
+                mask_ax.axis("off")
+
+                mask_path: str = os.path.join(
+                    output_dir, "masks", f"{method_name}_large_mask.jpg"
+                )
+                mask_fig.savefig(mask_path, dpi=150, bbox_inches="tight")
                 plt.close(mask_fig)
-        
+
         if show_plots:
             plt.show()
         else:
             plt.close()
-    
+
     def save_results(
-        self, 
-        results: Dict[str, Dict], 
-        output_dir: str = "./../data/segmentation_results"
+        self,
+        results: Dict[str, Dict],
+        output_dir: str = "./../data/segmentation_results",
     ) -> None:
         """Сохранение результатов всех методов"""
-    
+
         if output_dir is None:
             output_dir = self._create_test_directory("./../data/results_save")
-        
+
         print(f"💾 Сохранение результатов в {output_dir}...")
-        
+
         for method_name, result in results.items():
             # Сохраняем результат
             result_path: str = os.path.join(output_dir, f"{method_name}_result.jpg")
-            result_img: Image.Image = Image.fromarray(result['result'].astype(np.uint8))
+            result_img: Image.Image = Image.fromarray(result["result"].astype(np.uint8))
             result_img.save(result_path)
-            
+
             # Сохраняем маску
             mask_path: str = os.path.join(output_dir, f"{method_name}_mask.png")
-            mask_img: Image.Image = Image.fromarray(result['mask'].astype(np.uint8))
+            mask_img: Image.Image = Image.fromarray(result["mask"].astype(np.uint8))
             mask_img.save(mask_path)
-            
+
             # Сохраняем статистику
             stats_path: str = os.path.join(output_dir, f"{method_name}_stats.txt")
-            with open(stats_path, 'w') as f:
+            with open(stats_path, "w") as f:
                 f.write(f"Method: {method_name}\n")
                 f.write(f"Execution Time: {result['time']:.3f}s\n")
                 f.write(f"Mask Area: {result['mask_area']} pixels\n")
                 f.write(f"Mask Percentage: {result['mask_percentage']:.2f}%\n")
                 f.write(f"Image Shape: {result['image_shape']}\n")
-                if 'timestamp' in result:
+                if "timestamp" in result:
                     f.write(f"Timestamp: {result['timestamp']}\n")
         print(f"✅ Все результаты сохранены в директории: {output_dir}")
-        

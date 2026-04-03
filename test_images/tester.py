@@ -5,8 +5,18 @@ from transformers import MaskFormerImageProcessor, MaskFormerForInstanceSegmenta
 from torch.utils.data import Dataset, DataLoader
 
 from typing import (
-    List, Union, Tuple, Dict, Any, TypeVar, Optional, 
-    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+    List,
+    Union,
+    Tuple,
+    Dict,
+    Any,
+    TypeVar,
+    Optional,
+    Literal,
+    Protocol,
+    runtime_checkable,
+    overload,
+    TYPE_CHECKING,
 )
 
 import os
@@ -46,6 +56,6 @@ for name, path in image_paths.items():
     try:
         img = Image.open(path)
         print(f"✅ {name}: {img.size}, info: {img.info}")
-        
+
     except Exception as e:
         print(f"❌ Ошибка загрузки {name}: {e}")

@@ -6,8 +6,19 @@ from segmenters.BaseSegmenter import BaseSegmenter
 import cv2
 import numpy as np
 from typing import (
-    List, Union, Tuple, Dict, Set, Any, TypeVar, Optional, 
-    Literal, Protocol, runtime_checkable, overload, TYPE_CHECKING
+    List,
+    Union,
+    Tuple,
+    Dict,
+    Set,
+    Any,
+    TypeVar,
+    Optional,
+    Literal,
+    Protocol,
+    runtime_checkable,
+    overload,
+    TYPE_CHECKING,
 )
 import warnings
 from collections import deque
@@ -16,24 +27,22 @@ from scipy.ndimage import gaussian_filter, laplace
 import math
 import time
 
+
 class OpenCVSegmenter(BaseSegmenter):
     """
     Класс для реализации методов сегментации изображений с использованием чистого OpenCV.
     Поддерживает как классические методы (пороговые, граничные), так и методы на основе кластеризации,
     активных контуров и графов.
-    """  
-    def __init__(
-        self, 
-        method: str = "global_thresholding", 
-        **kwargs
-    ) -> None:
+    """
+
+    def __init__(self, method: str = "global_thresholding", **kwargs) -> None:
         super().__init__()
         self.method: str = method
         self.raw_params: Dict[str, Any] = kwargs
         self.params = self._adapt_params(kwargs.copy())
         self._needs_gray: bool = method in [
             "global_thresholding",
-            "adaptive_thresholding", 
+            "adaptive_thresholding",
             "otsu_thresholding",
             "region_growing",
             "split_and_merge",
@@ -68,48 +77,45 @@ class OpenCVSegmenter(BaseSegmenter):
             "phase_congruency_edge",
         ]
         self._setup_methods()
-    
-    def _adapt_params(
-        self, 
-        params: dict
-    ) -> dict:
+
+    def _adapt_params(self, params: dict) -> dict:
         """Конвертирует значения и приводит имена параметров к стандарту OpenCV."""
         adapted = params.copy()
-        
+
         # Конвертация значений (0.0-1.0 -> 0-255) ---
         # Параметры, которые точно являются порогами яркости
-        intensity_params = ['threshold', 'low', 'high', 't1', 't2']
+        intensity_params = ["threshold", "low", "high", "t1", "t2"]
         for key in intensity_params:
             if key in adapted:
                 val = adapted[key]
                 if isinstance(val, (int, float)) and 0.0 <= val <= 1.0:
                     adapted[key] = int(val * 255)
-        
+
         # Параметры, зависящие от интенсивности (смещения)
-        offset_params = ['C', 'tolerance', 'c', 'k'] 
+        offset_params = ["C", "tolerance", "c", "k"]
         for key in offset_params:
             if key in adapted:
                 val = adapted[key]
                 if isinstance(val, (int, float)) and 0.0 <= abs(val) <= 1.0:
                     adapted[key] = int(val * 255)
-        
+
         mapping = {}
         if self.method == "grabcut":
-            mapping = {'n_iterations': 'iterations'}
+            mapping = {"n_iterations": "iterations"}
         elif self.method == "dbscan_segmentation":
-            mapping = {'epsilon': 'eps', 'min_points': 'min_samples'}
+            mapping = {"epsilon": "eps", "min_points": "min_samples"}
         elif self.method == "kmeans_segmentation":
-            mapping = {'n_clusters': 'k'}
+            mapping = {"n_clusters": "k"}
         elif self.method == "adaptive_thresholding":
             pass
-            
+
         final_params = {}
         for key, value in adapted.items():
             new_key = mapping.get(key, key)
             final_params[new_key] = value
-            
+
         return final_params
-    
+
     def _setup_methods(self, **kwargs) -> None:
         """Регистрация всех доступных методов сегментации."""
         self.methods: Dict[str, np.ndarray] = {
@@ -127,8 +133,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "threshold_multi_otsu": self._opencv_threshold_multi_otsu,
             "threshold_percentile": self._opencv_threshold_percentile,
             "threshold_local_contrast": self._opencv_threshold_local_contrast,
-
-             # ============ КРАЕВЫЕ СЕГМЕНТАЦИОННЫЕ МЕТОДЫ ============
+            # ============ КРАЕВЫЕ СЕГМЕНТАЦИОННЫЕ МЕТОДЫ ============
             "sobel_edge": self._opencv_sobel_edge,
             "canny_edge": self._opencv_canny_edge,
             "prewitt_edge": self._opencv_prewitt_edge,
@@ -139,89 +144,72 @@ class OpenCVSegmenter(BaseSegmenter):
             "marr_hildreth_edge": self._opencv_marr_hildreth_edge,
             "gradient_magnitude_direction": self._opencv_gradient_magnitude_direction,
             "phase_congruency_edge": self._opencv_phase_congruency_edge,
-
             # ============ РЕГИОНАЛЬНЫЕ СЕГМЕНТАЦИОННЫЕ МЕТОДЫ ============
             "region_growing": self._opencv_region_growing,
             "split_and_merge": self._opencv_split_and_merge,
             "floodfill": self._opencv_floodfill,
-
             # ============ КЛАСТЕРИЗАЦИЯ ============
             "kmeans_segmentation": self._opencv_kmeans_segmentation,
             "dbscan_segmentation": self._opencv_dbscan_segmentation,
             "meanshift": self._opencv_meanshift,
-
             # ============ АКТИВНЫЕ КОНТУРЫ ==========
             "active_contour": self._opencv_active_contour,
             "gvf_contour": self._opencv_gvf_contour,
             "morphological_snakes": self._opencv_morphological_snakes,
             "chan_vese": self._opencv_chan_vese,
-
             # ============ WATERSHED И ГРАФОВЫЕ ============
             "watershed": self._opencv_watershed,
             "random_walker": self._opencv_random_walker,
-
             # ============ SUPER-PIXEL МЕТОДЫ ===========
             "quickshift": self._opencv_quickshift,
             "slic": self._opencv_slic,
             "felzenszwalb": self._opencv_felzenszwalb,
-
             # ============ ИНТЕРАКТИВНЫЕ МЕТОДЫ ============
             "grabcut": self._opencv_grabcut,
         }
-        
+
         if self.method not in self.methods:
-            raise ValueError(f"Неизвестный метод: {self.method}. "
-                           f"Доступные методы: {list(self.methods.keys())}")
-        
+            raise ValueError(
+                f"Неизвестный метод: {self.method}. "
+                f"Доступные методы: {list(self.methods.keys())}"
+            )
+
     def _log_info(
-        self, 
-        method_name: str, 
-        exec_time: float, 
-        params: Dict[str, Any]
+        self, method_name: str, exec_time: float, params: Dict[str, Any]
     ) -> None:
         """Вспомогательный метод для логирования информации о выполнении."""
         self.info = {
-            'method': method_name,
-            'parameters': params,
-            'execution_time': exec_time
+            "method": method_name,
+            "parameters": params,
+            "execution_time": exec_time,
         }
-    
-    def segment(
-        self, 
-        image: np.ndarray,
-        **kwargs
-    ) -> np.ndarray:
+
+    def segment(self, image: np.ndarray, **kwargs) -> np.ndarray:
         """
         Основной метод сегментации.
-        
+
         Args:
             image: Входное изображение (RGB, grayscale или любой формат)
-        
+
         Returns:
             np.ndarray: Бинарная маска сегментации (0-255)
         """
-        img_array: np.ndarray = self.preprocess_image(
-            image, 
-            as_gray=self._needs_gray
-        )
+        img_array: np.ndarray = self.preprocess_image(image, as_gray=self._needs_gray)
         # print(f"Image after OpenCV preprocessing: {image}")
 
         mask = self.methods[self.method](img_array, **kwargs)
         # print(f"Mask after OpenCV segment: {mask}")
         return mask
-    
+
     def segment_with_mask(
-        self, 
-        image: np.ndarray,
-        alpha: float = 0.9, 
-        **kwargs
+        self, image: np.ndarray, alpha: float = 0.9, **kwargs
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Сегментация с возвратом визуализации и маски.
-        
+
         Args:
             image: Входное изображение
-        
+
         Returns:
             Tuple[np.ndarray, np.ndarray]:
                 - Визуализация: исходное изображение с наложенной маской (0–255, RGB).
@@ -230,34 +218,37 @@ class OpenCVSegmenter(BaseSegmenter):
         image: np.ndarray = self.preprocess_image(image)
         # print(f"Image after OpenCV preprocessing with mask: {image}")
         mask: np.ndarray = self.segment(image, **kwargs)
-        
+
         if mask.dtype != np.uint8:
             if mask.max() <= 1.0:
                 mask = (mask * 255).astype(np.uint8)
             else:
                 mask = mask.astype(np.uint8)
-        
+
         # Создаем визуализацию
         if len(image.shape) == 2:
             overlay = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
         else:
             overlay = image.copy()
-        
+
         overlay[mask > 127] = [255, 0, 0]
-        result = cv2.addWeighted(overlay, alpha, 
-                                cv2.cvtColor(image, cv2.COLOR_GRAY2RGB) if len(image.shape)==2 else image, 
-                                1 - alpha, 0)
-        
+        result = cv2.addWeighted(
+            overlay,
+            alpha,
+            cv2.cvtColor(image, cv2.COLOR_GRAY2RGB) if len(image.shape) == 2 else image,
+            1 - alpha,
+            0,
+        )
+
         # print(f"Mask after OpenCV segment_with_mask: {mask}")
         # print(f"Result after OpenCV segment_with_mask: {result}")
         return result, mask
-    
+
     # ============ РЕАЛИЗАЦИИ МЕТОДОВ ============
     # ============ ПОРОГОВЫЕ МЕТОДЫ ============
-    
+
     def _opencv_global_thresholding(
-        self, 
-        img: np.ndarray, **kwargs
+        self, img: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray]:
         """
         Глобальная пороговая сегментация.
@@ -279,30 +270,25 @@ class OpenCVSegmenter(BaseSegmenter):
         # print(f"Gray after OpenCV_thresholding_global: {gray}")
 
         start_time = time.time()
-        
-        threshold = self.params.get('threshold', 127)
+
+        threshold = self.params.get("threshold", 127)
         _, mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
 
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'global_thresholding_opencv',
-            'parameters': {
-                'threshold': threshold,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "global_thresholding_opencv",
+            "parameters": {"threshold": threshold, **kwargs},
+            "execution_time": exec_time,
         }
 
         # print(f"Mask after OpenCV_thresholding_global: {mask}")
         # print(f"Info after OpenCV_thresholding_global: {info}")
 
         return mask
-    
+
     def _opencv_adaptive_thresholding(
-        self, 
-        img: np.ndarray, 
-        **kwargs
+        self, img: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray]:
         """
         Адаптивная пороговая сегментация (Gaussian).
@@ -324,43 +310,30 @@ class OpenCVSegmenter(BaseSegmenter):
         # print(f"Gray after OpenCV_thresholding_adaptive: {gray}")
 
         start_time = time.time()
-        
-        block_size = self.params.get('block_size', 11)
-        C = self.params.get('C', 2)
-        
+
+        block_size = self.params.get("block_size", 11)
+        C = self.params.get("C", 2)
+
         if block_size % 2 == 0:
             block_size += 1
-        
+
         mask = cv2.adaptiveThreshold(
-            gray, 
-            255, 
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 
-            block_size, 
-            C
+            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, block_size, C
         )
 
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'adaptive_thresholding_opencv',
-            'parameters': {
-                'block_size': block_size,
-                'C': C,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "adaptive_thresholding_opencv",
+            "parameters": {"block_size": block_size, "C": C, **kwargs},
+            "execution_time": exec_time,
         }
 
         # print(f"Mask after OpenCV_thresholding_adaptive: {mask}")
         # print(f"Info after OpenCV_thresholding_adaptive: {info}")
         return mask
-    
-    def _opencv_otsu_thresholding(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_otsu_thresholding(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Автоматическая бинаризация по методу Оцу.
 
@@ -379,27 +352,21 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # print(f"Gray after OpenCV_thresholding_otsu: {gray}")
         start_time = time.time()
-        
+
         _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'otsu_thresholding_opencv',
-            'parameters': {
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "otsu_thresholding_opencv",
+            "parameters": {**kwargs},
+            "execution_time": exec_time,
         }
 
         # print(f"Mask after OpenCV_thresholding_otsu: {mask}")
         # print(f"Info after OpenCV_thresholding_otsu: {info}")
         return mask
-    
-    def _opencv_threshold_niblack(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_threshold_niblack(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Адаптивная пороговая обработка по Ниблаку.
 
@@ -419,19 +386,21 @@ class OpenCVSegmenter(BaseSegmenter):
         # print(f"Gray after OpenCV_thresholding_niblack: {gray}")
 
         start_time = time.time()
-        
-        window_size = self.params.get('window_size', 15)
-        k = self.params.get('k', -0.2)
-        
+
+        window_size = self.params.get("window_size", 15)
+        k = self.params.get("k", -0.2)
+
         # Вычисляем локальное среднее и стандартное отклонение
         mean = cv2.boxFilter(gray, cv2.CV_32F, (window_size, window_size))
-        mean_sq = cv2.boxFilter(gray.astype(np.float32)**2, cv2.CV_32F, (window_size, window_size))
+        mean_sq = cv2.boxFilter(
+            gray.astype(np.float32) ** 2, cv2.CV_32F, (window_size, window_size)
+        )
         std = np.sqrt(mean_sq - mean**2)
 
         # Или
         # mean = cv2.blur(gray, (window_size, window_size))
         # std = np.sqrt(cv2.boxFilter(gray.astype(float)**2, -1, (window_size, window_size)) - mean**2)
-        
+
         # Вычисляем порог
         threshold = mean + k * std
         mask = (gray.astype(np.float32) > threshold).astype(np.uint8) * 255
@@ -439,25 +408,17 @@ class OpenCVSegmenter(BaseSegmenter):
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'niblack_thresholding_opencv',
-            'parameters': {
-                'window_size': window_size,
-                'k': k,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "niblack_thresholding_opencv",
+            "parameters": {"window_size": window_size, "k": k, **kwargs},
+            "execution_time": exec_time,
         }
 
         # print(f"Mask after OpenCV_thresholding_niblack: {mask}")
         # print(f"Info after OpenCV_thresholding_niblack: {info}")
-        
+
         return mask
-    
-    def _opencv_threshold_sauvola(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_threshold_sauvola(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Улучшенная адаптивная пороговая обработка по Сауволе.
 
@@ -478,19 +439,21 @@ class OpenCVSegmenter(BaseSegmenter):
         # print(f"Gray after OpenCV_thresholding_sauvola: {gray}")
 
         start_time = time.time()
-        
-        window_size = self.params.get('window_size', 15)
-        k = self.params.get('k', 0.5)
-        r = self.params.get('r', 128)
-        
+
+        window_size = self.params.get("window_size", 15)
+        k = self.params.get("k", 0.5)
+        r = self.params.get("r", 128)
+
         # Вычисляем локальное среднее и стандартное отклонение
         mean = cv2.boxFilter(gray, cv2.CV_32F, (window_size, window_size))
-        mean_sq = cv2.boxFilter(gray.astype(np.float32)**2, cv2.CV_32F, (window_size, window_size))
+        mean_sq = cv2.boxFilter(
+            gray.astype(np.float32) ** 2, cv2.CV_32F, (window_size, window_size)
+        )
         std = np.sqrt(mean_sq - mean**2)
 
         # mean = cv2.blur(gray, (window_size, window_size))
         # std = np.sqrt(cv2.boxFilter(gray.astype(float)**2, -1, (window_size, window_size)) - mean**2)
-        
+
         # Вычисляем порог
         threshold = mean * (1 + k * (std / r - 1))
         mask = (gray.astype(np.float32) > threshold).astype(np.uint8) * 255
@@ -498,37 +461,28 @@ class OpenCVSegmenter(BaseSegmenter):
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'sauvola_thresholding_opencv',
-            'parameters': {
-                'window_size': window_size,
-                'k': k,
-                'r': r,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "sauvola_thresholding_opencv",
+            "parameters": {"window_size": window_size, "k": k, "r": r, **kwargs},
+            "execution_time": exec_time,
         }
 
         # print(f"Mask after OpenCV_thresholding_sauvola: {mask}")
         # print(f"Info after OpenCV_thresholding_sauvola: {info}")
-        
+
         return mask
-    
-    def _opencv_threshold_bernsen(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_threshold_bernsen(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Пороговая обработка по методу Бернсена.
-        
+
         Локальный адаптивный порог на основе контраста в окне.
         T = (min + max) / 2, если контраст > порог, иначе фон.
-        
+
         Args:
             img: Входное изображение (grayscale)
             window_size: Размер окна для локального анализа (по умолчанию 15)
             contrast_threshold: Минимальный контраст для разделения (по умолчанию 25)
-        
+
         Returns:
             np.ndarray: Бинарная маска (0/255)
         """
@@ -536,55 +490,62 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        window_size: int = self.params.get('window_size', 15)
-        contrast_threshold: int = self.params.get('contrast_threshold', 25)
-        
+
+        window_size: int = self.params.get("window_size", 15)
+        contrast_threshold: int = self.params.get("contrast_threshold", 25)
+
         if window_size % 2 == 0:
             window_size += 1
-        
+
         # Вычисляем локальные min и max
         min_filter = cv2.erode(gray, np.ones((window_size, window_size), np.uint8))
         max_filter = cv2.dilate(gray, np.ones((window_size, window_size), np.uint8))
-        
+
         # Контраст
         contrast = max_filter - min_filter
-        
+
         # Порог Бернсена
-        threshold = (min_filter.astype(np.float32) + max_filter.astype(np.float32)) / 2.0
+        threshold = (
+            min_filter.astype(np.float32) + max_filter.astype(np.float32)
+        ) / 2.0
         # Бинаризация
         mask = np.zeros_like(gray, dtype=np.uint8)
         high_contrast = contrast >= contrast_threshold
-        mask[high_contrast] = (gray[high_contrast] > threshold[high_contrast]).astype(np.uint8) * 255
-        
+        mask[high_contrast] = (gray[high_contrast] > threshold[high_contrast]).astype(
+            np.uint8
+        ) * 255
+
         exec_time: float = time.time() - start_time
-        self._log_info('bernsen_thresholding_opencv', exec_time, 
-                      {'window_size': window_size, 'contrast_threshold': contrast_threshold, **kwargs})
-        
+        self._log_info(
+            "bernsen_thresholding_opencv",
+            exec_time,
+            {
+                "window_size": window_size,
+                "contrast_threshold": contrast_threshold,
+                **kwargs,
+            },
+        )
+
         return mask
-    
-    def _opencv_threshold_phansalkar(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_threshold_phansalkar(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Пороговая обработка по методу Фансалкара.
-        
+
         Улучшенная версия Ниблака для документов с низким контрастом.
         T = μ + k·σ·(σ/R) + m·(μ/128 - 1), где μ, σ — локальные среднее и СКО.
 
         Проверить T = μ·[1 + p·(σ/R - 1)]
-        
+
         Args:
             img: Входное изображение (grayscale)
             window_size: Размер окна (по умолчанию 15)
             k: Параметр чувствительности (по умолчанию 0.25)
             r: Динамический диапазон (по умолчанию 0.5)
             m: Параметр смещения (по умолчанию 0.5)
-        
+
         Returns:
             np.ndarray: Бинарная маска (0/255)
         """
@@ -592,47 +553,50 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        window_size: int = self.params.get('window_size', 15)
-        k: float = self.params.get('k', 0.25)
-        r: float = self.params.get('r', 0.5)
-        m: float = self.params.get('m', 0.5)
-        
+
+        window_size: int = self.params.get("window_size", 15)
+        k: float = self.params.get("k", 0.25)
+        r: float = self.params.get("r", 0.5)
+        m: float = self.params.get("m", 0.5)
+
         if window_size % 2 == 0:
             window_size += 1
-        
+
         # Локальные статистики
         mean = cv2.boxFilter(gray, cv2.CV_32F, (window_size, window_size))
-        mean_sq = cv2.boxFilter(gray.astype(np.float32)**2, cv2.CV_32F, (window_size, window_size))
+        mean_sq = cv2.boxFilter(
+            gray.astype(np.float32) ** 2, cv2.CV_32F, (window_size, window_size)
+        )
         std = np.sqrt(np.maximum(mean_sq - mean**2, 0))
-         # Порог Фансалкара
+        # Порог Фансалкара
         threshold = mean + k * std * (std / r) + m * (mean / 128.0 - 1)
-        
+
         mask = (gray.astype(np.float32) > threshold).astype(np.uint8) * 255
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('phansalkar_thresholding_opencv', exec_time,
-                      {'window_size': window_size, 'k': k, 'r': r, 'm': m, **kwargs})
-        
+        self._log_info(
+            "phansalkar_thresholding_opencv",
+            exec_time,
+            {"window_size": window_size, "k": k, "r": r, "m": m, **kwargs},
+        )
+
         return mask
-    
+
     def _opencv_threshold_kittler_illingworth(
-        self, 
-        img: np.ndarray, 
-        **kwargs
+        self, img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Пороговая обработка по методу Киттлера-Иллингуорта.
-        
+
         Минимизация ошибки классификации на основе гистограммы.
         Предполагает бимодальное распределение интенсивностей.
-        
+
         Args:
             img: Входное изображение (grayscale)
             num_bins: Количество бинов гистограммы (по умолчанию 256)
-        
+
         Returns:
             np.ndarray: Бинарная маска (0/255)
         """
@@ -640,22 +604,22 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        num_bins: int = self.params.get('num_bins', 256)
-        
+
+        num_bins: int = self.params.get("num_bins", 256)
+
         # Гистограмма
         hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=[0, 256])
         hist = hist.astype(np.float64)
-        
+
         # Нормализация
         hist = hist / hist.sum()
-        
+
         # Кумулятивные суммы
         cum_hist = np.cumsum(hist)
         cum_mean = np.cumsum(hist * np.arange(num_bins))
-        
+
         total_mean = cum_mean[-1]
         min_error = np.inf
         best_threshold = 128
@@ -663,52 +627,54 @@ class OpenCVSegmenter(BaseSegmenter):
         for t in range(1, num_bins - 1):
             if cum_hist[t] < 1e-6 or (1 - cum_hist[t]) < 1e-6:
                 continue
-            
+
             # Статистики для фона и объекта
             w0 = cum_hist[t]
             w1 = 1 - w0
             mu0 = cum_mean[t] / w0
             mu1 = (total_mean - cum_mean[t]) / w1
-            
+
             # Дисперсии
-            cum_mean_sq = np.cumsum(hist * np.arange(num_bins)**2)
+            cum_mean_sq = np.cumsum(hist * np.arange(num_bins) ** 2)
             sigma0_sq = cum_mean_sq[t] / w0 - mu0**2
             sigma1_sq = (cum_mean_sq[-1] - cum_mean_sq[t]) / w1 - mu1**2
-            
+
             if sigma0_sq <= 1e-6 or sigma1_sq <= 1e-6:
                 continue
-            
+
             # Критерий Киттлера-Иллингуорта
-            error = (w0 * np.log(sigma0_sq) + w1 * np.log(sigma1_sq) 
-                    - 2 * (w0 * np.log(w0) + w1 * np.log(w1)))
-            
+            error = (
+                w0 * np.log(sigma0_sq)
+                + w1 * np.log(sigma1_sq)
+                - 2 * (w0 * np.log(w0) + w1 * np.log(w1))
+            )
+
             if error < min_error:
                 min_error = error
                 best_threshold = t
-        
+
         # Бинаризация
         _, mask = cv2.threshold(gray, best_threshold, 255, cv2.THRESH_BINARY)
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('kittler_illingworth_thresholding_opencv', exec_time,
-                      {'num_bins': num_bins, 'optimal_threshold': best_threshold, **kwargs})
-        
+        self._log_info(
+            "kittler_illingworth_thresholding_opencv",
+            exec_time,
+            {"num_bins": num_bins, "optimal_threshold": best_threshold, **kwargs},
+        )
+
         return mask
-    
-    def _opencv_threshold_entropy_kapur(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_threshold_entropy_kapur(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Пороговая обработка на основе энтропии Капура.
-        
+
         Максимизация суммы энтропий фона и объекта.
-        
+
         Args:
             img: Входное изображение (grayscale)
             num_bins: Количество бинов гистограммы (по умолчанию 256)
-        
+
         Returns:
             np.ndarray: Бинарная маска (0/255)
         """
@@ -716,23 +682,23 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        num_bins: int = self.params.get('num_bins', 256)
-        
+
+        num_bins: int = self.params.get("num_bins", 256)
+
         # Гистограмма
         hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=[0, 256])
         hist = hist.astype(np.float64) + 1e-10  # Избегаем log(0)
         hist = hist / hist.sum()
-        
+
         # Кумулятивная гистограмма и энтропия
         cum_hist = np.cumsum(hist)
         cum_entropy = np.cumsum(-hist * np.log(hist))
-        
+
         max_entropy = -np.inf
         best_threshold = 128
-        
+
         # Поиск порога
         for t in range(1, num_bins - 1):
             if cum_hist[t] < 1e-6 or (1 - cum_hist[t]) < 1e-6:
@@ -740,37 +706,38 @@ class OpenCVSegmenter(BaseSegmenter):
             # Энтропия фона
             h0 = cum_entropy[t] / cum_hist[t] + np.log(cum_hist[t])
             # Энтропия объекта
-            h1 = (cum_entropy[-1] - cum_entropy[t]) / (1 - cum_hist[t]) + np.log(1 - cum_hist[t])
-            
+            h1 = (cum_entropy[-1] - cum_entropy[t]) / (1 - cum_hist[t]) + np.log(
+                1 - cum_hist[t]
+            )
+
             total_entropy = h0 + h1
             if total_entropy > max_entropy:
                 max_entropy = total_entropy
                 best_threshold = t
-        
+
         # Бинаризация
         _, mask = cv2.threshold(gray, best_threshold, 255, cv2.THRESH_BINARY)
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('entropy_kapur_thresholding_opencv', exec_time,
-                      {'num_bins': num_bins, 'optimal_threshold': best_threshold, **kwargs})
-        
+        self._log_info(
+            "entropy_kapur_thresholding_opencv",
+            exec_time,
+            {"num_bins": num_bins, "optimal_threshold": best_threshold, **kwargs},
+        )
+
         return mask
-    
-    def _opencv_threshold_triangle(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_threshold_triangle(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Пороговая обработка треугольным методом.
-        
+
         Геометрический метод для бимодальных гистограмм.
         Находит порог как точку максимального расстояния от линии пик-минимум.
-        
+
         Args:
             img: Входное изображение (grayscale)
             num_bins: Количество бинов гистограммы (по умолчанию 256)
-        
+
         Returns:
             np.ndarray: Бинарная маска (0/255)
         """
@@ -778,61 +745,64 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        num_bins: int = self.params.get('num_bins', 256)
-        
+
+        num_bins: int = self.params.get("num_bins", 256)
+
         # Гистограмма
         hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=[0, 256])
-        
+
         # Находим пик гистограммы
         peak_idx = np.argmax(hist)
-        
+
         # Линия от пика до конца диапазона
         x = np.arange(num_bins)
         y_peak = hist[peak_idx]
         y_end = hist[-1]
         # Уравнение линии: y = mx + b
-        m = (y_end - y_peak) / (num_bins - 1 - peak_idx) if (num_bins - 1 != peak_idx) else 0
-        
+        m = (
+            (y_end - y_peak) / (num_bins - 1 - peak_idx)
+            if (num_bins - 1 != peak_idx)
+            else 0
+        )
+
         # Находим точку максимального расстояния
         max_dist = 0
         best_threshold = peak_idx
-        
+
         for t in range(peak_idx + 1, num_bins):
             # Расстояние от точки до линии
             y_line = y_peak + m * (t - peak_idx)
             dist = abs(hist[t] - y_line) / np.sqrt(1 + m**2)
-            
+
             if dist > max_dist:
                 max_dist = dist
                 best_threshold = t
-        
+
         # Бинаризация
         _, mask = cv2.threshold(gray, best_threshold, 255, cv2.THRESH_BINARY)
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('triangle_thresholding_opencv', exec_time,
-                      {'num_bins': num_bins, 'optimal_threshold': best_threshold, **kwargs})
-        
+        self._log_info(
+            "triangle_thresholding_opencv",
+            exec_time,
+            {"num_bins": num_bins, "optimal_threshold": best_threshold, **kwargs},
+        )
+
         return mask
-    
-    def _opencv_threshold_multi_otsu(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_threshold_multi_otsu(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Многоуровневая пороговая обработка по методу Оцу.
-        
+
         Расширение метода Оцу для нескольких порогов.
-        
+
         Args:
             img: Входное изображение (grayscale)
             n_thresholds: Количество порогов (по умолчанию 2)
             num_bins: Количество бинов гистограммы (по умолчанию 256)
-        
+
         Returns:
             np.ndarray: Бинарная маска (0/255) - объект = самый яркий класс
         """
@@ -840,94 +810,114 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        n_thresholds: int = self.params.get('n_thresholds', 2)
-        num_bins: int = self.params.get('num_bins', 256)
-        
+
+        n_thresholds: int = self.params.get("n_thresholds", 2)
+        num_bins: int = self.params.get("num_bins", 256)
+
         # Гистограмма
         hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=[0, 256])
         hist = hist.astype(np.float64)
-        
+
         if n_thresholds == 1:
             # Обычный Оцу
             _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
             return mask
-        
+
         # Упрощённый поиск порогов (для 2 порогов)
         if n_thresholds == 2:
             best_var = -np.inf
             best_t1, best_t2 = 64, 192
-            
+
             cum_sum = np.cumsum(hist)
             cum_mean = np.cumsum(hist * np.arange(num_bins))
             total = cum_sum[-1]
             total_mean = cum_mean[-1] / total
-            
+
             for t1 in range(1, num_bins - 2):
                 for t2 in range(t1 + 1, num_bins - 1):
                     # Класс 0: [0, t1)
                     w0 = cum_sum[t1] / total
                     m0 = cum_mean[t1] / cum_sum[t1] if cum_sum[t1] > 0 else 0
-                    
+
                     # Класс 1: [t1, t2)
                     w1 = (cum_sum[t2] - cum_sum[t1]) / total
-                    m1 = (cum_mean[t2] - cum_mean[t1]) / (cum_sum[t2] - cum_sum[t1]) if (cum_sum[t2] > cum_sum[t1]) else 0
-                    
+                    m1 = (
+                        (cum_mean[t2] - cum_mean[t1]) / (cum_sum[t2] - cum_sum[t1])
+                        if (cum_sum[t2] > cum_sum[t1])
+                        else 0
+                    )
+
                     # Класс 2: [t2, 256)
                     w2 = (total - cum_sum[t2]) / total
-                    m2 = (total_mean * total - cum_mean[t2]) / (total - cum_sum[t2]) if (total > cum_sum[t2]) else 0
-                    
+                    m2 = (
+                        (total_mean * total - cum_mean[t2]) / (total - cum_sum[t2])
+                        if (total > cum_sum[t2])
+                        else 0
+                    )
+
                     # Межклассовая дисперсия
-                    var_between = (w0 * (m0 - total_mean)**2 + 
-                                  w1 * (m1 - total_mean)**2 + 
-                                  w2 * (m2 - total_mean)**2)
-                    
+                    var_between = (
+                        w0 * (m0 - total_mean) ** 2
+                        + w1 * (m1 - total_mean) ** 2
+                        + w2 * (m2 - total_mean) ** 2
+                    )
+
                     if var_between > best_var:
                         best_var = var_between
                         best_t1, best_t2 = t1, t2
-            
+
             # Бинаризация: объект = самый яркий класс
             mask = (gray >= best_t2).astype(np.uint8) * 255
-            
+
             exec_time: float = time.time() - start_time
-            self._log_info('multi_otsu_thresholding_opencv', exec_time,
-                          {'n_thresholds': n_thresholds, 'thresholds': [best_t1, best_t2], **kwargs})
+            self._log_info(
+                "multi_otsu_thresholding_opencv",
+                exec_time,
+                {
+                    "n_thresholds": n_thresholds,
+                    "thresholds": [best_t1, best_t2],
+                    **kwargs,
+                },
+            )
             return mask
-        
+
         # Для >2 порогов используем рекурсивный Оцу (упрощённо)
         thresholds = []
         current_gray = gray.copy()
-        
+
         for _ in range(n_thresholds):
-            _, thresh = cv2.threshold(current_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            _, thresh = cv2.threshold(
+                current_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            )
             thresholds.append(thresh)
-            current_gray = cv2.threshold(current_gray, thresh, 255, cv2.THRESH_BINARY_INV)[1]
-        
+            current_gray = cv2.threshold(
+                current_gray, thresh, 255, cv2.THRESH_BINARY_INV
+            )[1]
+
         # Используем последний порог для бинаризации
         _, mask = cv2.threshold(gray, thresholds[-1], 255, cv2.THRESH_BINARY)
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('multi_otsu_thresholding_opencv', exec_time,
-                      {'n_thresholds': n_thresholds, 'thresholds': thresholds, **kwargs})
-        
+        self._log_info(
+            "multi_otsu_thresholding_opencv",
+            exec_time,
+            {"n_thresholds": n_thresholds, "thresholds": thresholds, **kwargs},
+        )
+
         return mask
-    
-    def _opencv_threshold_percentile(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_threshold_percentile(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Процентильная пороговая обработка.
-        
+
         Порог выбирается как заданный процентиль распределения интенсивностей гистограммы.
-        
+
         Args:
             img: Входное изображение (grayscale)
             percentile: Процентиль для порога (по умолчанию 90)
-        
+
         Returns:
             np.ndarray: Бинарная маска (0/255)
         """
@@ -935,40 +925,39 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        percentile: float = self.params.get('percentile', 90)
-        
+
+        percentile: float = self.params.get("percentile", 90)
+
         # Вычисляем процентиль
         threshold = np.percentile(gray, percentile)
-        
+
         # Бинаризация
         _, mask = cv2.threshold(gray, int(threshold), 255, cv2.THRESH_BINARY)
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('percentile_thresholding_opencv', exec_time,
-                      {'percentile': percentile, 'threshold': int(threshold), **kwargs})
-        
+        self._log_info(
+            "percentile_thresholding_opencv",
+            exec_time,
+            {"percentile": percentile, "threshold": int(threshold), **kwargs},
+        )
+
         return mask
-    
-    def _opencv_threshold_local_contrast(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_threshold_local_contrast(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Пороговая обработка на основе локального контраста.
-        
+
         Пиксель считается объектом, если его интенсивность значительно
         отличается от локального среднего.
         T = μ + k·(max-min) в окне
-        
+
         Args:
             img: Входное изображение (grayscale)
             window_size: Размер окна для локального анализа (по умолчанию 15)
             contrast_factor: Коэффициент контраста (по умолчанию 0.1)
-        
+
         Returns:
             np.ndarray: Бинарная маска (0/255)
         """
@@ -976,38 +965,39 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        window_size: int = self.params.get('window_size', 15)
-        contrast_factor: float = self.params.get('contrast_factor', 0.1)
-        
+
+        window_size: int = self.params.get("window_size", 15)
+        contrast_factor: float = self.params.get("contrast_factor", 0.1)
+
         if window_size % 2 == 0:
             window_size += 1
-        
+
         # Локальное среднее
         local_mean = cv2.boxFilter(gray, cv2.CV_32F, (window_size, window_size))
-        
+
         # Локальный контраст (разница от среднего)
         local_contrast = np.abs(gray.astype(np.float32) - local_mean)
-        
+
         # Глобальный порог контраста
-        global_contrast_threshold = np.percentile(local_contrast, 100 * (1 - contrast_factor))
+        global_contrast_threshold = np.percentile(
+            local_contrast, 100 * (1 - contrast_factor)
+        )
         # Бинаризация по контрасту
         mask = (local_contrast > global_contrast_threshold).astype(np.uint8) * 255
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('local_contrast_thresholding_opencv', exec_time,
-                      {'window_size': window_size, 'contrast_factor': contrast_factor, **kwargs})
-        
+        self._log_info(
+            "local_contrast_thresholding_opencv",
+            exec_time,
+            {"window_size": window_size, "contrast_factor": contrast_factor, **kwargs},
+        )
+
         return mask
-    
+
     # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
-    def _opencv_sobel_edge(
-        self, 
-        img: np.ndarray,
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+    def _opencv_sobel_edge(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Обнаружение границ оператором Собеля.
 
@@ -1028,41 +1018,34 @@ class OpenCVSegmenter(BaseSegmenter):
         # print(f"Gray after OpenCV_sobel_edge: {gray}")
 
         start_time = time.time()
-        
-        threshold = self.params.get('threshold', 50)
-        
+
+        threshold = self.params.get("threshold", 50)
+
         sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
         sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-        
+
         magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
         magnitude = np.uint8(255 * magnitude / np.max(magnitude))
         # Или
         # magnitude = cv2.magnitude(sobelx, sobely)
         # sobel_norm = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
         # _, mask = cv2.threshold(sobel_norm.astype(np.uint8), threshold, 255, cv2.THRESH_BINARY)
-        
+
         _, mask = cv2.threshold(magnitude, threshold, 255, cv2.THRESH_BINARY)
 
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'sobel_edge_opencv',
-            'parameters': {
-                'threshold': threshold,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "sobel_edge_opencv",
+            "parameters": {"threshold": threshold, **kwargs},
+            "execution_time": exec_time,
         }
 
         # print(f"Mask after OpenCV_sobel_edge: {mask}")
         # print(f"Info after OpenCV_sobel_edge: {info}")
         return mask
-    
-    def _opencv_canny_edge(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_canny_edge(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Обнаружение границ оператором Кэнни.
 
@@ -1082,44 +1065,36 @@ class OpenCVSegmenter(BaseSegmenter):
         print(f"Gray after OpenCV_canny_edge: {gray}")
 
         start_time = time.time()
-        
-        low = self.params.get('low', 50)
-        high = self.params.get('high', 150)
-        
+
+        low = self.params.get("low", 50)
+        high = self.params.get("high", 150)
+
         mask = cv2.Canny(gray, low, high)
 
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'canny_edge_opencv',
-            'parameters': {
-                'low': low,
-                'high': high,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "canny_edge_opencv",
+            "parameters": {"low": low, "high": high, **kwargs},
+            "execution_time": exec_time,
         }
 
         print(f"Mask after OpenCV_canny_edge: {mask}")
         print(f"Info after OpenCV_canny_edge: {info}")
         return mask
-    
-    def _opencv_prewitt_edge(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_prewitt_edge(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Обнаружение границ оператором Превитта.
-        
+
         Вычисляет градиент с использованием ядер 3×3 (использование весов [1,1,1]).
         Менее чувствителен к шуму, чем Собель.
-        
+
         Args:
             img: Входное изображение (grayscale)
             threshold: Порог для бинаризации градиента (по умолчанию 50)
             direction: Направление градиента ('x', 'y', 'both') (по умолчанию 'both')
-        
+
         Returns:
             np.ndarray: Бинарная маска границ (0/255)
         """
@@ -1127,54 +1102,53 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        threshold: int = self.params.get('threshold', 50)
-        direction: str = self.params.get('direction', 'both')
-        
+
+        threshold: int = self.params.get("threshold", 50)
+        direction: str = self.params.get("direction", "both")
+
         # Ядра Превитта
         kernel_x = np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], dtype=np.float32)
         kernel_y = np.array([[-1, -1, -1], [0, 0, 0], [1, 1, 1]], dtype=np.float32)
-        
-        if direction in ['x', 'both']:
+
+        if direction in ["x", "both"]:
             grad_x = cv2.filter2D(gray, cv2.CV_32F, kernel_x)
         else:
             grad_x = np.zeros_like(gray, dtype=np.float32)
-        if direction in ['y', 'both']:
+        if direction in ["y", "both"]:
             grad_y = cv2.filter2D(gray, cv2.CV_32F, kernel_y)
         else:
             grad_y = np.zeros_like(gray, dtype=np.float32)
-        
+
         # Магнитуда градиента
         magnitude = np.sqrt(grad_x**2 + grad_y**2)
         magnitude = np.uint8(255 * magnitude / (np.max(magnitude) + 1e-8))
-        
+
         # Бинаризация
         _, mask = cv2.threshold(magnitude, threshold, 255, cv2.THRESH_BINARY)
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('prewitt_edge_opencv', exec_time,
-                      {'threshold': threshold, 'direction': direction, **kwargs})
-        
+        self._log_info(
+            "prewitt_edge_opencv",
+            exec_time,
+            {"threshold": threshold, "direction": direction, **kwargs},
+        )
+
         return mask
-    
-    def _opencv_scharr_edge(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_scharr_edge(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Обнаружение границ оператором Шара.
-        
+
         Улучшенная версия Собеля с лучшей точностью вычисления градиента.
         Использует оптимизированные ядра 3×3.
-        
+
         Args:
             img: Входное изображение (grayscale)
             threshold: Порог для бинаризации градиента (по умолчанию 50)
             direction: Направление градиента ('x', 'y', 'both') (по умолчанию 'both')
-        
+
         Returns:
             np.ndarray: Бинарная маска границ (0/255)
         """
@@ -1182,53 +1156,52 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        threshold: int = self.params.get('threshold', 50)
-        direction: str = self.params.get('direction', 'both')
-        
+
+        threshold: int = self.params.get("threshold", 50)
+        direction: str = self.params.get("direction", "both")
+
         # Ядра Шара (более точные, чем Собель)
-        if direction in ['x', 'both']:
+        if direction in ["x", "both"]:
             grad_x = cv2.Scharr(gray, cv2.CV_64F, 1, 0)
         else:
             grad_x = np.zeros_like(gray, dtype=np.float64)
-            
-        if direction in ['y', 'both']:
+
+        if direction in ["y", "both"]:
             grad_y = cv2.Scharr(gray, cv2.CV_64F, 0, 1)
         else:
             grad_y = np.zeros_like(gray, dtype=np.float64)
-        
+
         # Магнитуда градиента
         magnitude = np.sqrt(grad_x**2 + grad_y**2)
         magnitude = np.uint8(255 * magnitude / (np.max(magnitude) + 1e-8))
         # Бинаризация
         _, mask = cv2.threshold(magnitude, threshold, 255, cv2.THRESH_BINARY)
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('scharr_edge_opencv', exec_time,
-                      {'threshold': threshold, 'direction': direction, **kwargs})
-        
+        self._log_info(
+            "scharr_edge_opencv",
+            exec_time,
+            {"threshold": threshold, "direction": direction, **kwargs},
+        )
+
         return mask
-    
-    def _opencv_roberts_cross_edge(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_roberts_cross_edge(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Обнаружение границ оператором Робертса (Cross).
-        
+
         Простой оператор для обнаружения диагональных границ.
         Использует ядра 2×2 для вычисления градиента.
         Диагональные разности
         [[+1,0],[0,-1]]
         [[0,+1],[-1,0]]
-        
+
         Args:
             img: Входное изображение (grayscale)
             threshold: Порог для бинаризации градиента (по умолчанию 50)
-        
+
         Returns:
             np.ndarray: Бинарная маска границ (0/255)
         """
@@ -1236,49 +1209,46 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        threshold: int = self.params.get('threshold', 50)
-        
+
+        threshold: int = self.params.get("threshold", 50)
+
         # Ядра Робертса (2×2)
         kernel_x = np.array([[1, 0], [0, -1]], dtype=np.float32)
         kernel_y = np.array([[0, 1], [-1, 0]], dtype=np.float32)
-        
+
         grad_x = cv2.filter2D(gray, cv2.CV_32F, kernel_x)
         grad_y = cv2.filter2D(gray, cv2.CV_32F, kernel_y)
-        
+
         # Магнитуда градиента
         magnitude = np.sqrt(grad_x**2 + grad_y**2)
         magnitude = np.uint8(255 * magnitude / (np.max(magnitude) + 1e-8))
-        
+
         # Бинаризация
         _, mask = cv2.threshold(magnitude, threshold, 255, cv2.THRESH_BINARY)
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('roberts_cross_edge_opencv', exec_time,
-                      {'threshold': threshold, **kwargs})
-        
+        self._log_info(
+            "roberts_cross_edge_opencv", exec_time, {"threshold": threshold, **kwargs}
+        )
+
         return mask
-    
-    def _opencv_log_edge(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_log_edge(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Обнаружение границ Лапласианом Гауссиана (LoG / Laplacian of Gaussian).
-        
+
         Применяет Гауссово размытие, затем Лапласиан.
         Границы обнаруживаются по пересечению нуля (zero-crossing).
         ∇²(G * I) — детекция по нулевым пересечениям
-        
+
         Args:
             img: Входное изображение (grayscale)
             sigma: Стандартное отклонение Гаусса (по умолчанию 1.0)
             kernel_size: Размер ядра Лапласиана (по умолчанию 5)
             threshold: Порог для бинаризации (по умолчанию 10)
-        
+
         Returns:
             np.ndarray: Бинарная маска границ (0/255)
         """
@@ -1286,55 +1256,62 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        sigma: float = self.params.get('sigma', 1.0)
-        kernel_size: int = self.params.get('kernel_size', 5)
-        threshold: int = self.params.get('threshold', 10)
-        
+
+        sigma: float = self.params.get("sigma", 1.0)
+        kernel_size: int = self.params.get("kernel_size", 5)
+        threshold: int = self.params.get("threshold", 10)
+
         if kernel_size % 2 == 0:
             kernel_size += 1
-        
+
         # Гауссово размытие
         blurred = gaussian_filter(gray.astype(np.float32), sigma=sigma)
-        
+
         # Лапласиан
         laplacian = laplace(blurred)
         # Zero-crossing detection
         zero_crossing = np.zeros_like(laplacian, dtype=np.uint8)
-        
+
         for i in range(1, laplacian.shape[0] - 1):
             for j in range(1, laplacian.shape[1] - 1):
-                neighborhood = laplacian[i-1:i+2, j-1:j+2]
+                neighborhood = laplacian[i - 1 : i + 2, j - 1 : j + 2]
                 if np.min(neighborhood) < 0 < np.max(neighborhood):
-                    if np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood)) > threshold:
+                    if (
+                        np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood))
+                        > threshold
+                    ):
                         zero_crossing[i, j] = 255
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('log_edge_opencv', exec_time,
-                      {'sigma': sigma, 'kernel_size': kernel_size, 'threshold': threshold, **kwargs})
-        
+        self._log_info(
+            "log_edge_opencv",
+            exec_time,
+            {
+                "sigma": sigma,
+                "kernel_size": kernel_size,
+                "threshold": threshold,
+                **kwargs,
+            },
+        )
+
         return zero_crossing
-    
-    def _opencv_dog_edge(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_dog_edge(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Обнаружение границ разностью Гауссианов (DoG / Difference of Gaussians).
-        
+
         Аппроксимация LoG через разность двух Гауссианов с разными σ.
         Аппроксимация LoG: G₁*I - G₂*I
         Эффективно для обнаружения границ разного масштаба.
-        
+
         Args:
             img: Входное изображение (grayscale)
             sigma1: Стандартное отклонение первого Гаусса (по умолчанию 1.0)
             sigma2: Стандартное отклонение второго Гаусса (по умолчанию 2.0)
             threshold: Порог для бинаризации (по умолчанию 10)
-        
+
         Returns:
             np.ndarray: Бинарная маска границ (0/255)
         """
@@ -1342,52 +1319,54 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        sigma1: float = self.params.get('sigma1', 1.0)
-        sigma2: float = self.params.get('sigma2', 2.0)
-        threshold: int = self.params.get('threshold', 10)
-        
+
+        sigma1: float = self.params.get("sigma1", 1.0)
+        sigma2: float = self.params.get("sigma2", 2.0)
+        threshold: int = self.params.get("threshold", 10)
+
         # Применяем два Гауссовых фильтра
         g1 = gaussian_filter(gray.astype(np.float32), sigma=sigma1)
         g2 = gaussian_filter(gray.astype(np.float32), sigma=sigma2)
-        
+
         # Разность Гауссианов
         dog = g1 - g2
         # Zero-crossing detection
         zero_crossing = np.zeros_like(dog, dtype=np.uint8)
-        
+
         for i in range(1, dog.shape[0] - 1):
             for j in range(1, dog.shape[1] - 1):
-                neighborhood = dog[i-1:i+2, j-1:j+2]
+                neighborhood = dog[i - 1 : i + 2, j - 1 : j + 2]
                 if np.min(neighborhood) < 0 < np.max(neighborhood):
-                    if np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood)) > threshold:
+                    if (
+                        np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood))
+                        > threshold
+                    ):
                         zero_crossing[i, j] = 255
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('dog_edge_opencv', exec_time,
-                      {'sigma1': sigma1, 'sigma2': sigma2, 'threshold': threshold, **kwargs})
-        
+        self._log_info(
+            "dog_edge_opencv",
+            exec_time,
+            {"sigma1": sigma1, "sigma2": sigma2, "threshold": threshold, **kwargs},
+        )
+
         return zero_crossing
-    
-    def _opencv_marr_hildreth_edge(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_marr_hildreth_edge(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Обнаружение границ методом Марра-Хилдрета.
-        
+
         Комбинация Гауссова размытия и Лапласиана с zero-crossing.
         Нулевые пересечения LoG с порогом.
         Классический метод для обнаружения границ.
-        
+
         Args:
             img: Входное изображение (grayscale)
             sigma: Стандартное отклонение Гаусса (по умолчанию 1.0)
             threshold: Порог для отсечения слабого zero-crossing (по умолчанию 10)
-        
+
         Returns:
             np.ndarray: Бинарная маска границ (0/255)
         """
@@ -1395,48 +1374,49 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        sigma: float = self.params.get('sigma', 1.0)
-        threshold: int = self.params.get('threshold', 10)
-        
+
+        sigma: float = self.params.get("sigma", 1.0)
+        threshold: int = self.params.get("threshold", 10)
+
         # Лапласиан Гауссиана через OpenCV
-        laplacian = cv2.Laplacian(
-            cv2.GaussianBlur(gray, (0, 0), sigma), 
-            cv2.CV_64F
-        )
-        
+        laplacian = cv2.Laplacian(cv2.GaussianBlur(gray, (0, 0), sigma), cv2.CV_64F)
+
         # Zero-crossing detection
         zero_crossing = np.zeros_like(laplacian, dtype=np.uint8)
         for i in range(1, laplacian.shape[0] - 1):
             for j in range(1, laplacian.shape[1] - 1):
-                neighborhood = laplacian[i-1:i+2, j-1:j+2]
+                neighborhood = laplacian[i - 1 : i + 2, j - 1 : j + 2]
                 if np.min(neighborhood) < 0 < np.max(neighborhood):
-                    if np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood)) > threshold:
+                    if (
+                        np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood))
+                        > threshold
+                    ):
                         zero_crossing[i, j] = 255
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('marr_hildreth_edge_opencv', exec_time,
-                      {'sigma': sigma, 'threshold': threshold, **kwargs})
-        
+        self._log_info(
+            "marr_hildreth_edge_opencv",
+            exec_time,
+            {"sigma": sigma, "threshold": threshold, **kwargs},
+        )
+
         return zero_crossing
-    
+
     def _opencv_gradient_magnitude_direction(
-        self, 
-        img: np.ndarray, 
-        **kwargs
+        self, img: np.ndarray, **kwargs
     ) -> np.ndarray:
         """
         Обнаружение границ через магнитуду и направление градиента.
-        
+
         Вычисляет градиент с направлением и позволяет фильтрацию по углу.
-        
+
         Args:
             img: Входное изображение (grayscale)
             threshold: Порог магнитуды (по умолчанию 50)
             angle_range: Диапазон углов для фильтрации в градусах (по умолчанию None - все углы)
-        
+
         Returns:
             np.ndarray: Бинарная маска границ (0/255)
         """
@@ -1444,53 +1424,58 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        threshold: int = self.params.get('threshold', 50)
-        angle_range: Optional[Tuple[float, float]] = self.params.get('angle_range', None)
-        
+
+        threshold: int = self.params.get("threshold", 50)
+        angle_range: Optional[Tuple[float, float]] = self.params.get(
+            "angle_range", None
+        )
+
         # Градиенты Собеля
         grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
         grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-        
+
         # Магнитуда и направление
         magnitude = np.sqrt(grad_x**2 + grad_y**2)
         direction = np.arctan2(grad_y, grad_x) * 180 / np.pi  # В градусах
         # Фильтрация по магнитуде
         mask = (magnitude > threshold).astype(np.uint8) * 255
-        
+
         # Опциональная фильтрация по направлению
         if angle_range is not None:
-            angle_mask = ((direction >= angle_range[0]) & (direction <= angle_range[1])) | \
-                        ((direction + 180 >= angle_range[0]) & (direction + 180 <= angle_range[1]))
+            angle_mask = (
+                (direction >= angle_range[0]) & (direction <= angle_range[1])
+            ) | (
+                (direction + 180 >= angle_range[0])
+                & (direction + 180 <= angle_range[1])
+            )
             mask = mask & (angle_mask.astype(np.uint8) * 255)
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('gradient_magnitude_direction_opencv', exec_time,
-                      {'threshold': threshold, 'angle_range': angle_range, **kwargs})
-        
+        self._log_info(
+            "gradient_magnitude_direction_opencv",
+            exec_time,
+            {"threshold": threshold, "angle_range": angle_range, **kwargs},
+        )
+
         return mask
-    
-    def _opencv_phase_congruency_edge(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> np.ndarray:
+
+    def _opencv_phase_congruency_edge(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Обнаружение границ через фазовую конгруэнтность (упрощённая реализация).
-        
+
         Метод, инвариантный к изменению контраста и яркости.
         Основан на согласованности фаз Фурье-компонент.
-        
+
         Примечание: Полная реализация требует pyphase или аналогичной библиотеки.
         Здесь используется аппроксимация через много-масштабные градиенты.
-        
+
         Args:
             img: Входное изображение (grayscale)
             nscales: Количество масштабов (по умолчанию 4)
             threshold: Порог для бинаризации (по умолчанию 0.2)
-        
+
         Returns:
             np.ndarray: Бинарная маска границ (0/255)
         """
@@ -1498,51 +1483,50 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
-        nscales: int = self.params.get('nscales', 4)
-        threshold: float = self.params.get('threshold', 0.2)
-        
+
+        nscales: int = self.params.get("nscales", 4)
+        threshold: float = self.params.get("threshold", 0.2)
+
         # Аппроксимация фазовой конгруэнтности через много-масштабные градиенты
         pc_map = np.zeros_like(gray, dtype=np.float32)
-        
+
         for scale in range(nscales):
-            sigma = 2 ** scale
+            sigma = 2**scale
             # Гауссово размытие на текущем масштабе
             blurred = gaussian_filter(gray.astype(np.float32), sigma=sigma)
             # Градиенты
             grad_x = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
             grad_y = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
-            
+
             # Магнитуда
             mag = np.sqrt(grad_x**2 + grad_y**2)
-            
+
             # Нормализация и добавление к карте
             mag_norm = mag / (np.max(mag) + 1e-8)
             pc_map += mag_norm
-        
+
         # Усреднение по масштабам
         pc_map /= nscales
-        
+
         # Нормализация к [0, 1]
         pc_map = (pc_map - np.min(pc_map)) / (np.max(pc_map) - np.min(pc_map) + 1e-8)
-        
+
         # Бинаризация
         mask = (pc_map > threshold).astype(np.uint8) * 255
-        
+
         exec_time: float = time.time() - start_time
-        self._log_info('phase_congruency_edge_opencv', exec_time,
-                      {'nscales': nscales, 'threshold': threshold, **kwargs})
-        
+        self._log_info(
+            "phase_congruency_edge_opencv",
+            exec_time,
+            {"nscales": nscales, "threshold": threshold, **kwargs},
+        )
+
         return mask
-    
+
     # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============
-    def _opencv_region_growing(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+    def _opencv_region_growing(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Сегментация методом Region Growing (роста регионов).
 
@@ -1561,32 +1545,32 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = img
 
         start_time = time.time()
-        
+
         h, w = gray.shape
 
-        seed = self.params.get('seed', (w//2, h//2))
-        tolerance = self.params.get('tolerance', 25)
+        seed = self.params.get("seed", (w // 2, h // 2))
+        tolerance = self.params.get("tolerance", 25)
 
         if seed is None or not (0 <= seed[0] < w and 0 <= seed[1] < h):
-            seed = (w // 2, h // 2) # (x, y)
-        
+            seed = (w // 2, h // 2)  # (x, y)
+
         mask: np.ndarray = np.zeros((h, w), dtype=np.uint8)
         visited: np.ndarray = np.zeros((h, w), dtype=bool)
-        
+
         queue = deque([seed])
         start_value = float(gray[seed[1], seed[0]])
-        
+
         while queue:
             x, y = queue.popleft()
-            
+
             if x < 0 or x >= w or y < 0 or y >= h or visited[y, x]:
                 continue
-            
+
             visited[y, x] = True
-            
+
             if abs(int(gray[y, x]) - int(start_value)) <= tolerance:
                 mask[y, x] = 255
-                
+
                 # 8-связность
                 for dx in [-1, 0, 1]:
                     for dy in [-1, 0, 1]:
@@ -1599,22 +1583,14 @@ class OpenCVSegmenter(BaseSegmenter):
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'region_growing_opencv',
-            'parameters': {
-                'seed': seed,
-                'tolerance': tolerance,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "region_growing_opencv",
+            "parameters": {"seed": seed, "tolerance": tolerance, **kwargs},
+            "execution_time": exec_time,
         }
-        
+
         return mask
-    
-    def _opencv_split_and_merge(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_split_and_merge(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Рекурсивный алгоритм разделения и слияния регионов.
 
@@ -1634,11 +1610,11 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = img
 
         start_time = time.time()
-        
+
         h, w = gray.shape
-        threshold = self.params.get('threshold', 20)
-        min_size = self.params.get('min_size', 50)
-        
+        threshold = self.params.get("threshold", 20)
+        min_size = self.params.get("min_size", 50)
+
         def region_stats(region):
             pixels = [gray[y, x] for x, y in region]
             if not pixels:
@@ -1646,67 +1622,67 @@ class OpenCVSegmenter(BaseSegmenter):
             mean = np.mean(pixels)
             std = np.std(pixels)
             return mean, std
-        
+
         def split(region, min_sz, thresh):
             if len(region) <= min_sz:
                 return [region]
-            
+
             mean, std = region_stats(region)
             if std < thresh:
                 return [region]
-            
+
             x_coords = [p[0] for p in region]
             y_coords = [p[1] for p in region]
-            
+
             x_mid = (min(x_coords) + max(x_coords)) // 2
             y_mid = (min(y_coords) + max(y_coords)) // 2
-            
+
             quadrants = [
                 [(x, y) for x, y in region if x <= x_mid and y <= y_mid],
                 [(x, y) for x, y in region if x > x_mid and y <= y_mid],
                 [(x, y) for x, y in region if x <= x_mid and y > y_mid],
-                [(x, y) for x, y in region if x > x_mid and y > y_mid]
+                [(x, y) for x, y in region if x > x_mid and y > y_mid],
             ]
-            
+
             result = []
             for quad in quadrants:
                 result.extend(split(quad, min_sz, thresh))
             return result
-        
+
         def merge(regions, thresh):
             merged = []
             used = [False] * len(regions)
-            
+
             for i, reg1 in enumerate(regions):
                 if used[i]:
                     continue
-                
+
                 current = reg1.copy()
                 mean1, _ = region_stats(reg1)
-                
-                for j, reg2 in enumerate(regions[i+1:], i+1):
+
+                for j, reg2 in enumerate(regions[i + 1 :], i + 1):
                     if used[j]:
                         continue
-                    
+
                     mean2, _ = region_stats(reg2)
                     if abs(mean1 - mean2) < thresh:
                         current.extend(reg2)
                         used[j] = True
-                
+
                 merged.append(current)
                 used[i] = True
-            
+
             return merged
-        
+
         # Начальный регион - все изображение
         initial = [(x, y) for y in range(h) for x in range(w)]
-        
+
         # Split фаза
         regions = split(initial, min_size, threshold)
-        
+
         # Merge фаза
         regions = merge(regions, threshold)
-        
+
         # Создаем маску (второй по величине регион)
         if len(regions) > 1:
             sizes = [len(r) for r in regions]
@@ -1718,24 +1694,16 @@ class OpenCVSegmenter(BaseSegmenter):
             exec_time = time.time() - start_time
 
             info = {
-                'method': 'split_and_merge_opencv',
-                'parameters': {
-                    'threshold': threshold,
-                    'min_size': min_size,
-                    **kwargs
-                },
-                'execution_time': exec_time
+                "method": "split_and_merge_opencv",
+                "parameters": {"threshold": threshold, "min_size": min_size, **kwargs},
+                "execution_time": exec_time,
             }
 
             return mask.astype(np.uint8) * 255
-        
+
         return np.zeros((h, w), dtype=np.uint8)
-    
-    def _opencv_floodfill(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_floodfill(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Сегментация методом заливки (Flood Fill).
 
@@ -1754,50 +1722,45 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = img
 
         start_time = time.time()
-        
+
         h, w = gray.shape
-        
+
         # Начальная точка
-        seed = self.params.get('seed', None)
+        seed = self.params.get("seed", None)
         if seed is None:
             seed = (w // 2, h // 2)
-        
+
         # Создаем маску
-        mask = np.zeros((h+2, w+2), np.uint8)
-        
+        mask = np.zeros((h + 2, w + 2), np.uint8)
+
         # Параметры заливки
-        tolerance = self.params.get('tolerance', 20)
+        tolerance = self.params.get("tolerance", 20)
         flags = 4 | (255 << 8) | cv2.FLOODFILL_FIXED_RANGE
-        
+
         # Применяем floodfill
-        cv2.floodFill(gray.copy(), mask, seed, 255, 
-                     (tolerance,)*3, (tolerance,)*3, flags)
-        
+        cv2.floodFill(
+            gray.copy(), mask, seed, 255, (tolerance,) * 3, (tolerance,) * 3, flags
+        )
+
         # Извлекаем маску
         mask_final = mask[1:-1, 1:-1] * 255
-        
+
         # Опционально: заполняем дыры
         mask_final = ndimage.binary_fill_holes(mask_final > 0).astype(np.uint8) * 255
 
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'floodfill_opencv',
-            'parameters': {
-                'seed': seed,
-                'tolerance': tolerance,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "floodfill_opencv",
+            "parameters": {"seed": seed, "tolerance": tolerance, **kwargs},
+            "execution_time": exec_time,
         }
-        
+
         return mask_final
 
     # ============ КЛАСТЕРИЗАЦИЯ ============
     def _opencv_kmeans_segmentation(
-        self, 
-        img: np.ndarray, 
-        **kwargs
+        self, img: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray]:
         """
         Сегментация методом K-Means кластеризации.
@@ -1815,39 +1778,36 @@ class OpenCVSegmenter(BaseSegmenter):
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
         start_time = time.time()
-        
+
         h, w = img.shape[:2]
         pixels = img.reshape(-1, 3).astype(np.float32)
-        
-        k = self.params.get('k', 3)
+
+        k = self.params.get("k", 3)
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
-        _, labels, centers = cv2.kmeans(pixels, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
-        
+        _, labels, centers = cv2.kmeans(
+            pixels, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS
+        )
+
         labels = labels.reshape(h, w)
-        
+
         # Находим самый большой кластер
         unique, counts = np.unique(labels, return_counts=True)
         bg_label = unique[np.argmax(counts)]
-        
+
         mask = (labels != bg_label).astype(np.uint8) * 255
 
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'kmeans_opencv',
-            'parameters': {
-                'k': k,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "kmeans_opencv",
+            "parameters": {"k": k, **kwargs},
+            "execution_time": exec_time,
         }
 
         return mask
-    
+
     def _opencv_dbscan_segmentation(
-        self, 
-        img: np.ndarray, 
-        **kwargs
+        self, img: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray]:
         """
         Сегментация методом DBSCAN кластеризации.
@@ -1867,19 +1827,21 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = img
 
         start_time = time.time()
-        
+
         h, w = gray.shape
-        
+
         # Используем упрощенный подход на основе расстояния
         binary = np.zeros_like(gray, dtype=np.uint8)
         binary[gray > 127] = 255
-        
+
         # Находим контуры
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
+        contours, _ = cv2.findContours(
+            binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
         mask = np.zeros_like(gray, dtype=np.uint8)
-        min_area = self.params.get('min_area', 100)
-        
+        min_area = self.params.get("min_area", 100)
+
         for contour in contours:
             area = cv2.contourArea(contour)
             if area > min_area:
@@ -1888,21 +1850,14 @@ class OpenCVSegmenter(BaseSegmenter):
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'dbscan_opencv',
-            'parameters': {
-                'min_area': min_area,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "dbscan_opencv",
+            "parameters": {"min_area": min_area, **kwargs},
+            "execution_time": exec_time,
         }
-        
+
         return mask
-    
-    def _opencv_meanshift(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_meanshift(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Сегментация методом MeanShift.
 
@@ -1917,13 +1872,15 @@ class OpenCVSegmenter(BaseSegmenter):
         """
         start_time = time.time()
 
-        spatial_radius = self.params.get('spatial_radius', 60)
-        color_radius = self.params.get('color_radius', 60)
-        max_level = self.params.get('max_level', 1)
-        
+        spatial_radius = self.params.get("spatial_radius", 60)
+        color_radius = self.params.get("color_radius", 60)
+        max_level = self.params.get("max_level", 1)
+
         # Применяем MeanShift
-        shifted = cv2.pyrMeanShiftFiltering(img, spatial_radius, color_radius, max_level)
-        
+        shifted = cv2.pyrMeanShiftFiltering(
+            img, spatial_radius, color_radius, max_level
+        )
+
         # Конвертируем в grayscale и пороговую обработку
         gray = cv2.cvtColor(shifted, cv2.COLOR_BGR2GRAY)
         _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
@@ -1931,25 +1888,21 @@ class OpenCVSegmenter(BaseSegmenter):
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'meanshift_opencv',
-            'parameters': {
-                'spatial_radius': spatial_radius,
-                'color_radius': color_radius,
-                'max_level': max_level,
-                **kwargs
+            "method": "meanshift_opencv",
+            "parameters": {
+                "spatial_radius": spatial_radius,
+                "color_radius": color_radius,
+                "max_level": max_level,
+                **kwargs,
             },
-            'execution_time': exec_time
+            "execution_time": exec_time,
         }
-        
+
         return mask
-    
+
     # ============ АКТИВНЫЕ КОНТУРЫ ============
-    
-    def _opencv_active_contour(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_active_contour(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Сегментация активными контурами (Snakes).
 
@@ -1968,20 +1921,20 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = img
 
         start_time = time.time()
-        
+
         h, w = gray.shape
-        
+
         # Начальный контур (окружность)
         center_x, center_y = w // 2, h // 2
         radius = min(center_x, center_y) // 2
-        
+
         # Создаем маску контура
         mask = np.zeros((h, w), dtype=np.uint8)
         cv2.circle(mask, (center_x, center_y), radius, 255, -1)
-        
+
         # Применяем морфологические операции для имитации активного контура
         kernel = np.ones((5, 5), np.uint8)
-        iterations = self.params.get('iterations', 10)
+        iterations = self.params.get("iterations", 10)
         for _ in range(iterations):
             edges = cv2.Canny(gray, 100, 200)
             mask = cv2.bitwise_and(mask, cv2.bitwise_not(edges))
@@ -1990,21 +1943,14 @@ class OpenCVSegmenter(BaseSegmenter):
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'active_contour_opencv',
-            'parameters': {
-                'iterations': iterations,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "active_contour_opencv",
+            "parameters": {"iterations": iterations, **kwargs},
+            "execution_time": exec_time,
         }
-        
+
         return mask
-    
-    def _opencv_gvf_contour(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_gvf_contour(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Сегментация на основе Gradient Vector Flow (GVF).
 
@@ -2023,55 +1969,49 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = img
 
         start_time = time.time()
-        
+
         # Вычисляем градиенты
         grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
         grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-        
+
         # Матрица границ
         edges = cv2.Canny(gray, 100, 200)
-        
+
         # Распространение градиентов
         u = grad_x.copy()
         v = grad_y.copy()
-        
-        mu = self.params.get('mu', 0.1)
-        iterations = self.params.get('iterations', 50)
-        
+
+        mu = self.params.get("mu", 0.1)
+        iterations = self.params.get("iterations", 50)
+
         for _ in range(iterations):
             laplacian_u = cv2.Laplacian(u, cv2.CV_64F)
             laplacian_v = cv2.Laplacian(v, cv2.CV_64F)
-            
+
             edge_weight = edges.astype(np.float64) / 255.0
-            
+
             u = u + mu * laplacian_u - edge_weight * (u - grad_x)
             v = v + mu * laplacian_v - edge_weight * (v - grad_y)
-        
+
         # Величина GVF
         gvf_mag = np.sqrt(u**2 + v**2)
         gvf_mag = np.uint8(255 * gvf_mag / np.max(gvf_mag))
-        
+
         _, mask = cv2.threshold(gvf_mag, 50, 255, cv2.THRESH_BINARY)
         mask = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
 
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'gvf_opencv',
-            'parameters': {
-                'iterations': iterations,
-                'mu': mu,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "gvf_opencv",
+            "parameters": {"iterations": iterations, "mu": mu, **kwargs},
+            "execution_time": exec_time,
         }
 
         return mask
-    
+
     def _opencv_morphological_snakes(
-        self, 
-        img: np.ndarray, 
-        **kwargs
+        self, img: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray]:
         """
         Сегментация морфологическими змеями.
@@ -2091,25 +2031,25 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = img
 
         start_time = time.time()
-        
+
         h, w = gray.shape
-        
+
         # Начальная маска (окружность в центре)
         mask = np.zeros((h, w), np.uint8)
-        cv2.circle(mask, (w//2, h//2), min(w, h)//4, 255, -1)
-        
-        iterations = self.params.get('iterations', 50)
+        cv2.circle(mask, (w // 2, h // 2), min(w, h) // 4, 255, -1)
+
+        iterations = self.params.get("iterations", 50)
         kernel = np.ones((3, 3), np.uint8)
-        
+
         for _ in range(iterations):
             # Градиент изображения
             grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
             grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
             grad_mag = np.sqrt(grad_x**2 + grad_y**2)
             grad_mag = np.uint8(255 * grad_mag / np.max(grad_mag))
-            
+
             _, grad_binary = cv2.threshold(grad_mag, 50, 255, cv2.THRESH_BINARY)
-            
+
             # Расширение/сужение на основе градиента
             mask = cv2.bitwise_and(mask, cv2.bitwise_not(grad_binary))
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
@@ -2118,21 +2058,14 @@ class OpenCVSegmenter(BaseSegmenter):
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'morphological_snakes_opencv',
-            'parameters': {
-                'iterations': iterations,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "morphological_snakes_opencv",
+            "parameters": {"iterations": iterations, **kwargs},
+            "execution_time": exec_time,
         }
-        
+
         return mask
-    
-    def _opencv_chan_vese(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_chan_vese(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Модель Chan-Vese — активные контуры без градиентов.
 
@@ -2151,56 +2084,48 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = img
 
         start_time = time.time()
-        
+
         h, w = gray.shape
-        
+
         # Начальная маска (центральная область)
         mask = np.zeros((h, w), np.uint8)
-        cv2.rectangle(mask, (w//4, h//4), (3*w//4, 3*h//4), 255, -1)
-        
-        iterations = self.params.get('max_iter', 100)
-        mu = self.params.get('mu', 0.25)
-        
+        cv2.rectangle(mask, (w // 4, h // 4), (3 * w // 4, 3 * h // 4), 255, -1)
+
+        iterations = self.params.get("max_iter", 100)
+        mu = self.params.get("mu", 0.25)
+
         for _ in range(iterations):
             # Вычисляем средние значения внутри и снаружи маски
             inside_mean = np.mean(gray[mask > 0]) if np.any(mask > 0) else 0
             outside_mean = np.mean(gray[mask == 0]) if np.any(mask == 0) else 0
-            
+
             # Обновляем маску на основе разности с средними
             diff_inside = np.abs(gray.astype(float) - inside_mean)
             diff_outside = np.abs(gray.astype(float) - outside_mean)
-            
+
             new_mask = np.zeros_like(mask)
             new_mask[diff_inside < diff_outside] = 255
-            
+
             # Сглаживание
             kernel = np.ones((3, 3), np.uint8)
             new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_CLOSE, kernel)
             new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_OPEN, kernel)
-            
+
             mask = new_mask
 
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'chan_vese_opencv',
-            'parameters': {
-                'mu': mu,
-                'iterations': iterations,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "chan_vese_opencv",
+            "parameters": {"mu": mu, "iterations": iterations, **kwargs},
+            "execution_time": exec_time,
         }
-        
+
         return mask
 
     # ============ WATERSHED И ГРАФОВЫЕ ============
-    
-    def _opencv_watershed(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_watershed(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Сегментация методом водораздела (Watershed).
 
@@ -2220,57 +2145,51 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = img
 
         start_time = time.time()
-        
+
         # blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         # _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         # Бинаризация
         _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        
+
         # Морфологические операции
         kernel = np.ones((3, 3), np.uint8)
         opening = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=2)
-        
+
         # Фон
         sure_bg = cv2.dilate(opening, kernel, iterations=3)
-        
+
         # Преобразование расстояния
         dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
         _, sure_fg = cv2.threshold(dist_transform, 0.7 * dist_transform.max(), 255, 0)
-        
+
         sure_fg = np.uint8(sure_fg)
         unknown = cv2.subtract(sure_bg, sure_fg)
-        
+
         # Маркеры
         _, markers = cv2.connectedComponents(sure_fg)
         markers = markers + 1
         markers[unknown == 255] = 0
-        
+
         # Watershed
         if len(img.shape) == 3:
             markers = cv2.watershed(img, markers)
         else:
             color_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             markers = cv2.watershed(color_img, markers)
-        
+
         mask = (markers > 1).astype(np.uint8) * 255
 
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'watershed_opencv',
-            'parameters': {
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "watershed_opencv",
+            "parameters": {**kwargs},
+            "execution_time": exec_time,
         }
 
         return mask
-    
-    def _opencv_random_walker(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_random_walker(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Сегментация методом Random Walker.
 
@@ -2289,48 +2208,43 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = img
 
         start_time = time.time()
-        
+
         h, w = gray.shape
-        
+
         # Создаем маркеры
         markers = np.zeros((h, w), dtype=np.int32)
-        
+
         # Центральная область - объект
-        cv2.rectangle(markers, (w//4, h//4), (3*w//4, 3*h//4), 2, -1)
-        
+        cv2.rectangle(markers, (w // 4, h // 4), (3 * w // 4, 3 * h // 4), 2, -1)
+
         # Углы - фон
         corner_size = min(h, w) // 8
         cv2.rectangle(markers, (0, 0), (corner_size, corner_size), 1, -1)
-        cv2.rectangle(markers, (w-corner_size, 0), (w, corner_size), 1, -1)
-        cv2.rectangle(markers, (0, h-corner_size), (corner_size, h), 1, -1)
-        cv2.rectangle(markers, (w-corner_size, h-corner_size), (w, h), 1, -1)
-        
+        cv2.rectangle(markers, (w - corner_size, 0), (w, corner_size), 1, -1)
+        cv2.rectangle(markers, (0, h - corner_size), (corner_size, h), 1, -1)
+        cv2.rectangle(markers, (w - corner_size, h - corner_size), (w, h), 1, -1)
+
         # Применяем Watershed с маркерами
         if len(img.shape) == 3:
             markers = cv2.watershed(img, markers)
         else:
             color_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             markers = cv2.watershed(color_img, markers)
-        
+
         mask = (markers == 2).astype(np.uint8) * 255
 
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'random_walker_opencv',
-            'parameters': {
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "random_walker_opencv",
+            "parameters": {**kwargs},
+            "execution_time": exec_time,
         }
 
         return mask
 
     # ============ SUPER-PIXEL МЕТОДЫ ============
-    def _opencv_quickshift(
-        self, 
-        img: np.ndarray, **kwargs
-    ) -> np.ndarray:
+    def _opencv_quickshift(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """Quickshift (упрощенная версия на основе superpixels)"""
         """
         Сегментация методом Quickshift (реализована через MeanShift как аналог).
@@ -2345,12 +2259,8 @@ class OpenCVSegmenter(BaseSegmenter):
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
         """
         return self._opencv_kmeans_segmentation(img, **kwargs)
-    
-    def _opencv_slic(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_slic(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.
 
@@ -2366,49 +2276,44 @@ class OpenCVSegmenter(BaseSegmenter):
         h, w = img.shape[:2]
 
         start_time = time.time()
-        
+
         # Разбиваем изображение на регионы
-        region_size = self.params.get('region_size', 20)
-        ruler = self.params.get('ruler', 10.0)
-        
+        region_size = self.params.get("region_size", 20)
+        ruler = self.params.get("ruler", 10.0)
+
         # Создаем сетку суперпикселей
         mask = np.zeros((h, w), np.uint8)
-        
+
         for y in range(0, h, region_size):
             for x in range(0, w, region_size):
                 # Простая цветовая кластеризация в регионе
-                region = img[y:min(y+region_size, h), x:min(x+region_size, w)]
+                region = img[y : min(y + region_size, h), x : min(x + region_size, w)]
                 if len(region) == 0:
                     continue
-                
+
                 if len(region.shape) == 3:
                     region_gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
                 else:
                     region_gray = region
-                
-                _, region_mask = cv2.threshold(region_gray, 0, 255, 
-                                             cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                mask[y:min(y+region_size, h), x:min(x+region_size, w)] = region_mask
+
+                _, region_mask = cv2.threshold(
+                    region_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+                )
+                mask[y : min(y + region_size, h), x : min(x + region_size, w)] = (
+                    region_mask
+                )
 
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'slic_opencv',
-            'parameters': {
-                'region_size': region_size,
-                'ruler': ruler,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "slic_opencv",
+            "parameters": {"region_size": region_size, "ruler": ruler, **kwargs},
+            "execution_time": exec_time,
         }
-        
+
         return mask
-    
-    def _opencv_felzenszwalb(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+
+    def _opencv_felzenszwalb(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
 
@@ -2427,15 +2332,15 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = img
 
         start_time = time.time()
-        
+
         # Применяем несколько порогов для создания иерархической сегментации
         thresholds = [50, 100, 150]
         masks = []
-        
+
         for thresh in thresholds:
             _, mask = cv2.threshold(gray, thresh, 255, cv2.THRESH_BINARY)
             masks.append(mask)
-        
+
         # Комбинируем маски
         combined = np.zeros_like(gray, dtype=np.uint8)
         for mask in masks:
@@ -2444,18 +2349,16 @@ class OpenCVSegmenter(BaseSegmenter):
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'felzenszwalb_opencv',
-            'parameters': {
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "felzenszwalb_opencv",
+            "parameters": {**kwargs},
+            "execution_time": exec_time,
         }
-        
+
         return combined
-    
+
     # ============ ИНТЕРАКТИВНЫЕ МЕТОДЫ ============
     # def _opencv_grabcut(
-    #     self, 
+    #     self,
     #     img: np.ndarray
     # ) -> np.ndarray:
     #     """
@@ -2471,32 +2374,28 @@ class OpenCVSegmenter(BaseSegmenter):
     #         np.ndarray: Бинарная маска (0/255, dtype=np.uint8) переднего плана.
     #     """
     #     h, w = img.shape[:2]
-        
+
     #     # Создаем маску
     #     mask = np.zeros((h, w), np.uint8)
-        
+
     #     # Прямоугольник для инициализации (центр изображения)
     #     rect = self.params.get('rect', (w//4, h//4, w//2, h//2))
-        
+
     #     # Временные массивы
     #     bgd_model = np.zeros((1, 65), np.float64)
     #     fgd_model = np.zeros((1, 65), np.float64)
-        
+
     #     # Применяем GrabCut
-    #     cv2.grabCut(img, mask, rect, bgd_model, fgd_model, 
+    #     cv2.grabCut(img, mask, rect, bgd_model, fgd_model,
     #                self.params.get('iterations', 5), cv2.GC_INIT_WITH_RECT)
-        
+
     #     # Создаем финальную маску
     #     mask2 = np.where((mask == 2) | (mask == 0), 0, 1).astype('uint8')
     #     result_mask = mask2 * 255
-        
+
     #     return result_mask
 
-    def _opencv_grabcut(
-        self, 
-        img: np.ndarray, 
-        **kwargs
-    ) -> Tuple[np.ndarray]:
+    def _opencv_grabcut(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
         Интерактивная сегментация GrabCut.
 
@@ -2511,28 +2410,29 @@ class OpenCVSegmenter(BaseSegmenter):
         """
         start_time = time.time()
         # Параметры
-        rect = self.params.get('rect', None)
-        iter_count = self.params.get('num_iterations', 10)
-        
+        rect = self.params.get("rect", None)
+        iter_count = self.params.get("num_iterations", 10)
+
         # Создаем маску и модель
         mask = np.zeros(img.shape[:2], dtype=np.uint8)
         bgd_model = np.zeros((1, 65), dtype=np.float64)
         fgd_model = np.zeros((1, 65), dtype=np.float64)
-        
+
         # Если прямоугольник не задан, используем центральную часть
         if rect is None:
             h, w = img.shape[:2]
-            rect = (int(w*0.25), int(h*0.25), int(w*0.5), int(h*0.5))
-        
+            rect = (int(w * 0.25), int(h * 0.25), int(w * 0.5), int(h * 0.5))
+
         # Применяем GrabCut
         mask, bgd_model, fgd_model = cv2.grabCut(
-            img, mask, rect, bgd_model, fgd_model, 
-            iter_count, cv2.GC_INIT_WITH_RECT
+            img, mask, rect, bgd_model, fgd_model, iter_count, cv2.GC_INIT_WITH_RECT
         )
-        
+
         # Создаем финальную маску (0-255)
-        mask_final = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
-        
+        mask_final = np.where(
+            (mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0
+        ).astype(np.uint8)
+
         # Опционально: применение морфологических операций для улучшения результата
         kernel = np.ones((3, 3), np.uint8)
         mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_CLOSE, kernel, iterations=2)
@@ -2541,13 +2441,9 @@ class OpenCVSegmenter(BaseSegmenter):
         exec_time = time.time() - start_time
 
         info = {
-            'method': 'grabcut_opencv',
-            'parameters': {
-                'iterations': iter_count,
-                'rect': rect,
-                **kwargs
-            },
-            'execution_time': exec_time
+            "method": "grabcut_opencv",
+            "parameters": {"iterations": iter_count, "rect": rect, **kwargs},
+            "execution_time": exec_time,
         }
-        
+
         return mask_final
