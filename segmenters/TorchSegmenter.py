@@ -90,6 +90,13 @@ class TorchSegmenter(BaseSegmenter):
             print("Используется CPU")
 
         self._setup_method()
+        self._debug_mode = kwargs.get('debug_mode', False)
+
+    def _get_intermediate_results(self) -> Dict[str, torch.Tensor]:
+        """Возвращает промежуточные результаты для тестов"""
+        if not self._debug_mode:
+            raise RuntimeError("Debug mode not enabled")
+        return self._intermediate_results
     
     def _setup_method(self, **kwargs) -> None:
         """Настройка выбранного метода"""
@@ -181,25 +188,58 @@ class TorchSegmenter(BaseSegmenter):
         else:
             raise TypeError(f"Неподдерживаемый тип изображения: {type(image)}")
         
-    def conv2d_numpy(self, image: np.ndarray, kernel: np.ndarray, mode: str = 'reflect') -> np.ndarray:
-        """2D свёртка на numpy/scipy (эквивалент cv2.filter2D)"""
-        return ndimage.convolve(image, kernel, mode=mode)
-
-    def rgb_to_gray_numpy(self, rgb: np.ndarray) -> np.ndarray:
+    @staticmethod
+    def _rgb_to_gray_numpy(rgb: np.ndarray) -> np.ndarray:
         """Конвертация RGB → Grayscale на numpy"""
         # ITU-R BT.601 weights
         return 0.2989 * rgb[..., 0] + 0.5870 * rgb[..., 1] + 0.1140 * rgb[..., 2]
+    
+    @staticmethod
+    def _rgb_to_gray_torch(tensor: torch.Tensor) -> torch.Tensor:
+        """Конвертация RGB → Grayscale на torch (ITU-R BT.601)"""
+        if tensor.shape[1] == 3:
+            # (B, 3, H, W) → (B, 1, H, W)
+            return (0.2989 * tensor[:, 0:1, :, :] + 
+                    0.5870 * tensor[:, 1:2, :, :] + 
+                    0.1140 * tensor[:, 2:3, :, :])
+        else:
+            return tensor
 
-    def local_mean_numpy(self, image: np.ndarray, window_size: int) -> np.ndarray:
-        """Локальное среднее через свёртку"""
+    def _to_grayscale(
+        self, 
+        tensor: torch.Tensor
+    ) -> torch.Tensor:
+        """Преобразование RGB в градации серого"""
+        return self._rgb_to_gray_torch(tensor)
+    
+    @staticmethod   
+    def conv2d_numpy(image: np.ndarray, kernel: np.ndarray, mode: str = 'reflect') -> np.ndarray:
+        """2D свёртка на numpy/scipy (эквивалент cv2.filter2D)"""
+        return ndimage.convolve(image, kernel, mode=mode)
+    
+    def _local_mean_numpy(self, image: np.ndarray, window_size: int) -> np.ndarray:
+        """Локальное среднее через свёртку на numpy"""
+        from scipy import ndimage
+        if image.ndim == 3:
+            if image.shape[2] == 1:
+                image = image.squeeze(2)  # (H, W, 1) -> (H, W)
+            else:
+                # Если многоканальное — берём среднее по каналам
+                image = np.mean(image, axis=2)
         kernel = np.ones((window_size, window_size), dtype=np.float32) / (window_size ** 2)
         return self.conv2d_numpy(image, kernel)
 
-    def local_std_numpy(self, image: np.ndarray, window_size: int) -> np.ndarray:
-        """Локальное стандартное отклонение"""
-        mean = self.local_mean_numpy(image, window_size)
-        mean_sq = self.local_mean_numpy(image ** 2, window_size)
-        return np.sqrt(np.maximum(mean_sq - mean ** 2, 0))
+    def _local_std_numpy(self, image: np.ndarray, window_size: int) -> np.ndarray:
+        """Локальное стандартное отклонение через свёртку"""
+        if image.ndim == 3:
+            if image.shape[2] == 1:
+                image = image.squeeze(2)  # (H, W, 1) -> (H, W)
+            else:
+                # Если многоканальное — берём среднее по каналам
+                image = np.mean(image, axis=2)
+        mean = self._local_mean_numpy(image, window_size)
+        mean_sq = self._local_mean_numpy(image ** 2, window_size)
+        return np.sqrt(np.maximum(mean_sq - mean ** 2, 1e-8))
 
     def sobel_numpy(self, image: np.ndarray) -> np.ndarray:
         """Оператор Собеля на numpy"""
@@ -229,13 +269,12 @@ class TorchSegmenter(BaseSegmenter):
         try:
             tensor: torch.Tensor
             np_img: np.ndarray
-            tensor: torch.Tensor
-            np_img: np.ndarray
             if normalize:
                 tensor = TF.to_tensor(img)  # Автоматически нормализует к [0, 1]
             else:
                 np_img = np.array(img).astype(np.float32)
-                tensor = torch.from_numpy(np_img).permute(2, 0, 1) / 255.0
+                tensor = torch.from_numpy(np_img).permute(2, 0, 1)
+                # tensor = torch.from_numpy(np_img).permute(2, 0, 1) / 255.0
             
             if add_batch:
                 tensor = tensor.unsqueeze(0)  # (1, C, H, W)
@@ -244,8 +283,8 @@ class TorchSegmenter(BaseSegmenter):
         except Exception as e:
             raise ValueError(f"Ошибка преобразования PIL->Tensor: {e}")
     
+    @staticmethod
     def _tensor_to_numpy(
-        self, 
         tensor: torch.Tensor,
         denormalize: bool = True
     ) -> np.ndarray:
@@ -254,15 +293,14 @@ class TorchSegmenter(BaseSegmenter):
             tensor = tensor.squeeze(0)
         
         result: np.ndarray = tensor.permute(1, 2, 0).cpu().numpy()
-        result: np.ndarray = tensor.permute(1, 2, 0).cpu().numpy()
         
         if denormalize and result.max() <= 1.0:
             result = (result * 255).astype(np.uint8)
         
         return result
     
+    @staticmethod
     def _tensor_to_pil(
-        self, 
         tensor: torch.Tensor,
         squeeze: bool = True
     ) -> Image.Image:
@@ -285,22 +323,8 @@ class TorchSegmenter(BaseSegmenter):
         
         return TF.to_pil_image(tensor)
     
-    def _to_grayscale(
-        self, 
-        tensor: torch.Tensor
-    ) -> torch.Tensor:
-        """Преобразование RGB в градации серого"""
-        gray: torch.Tensor
-        gray: torch.Tensor
-        if tensor.shape[1] == 3:
-            # gray = torch.mean(tensor, dim=1, keepdim=True) # (B, 1, H, W)
-            gray = 0.2989 * tensor[:, 0:1, :, :] + 0.5870 * tensor[:, 1:2, :, :] + 0.1140 * tensor[:, 2:3, :, :]
-        else:
-            gray = tensor
-        return gray
-    
+    @staticmethod
     def _normalize_to_255(
-        self,
         img: Image.Image | np.ndarray
     ) -> Image.Image | np.ndarray:
         """Метод нормализации изобраажения"""
@@ -308,8 +332,8 @@ class TorchSegmenter(BaseSegmenter):
             img = ((img - img.min()) / (img.max() - img.min()) * 255).astype(np.uint8)
         return img
     
+    @staticmethod
     def _normalize_tensor(
-        self,
         tensor: torch.Tensor
     ) -> torch.Tensor:
         """Нормализация тензора к [0, 1]"""
@@ -317,16 +341,18 @@ class TorchSegmenter(BaseSegmenter):
         max_val: torch.Tensor = tensor.max()
         return (tensor - min_val) / (max_val - min_val + 1e-8)
 
-    def _cv_heavyside(self, x: torch.Tensor, eps: float = 1.0) -> torch.Tensor:
+    @staticmethod
+    def _cv_heavyside(x: torch.Tensor, eps: float = 1.0) -> torch.Tensor:
         """Регуляризованная функция Хевисайда"""
         return 0.5 * (1.0 + (2.0 / np.pi) * torch.arctan(x / eps))
 
-    def _cv_delta(self, x: torch.Tensor, eps: float = 1.0) -> torch.Tensor:
+    @staticmethod
+    def _cv_delta(x: torch.Tensor, eps: float = 1.0) -> torch.Tensor:
         """Регуляризованная дельта-функция Дирака"""
         return eps / (eps**2 + x**2)
 
+    @staticmethod
     def _cv_calculate_averages(
-        self, 
         image: torch.Tensor, 
         Hphi: torch.Tensor
     ) -> Tuple[float, float]:
@@ -449,8 +475,8 @@ class TorchSegmenter(BaseSegmenter):
         new_phi = numerator / (denominator + 1e-8)
         return new_phi
 
+    @staticmethod
     def _cv_init_level_set(
-        self,
         init_type: str,
         image_shape: Tuple[int, int],
         device: torch.device
@@ -506,8 +532,8 @@ class TorchSegmenter(BaseSegmenter):
     # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ RANDOM WALKER (чистый PyTorch)
     # ============================================================================
 
+    @staticmethod
     def _rw_create_markers(
-        self,
         h: int,
         w: int,
         device: torch.device
@@ -527,8 +553,8 @@ class TorchSegmenter(BaseSegmenter):
         
         return markers
 
+    @staticmethod
     def _rw_compute_weights(
-        self,
         image: torch.Tensor,
         beta: float
     ) -> torch.Tensor:
@@ -576,8 +602,8 @@ class TorchSegmenter(BaseSegmenter):
         
         return weights_4dir
 
+    @staticmethod
     def _rw_build_laplacian(
-        self,
         image: torch.Tensor,
         weights: torch.Tensor,
         markers: torch.Tensor
@@ -713,8 +739,8 @@ class TorchSegmenter(BaseSegmenter):
         
         return x
 
+    @staticmethod
     def _rw_compute_rhs(
-        self,
         L: torch.Tensor,
         b_indices: torch.Tensor,
         m_indices: torch.Tensor,
@@ -743,8 +769,8 @@ class TorchSegmenter(BaseSegmenter):
         
         return rhs
 
+    @staticmethod
     def _rw_solve_jacobi(
-        self,
         L: torch.Tensor,
         B: torch.Tensor,
         x_init: torch.Tensor,
@@ -772,8 +798,8 @@ class TorchSegmenter(BaseSegmenter):
         
         return x
 
+    @staticmethod
     def _rw_solve_gauss_seidel(
-        self,
         L: torch.Tensor,
         B: torch.Tensor,
         x_init: torch.Tensor,
@@ -796,8 +822,8 @@ class TorchSegmenter(BaseSegmenter):
         
         return x
 
+    @staticmethod
     def _rw_solve_cg_batch(
-        self,
         L: torch.Tensor,
         B: torch.Tensor,
         x_init: torch.Tensor,
@@ -889,7 +915,8 @@ class TorchSegmenter(BaseSegmenter):
     # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ QUICKSHIFT (чистый numpy)
     # ============================================================================
 
-    def _rgb_to_lab_numpy(self, rgb: np.ndarray) -> np.ndarray:
+    @staticmethod
+    def _rgb_to_lab_numpy(rgb: np.ndarray) -> np.ndarray:
         """
         Конвертация RGB → Lab на numpy (упрощённая версия)
         Args:
@@ -928,8 +955,8 @@ class TorchSegmenter(BaseSegmenter):
         
         return np.stack([L, a, b], axis=-1)
 
+    @staticmethod
     def _compute_density(
-        self,
         features: np.ndarray,
         kernel_size: float
     ) -> np.ndarray:
@@ -971,8 +998,8 @@ class TorchSegmenter(BaseSegmenter):
         
         return density.reshape(h, w)
 
+    @staticmethod
     def _find_parents(
-        self,
         features: np.ndarray,
         density: np.ndarray,
         max_dist: float
@@ -1026,7 +1053,8 @@ class TorchSegmenter(BaseSegmenter):
         
         return parents.reshape(h, w)
 
-    def _extract_segments(self, parents: np.ndarray) -> np.ndarray:
+    @staticmethod
+    def _extract_segments(parents: np.ndarray) -> np.ndarray:
         """
         Извлечение сегментов из иерархии родителей.
         Пиксели, указывающие на один корень, образуют сегмент.
@@ -1063,8 +1091,8 @@ class TorchSegmenter(BaseSegmenter):
         
         return segments.reshape(h, w)
 
+    @staticmethod
     def _compute_density_fast(
-        self,
         features: np.ndarray,
         kernel_size: float,
         sample_ratio: float = 0.1
@@ -1091,7 +1119,8 @@ class TorchSegmenter(BaseSegmenter):
             density += weights
         
         return density.reshape(h, w)
-        
+
+    @torch.no_grad()    
     def segment(
         self, 
         image: Union[str, np.ndarray, Image.Image, torch.Tensor],
@@ -1413,31 +1442,6 @@ class TorchSegmenter(BaseSegmenter):
         # print(f"Mask after Torch_thresholding_otsu: {mask.unsqueeze(0).unsqueeze(0)}")
         # print(f"Info after Torch_thresholding_otsu: {info}")
         return mask.unsqueeze(0).unsqueeze(0)
-
-    def _local_mean_numpy(self, image: np.ndarray, window_size: int) -> np.ndarray:
-        """Локальное среднее через свёртку на numpy"""
-        from scipy import ndimage
-        if image.ndim == 3:
-            if image.shape[2] == 1:
-                image = image.squeeze(2)  # (H, W, 1) -> (H, W)
-            else:
-                # Если многоканальное — берём среднее по каналам
-                image = np.mean(image, axis=2)
-        kernel = np.ones((window_size, window_size), dtype=np.float32) / (window_size ** 2)
-        return ndimage.convolve(image, kernel, mode='reflect')
-
-
-    def _local_std_numpy(self, image: np.ndarray, window_size: int) -> np.ndarray:
-        """Локальное стандартное отклонение через свёртку"""
-        if image.ndim == 3:
-            if image.shape[2] == 1:
-                image = image.squeeze(2)  # (H, W, 1) -> (H, W)
-            else:
-                # Если многоканальное — берём среднее по каналам
-                image = np.mean(image, axis=2)
-        mean = self._local_mean_numpy(image, window_size)
-        mean_sq = self._local_mean_numpy(image ** 2, window_size)
-        return np.sqrt(np.maximum(mean_sq - mean ** 2, 1e-8))
     
     def _threshold_niblack(
         self,
@@ -1643,8 +1647,8 @@ class TorchSegmenter(BaseSegmenter):
         Пороговая обработка по методу Фансалкара.
         
         Улучшенная версия Ниблака для изображений с низким контрастом.
-        Порог: T = μ * (1 + p * (σ/R - 1) + q * (σ/R - 1)^2)
-        
+        (Qwen) Порог: T = μ * (1 + p * (σ/R - 1) + q * (σ/R - 1)^2)
+        (Claude) Порог: T = μ * (1 + p * exp(-q*μ) + k * (σ/R - 1))
         Args:
             tensor: Входное изображение
             window_size: Размер окна (по умолчанию 15)
@@ -1658,9 +1662,10 @@ class TorchSegmenter(BaseSegmenter):
         
         start_time = time.time()
         window_size = self.params.get('window_size', 15)
-        p = self.params.get('p', 0.5)
-        q = self.params.get('q', 0.0)
-        r = self.params.get('r', 128.0)
+        p = self.params.get('p', 0.25)
+        q = self.params.get('q', 0.5)
+        k = self.params.get('k', 0.2)
+        r = self.params.get('r', 128)
         
         if window_size % 2 == 0:
             window_size += 1
@@ -1676,8 +1681,9 @@ class TorchSegmenter(BaseSegmenter):
         local_mean = self._local_mean_numpy(gray_np, window_size)
         local_std = self._local_std_numpy(gray_np, window_size)
         # Формула Фансалкара
-        sigma_r = local_std / r
-        threshold = local_mean * (1 + p * (sigma_r - 1) + q * (sigma_r - 1)**2)
+        # sigma_r = local_std / r
+        # threshold = local_mean * (1 + p * (sigma_r - 1) + q * (sigma_r - 1)**2)
+        threshold = local_mean * (1 + p * np.exp(-q * local_mean) + k * (local_std / r - 1))
         
         # Бинаризация
         mask_np = (gray_np > threshold).astype(np.float32)
@@ -2126,7 +2132,30 @@ class TorchSegmenter(BaseSegmenter):
         **kwargs
     ) -> torch.Tensor:
         """
-        Обнаружение границ оператором Кэнни (Исправленная версия с правильным паддингом).
+        Обнаружение границ оператором Кэнни.
+        
+        Многоэтапный алгоритм:
+        1. Гауссово сглаживание
+        2. Вычисление градиента
+        3. Подавление немаксимумов (NMS)
+        4. Двойная пороговая фильтрация
+        5. Трассировка границ (hysteresis)
+        
+        Args:
+            tensor: Входное изображение (B, 1, H, W)
+            low_threshold: Нижний порог для слабых границ (0-1)
+            high_threshold: Верхний порог для сильных границ (0-1)
+            sigma: Сигма для Гауссова размытия
+        
+        Returns:
+            torch.Tensor: Бинарная маска границ (B, 1, H, W)
+        
+        Raises:
+            ValueError: Если пороги вне диапазона [0, 1]
+        
+        Example:
+            >>> segmenter = TorchSegmenter("canny_edge", low=0.1, high=0.3)
+            >>> mask = segmenter.segment("image.jpg")
         """
         gray = self._to_grayscale(tensor) # (B, 1, H, W)
         print(f"Gray after Torch_canny_edge: {gray}")
@@ -2545,8 +2574,9 @@ class TorchSegmenter(BaseSegmenter):
                                 [-1, 0]], 
                                 dtype=torch.float32, device=self.device).view(1, 1, 2, 2)
         
-        gx = F.conv2d(gray, roberts_x, padding=1)
-        gy = F.conv2d(gray, roberts_y, padding=1)
+        gray_pad = F.pad(gray, (0, 1, 0, 1), mode='reflect')
+        gx = F.conv2d(gray_pad, roberts_x, padding=1)
+        gy = F.conv2d(gray_pad, roberts_y, padding=1)
         
         magnitude = torch.sqrt(gx**2 + gy**2)
         
@@ -2963,7 +2993,8 @@ class TorchSegmenter(BaseSegmenter):
                 
                 # Добавляем соседей
                 neighbors = [(x+1, y), (x-1, y), (x, y+1), (x, y-1)]
-                queue.extend(neighbors)
+                for nx, ny in neighbors:
+                    queue.append((ny, nx))
 
         exec_time = time.time() - start_time
         info = {
@@ -3079,7 +3110,7 @@ class TorchSegmenter(BaseSegmenter):
             
         except Exception as e:
             warnings.warn(f"Split-and-merge failed: {e}. Using fallback.")
-            return self._kmeans_segmentation(tensor), {}
+            return self._kmeans_segmentation(tensor)
     
     def _floodfill(
         self, 
@@ -3554,107 +3585,6 @@ class TorchSegmenter(BaseSegmenter):
             h, w = img_np.shape[:2]
             mask = torch.zeros((h, w), device=self.device)
             return img_np, mask
-    # def _meanshift(self, 
-    #                      tensor: torch.Tensor
-    # ) -> torch.Tensor:
-    #     """MeanShift сегментация (PyTorch реализация)"""
-    #     try:
-    #         # Преобразуем в numpy для обработки
-    #         img_np = self._tensor_to_numpy(tensor)
-    #         h, w = img_np.shape[:2]
-            
-    #         # Используем MeanShift из sklearn
-    #         bandwidth = self.params.get('bandwidth', 0.5)
-    #         spatial_radius = self.params.get('spatial_radius', 35)
-    #         color_radius = self.params.get('color_radius', 60)
-            
-    #         # Создаем пространство признаков
-    #         y_coords, x_coords = np.mgrid[0:h, 0:w]
-    #         spatial_features = np.stack([x_coords / spatial_radius,
-    #                                    y_coords / spatial_radius], axis=-1)
-            
-    #         # Нормализуем цветовые признаки
-    #         color_features = img_np / color_radius
-            
-    #         # Объединяем признаки
-    #         features = np.concatenate([spatial_features, color_features], axis=-1)
-    #         features_flat = features.reshape(-1, features.shape[-1])
-            
-    #         # Применяем MeanShift
-    #         meanshift = SkMeanShift(bandwidth=bandwidth, max_iter=100, n_jobs=-1)
-    #         labels = meanshift.fit_predict(features_flat)
-    #         labels_2d = labels.reshape(h, w)
-            
-    #         # Находим самый большой кластер (предположительно фон)
-    #         unique, counts = np.unique(labels, return_counts=True)
-    #         bg_label = unique[np.argmax(counts)]
-            
-    #         # Создаем маску
-    #         mask_np = (labels_2d != bg_label).astype(np.float32)
-    #         mask = torch.from_numpy(mask_np).to(self.device)
-            
-    #         return mask
-            
-    #     except Exception as e:
-    #         warnings.warn(f"MeanShift failed: {e}")
-    #         return self._kmeans_segmentation(tensor)
-    
-    # def _meanshift_torch_visualization(self, 
-    #                                    tensor: torch.Tensor
-    # ) -> Tuple[np.ndarray, torch.Tensor]:
-    #     """Визуализация для MeanShift"""
-    #     try:
-    #         # Преобразуем в numpy для обработки
-    #         img_np = self._tensor_to_numpy(tensor)
-    #         h, w, c = img_np.shape
-            
-    #         # Используем MeanShift
-    #         bandwidth = self.params.get('bandwidth', 0.5)
-    #         spatial_radius = self.params.get('spatial_radius', 35)
-    #         color_radius = self.params.get('color_radius', 60)
-            
-    #         # Создаем пространство признаков
-    #         y_coords, x_coords = np.mgrid[0:h, 0:w]
-    #         spatial_features = np.stack([x_coords / spatial_radius,
-    #                                    y_coords / spatial_radius], axis=-1)
-            
-    #         color_features = img_np / color_radius
-    #         features = np.concatenate([spatial_features, color_features], axis=-1)
-    #         features_flat = features.reshape(-1, features.shape[-1])
-            
-    #         # Применяем MeanShift
-    #         meanshift = SkMeanShift(bandwidth=bandwidth, max_iter=100, n_jobs=-1)
-    #         labels = meanshift.fit_predict(features_flat)
-    #         labels_2d = labels.reshape(h, w)
-            
-    #         # Создаем сегментированное изображение
-    #         segmented = np.zeros_like(img_np)
-    #         unique_labels = np.unique(labels_2d)
-            
-    #         for label in unique_labels:
-    #             mask = labels_2d == label
-    #             if np.any(mask):
-    #                 segmented[mask] = np.mean(img_np[mask], axis=0)
-            
-    #         # Смешиваем с оригиналом
-    #         alpha = 0.6
-    #         result = (img_np * (1 - alpha) + segmented * alpha).astype(np.uint8)
-            
-    #         # Находим фон и создаем маску
-    #         unique, counts = np.unique(labels, return_counts=True)
-    #         bg_label = unique[np.argmax(counts)]
-    #         mask_np = (labels_2d != bg_label).astype(np.float32)
-    #         mask = torch.from_numpy(mask_np).to(self.device)
-            
-    #         return result, mask
-            
-    #     except Exception as e:
-    #         warnings.warn(f"MeanShift visualization failed: {e}")
-    #         mask = self._meanshift(tensor)
-    #         img_np = self._tensor_to_numpy(tensor)
-    #         return img_np, mask
-        
-    # GMM для GrabCut
     
     # ============ АКТИВНЫЕ КОНТУРЫ ============
     def _active_contour(
@@ -3812,8 +3742,12 @@ class TorchSegmenter(BaseSegmenter):
                     kernel = np.ones((smoothing*2+1, smoothing*2+1), dtype=np.uint8)
                     from scipy.ndimage import binary_erosion, binary_dilation
                     mask_bool = mask_np > 0.5
-                    mask_bool = binary_dilation(mask_bool, structure=kernel)
-                    mask_bool = binary_erosion(mask_bool, structure=kernel)
+                    expand_cond = expansion & ~mask_bool
+                    erode_cond = erosion & mask_bool
+                    mask_bool[expand_cond] = True
+                    mask_bool[erode_cond] = False
+                    # mask_bool = binary_dilation(mask_bool, structure=kernel)
+                    # mask_bool = binary_erosion(mask_bool, structure=kernel)
                     mask_np = mask_bool.astype(np.float32)
                     # mask_np = morphology.binary_closing(mask_np > 0.5, morphology.disk(smoothing))
                     # mask_np = morphology.binary_opening(mask_np, morphology.disk(smoothing))
@@ -3972,9 +3906,7 @@ class TorchSegmenter(BaseSegmenter):
 
         # Convert to grayscale if needed
         if tensor_for_processing.shape[1] == 3:
-            grayscale = 0.2989 * tensor_for_processing[:, 0:1, :, :] + \
-                        0.5870 * tensor_for_processing[:, 1:2, :, :] + \
-                        0.1140 * tensor_for_processing[:, 2:3, :, :]
+            grayscale = self._rgb_to_gray_torch(tensor_for_processing)
         else:
             grayscale = tensor_for_processing
 
@@ -4060,13 +3992,14 @@ class TorchSegmenter(BaseSegmenter):
                     else:
                         # Если соседний пиксель выше, мы не можем его затопить прямо сейчас.
                         # Но если это маркер, мы добавим его в очередь.
-                        if markers_int[ny, nx] > 0:
-                            heapq.heappush(pixel_queue, (neighbor_height, ny, nx, markers_int[ny, nx].item()))
-                            result_labels[ny, nx] = markers_int[ny, nx].item()
-                            visited[ny, nx] = True
-                        else:
-                            # Просто добавляем в очередь для будущей обработки
-                            heapq.heappush(pixel_queue, (neighbor_height, ny, nx, label))
+                        # if markers_int[ny, nx] > 0:
+                        #     heapq.heappush(pixel_queue, (neighbor_height, ny, nx, markers_int[ny, nx].item()))
+                        #     result_labels[ny, nx] = markers_int[ny, nx].item()
+                        #     visited[ny, nx] = True
+                        # else:
+                        #     # Просто добавляем в очередь для будущей обработки
+                        #     heapq.heappush(pixel_queue, (neighbor_height, ny, nx, label))
+                        heapq.heappush(pixel_queue, (neighbor_height, ny, nx, 0))
 
         # Конвертируем результат обратно в тензор
         result_labels = result_labels.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)

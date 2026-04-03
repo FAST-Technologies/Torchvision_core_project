@@ -16,12 +16,19 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: true
     
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'pip'
+
+    - name: Set PYTHONPATH
+      run: |
+        echo "PYTHONPATH=${{ github.workspace }}" >> $GITHUB_ENV
+        export PYTHONPATH="${{ github.workspace }}:$PYTHONPATH"
     
     - name: Install system dependencies
       run: |
@@ -42,12 +49,10 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
       continue-on-error: true
 
-    - name: Check for security issues
-      uses: bandit/bandit-action@v1
-      with:
-        targets: segmenters/ testing/
-        format: screen
-        level: high
+    - name: Check for security issues with Bandit
+      run: |
+        pip install bandit
+        bandit -r segmenters/ testing/ -ll -f screen
       continue-on-error: true
 
     - name: Check dependencies for vulnerabilities
@@ -65,7 +70,7 @@ jobs:
       run: |
         mypy segmenters/ testing/ metrics/ --ignore-missing-imports
       continue-on-error: true
-    
+
     - name: Test with pytest
       run: |
         pytest tests/ -v --cov=segmenters --cov=testing --cov=metrics --cov-report=xml

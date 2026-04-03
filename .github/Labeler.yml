@@ -1,0 +1,14 @@
+# .github/labeler.yml
+segmenters:
+  - segmenters/**/*
+
+testing:
+  - testing/**/*
+  - tests/**/*
+
+metrics:
+  - metrics/**/*
+
+documentation:
+  - README.md
+  - docs/**/*

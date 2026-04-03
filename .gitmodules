@@ -1,0 +1,3 @@
+[submodule "Neural_networks_University"]
+    path = Neural_networks_University
+    url = https://github.com/FAST-Technologies/Torchvision_core_project.git
