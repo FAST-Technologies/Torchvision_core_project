@@ -1,11 +1,18 @@
 # testing/SegmentationTester.py
 
 # Импорт основных библиотек
+
+import os
+import sys
+
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from segmenters.BaseSegmenter import BaseSegmenter
 from metrics.SegmentationMetrics import SegmentationMetrics
 from utils.warmup import SegmentationWarmUp
 
-import os
 import time
 import json
 from datetime import datetime
