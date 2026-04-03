@@ -36,11 +36,32 @@ class TorchImplementationValidator:
             ("adaptive_thresholding", {"block_size": 11, "C": 2}),
             ("threshold_niblack", {"window_size": 15, "k": -0.2}),
             ("threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128}),
+            ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
+            ("threshold_phansalkar", {"window_size": 15, "k": 0.25, "r": 0.5, "m": 0.5}),
+            ("threshold_kittler_illingworth", {}),
+            ("threshold_entropy_kapur", {}),
+            ("threshold_triangle", {}),
+            ("threshold_multi_otsu", {"n_thresholds": 2}),  # Было nb_classes
+            ("threshold_percentile", {"percentile": 90}),
+            ("threshold_local_contrast", {"window_size": 15, "contrast_factor": 0.1}),
         ]
         
         self.edge_methods: List[Tuple[str, Dict[str, Any]]] = [
             ("sobel_edge", {"threshold": 0.1}),
             ("canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
+            ("prewitt_edge", {"threshold": 0.1}),
+            ("scharr_edge", {"threshold": 0.1}),
+            ("roberts_cross_edge", {"threshold": 0.1}),
+            ("log_edge", {"sigma": 1.0, "threshold": 0.01}),
+            ("dog_edge", {"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01}),
+            ("marr_hildreth_edge", {"sigma": 1.5, "threshold": 0.01}),
+            ("gradient_magnitude_direction", {"threshold": 0.1}), # operator удалён (используется sobel по умолчанию)
+            ("phase_congruency_edge", {
+                "nscales": 5,          # Было nscale
+                "min_wavelength": 3,   # Было minwavelength
+                "mult": 2.0,
+                "cutoff_pc": 0.3       # Было threshold
+            }),
         ]
 
         self.region_methods: List[Tuple[str, Dict[str, Any]]] = [
