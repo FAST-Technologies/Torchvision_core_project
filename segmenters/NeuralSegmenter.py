@@ -33,11 +33,10 @@ from scipy.ndimage import zoom
 
 import torch
 import cv2
+from typing_extensions import TypeAlias
 
 TRANSFORMERS_AVAILABLE = True
 num_classes: int = 150
-
-from typing_extensions import TypeAlias
 
 ImagePath: TypeAlias = str
 NumpyImage: TypeAlias = np.ndarray
@@ -378,9 +377,7 @@ class NeuralSegmenter(BaseSegmenter):
 
         return mask
 
-    def segment_image(
-        self, input_image: Union[str, Image.Image], alpha: float = 0.9
-    ) -> Image.Image:
+    def segment_image(self, image: ImageInput, alpha: float = 0.9) -> Image.Image:
         """
         Performs semantic segmentation on an image and returns an overlay mask.
 

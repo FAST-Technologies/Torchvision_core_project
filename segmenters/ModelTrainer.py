@@ -457,26 +457,26 @@ class ModelTrainer:
         # Если пути не указаны, используем стандартные имена
         if checkpoint_paths is None:
             checkpoint_paths = {}
-            for model_type in model_types:
+            for model_typer in model_types:
                 # 🔥 Имя модели для отображения
-                if model_type == "unet_smp":
+                if model_typer == "unet_smp":
                     name = "U-Net"
-                elif model_type == "deeplab_tv":
+                elif model_typer == "deeplab_tv":
                     name = "DeepLabV3+"
-                elif model_type == "fpn_smp":
+                elif model_typer == "fpn_smp":
                     name = "FPN+MiT-B5"
-                elif model_type == "psp_smp":
+                elif model_typer == "psp_smp":
                     name = "PSPNet+MiT-B5"
-                elif model_type == "fcn_tv":
+                elif model_typer == "fcn_tv":
                     name = "FCN ResNet-50"
-                elif model_type == "segnet":
+                elif model_typer == "segnet":
                     name = "SegNet"
                 else:
-                    name = model_type
+                    name = model_typer
 
                 # 🔥 Ищем чекпоинт с правильным именем
                 pattern = os.path.join(
-                    self.checkpoint_dir, f"{model_type}_{augmentation_level}_*.pth"
+                    self.checkpoint_dir, f"{model_typer}_{augmentation_level}_*.pth"
                 )
                 files = glob.glob(pattern)
                 if files:

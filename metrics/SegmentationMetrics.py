@@ -211,7 +211,7 @@ class SegmentationMetrics:
         r_custom = tp / (tp + fn + 1e-8)
 
         if verbose:
-            print(f"--- Сравнение Precision/Recall ---")
+            print("--- Сравнение Precision/Recall ---")
             print(f"TP: {tp}, FP: {fp}, FN: {fn}, TN: {tn}")
             print(
                 f"Precision: Sklearn={p_sklearn:.6f} | Custom={p_custom:.6f} | Diff={abs(p_sklearn-p_custom):.2e}"

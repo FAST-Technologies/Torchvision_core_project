@@ -1020,7 +1020,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         _, mask = cv2.threshold(
             magnitude.astype(np.float32), float(threshold), 255.0, cv2.THRESH_BINARY
-        )
+        )  # type: ignore[call-overload]
 
         exec_time = time.time() - start_time
 
@@ -1115,7 +1115,7 @@ class OpenCVSegmenter(BaseSegmenter):
         magnitude = np.uint8(255 * magnitude / (np.max(magnitude) + 1e-8))
 
         # Бинаризация
-        _, mask = cv2.threshold(magnitude, float(threshold), 255.0, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(magnitude, float(threshold), 255.0, cv2.THRESH_BINARY)  # type: ignore[call-overload]
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -1166,7 +1166,7 @@ class OpenCVSegmenter(BaseSegmenter):
         magnitude = np.sqrt(grad_x**2 + grad_y**2)
         magnitude = np.uint8(255 * magnitude / (np.max(magnitude) + 1e-8))
         # Бинаризация
-        _, mask = cv2.threshold(magnitude, float(threshold), 255.0, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(magnitude, float(threshold), 255.0, cv2.THRESH_BINARY)  # type: ignore[call-overload]
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -1215,7 +1215,7 @@ class OpenCVSegmenter(BaseSegmenter):
         magnitude = np.uint8(255 * magnitude / (np.max(magnitude) + 1e-8))
 
         # Бинаризация
-        _, mask = cv2.threshold(magnitude, float(threshold), 255.0, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(magnitude, float(threshold), 255.0, cv2.THRESH_BINARY)  # type: ignore[call-overload]
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -2050,7 +2050,7 @@ class OpenCVSegmenter(BaseSegmenter):
         gvf_mag = np.sqrt(u**2 + v**2)
         gvf_mag = np.uint8(255 * gvf_mag / np.max(gvf_mag))
 
-        _, mask = cv2.threshold(gvf_mag, 50.0, 255.0, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(gvf_mag, 50.0, 255.0, cv2.THRESH_BINARY)  # type: ignore[call-overload]
         mask = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
 
         exec_time = time.time() - start_time
@@ -2099,7 +2099,7 @@ class OpenCVSegmenter(BaseSegmenter):
             grad_mag = np.sqrt(grad_x**2 + grad_y**2)
             grad_mag = np.uint8(255 * grad_mag / np.max(grad_mag))
 
-            _, grad_binary = cv2.threshold(grad_mag, 50.0, 255.0, cv2.THRESH_BINARY)
+            _, grad_binary = cv2.threshold(grad_mag, 50.0, 255.0, cv2.THRESH_BINARY)  # type: ignore[call-overload]
 
             # Расширение/сужение на основе градиента
             mask = cv2.bitwise_and(mask, cv2.bitwise_not(grad_binary))
