@@ -8,7 +8,8 @@ from typing import (
     Dict,
     Any,
     Optional,
-    Callable
+    Callable,
+    Literal
 )
 import numpy as np
 import warnings
@@ -134,11 +135,25 @@ SKIMAGE_AVAILABLE = True
 import torch
 from typing_extensions import TypeAlias
 
+# Определение типов для изображений
 ImagePath: TypeAlias = str
 NumpyImage: TypeAlias = np.ndarray
 PILImage: TypeAlias = Image.Image
 TorchImage: TypeAlias = torch.Tensor
 ImageInput: TypeAlias = Union[ImagePath, NumpyImage, PILImage, TorchImage]
+
+# Типы для цветовых пространств
+ColorSpace = Literal["RGB", "BGR", "GRAY", "L"]
+ColorChannel = Literal[1, 3]
+OverlayColor: TypeAlias = Tuple[int, int, int]
+
+# Типы для масок
+Mask: TypeAlias = np.ndarray
+BinaryMask: TypeAlias = np.ndarray  # shape: (H, W), dtype: uint8, значения: 0 или 255
+ProbabilityMask: TypeAlias = np.ndarray  # shape: (H, W), dtype: float32, значения: 0-1
+
+# Тип для метрик
+MetricsDict: TypeAlias = Dict[str, float]
 
 
 class SklearnSegmenter(BaseSegmenter):
