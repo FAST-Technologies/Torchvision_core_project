@@ -43,7 +43,7 @@ class SegmentationComparator:
     """
 
     def __init__(self) -> None:
-        self.results = {}
+        self.results: dict = {}
 
     # ============ МЕТРИКИ КАЧЕСТВА ============
 
@@ -104,7 +104,7 @@ class SegmentationComparator:
         name1: Optional[str] = None,
         name2: Optional[str] = None,
         save_comparison: bool = True,
-        output_path: str = None,
+        output_path: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Сравнивает две реализации методов сегментации, используя переданные объекты.

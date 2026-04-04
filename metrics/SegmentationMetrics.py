@@ -537,7 +537,7 @@ class SegmentationMetrics:
     @staticmethod
     def evaluate_multiple_masks(
         pred_masks: List[np.ndarray], gt_masks: List[np.ndarray], threshold: float = 0.5
-    ) -> Dict[str, Dict[str, float]]:
+    ) -> Dict[str, Any]:
         """
         Оценка нескольких масок с вычислением средних метрик
 

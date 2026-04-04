@@ -27,6 +27,10 @@ from scipy.ndimage import gaussian_filter, laplace
 import math
 import time
 
+from sklearn.cluster import (
+    DBSCAN,
+)
+
 
 class OpenCVSegmenter(BaseSegmenter):
     """
