@@ -97,7 +97,7 @@ class SegmentationTester:
             )
             self.warmup_completed[method_name] = True
 
-    def _create_test_directory(self, test_name: Optional[str] = None) -> str:
+    def _create_test_directory(self, test_name: Optional[str] = None) -> Optional[str]:
         """Создает уникальную директорию для теста"""
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         test_dir: str
@@ -106,7 +106,7 @@ class SegmentationTester:
         else:
             test_dir = f"test_{timestamp}"
 
-        full_path: Optional[str] = os.path.join(self.base_output_dir, test_dir)
+        full_path = os.path.join(self.base_output_dir, test_dir)
         os.makedirs(full_path, exist_ok=True)
         os.makedirs(os.path.join(full_path, "images"), exist_ok=True)
         os.makedirs(os.path.join(full_path, "masks"), exist_ok=True)
@@ -1267,6 +1267,9 @@ class SegmentationTester:
                     result_pil.save(result_path)
 
                     # Сохраняем маску
+                    mask_path: str = os.path.join(
+                        bench_dir, "masks", f"{method_name}_mask.png"
+                    )
                     mask_pil = Image.fromarray(mask.astype(np.uint8))
                     mask_pil.save(mask_path)
 

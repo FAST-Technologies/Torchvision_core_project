@@ -416,7 +416,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Выполняем сегментацию
         img_array: np.ndarray = self.preprocess_image(image)
-        mask = self.segment(img_array, **kwargs)  # type: ignore[arg-type]
+        mask = self.segment(img_array, **segment_kwargs)  # type: ignore[arg-type]
 
         # Вычисляем метрики
         metrics = SegmentationMetrics.calculate_all_metrics(
@@ -428,7 +428,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         return metrics, mask
 
-    def segment_with_mask(
+    def segment_with_mask(  # type: ignore[override]
         self, image: np.ndarray, alpha: float = 0.9, **kwargs
     ) -> Tuple[np.ndarray, np.ndarray]:
         """

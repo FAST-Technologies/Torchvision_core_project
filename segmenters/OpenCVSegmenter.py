@@ -173,7 +173,9 @@ class OpenCVSegmenter(BaseSegmenter):
             "execution_time": exec_time,
         }
 
-    def segment(self, image: np.ndarray, **kwargs) -> np.ndarray:
+    def segment(  # type: ignore[override]
+        self, image: np.ndarray, **kwargs
+    ) -> np.ndarray:
         """
         Основной метод сегментации.
 
@@ -190,7 +192,7 @@ class OpenCVSegmenter(BaseSegmenter):
         # print(f"Mask after OpenCV segment: {mask}")
         return mask
 
-    def segment_with_mask(
+    def segment_with_mask(  # type: ignore[override]
         self, image: np.ndarray, alpha: float = 0.9, **kwargs
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -1016,7 +1018,7 @@ class OpenCVSegmenter(BaseSegmenter):
         # sobel_norm = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
         # _, mask = cv2.threshold(sobel_norm.astype(np.uint8), threshold, 255, cv2.THRESH_BINARY)
 
-        _, mask = cv2.threshold(magnitude, threshold, 255, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(magnitude, float(threshold), 255.0, cv2.THRESH_BINARY)
 
         exec_time = time.time() - start_time
 
@@ -1111,7 +1113,7 @@ class OpenCVSegmenter(BaseSegmenter):
         magnitude = np.uint8(255 * magnitude / (np.max(magnitude) + 1e-8))
 
         # Бинаризация
-        _, mask = cv2.threshold(magnitude, threshold, 255, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(magnitude, float(threshold), 255.0, cv2.THRESH_BINARY)
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -1162,7 +1164,7 @@ class OpenCVSegmenter(BaseSegmenter):
         magnitude = np.sqrt(grad_x**2 + grad_y**2)
         magnitude = np.uint8(255 * magnitude / (np.max(magnitude) + 1e-8))
         # Бинаризация
-        _, mask = cv2.threshold(magnitude, threshold, 255, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(magnitude, float(threshold), 255.0, cv2.THRESH_BINARY)
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -1211,7 +1213,7 @@ class OpenCVSegmenter(BaseSegmenter):
         magnitude = np.uint8(255 * magnitude / (np.max(magnitude) + 1e-8))
 
         # Бинаризация
-        _, mask = cv2.threshold(magnitude, threshold, 255, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(magnitude, float(threshold), 255.0, cv2.THRESH_BINARY)
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -2046,7 +2048,7 @@ class OpenCVSegmenter(BaseSegmenter):
         gvf_mag = np.sqrt(u**2 + v**2)
         gvf_mag = np.uint8(255 * gvf_mag / np.max(gvf_mag))
 
-        _, mask = cv2.threshold(gvf_mag, 50, 255, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(gvf_mag, 50.0, 255.0, cv2.THRESH_BINARY)
         mask = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
 
         exec_time = time.time() - start_time
@@ -2095,7 +2097,7 @@ class OpenCVSegmenter(BaseSegmenter):
             grad_mag = np.sqrt(grad_x**2 + grad_y**2)
             grad_mag = np.uint8(255 * grad_mag / np.max(grad_mag))
 
-            _, grad_binary = cv2.threshold(grad_mag, 50, 255, cv2.THRESH_BINARY)
+            _, grad_binary = cv2.threshold(grad_mag, 50.0, 255.0, cv2.THRESH_BINARY)
 
             # Расширение/сужение на основе градиента
             mask = cv2.bitwise_and(mask, cv2.bitwise_not(grad_binary))

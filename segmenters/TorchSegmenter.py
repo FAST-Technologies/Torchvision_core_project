@@ -1820,7 +1820,7 @@ class TorchSegmenter(BaseSegmenter):
         pdf = hist / total
 
         best_threshold = 128
-        max_entropy = -float("inf")
+        max_entropy = torch.tensor(-float("inf"), device=gray.device)
 
         for t in range(1, 255):
             # Класс 0: [0, t]
@@ -1944,7 +1944,7 @@ class TorchSegmenter(BaseSegmenter):
                 return []
 
             best_t = start + (end - start) // 2
-            best_var = -float("inf")
+            best_var = torch.tensor(-float("inf"), device=gray.device)
 
             for t in range(start + 1, end):
                 # Класс 0: [start, t]
@@ -3258,7 +3258,7 @@ class TorchSegmenter(BaseSegmenter):
         target_color = tensor[0, :, start_y, start_x]
 
         # Очередь для BFS
-        queue = deque()
+        queue: Deque[Tuple[int, int]] = deque()
         queue.append((start_x, start_y))
         visited[start_y, start_x] = True
         mask[start_y, start_x] = True

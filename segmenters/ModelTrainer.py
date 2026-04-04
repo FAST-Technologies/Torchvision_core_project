@@ -421,7 +421,7 @@ class ModelTrainer:
     def compare_trained_models(
         self,
         augmentation_level: str = "medium",
-        checkpoint_paths: Optional[List[str]] = None,
+        checkpoint_paths: Optional[Dict[str, str]] = None,
         model_types: Optional[List[str]] = None,
     ) -> Dict[str, float]:
         """
@@ -450,7 +450,6 @@ class ModelTrainer:
             ]
 
         # Если пути не указаны, используем стандартные имена
-        checkpoint_paths: Optional[Dict[str, str]] = None
         if checkpoint_paths is None:
             checkpoint_paths = {}
             for model_type in model_types:

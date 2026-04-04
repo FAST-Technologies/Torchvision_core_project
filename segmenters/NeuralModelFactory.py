@@ -219,7 +219,7 @@ class NeuralModelFactory:
         model_type: ModelType,
         model_name: Optional[str] = None,
         local_path: Optional[str] = None,
-        checkpoint_path: str = "model_path",
+        checkpoint_path: Optional[str] = "model_path.pth",
         device: str = "cuda",
         num_classes: int = 150,
         **kwargs,
@@ -367,7 +367,7 @@ class NeuralModelFactory:
     # ========== MASK2FORMER ==========
     @classmethod
     def _load_mask2former(
-        cls, model_name: str, device: str = "cuda"
+        cls, model_name: Optional[str], device: str = "cuda"
     ) -> Tuple[Any, Any, str]:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
@@ -398,7 +398,7 @@ class NeuralModelFactory:
     # ========== MASKFORMER ==========
     @classmethod
     def _load_maskformer(
-        cls, model_name: str, device: str = "cuda"
+        cls, model_name: Optional[str], device: str = "cuda"
     ) -> Tuple[Any, Any, str]:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
@@ -429,7 +429,7 @@ class NeuralModelFactory:
     # ========== ONEFORMER ==========
     @classmethod
     def _load_oneformer(
-        cls, model_name: str, device: str = "cuda"
+        cls, model_name: Optional[str], device: str = "cuda"
     ) -> Tuple[Any, Any, str]:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
@@ -469,7 +469,9 @@ class NeuralModelFactory:
 
     # ========== DPT ==========
     @classmethod
-    def _load_dpt(cls, model_name: str, device: str = "cuda") -> Tuple[Any, Any, str]:
+    def _load_dpt(
+        cls, model_name: Optional[str], device: str = "cuda"
+    ) -> Tuple[Any, Any, str]:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
 
@@ -493,7 +495,7 @@ class NeuralModelFactory:
     # ========== UPERNET ==========
     @classmethod
     def _load_upernet(
-        cls, model_name: str, device: str = "cuda"
+        cls, model_name: Optional[str], device: str = "cuda"
     ) -> Tuple[Any, Any, str]:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
@@ -887,7 +889,9 @@ class NeuralModelFactory:
 
     # ========== SAM ==========
     @classmethod
-    def _load_sam(cls, model_name: str, device: str = "cuda") -> Tuple[Any, Any, str]:
+    def _load_sam(
+        cls, model_name: Optional[str], device: str = "cuda"
+    ) -> Tuple[Any, Any, str]:
         if not SAM_AVAILABLE:
             raise ImportError("ultralytics library required for SAM")
 

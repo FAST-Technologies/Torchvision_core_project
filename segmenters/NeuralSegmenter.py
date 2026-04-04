@@ -37,6 +37,12 @@ import cv2
 TRANSFORMERS_AVAILABLE = True
 num_classes: int = 150
 
+ImagePath: TypeAlias = str
+NumpyImage: TypeAlias = np.ndarray
+PILImage: TypeAlias = Image.Image
+TorchImage: TypeAlias = torch.Tensor
+ImageInput: TypeAlias = Union[ImagePath, NumpyImage, PILImage, TorchImage]
+
 
 class NeuralSegmenter(BaseSegmenter):
     """
@@ -403,7 +409,7 @@ class NeuralSegmenter(BaseSegmenter):
         return Image.fromarray(overlay)
 
     def segment(  # type: ignore[override]
-        self, image: "ImageInput", *args: Any, **kwargs: Any
+        self, image: ImageInput, *args: Any, **kwargs: Any
     ) -> np.ndarray:
         """
         Основной метод сегментации.
@@ -419,7 +425,7 @@ class NeuralSegmenter(BaseSegmenter):
         return np.array(result_img)
 
     def segment_with_mask(  # type: ignore[override]
-        self, image: "ImageInput", *args: Any, **kwargs: Any
+        self, image: ImageInput, *args: Any, **kwargs: Any
     ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """
         Сегментация с возвратом визуализации и маски.

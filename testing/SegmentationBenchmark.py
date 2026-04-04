@@ -696,8 +696,8 @@ class SegmentationBenchmark:
             print("⚠️ No results to plot. Run compare() first.")
             return
 
-        models = list(summary.keys())
-        values = [summary[m].get(metric_name, np.nan) for m in models]
+        models: List[str] = list(summary.keys())
+        values: List[float] = [summary[m].get(metric_name, np.nan) for m in models]
 
         # Фильтруем модели без данных
         valid = [(m, v) for m, v in zip(models, values) if not np.isnan(v)]
@@ -706,8 +706,8 @@ class SegmentationBenchmark:
             print(f"⚠️ No valid data for metric '{metric_name}'")
             return
 
-        models: List[str] = [m for m, _ in valid]
-        values: List[float] = [v for _, v in valid]
+        models = [m for m, _ in valid]
+        values = [v for _, v in valid]
 
         is_percentage = metric_name in ["mIoU", "pixel_acc", "f1_weighted"]
         multiplier = 100 if is_percentage else 1
