@@ -7,18 +7,9 @@
 # Импорт основных библиотек
 from typing import (
     List,
-    Union,
     Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
-    Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
 import warnings
 import numpy as np
@@ -348,7 +339,7 @@ class SegmentationMetrics:
             h1 = directed_hausdorff(pred_coords, gt_coords)[0]
             h2 = directed_hausdorff(gt_coords, pred_coords)[0]
             hausdorff_dist = max(h1, h2)
-        except:
+        except ValueError:
             hausdorff_dist = float("inf")
         return float(hausdorff_dist)
 

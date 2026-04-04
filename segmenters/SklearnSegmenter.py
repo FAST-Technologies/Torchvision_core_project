@@ -3,28 +3,16 @@
 # Импорт основных библиотек
 from segmenters.BaseSegmenter import BaseSegmenter
 from typing import (
-    List,
     Union,
     Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
     Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
 import numpy as np
 import warnings
 from collections import deque
-import math
-import requests
-from io import BytesIO
 from PIL import Image
-import matplotlib.pyplot as plt
 import time
 
 # Импорт scikit-learn компонентов

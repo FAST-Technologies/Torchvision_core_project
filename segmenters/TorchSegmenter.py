@@ -14,15 +14,8 @@ from typing import (
     Union,
     Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
     Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
 
 import numpy as np
@@ -33,20 +26,19 @@ import torch.nn.functional as F
 import torch.nn as nn
 from torch.distributions.multivariate_normal import MultivariateNormal
 
-import torchvision
-from torchvision import transforms
 from torchvision.transforms import functional as TF
-from torchvision.transforms import GaussianBlur
 
 import cv2
-from sklearn.cluster import MeanShift, KMeans, DBSCAN, MeanShift as SkMeanShift
+from sklearn.cluster import DBSCAN, MeanShift as SkMeanShift
 
 
 class TorchSegmenter(BaseSegmenter):
     """
-    Класс для методов сегментации с использованием PyTorch. Все реализации сделаны без использования OpenCV, Scikit-learn, Scikit-image или специализированных
-    библиотек для обработки изображений. Поддерживает как классические методы (пороговые, граничные), так и методы на основе кластеризации,
-    активных контуров и графов.
+    Класс для методов сегментации с использованием PyTorch. 
+    Все реализации сделаны без использования OpenCV, Scikit-learn, Scikit-image 
+    или специализированных библиотек для обработки изображений. 
+    Поддерживает как классические методы (пороговые, граничные), 
+    так и методы на основе кластеризации, активных контуров и графов.
     """
 
     def __init__(
@@ -229,8 +221,6 @@ class TorchSegmenter(BaseSegmenter):
 
     def _local_mean_numpy(self, image: np.ndarray, window_size: int) -> np.ndarray:
         """Локальное среднее через свёртку на numpy"""
-        from scipy import ndimage
-
         if image.ndim == 3:
             if image.shape[2] == 1:
                 image = image.squeeze(2)  # (H, W, 1) -> (H, W)
@@ -866,7 +856,7 @@ class TorchSegmenter(BaseSegmenter):
         """
         try:
             from scipy.sparse import csr_matrix
-            from scipy.sparse.linalg import cg, spsolve
+            from scipy.sparse.linalg import cg
 
             # Конвертируем PyTorch sparse в scipy sparse
             L_coo = L.coalesce()
@@ -1071,9 +1061,6 @@ class TorchSegmenter(BaseSegmenter):
         h, w = parents.shape
         parents_flat = parents.ravel()
         n = h * w
-
-        # Находим корни (пиксели, которые указывают на себя)
-        roots = np.where(parents_flat == np.arange(n))[0]
 
         # Для каждого пикселя находим корень
         segments = np.zeros(n, dtype=np.int32)
@@ -1588,6 +1575,7 @@ class TorchSegmenter(BaseSegmenter):
             .squeeze(0)
             .squeeze(0)
         )
+        print(gray_padded)
 
         h, w = gray.shape
         mask = torch.zeros_like(gray)
@@ -1595,6 +1583,7 @@ class TorchSegmenter(BaseSegmenter):
         # Локальное вычисление мин/макс через свёртку с ядрами
         # Для эффективности используем pooling
         kernel = torch.ones(1, 1, window_size, window_size, device=self.device)
+        print(kernel)
         # Локальный максимум и минимум через pooling
         local_max = F.max_pool2d(
             gray.unsqueeze(0).unsqueeze(0),
@@ -2039,6 +2028,7 @@ class TorchSegmenter(BaseSegmenter):
             .squeeze(0)
             .squeeze(0)
         )
+        print(gray_padded)
 
         # Локальное среднее через свёртку
         kernel = torch.ones(1, 1, window_size, window_size, device=self.device) / (

@@ -8,23 +8,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from typing import (
-    List,
-    Union,
-    Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
-    Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
+
 )
 from datetime import datetime
-from PIL import Image
-
 
 class CpuCudaBenchmark:
     """
@@ -168,7 +156,7 @@ class CpuCudaBenchmark:
 
             # Тест на CUDA (только если доступно)
             if torch.cuda.is_available():
-                print(f"   📊 Тестирование на CUDA...")
+                print("   📊 Тестирование на CUDA...")
                 cuda_result = self.benchmark_method(
                     segmenter, image, method_name, "cuda"
                 )
@@ -182,7 +170,7 @@ class CpuCudaBenchmark:
                     speedup = cpu_result["mean_time"] / cuda_result["mean_time"]
                     print(f"      ⚡ Ускорение: {speedup:.2f}x")
             else:
-                print(f"   ⚠️ CUDA недоступна, пропускаем")
+                print("   ⚠️ CUDA недоступна, пропускаем")
 
         # Создаем DataFrame
         df = pd.DataFrame(all_results)

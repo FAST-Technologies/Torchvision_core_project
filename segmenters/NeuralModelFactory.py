@@ -2,19 +2,10 @@
 
 # Импорт основных библиотек
 from typing import (
-    List,
-    Union,
     Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
     Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
 from enum import Enum
 import torch
@@ -341,7 +332,7 @@ class NeuralModelFactory:
         model = SegformerForSemanticSegmentation.from_pretrained(path).to(device)
         print(processor)
         print(model)
-        print(f"✅ Модель успешно загружена!")
+        print("✅ Модель успешно загружена!")
         print(f"   Путь: {path}")
         print(f"   Устройство: {device}")
         print(model.config)
@@ -398,7 +389,7 @@ class NeuralModelFactory:
         model = Mask2FormerForUniversalSegmentation.from_pretrained(name).to(device)
         print(processor)
         print(model)
-        print(f"✅ Mask2Former загружена!")
+        print("✅ Mask2Former загружена!")
         print(f"   Устройство: {device}")
         print(model.config)
 
@@ -429,7 +420,7 @@ class NeuralModelFactory:
         model = MaskFormerForInstanceSegmentation.from_pretrained(model_name).to(device)
         print(processor)
         print(model)
-        print(f"✅ MaskFormer загружена!")
+        print("✅ MaskFormer загружена!")
         print(f"   Устройство: {device}")
         print(model.config)
 
@@ -470,7 +461,7 @@ class NeuralModelFactory:
         model = OneFormerForUniversalSegmentation.from_pretrained(name).to(device)
         print(processor)
         print(model)
-        print(f"✅ OneFormer загружена!")
+        print("✅ OneFormer загружена!")
         print(f"   Устройство: {device}")
         print(model.config)
 
@@ -493,7 +484,7 @@ class NeuralModelFactory:
         model = DPTForSemanticSegmentation.from_pretrained(model_name).to(device)
         print(processor)
         print(model)
-        print(f"✅ DPT загружена!")
+        print("✅ DPT загружена!")
         print(f"   Устройство: {device}")
         print(model.config)
 
@@ -522,7 +513,7 @@ class NeuralModelFactory:
         model = AutoModelForSemanticSegmentation.from_pretrained(model_name).to(device)
         print(processor)
         print(model)
-        print(f"✅ UPerNet загружена!")
+        print("✅ UPerNet загружена!")
         print(f"   Устройство: {device}")
         print(model.config)
 
@@ -548,7 +539,7 @@ class NeuralModelFactory:
         else:
             model = tv_seg.deeplabv3_resnet101(weights="COCO_WITH_VOC_LABELS_V1")
             model.classifier[4] = torch.nn.Conv2d(256, num_classes, kernel_size=1)
-            print(f"⚠️ Checkpoint not found, using COCO weights")
+            print("⚠️ Checkpoint not found, using COCO weights")
 
         model = model.to(device).eval()
         return model, None, "deeplab_tv"
@@ -558,7 +549,7 @@ class NeuralModelFactory:
         """Вывод параметров DeepLab"""
         model = tv_seg.deeplabv3_resnet101(pretrained=True)
         print(model)
-        print(f"✅ DeepLab загружена!")
+        print("✅ DeepLab загружена!")
         print(f"   Устройство: {device}")
 
     @classmethod
@@ -589,7 +580,7 @@ class NeuralModelFactory:
                 model.load_state_dict(checkpoint)
             print(f"✅ Loaded U-Net from checkpoint: {checkpoint_path}")
         else:
-            print(f"⚠️ Checkpoint not found, using ImageNet encoder only")
+            print("⚠️ Checkpoint not found, using ImageNet encoder only")
         model = model.to(device).eval()
         return model, None, "unet_smp"
 
@@ -621,7 +612,7 @@ class NeuralModelFactory:
             print(f"✅ Loaded U-Net from checkpoint: {checkpoint_path}")
         model = model.to(device).eval()
         print(model)
-        print(f"✅ U-Net загружена!")
+        print("✅ U-Net загружена!")
         print(f"   Устройство: {device}")
 
     # ========== FPN_SMP ==========
@@ -698,7 +689,7 @@ class NeuralModelFactory:
         model.output_stride = 32
         model.target_size = (512, 512)
         print(model)
-        print(f"✅ FPN загружена!")
+        print("✅ FPN загружена!")
         print(f"   Устройство: {device}")
 
     # ========== PSP_SMP ==========
@@ -732,7 +723,7 @@ class NeuralModelFactory:
                 model.load_state_dict(checkpoint)
             print(f"✅ Loaded PSPNet from checkpoint: {checkpoint_path}")
         else:
-            print(f"⚠️ Checkpoint not found, using ImageNet encoder only")
+            print("⚠️ Checkpoint not found, using ImageNet encoder only")
 
         model = model.to(device).eval()
         if "mit" in encoder_name:
@@ -781,7 +772,7 @@ class NeuralModelFactory:
         model.output_stride = 8
         model.target_size = (512, 512)
         print(model)
-        print(f"✅ PSPNet загружена!")
+        print("✅ PSPNet загружена!")
         print(f"   Устройство: {device}")
 
     # ========== FCN_TV ==========
@@ -818,7 +809,7 @@ class NeuralModelFactory:
             model.load_state_dict(checkpoint, strict=False)
             print(f"✅ Loaded FCN from checkpoint: {checkpoint_path}")
         else:
-            print(f"⚠️ Checkpoint not found, using ImageNet backbone only")
+            print("⚠️ Checkpoint not found, using ImageNet backbone only")
         model = model.to(device).eval()
         model.output_stride = 1
         model.target_size = (512, 512)
@@ -837,7 +828,7 @@ class NeuralModelFactory:
             raise ValueError(f"Unknown FCN variant: {variant}")
         model = variants[variant](weights="DEFAULT")
         print(model)
-        print(f"✅ FCN загружена!")
+        print("✅ FCN загружена!")
         print(f"   Устройство: {device}")
 
     # ========== SEGNET ==========
@@ -869,7 +860,7 @@ class NeuralModelFactory:
                 model.load_state_dict(checkpoint)
             print(f"✅ Loaded SegNet from checkpoint: {checkpoint_path}")
         else:
-            print(f"⚠️ Checkpoint not found, using ImageNet encoder only")
+            print("⚠️ Checkpoint not found, using ImageNet encoder only")
         model = model.to(device).eval()
         return model, None, "segnet"
 
@@ -887,7 +878,7 @@ class NeuralModelFactory:
                 activation=None,
             ).to(device)
             print(model)
-            print(f"✅ SegNet загружена!")
+            print("✅ SegNet загружена!")
             print(f"   Устройство: {device}")
         except Exception as e:
             print(f"⚠️ SegNet not available in SMP: {e}")
@@ -929,7 +920,7 @@ class NeuralModelFactory:
 
         model = SAM(model_name)
         print(model)
-        print(f"✅ SAM загружена!")
+        print("✅ SAM загружена!")
         print(f"   Устройство: {device}")
 
     # ========== MASK R-CNN ==========
@@ -964,7 +955,7 @@ class NeuralModelFactory:
         model = variants[variant](weights="DEFAULT", pretrained=False)
         model = model.to(device)
         print(model)
-        print(f"✅ Mask R-CNN загружена!")
+        print("✅ Mask R-CNN загружена!")
         print(f"   Устройство: {device}")
 
     # ========== УНИВЕРСАЛЬНЫЙ ЗАГРУЗЧИК SMP ==========

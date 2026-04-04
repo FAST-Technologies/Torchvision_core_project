@@ -20,15 +20,8 @@ from typing import (
     Union,
     Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
     Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
 import time
 import requests
@@ -109,10 +102,12 @@ class NeuralSegmenter(BaseSegmenter):
             palette if palette else self._get_default_palette()
         )
 
-        print(f"✅ Нейросетевая модель загружена!")
+        print("✅ Нейросетевая модель загружена!")
         print(f"   Тип: {self.model_type_str}")
         print(
-            f"   Источник: {self.local_path if self.local_path else (self.model_name if self.model_name else f'config:{variant}')}"
+            f"   Источник: {self.local_path 
+            if self.local_path 
+            else (self.model_name if self.model_name else f'config:{variant}')}"
         )
         print(f"   Устройство: {self.device}")
         print(f"   Количество классов: {self.num_classes}")
@@ -363,7 +358,7 @@ class NeuralSegmenter(BaseSegmenter):
             elif mask.shape[2] == 3:
                 # RGB изображение → нужно конвертировать в классы
                 # Для Cityscapes: используем первый канал или конвертируем через палитру
-                print(f"⚠️  RGB mask detected, using first channel")
+                print("⚠️  RGB mask detected, using first channel")
                 mask = mask[:, :, 0]
             else:
                 raise ValueError(f"Unexpected mask shape: {mask.shape}")

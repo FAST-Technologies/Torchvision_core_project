@@ -5,23 +5,10 @@ import torch
 import numpy as np
 import pandas as pd
 from typing import (
-    List,
-    Union,
-    Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
-    Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
-from PIL import Image
-from sklearn.metrics import accuracy_score, jaccard_score, f1_score, confusion_matrix
-
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 
 def compute_metrics(
     pred_mask: np.ndarray,

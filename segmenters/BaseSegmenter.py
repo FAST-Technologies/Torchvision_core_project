@@ -7,11 +7,9 @@ import numpy as np
 from abc import ABC, abstractmethod
 from PIL import Image
 from typing import (
-    List,
     Union,
     Tuple,
     Dict,
-    Set,
     Any,
     TypeVar,
     Optional,
@@ -19,7 +17,6 @@ from typing import (
     Protocol,
     runtime_checkable,
     overload,
-    TYPE_CHECKING,
 )
 from typing_extensions import TypeAlias
 from metrics.SegmentationMetrics import SegmentationMetrics

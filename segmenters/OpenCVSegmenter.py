@@ -6,25 +6,15 @@ from segmenters.BaseSegmenter import BaseSegmenter
 import cv2
 import numpy as np
 from typing import (
-    List,
-    Union,
     Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
     Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
 import warnings
 from collections import deque
 from scipy import ndimage
 from scipy.ndimage import gaussian_filter, laplace
-import math
 import time
 
 from sklearn.cluster import (
@@ -761,7 +751,6 @@ class OpenCVSegmenter(BaseSegmenter):
         peak_idx = np.argmax(hist)
 
         # Линия от пика до конца диапазона
-        x = np.arange(num_bins)
         y_peak = hist[peak_idx]
         y_end = hist[-1]
         # Уравнение линии: y = mx + b

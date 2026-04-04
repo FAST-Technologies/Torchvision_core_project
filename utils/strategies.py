@@ -4,13 +4,8 @@
 import sys
 import os
 
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
 from .utils import extract_logits_info
 
-import torchvision
 from torchvision import transforms
 import torchvision.transforms as T
 import segmentation_models_pytorch as smp
@@ -20,15 +15,8 @@ from typing import (
     Union,
     Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
     Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
 import torch
 import numpy as np
@@ -46,8 +34,11 @@ from utils.utils import (
 )
 from utils.palettes import ade_palette
 
-num_classes: int = 150
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
+num_classes: int = 150
 
 def infer_segformer(
     model: Any, processor: Any, image: Image.Image, device: str = "cuda"

@@ -6,12 +6,7 @@ import sys
 import time
 from datetime import datetime
 import gc
-from PIL import Image
 import glob
-
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
 
 import numpy as np
 import pandas as pd
@@ -48,6 +43,10 @@ from typing import (
     overload,
     TYPE_CHECKING,
 )
+
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 # Константы
 DEFAULT_ROOT_DIR: str = "./data/ade20k"
@@ -311,13 +310,13 @@ class ModelTrainer:
                 lr=config.lr,
                 weight_decay=1e-4,
             )
-            print(f"   📊 Optimizer: classifier only (frozen backbone)")
+            print("   📊 Optimizer: classifier only (frozen backbone)")
         else:
             # SMP модели — все параметры
             optimizer = torch.optim.AdamW(
                 model.parameters(), lr=config.lr, weight_decay=1e-4
             )
-            print(f"   📊 Optimizer: all parameters")
+            print("   📊 Optimizer: all parameters")
 
         # Трейнер
         trainer = NeuralTrainer(
@@ -351,7 +350,7 @@ class ModelTrainer:
         # Обучение
         checkpoint_path: str = os.path.join(self.checkpoint_dir, config.checkpoint_name)
 
-        print(f"🎯 Starting training...")
+        print("🎯 Starting training...")
 
         for epoch in range(config.epochs):
             # 🔥 Разморозка backbone после 5 эпох для Torchvision моделей
@@ -422,7 +421,7 @@ class ModelTrainer:
 
         self.experiment_results.append(result)
 
-        print(f"\n✅ Эксперимент завершён!")
+        print("\n✅ Эксперимент завершён!")
         print(f"   Best mIoU: {trainer.best_miou*100:.4f}%")
         print(f"   Чекпоинт: {checkpoint_path}")
 
@@ -528,7 +527,7 @@ class ModelTrainer:
                     if not k.startswith("aux_classifier")
                 }
                 model.load_state_dict(model_keys, strict=False)
-                print(f"   🔍 Filtered aux_classifier keys for DeepLab")
+                print("   🔍 Filtered aux_classifier keys for DeepLab")
             else:
                 model.load_state_dict(state_dict)
 
@@ -686,7 +685,7 @@ class ModelTrainer:
                     if not k.startswith("aux_classifier")
                 }
                 model.load_state_dict(model_keys, strict=False)
-                print(f"   🔍 Filtered aux_classifier keys for DeepLab")
+                print("   🔍 Filtered aux_classifier keys for DeepLab")
             else:
                 model.load_state_dict(state_dict)
 
@@ -1052,7 +1051,7 @@ class ModelTrainer:
                     if not k.startswith("aux_classifier")
                 }
                 model.load_state_dict(model_keys, strict=False)
-                print(f"   🔍 Filtered aux_classifier keys for DeepLab")
+                print("   🔍 Filtered aux_classifier keys for DeepLab")
             else:
                 model.load_state_dict(state_dict)
 

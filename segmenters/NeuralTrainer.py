@@ -6,21 +6,9 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from typing import (
     List,
-    Union,
-    Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
-    Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
-import numpy as np
-from pathlib import Path
 from sklearn.metrics import jaccard_score
 
 import time
@@ -181,7 +169,7 @@ class NeuralTrainer:
             else:
                 patience_counter += 1
                 if patience_counter >= early_stop_patience:
-                    print(f"   ⏹️  Early stopping")
+                    print("   ⏹️  Early stopping")
                     break
             torch.cuda.empty_cache()
             gc.collect()
