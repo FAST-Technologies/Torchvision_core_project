@@ -289,9 +289,7 @@ class NeuralModelFactory:
         source = local_path if local_path else model_name
 
         processor = SegformerImageProcessor.from_pretrained(source)  # type: ignore[arg-type]
-        model = (
-            SegformerForSemanticSegmentation.from_pretrained(source).to(device).eval()
-        )  # type: ignore[arg-type]
+        model = (SegformerForSemanticSegmentation.from_pretrained(source).to(device).eval())  # type: ignore[arg-type]
 
         return model, processor, "segformer"
 
@@ -372,11 +370,7 @@ class NeuralModelFactory:
             raise ImportError("transformers library required")
 
         processor = Mask2FormerImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
-        model = (
-            Mask2FormerForUniversalSegmentation.from_pretrained(model_name)
-            .to(device)
-            .eval()
-        )  # type: ignore[arg-type]
+        model = (Mask2FormerForUniversalSegmentation.from_pretrained(model_name).to(device).eval())  # type: ignore[arg-type]
         return model, processor, "mask2former"
 
     @classmethod
@@ -403,11 +397,7 @@ class NeuralModelFactory:
             raise ImportError("transformers library required")
 
         processor = MaskFormerImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
-        model = (
-            MaskFormerForInstanceSegmentation.from_pretrained(model_name)
-            .to(device)
-            .eval()
-        )  # type: ignore[arg-type]
+        model = (MaskFormerForInstanceSegmentation.from_pretrained(model_name).to(device).eval())  # type: ignore[arg-type]
         return model, processor, "maskformer"
 
     @classmethod
@@ -442,11 +432,7 @@ class NeuralModelFactory:
             else "❌ Только pickle (.bin)"
         )
         processor = OneFormerProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
-        model = (
-            OneFormerForUniversalSegmentation.from_pretrained(model_name)
-            .to(device)
-            .eval()
-        )  # type: ignore[arg-type]
+        model = (OneFormerForUniversalSegmentation.from_pretrained(model_name).to(device).eval())  # type: ignore[arg-type]
         return model, processor, "oneformer"
 
     @classmethod

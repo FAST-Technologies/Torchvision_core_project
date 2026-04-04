@@ -255,7 +255,7 @@ class NeuralSegmenter(BaseSegmenter):
         return mask
 
     def load_image(
-        self, input_image: Union[str, Image.Image, np.ndarray]
+        self, input_image: ImageInput
     ) -> Image.Image:
         """Загрузка изображения из различных источников"""
         img: Image.Image
@@ -388,10 +388,10 @@ class NeuralSegmenter(BaseSegmenter):
         Returns:
             PIL.Image: The original image blended with the segmentation mask.
         """
-        img: Image.Image = self.load_image(image)
+        img: Image.Image = self.load_image(image)  # type: ignore[arg-type]
 
         # Получаем карту сегментации
-        seg_map, _ = self.predict_segmentation_map(image, verbose=False)
+        seg_map, _ = self.predict_segmentation_map(image, verbose=False)  # type: ignore[arg-type]
 
         # Create color mask
         palette_array: np.ndarray = np.array(self.palette, dtype=np.uint8)
@@ -441,11 +441,11 @@ class NeuralSegmenter(BaseSegmenter):
         alpha = kwargs.get("alpha", 0.9)
 
         # Получаем сегментированное изображение
-        result_img: Image.Image = self.segment_image(image, alpha)
+        result_img: Image.Image = self.segment_image(image, alpha)  # type: ignore[arg-type]
         result_np: np.ndarray = np.array(result_img)
 
         # Получаем карту сегментации
-        seg_map, _ = self.predict_segmentation_map(image, verbose=False)
+        seg_map, _ = self.predict_segmentation_map(image, verbose=False)  # type: ignore[arg-type]
 
         unique_classes = np.unique(seg_map)
         print("Предугаданные классы:", unique_classes)
