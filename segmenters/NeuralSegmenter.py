@@ -388,10 +388,10 @@ class NeuralSegmenter(BaseSegmenter):
         Returns:
             PIL.Image: The original image blended with the segmentation mask.
         """
-        img: Image.Image = self.load_image(input_image)
+        img: Image.Image = self.load_image(image)
 
         # Получаем карту сегментации
-        seg_map, _ = self.predict_segmentation_map(input_image, verbose=False)
+        seg_map, _ = self.predict_segmentation_map(image, verbose=False)
 
         # Create color mask
         palette_array: np.ndarray = np.array(self.palette, dtype=np.uint8)
