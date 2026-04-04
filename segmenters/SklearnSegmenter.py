@@ -583,8 +583,8 @@ class SklearnSegmenter(BaseSegmenter):
         label_sizes = [np.sum(labels_2d == label) for label in valid_labels]
         bg_label = valid_labels[np.argmax(label_sizes)]
 
-        # Создаем маску (все кроме фона)
-        mask = labels_2d != bg_label
+        # Создаем маску (все кроме фона) — uint8 0/255
+        mask = (labels_2d != bg_label).astype(np.uint8) * 255
 
         return mask
 
@@ -3407,7 +3407,7 @@ class SklearnSegmenter(BaseSegmenter):
         mask = mask.astype(np.uint8)
 
         info = {
-            "method": "birch_sklearn",
+            "method": "mini_batch_kmeans_sklearn",
             "parameters": {
                 "n_clusters": n_clusters,
                 "batch_size": batch_size,
@@ -3533,7 +3533,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Предсказываем
         labels = rf.predict(features)
-        mask = labels.reshape(h, w)
+        mask = (labels.reshape(h, w) > 0).astype(np.uint8) * 255
 
         exec_time = time.time() - start_time
         mask = mask.astype(np.uint8)

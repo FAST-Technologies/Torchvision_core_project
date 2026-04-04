@@ -1272,17 +1272,42 @@ class OpenCVSegmenter(BaseSegmenter):
         # Лапласиан
         laplacian = laplace(blurred)
         # Zero-crossing detection
-        zero_crossing = np.zeros_like(laplacian, dtype=np.uint8)
+        # zero_crossing = np.zeros_like(laplacian, dtype=np.uint8)
 
-        for i in range(1, laplacian.shape[0] - 1):
-            for j in range(1, laplacian.shape[1] - 1):
-                neighborhood = laplacian[i - 1 : i + 2, j - 1 : j + 2]
-                if np.min(neighborhood) < 0 < np.max(neighborhood):
-                    if (
-                        np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood))
-                        > threshold
-                    ):
-                        zero_crossing[i, j] = 255
+        # for i in range(1, laplacian.shape[0] - 1):
+        #     for j in range(1, laplacian.shape[1] - 1):
+        #         neighborhood = laplacian[i - 1 : i + 2, j - 1 : j + 2]
+        #         if np.min(neighborhood) < 0 < np.max(neighborhood):
+        #             if (
+        #                 np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood))
+        #                 > threshold
+        #             ):
+        #                 zero_crossing[i, j] = 255
+
+        # exec_time: float = time.time() - start_time
+        # self._log_info(
+        #     "log_edge_opencv",
+        #     exec_time,
+        #     {
+        #         "sigma": sigma,
+        #         "kernel_size": kernel_size,
+        #         "threshold": threshold,
+        #         **kwargs,
+        #     },
+        # )
+
+        # Векторизованное zero-crossing: соседние пиксели имеют противоположные знаки
+        sign = np.sign(laplacian)
+        zc_h = sign[:, :-1] * sign[:, 1:] < 0  # горизонтальное пересечение
+        zc_v = sign[:-1, :] * sign[1:, :] < 0  # вертикальное пересечение
+        zero_crossing_bool = np.zeros_like(laplacian, dtype=bool)
+        zero_crossing_bool[:, :-1] |= zc_h
+        zero_crossing_bool[:-1, :] |= zc_v
+        # Фильтр по амплитуде (отсекаем слабые пересечения)
+        abs_lap = np.abs(laplacian)
+        zero_crossing = (zero_crossing_bool & (abs_lap > threshold)).astype(
+            np.uint8
+        ) * 255
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -1332,18 +1357,30 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Разность Гауссианов
         dog = g1 - g2
-        # Zero-crossing detection
-        zero_crossing = np.zeros_like(dog, dtype=np.uint8)
+        # # Zero-crossing detection
+        # zero_crossing = np.zeros_like(dog, dtype=np.uint8)
 
-        for i in range(1, dog.shape[0] - 1):
-            for j in range(1, dog.shape[1] - 1):
-                neighborhood = dog[i - 1 : i + 2, j - 1 : j + 2]
-                if np.min(neighborhood) < 0 < np.max(neighborhood):
-                    if (
-                        np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood))
-                        > threshold
-                    ):
-                        zero_crossing[i, j] = 255
+        # for i in range(1, dog.shape[0] - 1):
+        #     for j in range(1, dog.shape[1] - 1):
+        #         neighborhood = dog[i - 1 : i + 2, j - 1 : j + 2]
+        #         if np.min(neighborhood) < 0 < np.max(neighborhood):
+        #             if (
+        #                 np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood))
+        #                 > threshold
+        #             ):
+        #                 zero_crossing[i, j] = 255
+
+        # Векторизованное zero-crossing
+        sign = np.sign(dog)
+        zc_h = sign[:, :-1] * sign[:, 1:] < 0
+        zc_v = sign[:-1, :] * sign[1:, :] < 0
+        zero_crossing_bool = np.zeros_like(dog, dtype=bool)
+        zero_crossing_bool[:, :-1] |= zc_h
+        zero_crossing_bool[:-1, :] |= zc_v
+        abs_dog = np.abs(dog)
+        zero_crossing = (zero_crossing_bool & (abs_dog > threshold)).astype(
+            np.uint8
+        ) * 255
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -1383,17 +1420,28 @@ class OpenCVSegmenter(BaseSegmenter):
         # Лапласиан Гауссиана через OpenCV
         laplacian = cv2.Laplacian(cv2.GaussianBlur(gray, (0, 0), sigma), cv2.CV_64F)
 
-        # Zero-crossing detection
-        zero_crossing = np.zeros_like(laplacian, dtype=np.uint8)
-        for i in range(1, laplacian.shape[0] - 1):
-            for j in range(1, laplacian.shape[1] - 1):
-                neighborhood = laplacian[i - 1 : i + 2, j - 1 : j + 2]
-                if np.min(neighborhood) < 0 < np.max(neighborhood):
-                    if (
-                        np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood))
-                        > threshold
-                    ):
-                        zero_crossing[i, j] = 255
+        # # Zero-crossing detection
+        # zero_crossing = np.zeros_like(laplacian, dtype=np.uint8)
+        # for i in range(1, laplacian.shape[0] - 1):
+        #     for j in range(1, laplacian.shape[1] - 1):
+        #         neighborhood = laplacian[i - 1 : i + 2, j - 1 : j + 2]
+        #         if np.min(neighborhood) < 0 < np.max(neighborhood):
+        #             if (
+        #                 np.abs(np.min(neighborhood)) + np.abs(np.max(neighborhood))
+        #                 > threshold
+        #             ):
+        #                 zero_crossing[i, j] = 255
+        # Векторизованное zero-crossing
+        sign = np.sign(laplacian)
+        zc_h = sign[:, :-1] * sign[:, 1:] < 0
+        zc_v = sign[:-1, :] * sign[1:, :] < 0
+        zero_crossing_bool = np.zeros_like(laplacian, dtype=bool)
+        zero_crossing_bool[:, :-1] |= zc_h
+        zero_crossing_bool[:-1, :] |= zc_v
+        abs_lap = np.abs(laplacian)
+        zero_crossing = (zero_crossing_bool & (abs_lap > threshold)).astype(
+            np.uint8
+        ) * 255
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -1812,40 +1860,59 @@ class OpenCVSegmenter(BaseSegmenter):
         """
         Сегментация методом DBSCAN кластеризации.
 
-        Группирует пиксели на основе плотности. Пиксели, не принадлежащие ни одному кластеру (шум),
-        исключаются. Самый крупный кластер считается фоном.
+        Группирует пиксели на основе плотности в пространстве цветовых признаков.
+        Шумовые пиксели (метка -1) исключаются. Самый крупный кластер считается фоном.
 
         Args:
-            img: Входное изображение (RGB).
+            img: Входное изображение (RGB или grayscale).
 
         Returns:
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8).
         """
-        if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = img
-
         start_time = time.time()
 
-        h, w = gray.shape
+        h, w = img.shape[:2]
 
-        # Используем упрощенный подход на основе расстояния
-        binary = np.zeros_like(gray, dtype=np.uint8)
-        binary[gray > 127] = 255
+        # Для больших изображений уменьшаем разрешение чтобы DBSCAN не завис
+        scale = 1.0
+        if h * w > 80000:
+            scale = np.sqrt(80000.0 / (h * w))
+            small = cv2.resize(
+                img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA
+            )
+        else:
+            small = img
 
-        # Находим контуры
-        contours, _ = cv2.findContours(
-            binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
+        sh, sw = small.shape[:2]
 
-        mask = np.zeros_like(gray, dtype=np.uint8)
-        min_area = self.params.get("min_area", 100)
+        if len(small.shape) == 3:
+            pixels = small.reshape(-1, 3).astype(np.float32) / 255.0
+        else:
+            pixels = small.reshape(-1, 1).astype(np.float32) / 255.0
 
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area > min_area:
-                cv2.drawContours(mask, [contour], -1, 255, -1)
+        eps = self.params.get("eps", 0.05)
+        min_samples = self.params.get("min_samples", 5)
+
+        db = DBSCAN(eps=eps, min_samples=min_samples, n_jobs=-1)
+        labels = db.fit_predict(pixels)
+
+        # Маска: всё кроме шума (-1) и самого большого кластера (фон)
+        labels_2d = labels.reshape(sh, sw)
+        valid = labels[labels != -1]
+        if len(valid) > 0:
+            unique, counts = np.unique(valid, return_counts=True)
+            bg_label = unique[np.argmax(counts)]
+            mask_small = ((labels_2d != bg_label) & (labels_2d != -1)).astype(
+                np.uint8
+            ) * 255
+        else:
+            mask_small = np.zeros((sh, sw), dtype=np.uint8)
+
+        # Восстанавливаем исходный размер
+        if scale < 1.0:
+            mask = cv2.resize(mask_small, (w, h), interpolation=cv2.INTER_NEAREST)
+        else:
+            mask = mask_small
 
         exec_time = time.time() - start_time
 
@@ -2193,8 +2260,9 @@ class OpenCVSegmenter(BaseSegmenter):
         """
         Сегментация методом Random Walker.
 
-        На основе маркеров (пользовательских или автоматических) решается задача на графе:
-        каждый пиксель "принадлежит" тому маркеру, до которого "случайное блуждание" короче.
+        На основе маркеров решается задача на графе: каждый пиксель принадлежит тому
+        маркеру, до которого случайное блуждание доходит быстрее.
+        Использует skimage.segmentation.random_walker (корректная реализация).
 
         Args:
             img: Входное изображение.
@@ -2202,6 +2270,8 @@ class OpenCVSegmenter(BaseSegmenter):
         Returns:
             Бинарная маска переднего плана.
         """
+        from skimage.segmentation import random_walker as sk_random_walker
+
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
@@ -2210,34 +2280,37 @@ class OpenCVSegmenter(BaseSegmenter):
         start_time = time.time()
 
         h, w = gray.shape
+        gray_norm = gray.astype(np.float32) / 255.0
 
-        # Создаем маркеры
+        # Создаём маркеры: 1=фон (углы), 2=объект (центр)
         markers = np.zeros((h, w), dtype=np.int32)
-
-        # Центральная область - объект
-        cv2.rectangle(markers, (w // 4, h // 4), (3 * w // 4, 3 * h // 4), 2, -1)
-
-        # Углы - фон
+        markers[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4] = 2
         corner_size = min(h, w) // 8
-        cv2.rectangle(markers, (0, 0), (corner_size, corner_size), 1, -1)
-        cv2.rectangle(markers, (w - corner_size, 0), (w, corner_size), 1, -1)
-        cv2.rectangle(markers, (0, h - corner_size), (corner_size, h), 1, -1)
-        cv2.rectangle(markers, (w - corner_size, h - corner_size), (w, h), 1, -1)
+        markers[:corner_size, :corner_size] = 1
+        markers[:corner_size, -corner_size:] = 1
+        markers[-corner_size:, :corner_size] = 1
+        markers[-corner_size:, -corner_size:] = 1
 
-        # Применяем Watershed с маркерами
-        if len(img.shape) == 3:
-            markers = cv2.watershed(img, markers)
-        else:
-            color_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-            markers = cv2.watershed(color_img, markers)
+        beta = self.params.get("beta", 130)
+        mode = self.params.get("mode", "cg_j")
 
-        mask = (markers == 2).astype(np.uint8) * 255
+        try:
+            labels = sk_random_walker(gray_norm, markers, beta=beta, mode=mode)
+            mask = (labels == 2).astype(np.uint8) * 255
+        except Exception as e:
+            warnings.warn(f"Random Walker failed: {e}. Falling back to Watershed.")
+            # Fallback: используем Watershed с теми же маркерами
+            color_img = (
+                cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR) if len(img.shape) == 2 else img
+            )
+            ws_markers = markers.copy().astype(np.int32)
+            ws_markers = cv2.watershed(color_img, ws_markers)
+            mask = (ws_markers == 2).astype(np.uint8) * 255
 
         exec_time = time.time() - start_time
-
         info = {
             "method": "random_walker_opencv",
-            "parameters": {**kwargs},
+            "parameters": {"beta": beta, "mode": mode, **kwargs},
             "execution_time": exec_time,
         }
 
@@ -2245,20 +2318,59 @@ class OpenCVSegmenter(BaseSegmenter):
 
     # ============ SUPER-PIXEL МЕТОДЫ ============
     def _opencv_quickshift(self, img: np.ndarray, **kwargs) -> np.ndarray:
-        """Quickshift (упрощенная версия на основе superpixels)"""
         """
-        Сегментация методом Quickshift (реализована через MeanShift как аналог).
+        Quickshift сегментация — mode-seeking алгоритм в пространстве (цвет + координаты).
 
-        Находит моды в плотности распределения пикселей в пространстве признаков.
-        Группирует пиксели, принадлежащие одной моде.
+        Использует skimage.segmentation.quickshift.
 
         Args:
             img: Входное изображение (RGB).
 
         Returns:
-            np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный кластер — фон.
+            np.ndarray: Бинарная маска (0/255, dtype=np.uint8). Самый крупный сегмент — фон.
         """
-        return self._opencv_kmeans_segmentation(img, **kwargs)
+        from skimage.segmentation import quickshift as sk_quickshift
+
+        if len(img.shape) == 2:
+            img_rgb = np.stack([img] * 3, axis=-1)
+        else:
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        start_time = time.time()
+
+        kernel_size = self.params.get("kernel_size", 3)
+        max_dist = self.params.get("max_dist", 6)
+        ratio = self.params.get("ratio", 0.5)
+        sigma = self.params.get("sigma", 0.0)
+
+        img_float = img_rgb.astype(np.float32) / 255.0
+
+        segments = sk_quickshift(
+            img_float,
+            kernel_size=kernel_size,
+            max_dist=max_dist,
+            ratio=ratio,
+            sigma=sigma,
+        )
+
+        unique, counts = np.unique(segments, return_counts=True)
+        bg_label = unique[np.argmax(counts)]
+        mask = (segments != bg_label).astype(np.uint8) * 255
+
+        exec_time = time.time() - start_time
+        info = {
+            "method": "quickshift_opencv",
+            "parameters": {
+                "kernel_size": kernel_size,
+                "max_dist": max_dist,
+                "ratio": ratio,
+                "sigma": sigma,
+                **kwargs,
+            },
+            "execution_time": exec_time,
+        }
+
+        return mask
 
     def _opencv_slic(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
         """
@@ -2273,41 +2385,51 @@ class OpenCVSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска (0/255, dtype=np.uint8): 255 — все суперпиксели, кроме фона.
         """
-        h, w = img.shape[:2]
+        # Приводим к BGR для ximgproc
+        if len(img.shape) == 2:
+            img_bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        else:
+            img_bgr = (
+                img if img.shape[2] == 3 else cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+            )
 
         start_time = time.time()
 
-        # Разбиваем изображение на регионы
         region_size = self.params.get("region_size", 20)
         ruler = self.params.get("ruler", 10.0)
+        num_iterations = self.params.get("num_iterations", 10)
 
-        # Создаем сетку суперпикселей
-        mask = np.zeros((h, w), np.uint8)
+        try:
+            # cv2.ximgproc доступен в opencv-contrib-python
+            slic = cv2.ximgproc.createSuperpixelSLIC(
+                img_bgr,
+                algorithm=cv2.ximgproc.SLIC,
+                region_size=region_size,
+                ruler=ruler,
+            )
+            slic.iterate(num_iterations)
+            labels = slic.getLabels()  # (H, W) int32
+        except AttributeError:
+            # Fallback: ximgproc не установлен — используем KMeans как аппроксимацию
+            warnings.warn(
+                "cv2.ximgproc не доступен. Используем KMeans как аппроксимацию SLIC."
+            )
+            return self._opencv_kmeans_segmentation(img, **kwargs)
 
-        for y in range(0, h, region_size):
-            for x in range(0, w, region_size):
-                # Простая цветовая кластеризация в регионе
-                region = img[y : min(y + region_size, h), x : min(x + region_size, w)]
-                if len(region) == 0:
-                    continue
-
-                if len(region.shape) == 3:
-                    region_gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
-                else:
-                    region_gray = region
-
-                _, region_mask = cv2.threshold(
-                    region_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-                )
-                mask[y : min(y + region_size, h), x : min(x + region_size, w)] = (
-                    region_mask
-                )
+        # Находим самый большой суперпиксель (фон)
+        unique, counts = np.unique(labels, return_counts=True)
+        bg_label = unique[np.argmax(counts)]
+        mask = (labels != bg_label).astype(np.uint8) * 255
 
         exec_time = time.time() - start_time
-
         info = {
             "method": "slic_opencv",
-            "parameters": {"region_size": region_size, "ruler": ruler, **kwargs},
+            "parameters": {
+                "region_size": region_size,
+                "ruler": ruler,
+                "num_iterations": num_iterations,
+                **kwargs,
+            },
             "execution_time": exec_time,
         }
 
@@ -2317,7 +2439,8 @@ class OpenCVSegmenter(BaseSegmenter):
         """
         Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
 
-        Строит сегментацию, начиная с мелких регионов и объединяя их, если внутреннее различие
+        Реализован через skimage.segmentation.felzenszwalb (оригинальный алгоритм).
+        Строит сегментацию на основе минимального остовного дерева, начиная с мелких регионов и объединяя их, если внутреннее различие
         меньше межрегионального. Очень эффективен для выделения объектов разного масштаба.
 
         Args:
@@ -2326,35 +2449,44 @@ class OpenCVSegmenter(BaseSegmenter):
         Returns:
             Бинарная маска: 255 — все регионы, кроме самого крупного (фона).
         """
-        if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        from skimage.segmentation import felzenszwalb as sk_felzenszwalb
+
+        if len(img.shape) == 2:
+            img_rgb = np.stack([img] * 3, axis=-1)
         else:
-            gray = img
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         start_time = time.time()
 
-        # Применяем несколько порогов для создания иерархической сегментации
-        thresholds = [50, 100, 150]
-        masks = []
+        scale = self.params.get("scale", 100)
+        sigma = self.params.get("sigma", 0.8)
+        min_size = self.params.get("min_size", 50)
 
-        for thresh in thresholds:
-            _, mask = cv2.threshold(gray, thresh, 255, cv2.THRESH_BINARY)
-            masks.append(mask)
+        # Нормализуем к float [0,1] для skimage
+        img_float = img_rgb.astype(np.float32) / 255.0
 
-        # Комбинируем маски
-        combined = np.zeros_like(gray, dtype=np.uint8)
-        for mask in masks:
-            combined = cv2.bitwise_or(combined, mask)
+        segments = sk_felzenszwalb(
+            img_float, scale=scale, sigma=sigma, min_size=min_size
+        )
+
+        # Находим самый большой сегмент (фон) и создаём маску
+        unique, counts = np.unique(segments, return_counts=True)
+        bg_label = unique[np.argmax(counts)]
+        mask = (segments != bg_label).astype(np.uint8) * 255
 
         exec_time = time.time() - start_time
-
         info = {
             "method": "felzenszwalb_opencv",
-            "parameters": {**kwargs},
+            "parameters": {
+                "scale": scale,
+                "sigma": sigma,
+                "min_size": min_size,
+                **kwargs,
+            },
             "execution_time": exec_time,
         }
 
-        return combined
+        return mask
 
     # ============ ИНТЕРАКТИВНЫЕ МЕТОДЫ ============
     # def _opencv_grabcut(

@@ -113,7 +113,7 @@ class TorchSegmenter(BaseSegmenter):
             raise RuntimeError("Debug mode not enabled")
         return self._intermediate_results
 
-    def _setup_method(self, **kwargs) -> None:
+    def _setup_method(self) -> None:
         """Настройка выбранного метода"""
         self.method_map: Dict[str, torch.Tensor] = {
             # ============ ПОРОГОВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ ============
@@ -329,7 +329,7 @@ class TorchSegmenter(BaseSegmenter):
 
     @staticmethod
     def _normalize_to_255(img: Image.Image | np.ndarray) -> Image.Image | np.ndarray:
-        """Метод нормализации изобраажения"""
+        """Метод нормализации изображения"""
         if img.dtype != np.uint8:
             img = ((img - img.min()) / (img.max() - img.min()) * 255).astype(np.uint8)
         return img
@@ -1673,9 +1673,8 @@ class TorchSegmenter(BaseSegmenter):
         # Формула Фансалкара
         # sigma_r = local_std / r
         # threshold = local_mean * (1 + p * (sigma_r - 1) + q * (sigma_r - 1)**2)
-        threshold = local_mean * (
-            1 + p * np.exp(-q * local_mean) + k * (local_std / r - 1)
-        )
+        sigma_r = local_std / r
+        threshold = local_mean * (1 + p * np.exp(-q * local_mean) + k * (sigma_r - 1))
 
         # Бинаризация
         mask_np = (gray_np > threshold).astype(np.float32)
@@ -2567,8 +2566,8 @@ class TorchSegmenter(BaseSegmenter):
         ).view(1, 1, 2, 2)
 
         gray_pad = F.pad(gray, (0, 1, 0, 1), mode="reflect")
-        gx = F.conv2d(gray_pad, roberts_x, padding=1)
-        gy = F.conv2d(gray_pad, roberts_y, padding=1)
+        gx = F.conv2d(gray_pad, roberts_x, padding=0)
+        gy = F.conv2d(gray_pad, roberts_y, padding=0)
 
         magnitude = torch.sqrt(gx**2 + gy**2)
 
@@ -3005,9 +3004,10 @@ class TorchSegmenter(BaseSegmenter):
                 mask[y, x] = True
 
                 # Добавляем соседей
-                neighbors = [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
-                for nx, ny in neighbors:
-                    queue.append((ny, nx))
+                neighbors = [(y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)]
+                for ny, nx in neighbors:
+                    if 0 <= nx < w and 0 <= ny < h and not visited[ny, nx]:
+                        queue.append((ny, nx))
 
         exec_time = time.time() - start_time
         info = {
@@ -3621,16 +3621,27 @@ class TorchSegmenter(BaseSegmenter):
 
         Инициализирует замкнутый контур (обычно окружность) и деформирует его под действием
         внутренних (упругость, жесткость) и внешних (притяжение к границам) сил до равновесия.
+        Минимизация энергии выполняется итерационным методом.
 
         Args:
-            img: Входное изображение (RGB или grayscale).
+            tensor: Входное изображение (B, C, H, W).
 
         Returns:
-            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) внутри замкнутого контура.
+            torch.Tensor: Бинарная маска внутренней области контура.
         """
-        gray = self._to_grayscale(tensor)
+        gray = self._to_grayscale(tensor)  # (B, 1, H, W)
         start_time = time.time()
 
+        alpha = self.params.get("alpha", 0.01)  # упругость (длина контура)
+        beta = self.params.get("beta", 0.1)  # жёсткость (кривизна)
+        gamma = self.params.get("gamma", 0.001)  # шаг градиентного спуска
+        w_edge = self.params.get("w_edge", 1.0)  # вес внешней (граничной) энергии
+        max_iter = self.params.get("max_iter", 250)  # число итераций
+        n_points = self.params.get("n_points", 200)  # число точек контура
+
+        h, w = gray.shape[2], gray.shape[3]
+
+        # --- Вычисляем карту границ (внешняя энергия) ---
         sobel_x = torch.tensor(
             [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
             dtype=torch.float32,
@@ -3642,15 +3653,137 @@ class TorchSegmenter(BaseSegmenter):
             device=self.device,
         ).view(1, 1, 3, 3)
 
-        gx = F.conv2d(gray, sobel_x, padding=1).squeeze()
-        gy = F.conv2d(gray, sobel_y, padding=1).squeeze()
-        mag = torch.sqrt(gx**2 + gy**2)
-        mask = (mag > 0.1).float()
+        # Гауссово сглаживание перед вычислением градиента
+        sigma_edge = self.params.get("sigma", 3.0)
+        ks = int(2 * round(3 * sigma_edge) + 1)
+        if ks % 2 == 0:
+            ks += 1
+        gray_smooth = F.gaussian_blur(
+            gray, kernel_size=[ks, ks], sigma=[sigma_edge, sigma_edge]
+        )
+
+        gx = F.conv2d(gray_smooth, sobel_x, padding=1).squeeze()
+        gy = F.conv2d(gray_smooth, sobel_y, padding=1).squeeze()
+        edge_map = gx**2 + gy**2  # (H, W) — карта границ
+
+        # Нормализуем и берём градиент карты границ (внешние силы)
+        if edge_map.max() > 0:
+            edge_map = edge_map / edge_map.max()
+        # Градиент карты границ (для внешней силы)
+        edge_padded = edge_map.unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
+        ext_fx = F.conv2d(edge_padded, sobel_x, padding=1).squeeze()
+        ext_fy = F.conv2d(edge_padded, sobel_y, padding=1).squeeze()
+
+        # --- Инициализируем контур как окружность ---
+        cx, cy = w / 2.0, h / 2.0
+        r = min(cx, cy) * 0.6
+        t = torch.linspace(0, 2 * np.pi, n_points + 1, device=self.device)[:-1]
+        # snake: (N, 2), snake[:,0] = x-координата, snake[:,1] = y-координата
+        snake = torch.stack(
+            [cx + r * torch.cos(t), cy + r * torch.sin(t)], dim=1
+        )  # (N, 2)
+
+        # --- Матрица пентадиагональная для внутренней энергии (трёхточечная для 1D) ---
+        # Строим матрицу A = alpha * D2 + beta * D4, где D2 — вторые разности, D4 — четвёртые
+        N = n_points
+        row = torch.zeros(N, device=self.device)
+
+        # Коэффициенты для второй разности (упругость)
+        a2 = alpha
+        # Коэффициенты для четвёртой разности (жёсткость)
+        a4 = beta
+
+        # Строим циклическую матрицу как сумму сдвигов
+        def circulant_row(coeffs_dict):
+            """coeffs_dict: {offset: value} для циклической строки"""
+            r = torch.zeros(N, device=self.device)
+            for off, val in coeffs_dict.items():
+                r[off % N] += val
+            return r
+
+        # Вторые разности: xi-1 - 2xi + xi+1 → коэффициенты: {-1:1, 0:-2, 1:1}
+        # Четвёртые разности: xi-2 - 4xi-1 + 6xi - 4xi+1 + xi+2
+        first_row = circulant_row(
+            {0: 2 * a2 + 6 * a4, 1: -a2 - 4 * a4, N - 1: -a2 - 4 * a4, 2: a4, N - 2: a4}
+        )
+
+        # Строим циклическую матрицу через FFT (эффективно)
+        # A * x = (I + gamma * A)^{-1} * (x + gamma * f_ext)
+        # Решаем через (I + gamma * A) x_new = x + gamma * f_ext
+        # Матрица (I + gamma*A) — тоже циклическая, можно инвертировать через FFT
+        A_fft = torch.fft.rfft(first_row)
+        I_plus_gammaA_fft = 1.0 + gamma * A_fft  # диагональ в частотной области
+
+        # --- Основной цикл ---
+        for _ in range(max_iter):
+            # Интерполируем внешние силы в текущих точках контура
+            # Нормализуем координаты к [-1, 1] для grid_sample
+            xs = snake[:, 0]
+            ys = snake[:, 1]
+
+            # Клипуем координаты к границам изображения
+            xs = torch.clamp(xs, 0, w - 1)
+            ys = torch.clamp(ys, 0, h - 1)
+
+            # Биленейная интерполяция внешних сил в точках контура
+            grid_x = (xs / (w - 1)) * 2 - 1  # [-1, 1]
+            grid_y = (ys / (h - 1)) * 2 - 1
+            grid = torch.stack([grid_x, grid_y], dim=-1).view(1, 1, N, 2)
+
+            fx_map = ext_fx.unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
+            fy_map = ext_fy.unsqueeze(0).unsqueeze(0)
+
+            fx_pts = F.grid_sample(
+                fx_map, grid, mode="bilinear", padding_mode="border", align_corners=True
+            ).squeeze()
+            fy_pts = F.grid_sample(
+                fy_map, grid, mode="bilinear", padding_mode="border", align_corners=True
+            ).squeeze()
+
+            # Правая часть: x + gamma * f_ext
+            rhs_x = snake[:, 0] + gamma * w_edge * fx_pts
+            rhs_y = snake[:, 1] + gamma * w_edge * fy_pts
+
+            # Решаем через FFT (матрица (I + gamma*A) циклическая)
+            rhs_x_fft = torch.fft.rfft(rhs_x)
+            rhs_y_fft = torch.fft.rfft(rhs_y)
+
+            new_x = torch.fft.irfft(rhs_x_fft / I_plus_gammaA_fft, n=N)
+            new_y = torch.fft.irfft(rhs_y_fft / I_plus_gammaA_fft, n=N)
+
+            snake = torch.stack(
+                [torch.clamp(new_x, 0, w - 1), torch.clamp(new_y, 0, h - 1)], dim=1
+            )
+
+        # --- Строим бинарную маску из контура ---
+        # Растеризуем полигон через torch операции
+        mask_np = np.zeros((h, w), dtype=np.float32)
+        snake_np = snake.cpu().numpy()
+        # Заполняем полигон
+        from PIL import Image as PILImage, ImageDraw
+
+        pil_mask = PILImage.new("L", (w, h), 0)
+        draw = ImageDraw.Draw(pil_mask)
+        polygon_pts = [
+            (float(snake_np[i, 0]), float(snake_np[i, 1])) for i in range(n_points)
+        ]
+        draw.polygon(polygon_pts, fill=255)
+        mask_np = np.array(pil_mask, dtype=np.float32) / 255.0
+
+        mask = torch.from_numpy(mask_np).to(self.device)
 
         exec_time = time.time() - start_time
         info = {
             "method": "active_contour_torch",
-            "parameters": {**kwargs},
+            "parameters": {
+                "alpha": alpha,
+                "beta": beta,
+                "gamma": gamma,
+                "w_edge": w_edge,
+                "max_iter": max_iter,
+                "n_points": n_points,
+                **kwargs,
+            },
             "execution_time": exec_time,
         }
 
@@ -3763,11 +3896,12 @@ class TorchSegmenter(BaseSegmenter):
 
             for _ in range(iterations):
                 # Расширяем где градиент низкий, сужаем где высокий
-                expansion = grad_mag < threshold
-                erosion = grad_mag > threshold
+                mask_bool = mask_np > 0.5
+                expansion = (grad_mag < threshold) & ~mask_bool
+                erosion_area = (grad_mag > threshold) & mask_bool
 
-                mask_np[expansion] = 1.0
-                mask_np[erosion] = 0.0
+                mask_bool[expansion] = True
+                mask_bool[erosion_area] = False
 
                 # Сглаживание
                 if smoothing > 0:
@@ -3776,17 +3910,9 @@ class TorchSegmenter(BaseSegmenter):
                     )
                     from scipy.ndimage import binary_erosion, binary_dilation
 
-                    mask_bool = mask_np > 0.5
-                    expand_cond = expansion & ~mask_bool
-                    erode_cond = erosion & mask_bool
-                    mask_bool[expand_cond] = True
-                    mask_bool[erode_cond] = False
-                    # mask_bool = binary_dilation(mask_bool, structure=kernel)
-                    # mask_bool = binary_erosion(mask_bool, structure=kernel)
-                    mask_np = mask_bool.astype(np.float32)
-                    # mask_np = morphology.binary_closing(mask_np > 0.5, morphology.disk(smoothing))
-                    # mask_np = morphology.binary_opening(mask_np, morphology.disk(smoothing))
-                    # mask_np = mask_np.astype(np.float32)
+                    mask_bool = binary_dilation(mask_bool, structure=kernel)
+                    mask_bool = binary_erosion(mask_bool, structure=kernel)
+                mask_np = mask_bool.astype(np.float32)
 
             mask = torch.from_numpy(mask_np).to(self.device)
             exec_time = time.time() - start_time
@@ -4019,27 +4145,20 @@ class TorchSegmenter(BaseSegmenter):
         while pixel_queue:
             current_height, y, x, label = heapq.heappop(pixel_queue)
 
+            # Если уже помечен другой меткой — пропускаем (пиксель мог попасть в очередь дважды)
+            if visited[y, x] and result_labels[y, x] != label:
+                continue
+
             # Проверяем соседей (4-связность)
             neighbors = [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
             for nx, ny in neighbors:
                 if 0 <= nx < w and 0 <= ny < h and not visited[ny, nx]:
                     neighbor_height = gradient_flat[ny, nx].item()
-                    # Если соседний пиксель ниже или равен текущему, он "затопляется"
-                    if neighbor_height <= current_height:
-                        result_labels[ny, nx] = label
-                        visited[ny, nx] = True
-                        heapq.heappush(pixel_queue, (neighbor_height, ny, nx, label))
-                    else:
-                        # Если соседний пиксель выше, мы не можем его затопить прямо сейчас.
-                        # Но если это маркер, мы добавим его в очередь.
-                        # if markers_int[ny, nx] > 0:
-                        #     heapq.heappush(pixel_queue, (neighbor_height, ny, nx, markers_int[ny, nx].item()))
-                        #     result_labels[ny, nx] = markers_int[ny, nx].item()
-                        #     visited[ny, nx] = True
-                        # else:
-                        #     # Просто добавляем в очередь для будущей обработки
-                        #     heapq.heappush(pixel_queue, (neighbor_height, ny, nx, label))
-                        heapq.heappush(pixel_queue, (neighbor_height, ny, nx, 0))
+                    # Добавляем соседа в очередь с меткой текущего пикселя
+                    # Порядок определяется высотой соседа (правило Watershed)
+                    heapq.heappush(pixel_queue, (neighbor_height, ny, nx, label))
+                    result_labels[ny, nx] = label
+                    visited[ny, nx] = True
 
         # Конвертируем результат обратно в тензор
         result_labels = result_labels.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
