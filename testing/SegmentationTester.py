@@ -53,8 +53,8 @@ class SegmentationTester:
     ) -> None:
         self.methods: dict = {}
         self.results: dict = {}
-        self.base_output_dir: str = base_output_dir
-        self.current_test_id: str = None
+        self.base_output_dir: Optional[str] = base_output_dir
+        self.current_test_id: Optional[str] = None
         self.ground_truth_path: str = ground_truth_path
         self.ground_truth_mask: Optional[np.ndarray] = None
         self.enable_warmup: bool = enable_warmup
@@ -104,7 +104,7 @@ class SegmentationTester:
             )
             self.warmup_completed[method_name] = True
 
-    def _create_test_directory(self, test_name: str = None) -> str:
+    def _create_test_directory(self, test_name: Optional[str] = None) -> str:
         """Создает уникальную директорию для теста"""
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         test_dir: str
@@ -120,7 +120,7 @@ class SegmentationTester:
         os.makedirs(os.path.join(full_path, "comparisons"), exist_ok=True)
         os.makedirs(os.path.join(full_path, "statistics"), exist_ok=True)
 
-        self.current_test_id: str = test_dir
+        self.current_test_id = test_dir
         print(f"📁 Создана директория для теста: {full_path}")
         return full_path
 
@@ -537,21 +537,20 @@ class SegmentationTester:
     def compare_methods(
         self,
         image: Union[str, np.ndarray, Image.Image],
-        method_names: List[str] = None,
+        method_names: Optional[List[str]] = None,
         figsize: Tuple[int, int] = (20, 15),
         save_comparison: bool = True,
-        test_name: str = None,
+        test_name: Optional[str] = None,
         show_plots: bool = True,
     ) -> Dict[str, Any]:
         """Сравнение нескольких методов"""
         if method_names is None:
-            method_names: List[str] = list(self.methods.keys())
+            method_names = list(self.methods.keys())
 
         test_dir: str = self._create_test_directory(test_name)
         results = {}
 
         original_img: Image.Image
-        image_path: str
 
         if isinstance(image, str):
             original_img = Image.open(image).convert("RGB")
@@ -626,7 +625,7 @@ class SegmentationTester:
 
                 print(f"❌ Ошибка в методе {method_name}: {e}")
 
-                stats: Dict[str, Any] = {
+                stats = {
                     "method": method_name,
                     "error": error_msg,
                     "time_seconds": None,
@@ -643,7 +642,7 @@ class SegmentationTester:
             fontsize=14,
             fontweight="bold",
         )
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.tight_layout(rect=(0, 0.03, 1, 0.95))
 
         # Сохраняем сравнение
         if save_comparison:
@@ -675,11 +674,11 @@ class SegmentationTester:
     def compare_methods_with_metrics(
         self,
         image: Union[str, np.ndarray, Image.Image],
-        method_names: List[str] = None,
+        method_names: Optional[List[str]] = None,
         ground_truth: Optional[np.ndarray] = None,
         threshold: float = 0.5,
         figsize: Tuple[int, int] = (20, 15),
-        test_name: str = None,
+        test_name: Optional[str] = None,
         show_plots: bool = True,
     ) -> Dict[str, Dict[str, Any]]:
         """
@@ -794,7 +793,7 @@ class SegmentationTester:
             fontsize=14,
             fontweight="bold",
         )
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.tight_layout(rect=(0, 0.03, 1, 0.95))
 
         comparison_path = os.path.join(
             test_dir, "comparisons", "methods_comparison.jpg"
@@ -1098,13 +1097,13 @@ class SegmentationTester:
         image: Union[str, np.ndarray, Image.Image],
         n_runs: int = 3,
         save_benchmark: bool = True,
-        test_name: str = None,
+        test_name: Optional[str] = None,
         save_results: bool = True,
         force_warmup: bool = False,
         ground_truth: Optional[np.ndarray] = None,
     ) -> pd.DataFrame:
         """Бенчмарк методов (требует pandas) с сохранением результатов и warm-up"""
-        original_img = (
+        original_img: Image.Image = (
             Image.fromarray(image.astype(np.uint8))
             if isinstance(image, np.ndarray)
             else (
@@ -1121,7 +1120,6 @@ class SegmentationTester:
         else:
             bench_dir = self._create_test_directory("benchmark")
 
-        original_img: Image.Image
         image_array: np.ndarray
         orig_path: str
         if isinstance(image, str):
@@ -1137,7 +1135,7 @@ class SegmentationTester:
             raise ValueError(f"Unsupported image type: {type(image)}")
 
         # Сохраняем оригинальное изображение
-        orig_path: str = os.path.join(bench_dir, "images", "original.jpg")
+        orig_path = os.path.join(bench_dir, "images", "original.jpg")
         original_img.save(orig_path)
         print(f"📸 Оригинальное изображение сохранено: {orig_path}")
 

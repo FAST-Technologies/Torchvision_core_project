@@ -51,8 +51,8 @@ class SegmentationComparator:
         self,
         mask1: np.ndarray,
         mask2: np.ndarray,
-        method1_name: str = "Method1",
-        method2_name: str = "Method2",
+        method1_name: Optional[str] = "Method1",
+        method2_name: Optional[str] = "Method2",
     ) -> Dict[str, float]:
         """
         Вычисляет метрики сходства между двумя масками, используя общий модуль.
@@ -167,9 +167,9 @@ class SegmentationComparator:
         info1: Dict[str, Any],
         info2: Dict[str, Any],
         metrics: Dict[str, float],
-        method1_name: str = "Method 1",
-        method2_name: str = "Method 2",
-        output_path: str = None,
+        method1_name: Optional[str] = "Method 1",
+        method2_name: Optional[str] = "Method 2",
+        output_path: Optional[str] = None,
     ) -> None:
         """
         Визуализирует сравнение двух методов.
@@ -454,7 +454,7 @@ class SegmentationComparator:
         if save_results:
             os.makedirs(output_dir, exist_ok=True)
             timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir: str = os.path.join(output_dir, f"comparison_{timestamp}")
+            output_dir = os.path.join(output_dir, f"comparison_{timestamp}")
             os.makedirs(output_dir, exist_ok=True)
 
         method_names = []
@@ -471,7 +471,7 @@ class SegmentationComparator:
         print(f"Выполняем сегментацию {len(method_names)} методами...")
         masks = {}
         execution_times = {}
-        method_infos = {}
+        method_infos: Dict[str, Any] = {}
 
         for name in method_names:
             segmenter = segmenters_map[name]
@@ -722,7 +722,7 @@ class SegmentationComparator:
             axes[j].axis("off")
 
         plt.suptitle("Все маски сегментации", fontsize=16)
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.tight_layout(rect=(0, 0.03, 1, 0.95))
 
         all_masks_path = os.path.join(output_dir, "all_masks.png")
         plt.savefig(all_masks_path, dpi=150, bbox_inches="tight")

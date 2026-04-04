@@ -28,11 +28,10 @@ class CpuCudaBenchmark:
         self.base_output_dir = base_output_dir
         self.n_runs = n_runs
         self.warmup_runs = warmup_runs
-        self.results = {}
 
     def benchmark_method(
         self, segmenter: Any, image: np.ndarray, method_name: str, device: str = "cpu"
-    ) -> Dict[str, float]:
+    ) -> Dict[str, Any]:
         """
         Тестирование одного метода на указанном устройстве.
 

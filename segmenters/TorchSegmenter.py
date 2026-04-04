@@ -16,6 +16,7 @@ from typing import (
     Dict,
     Any,
     Optional,
+    Callable
 )
 
 import numpy as np
@@ -99,15 +100,15 @@ class TorchSegmenter(BaseSegmenter):
         self._setup_method()
         self._debug_mode = kwargs.get("debug_mode", False)
 
-    def _get_intermediate_results(self) -> Dict[str, torch.Tensor]:
+    def _get_intermediate_results(self) -> None:
         """Возвращает промежуточные результаты для тестов"""
         if not self._debug_mode:
             raise RuntimeError("Debug mode not enabled")
-        return self._intermediate_results
+        # return self._intermediate_results
 
     def _setup_method(self) -> None:
         """Настройка выбранного метода"""
-        self.method_map: Dict[str, torch.Tensor] = {
+        self.method_map: Dict[str, Callable[..., torch.Tensor]] = {
             # ============ ПОРОГОВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ ============
             "global_thresholding": self._global_thresholding,
             "adaptive_thresholding": self._adaptive_thresholding,
@@ -167,24 +168,24 @@ class TorchSegmenter(BaseSegmenter):
         self._segment_func = self.method_map[self.method]
 
     def preprocess_image(
-        self, image: Union[str, np.ndarray, Image.Image, torch.Tensor]
-    ) -> torch.Tensor:
+        self,
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor],
+        as_gray: bool = False,
+        target_size: Optional[Tuple[int, int]] = None,
+        normalize: bool = False,
+    ) -> torch.Tensor:  # type: ignore[override]
         """Предобработка изображения для PyTorch"""
         if isinstance(image, str):
-            # Загрузка из файла
             img = Image.open(image).convert("RGB")
             return self._pil_to_tensor(img, normalize=self._needs_normalization)
         elif isinstance(image, Image.Image):
-            # PIL Image
             return self._pil_to_tensor(image, normalize=self._needs_normalization)
         elif isinstance(image, np.ndarray):
-            # NumPy array
             if len(image.shape) == 2:
                 image = np.stack([image] * 3, axis=-1)
             img = Image.fromarray(image.astype(np.uint8)).convert("RGB")
             return self._pil_to_tensor(img, normalize=self._needs_normalization)
         elif isinstance(image, torch.Tensor):
-            # PyTorch tensor
             return image.to(self.device)
         else:
             raise TypeError(f"Неподдерживаемый тип изображения: {type(image)}")
@@ -1305,7 +1306,7 @@ class TorchSegmenter(BaseSegmenter):
 
     def _global_thresholding(
         self, tensor: torch.Tensor, **kwargs
-    ) -> Tuple[torch.Tensor]:
+    ) -> torch.Tensor:
         """
         Глобальная пороговая сегментация.
 
@@ -1335,7 +1336,7 @@ class TorchSegmenter(BaseSegmenter):
 
     def _adaptive_thresholding(
         self, tensor: torch.Tensor, **kwargs
-    ) -> Tuple[torch.Tensor]:
+    ) -> torch.Tensor:
         """
         Адаптивная пороговая сегментация (Gaussian).
 
@@ -1374,7 +1375,7 @@ class TorchSegmenter(BaseSegmenter):
         # print(f"Info after Torch_thresholding_adaptive: {info}")
         return mask
 
-    def _otsu_thresholding(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _otsu_thresholding(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Автоматическая бинаризация по методу Оцу.
 
@@ -1428,7 +1429,7 @@ class TorchSegmenter(BaseSegmenter):
         # print(f"Info after Torch_thresholding_otsu: {info}")
         return mask.unsqueeze(0).unsqueeze(0)
 
-    def _threshold_niblack(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _threshold_niblack(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Адаптивная пороговая обработка по Ниблаку.
 
@@ -1486,7 +1487,7 @@ class TorchSegmenter(BaseSegmenter):
             traceback.print_exc()
             return self._global_thresholding(tensor)
 
-    def _threshold_sauvola(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _threshold_sauvola(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Улучшенная адаптивная пороговая обработка по Сауволе.
 
@@ -2949,7 +2950,7 @@ class TorchSegmenter(BaseSegmenter):
 
     # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============
 
-    def _region_growing(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _region_growing(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Сегментация методом Region Growing (роста регионов).
 
@@ -3034,7 +3035,7 @@ class TorchSegmenter(BaseSegmenter):
     #             mask[y:y+min_size, x:x+min_size] = True
 
     #     return mask.float()
-    def _split_and_merge(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _split_and_merge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Рекурсивный алгоритм разделения и слияния регионов.
 
@@ -3130,7 +3131,7 @@ class TorchSegmenter(BaseSegmenter):
             warnings.warn(f"Split-and-merge failed: {e}. Using fallback.")
             return self._kmeans_segmentation(tensor)
 
-    def _floodfill(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _floodfill(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Сегментация методом заливки (Flood Fill).
 
@@ -3235,7 +3236,7 @@ class TorchSegmenter(BaseSegmenter):
         start_point: Tuple[int, int],
         tolerance: float = 0.1,
         **kwargs,
-    ) -> Tuple[torch.Tensor]:
+    ) -> torch.Tensor:
         """FloodFill из одной точки"""
         start_time = time.time()
         c, h, w = tensor.shape[1], tensor.shape[2], tensor.shape[3]
@@ -3329,7 +3330,7 @@ class TorchSegmenter(BaseSegmenter):
 
     # ============ КЛАСТЕРИЗАЦИЯ ============
 
-    def _kmeans_segmentation(self, tensor: torch.Tensor, **kwargs) -> Tuple[np.ndarray]:
+    def _kmeans_segmentation(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Сегментация методом K-Means кластеризации.
 
@@ -3373,7 +3374,7 @@ class TorchSegmenter(BaseSegmenter):
 
     def _dbscan_segmentation(
         self, tensor: torch.Tensor, **kwargs
-    ) -> Tuple[torch.Tensor]:
+    ) -> torch.Tensor:
         """
         Сегментация методом DBSCAN кластеризации.
 
@@ -3438,7 +3439,7 @@ class TorchSegmenter(BaseSegmenter):
             warnings.warn(f"DBSCAN failed: {e}. Using fallback.")
             return self._kmeans_segmentation(tensor)
 
-    def _meanshift(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _meanshift(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Сегментация методом MeanShift.
 
@@ -3605,7 +3606,7 @@ class TorchSegmenter(BaseSegmenter):
             return img_np, mask
 
     # ============ АКТИВНЫЕ КОНТУРЫ ============
-    def _active_contour(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _active_contour(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Сегментация активными контурами (Snakes).
 
@@ -3779,7 +3780,7 @@ class TorchSegmenter(BaseSegmenter):
 
         return mask
 
-    def _gvf_contour(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _gvf_contour(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Сегментация на основе Gradient Vector Flow (GVF).
 
@@ -3834,7 +3835,7 @@ class TorchSegmenter(BaseSegmenter):
 
     def _morphological_snakes(
         self, tensor: torch.Tensor, **kwargs
-    ) -> Tuple[torch.Tensor]:
+    ) -> torch.Tensor:
         """
         Сегментация морфологическими змеями.
 
@@ -3922,7 +3923,7 @@ class TorchSegmenter(BaseSegmenter):
             warnings.warn(f"Morphological snakes failed: {e}. Using fallback.")
             return self._otsu_thresholding(tensor)
 
-    def _chan_vese(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _chan_vese(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Модель Chan-Vese — активные контуры без градиентов.
 
@@ -4214,7 +4215,7 @@ class TorchSegmenter(BaseSegmenter):
             mask = torch.zeros((h, w), device=self.device)
             return img_np, mask
 
-    def _random_walker(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _random_walker(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Сегментация методом Random Walker (чистый PyTorch + опционально scipy для СЛАУ).
 
@@ -4316,7 +4317,7 @@ class TorchSegmenter(BaseSegmenter):
             return self._otsu_thresholding(tensor)
 
     # ============ SUPER-PIXEL МЕТОДЫ ============
-    def _quickshift(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _quickshift(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Quickshift сегментация (чистый PyTorch/numpy)
         Mode-seeking алгоритм для сегментации в пространстве признаков
@@ -4424,7 +4425,7 @@ class TorchSegmenter(BaseSegmenter):
             warnings.warn(f"Quickshift failed: {e}. Using fallback.")
             return self._kmeans_segmentation(tensor)
 
-    def _slic(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _slic(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         SLIC (Simple Linear Iterative Clustering) — чистая реализация на numpy/PyTorch
         Суперпиксельная сегментация в пространстве (цвет + координаты)
@@ -4665,7 +4666,7 @@ class TorchSegmenter(BaseSegmenter):
 
         return labels_out
 
-    def _felzenszwalb(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _felzenszwalb(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
         Графовая сегментация на основе минимального остовного дерева
@@ -4749,7 +4750,7 @@ class TorchSegmenter(BaseSegmenter):
 
             return torch.stack(probs, dim=-1).sum(dim=-1)
 
-    def _grabcut(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _grabcut(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Интерактивная сегментация GrabCut.
 

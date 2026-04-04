@@ -8,6 +8,7 @@ from typing import (
     Dict,
     Any,
     Optional,
+    Callable
 )
 import numpy as np
 import warnings
@@ -200,7 +201,7 @@ class SklearnSegmenter(BaseSegmenter):
         Args:
             **kwargs: Параметры метода
         """
-        self.methods: Dict[str, np.ndarray] = {
+        self.methods: Dict[str, Callable[..., Tuple[np.ndarray, Dict[str, Any]]]] = {
             # ============ ПОРОГОВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ ============
             "global_thresholding": self._sklearn_global_thresholding,
             "adaptive_thresholding": self._sklearn_adaptive_thresholding,
@@ -305,8 +306,6 @@ class SklearnSegmenter(BaseSegmenter):
             "affinity_propagation": self._sklearn_affinity_propagation,
         }
 
-        self.methods: Dict[str, callable] = self.methods
-
         if self.method not in self.methods:
             raise ValueError(
                 f"Неизвестный метод: {self.method}. "
@@ -361,7 +360,7 @@ class SklearnSegmenter(BaseSegmenter):
             result = result.astype(np.float32) / 255.0
         return result
 
-    def segment(self, image: np.ndarray, **kwargs) -> np.ndarray:
+    def segment(self, image, *args: Any, **kwargs: Any) -> np.ndarray:
         """
         Основной метод сегментации.
 
@@ -372,41 +371,35 @@ class SklearnSegmenter(BaseSegmenter):
             np.ndarray: Бинарная маска сегментации (0-255)
         """
         try:
+            # image может быть str/PIL/Tensor, preprocess_image обработает это
             img_processed: np.ndarray = self.preprocess_image(
                 image, as_gray=self._needs_gray
             )
-            print(f"Image after sklearn preprocessing: {img_processed}")
 
             if self.method not in self.methods:
                 raise ValueError(f"Метод {self.method} не реализован")
 
             mask, info = self.methods[self.method](img_processed, **kwargs)
-            print(f"Info Sklearn segment: {info}")
+            
             mask = self._ensure_uint8_mask(mask)
             if self.params.get("postprocess", True) and self.method not in [
-                "canny_edge",
-                "sobel_edge",
+                "canny_edge", "sobel_edge"
             ]:
                 mask = self._postprocess_mask(mask)
 
-            print(f"Mask after sklearn segment: {mask}")
             return mask
         except Exception as e:
-            warnings.warn(
-                f"Ошибка в методе {self.method}: {e}. " f"Возвращаем пустую маску.",
-                RuntimeWarning,
-            )
-            # Возвращаем пустую маску того же размера
+            warnings.warn(f"Ошибка в методе {self.method}: {e}. Возвращаем пустую маску.", RuntimeWarning)
             h, w = img_processed.shape[:2]
             return np.zeros((h, w), dtype=np.uint8)
 
     def segment_and_evaluate(
         self,
         image: ImageInput,
-        ground_truth: np.ndarray,
+        gt_mask: BinaryMask,               # имя как в базе
         threshold: float = 0.5,
-        **kwargs,
-    ) -> Tuple[Dict[str, float], np.ndarray]:
+        **segment_kwargs: Any,             # имя как в базе
+    ) -> Tuple[MetricsDict, BinaryMask]:   # типы как в базе
         """
         Сегментация с немедленным вычислением метрик.
 
@@ -421,12 +414,12 @@ class SklearnSegmenter(BaseSegmenter):
         from metrics.SegmentationMetrics import SegmentationMetrics
 
         # Выполняем сегментацию
-        pred_mask = self.segment(image, **kwargs)
+        pred_mask = self.segment(image, **segment_kwargs)
 
         # Вычисляем метрики
         metrics = SegmentationMetrics.calculate_all_metrics(
             pred_mask=pred_mask,
-            gt_mask=ground_truth,
+            gt_mask=gt_mask,
             threshold=threshold,
             include_hausdorff=True,
         )
@@ -445,7 +438,7 @@ class SklearnSegmenter(BaseSegmenter):
         Returns:
             Tuple[np.ndarray, np.ndarray]: Визуализация и маска
         """
-        image: np.ndarray = self.preprocess_image(image)
+        image = self.preprocess_image(image)
         print(f"Image after sklearn preprocessing with mask: {image}")
         mask = self.segment(image, **kwargs)
 
@@ -1205,7 +1198,7 @@ class SklearnSegmenter(BaseSegmenter):
         n_classes = self.params.get("n_thresholds", 2) + 1
 
         # Используем нативную реализацию skimage (быстрее и стабильнее кастомной рекурсии)
-        from skimage.filters import threshold_multi_otsu
+        from skimage.filters import threshold_multiotsu as threshold_multi_otsu
 
         thresholds = threshold_multi_otsu(img, classes=n_classes)
 
@@ -4231,17 +4224,14 @@ class SklearnSegmenter(BaseSegmenter):
             inertias.append(kmeans.inertia_)
 
         # Находим точку перегиба
+        elbow_point: int = 2
         if len(inertias) >= 3:
             # Вычисляем вторую производную
             derivatives = np.diff(inertias)
             second_derivatives = np.diff(derivatives)
 
             if len(second_derivatives) > 0:
-                elbow_point = np.argmax(np.abs(second_derivatives)) + 2
-            else:
-                elbow_point = 2
-        else:
-            elbow_point = 2
+                elbow_point = int(np.argmax(np.abs(second_derivatives))) + 2
 
         return max(2, min(elbow_point, max_k))
 
@@ -4684,7 +4674,7 @@ class SklearnSegmenter(BaseSegmenter):
         """PCA + K-Means."""
         return self._sklearn_pca_segmentation(image)
 
-    def _sklearn_gmm(
+    def _sklearn_gmm_vers2(
         self, img: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Gaussian Mixture Models."""
@@ -4722,7 +4712,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         return mask, info
 
-    def _sklearn_agglomerative(
+    def _sklearn_agglomerative_vers2(
         self, img: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Agglomerative Clustering."""
@@ -4777,7 +4767,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         return mask, info
 
-    def _sklearn_spectral(
+    def _sklearn_spectral_vers2(
         self, img: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Spectral Clustering."""
@@ -4834,7 +4824,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         return mask, info
 
-    def _sklearn_isolation_forest(
+    def _sklearn_isolation_forest_vers2(
         self, img: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Isolation Forest для сегментации."""
@@ -4871,7 +4861,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         return mask, info
 
-    def _sklearn_random_forest(
+    def _sklearn_random_forest_vers2(
         self, img: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Random Forest для сегментации."""
@@ -4936,7 +4926,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         return mask, info
 
-    def _sklearn_svm(
+    def _sklearn_svm_vers2(
         self, img: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """SVM для сегментации."""
@@ -4999,7 +4989,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         return mask, info
 
-    def _sklearn_pca_segmentation(
+    def _sklearn_pca_segmentation_vers2(
         self, img: np.ndarray, **kwargs
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """PCA-based сегментация."""
@@ -5041,7 +5031,7 @@ class SklearnSegmenter(BaseSegmenter):
 
     # ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
 
-    def _create_mask_from_labels(
+    def _create_mask_from_labels_vers2(
         self, labels: np.ndarray, shape: Tuple, **kwargs
     ) -> np.ndarray:
         """Создание бинарной маски из меток."""
@@ -5109,7 +5099,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         except Exception as e:
             warnings.warn(f"FloodFill failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img), {}
+            return self._sklearn_otsu_thresholding(img)
 
     def _sklearn_active_contour(
         self, img: np.ndarray, **kwargs
@@ -5189,7 +5179,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         except Exception as e:
             warnings.warn(f"Active Contour failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img), {}
+            return self._sklearn_otsu_thresholding(img)
 
     def _sklearn_gvf_contour(
         self, img: np.ndarray, **kwargs
@@ -5253,7 +5243,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         except Exception as e:
             warnings.warn(f"GVF Contour failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img), {}
+            return self._sklearn_otsu_thresholding(img)
 
     def _sklearn_morphological_snakes(
         self, img: np.ndarray, **kwargs
@@ -5317,7 +5307,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         except Exception as e:
             warnings.warn(f"Morphological Snakes failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img), {}
+            return self._sklearn_otsu_thresholding(img)
 
     def _sklearn_chan_vese(
         self, img: np.ndarray, **kwargs
@@ -5383,7 +5373,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         except Exception as e:
             warnings.warn(f"Chan-Vese failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img), {}
+            return self._sklearn_otsu_thresholding(img)
 
     def _sklearn_watershed(
         self, img: np.ndarray, **kwargs
@@ -5436,7 +5426,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         except Exception as e:
             warnings.warn(f"Watershed failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img), {}
+            return self._sklearn_otsu_thresholding(img)
 
     def _sklearn_random_walker(
         self, img: np.ndarray, **kwargs
@@ -5496,7 +5486,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         except Exception as e:
             warnings.warn(f"Random Walker failed: {e}. Using fallback (Otsu).")
-            return self._sklearn_otsu_thresholding(img), {}
+            return self._sklearn_otsu_thresholding(img)
 
     def _sklearn_quickshift(
         self, img: np.ndarray, **kwargs
@@ -5552,7 +5542,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         except Exception as e:
             warnings.warn(f"Quickshift failed: {e}. Using fallback (KMeans).")
-            return self._sklearn_kmeans_segmentation(img), {}
+            return self._sklearn_kmeans_segmentation(img)
 
     def _sklearn_slic(
         self, img: np.ndarray, **kwargs
@@ -5615,7 +5605,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         except Exception as e:
             warnings.warn(f"SLIC failed: {e}. Using fallback (KMeans).")
-            return self._sklearn_kmeans_segmentation(img), {}
+            return self._sklearn_kmeans_segmentation(img)
 
     def _sklearn_felzenszwalb(
         self, img: np.ndarray, **kwargs
@@ -5671,7 +5661,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         except Exception as e:
             warnings.warn(f"Felzenszwalb failed: {e}. Using fallback (KMeans).")
-            return self._sklearn_kmeans_segmentation(img), {}
+            return self._sklearn_kmeans_segmentation(img)
 
     def _sklearn_grabcut(
         self, img: np.ndarray, **kwargs
@@ -5744,7 +5734,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         except Exception as e:
             warnings.warn(f"GrabCut failed: {e}. Using fallback (KMeans).")
-            return self._sklearn_kmeans_segmentation(img), {}
+            return self._sklearn_kmeans_segmentation(img)
 
 
 # methods_to_test_sklearn = [

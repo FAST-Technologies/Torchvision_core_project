@@ -61,7 +61,6 @@ class BaseSegmenter(ABC):
     def __init__(self) -> None:
         self.name: str = self.__class__.__name__
         self.metrics_calculator: SegmentationMetricsProtocol = SegmentationMetrics
-        self.metrics_calculator: SegmentationMetricsProtocol = SegmentationMetrics
 
     @abstractmethod
     def segment(self, image: ImageInput, *args: Any, **kwargs: Any) -> BinaryMask:

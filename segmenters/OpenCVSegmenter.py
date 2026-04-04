@@ -10,6 +10,7 @@ from typing import (
     Dict,
     Any,
     Optional,
+    Callable
 )
 import warnings
 from collections import deque
@@ -112,7 +113,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
     def _setup_methods(self, **kwargs) -> None:
         """Регистрация всех доступных методов сегментации."""
-        self.methods: Dict[str, np.ndarray] = {
+        self.methods: Dict[str, Callable[..., np.ndarray]] = {
             # ============ ПОРОГОВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ ============
             "global_thresholding": self._opencv_global_thresholding,
             "adaptive_thresholding": self._opencv_adaptive_thresholding,
@@ -243,7 +244,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
     def _opencv_global_thresholding(
         self, img: np.ndarray, **kwargs
-    ) -> Tuple[np.ndarray]:
+    ) -> np.ndarray:
         """
         Глобальная пороговая сегментация.
 
@@ -283,7 +284,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
     def _opencv_adaptive_thresholding(
         self, img: np.ndarray, **kwargs
-    ) -> Tuple[np.ndarray]:
+    ) -> np.ndarray:
         """
         Адаптивная пороговая сегментация (Gaussian).
 
@@ -327,7 +328,7 @@ class OpenCVSegmenter(BaseSegmenter):
         # print(f"Info after OpenCV_thresholding_adaptive: {info}")
         return mask
 
-    def _opencv_otsu_thresholding(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_otsu_thresholding(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Автоматическая бинаризация по методу Оцу.
 
@@ -360,7 +361,7 @@ class OpenCVSegmenter(BaseSegmenter):
         # print(f"Info after OpenCV_thresholding_otsu: {info}")
         return mask
 
-    def _opencv_threshold_niblack(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_threshold_niblack(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Адаптивная пороговая обработка по Ниблаку.
 
@@ -412,7 +413,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    def _opencv_threshold_sauvola(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_threshold_sauvola(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Улучшенная адаптивная пороговая обработка по Сауволе.
 
@@ -990,7 +991,7 @@ class OpenCVSegmenter(BaseSegmenter):
         return mask
 
     # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
-    def _opencv_sobel_edge(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_sobel_edge(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Обнаружение границ оператором Собеля.
 
@@ -1038,7 +1039,7 @@ class OpenCVSegmenter(BaseSegmenter):
         # print(f"Info after OpenCV_sobel_edge: {info}")
         return mask
 
-    def _opencv_canny_edge(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_canny_edge(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Обнаружение границ оператором Кэнни.
 
@@ -1567,7 +1568,7 @@ class OpenCVSegmenter(BaseSegmenter):
         return mask
 
     # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============
-    def _opencv_region_growing(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_region_growing(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Сегментация методом Region Growing (роста регионов).
 
@@ -1631,7 +1632,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    def _opencv_split_and_merge(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_split_and_merge(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Рекурсивный алгоритм разделения и слияния регионов.
 
@@ -1744,7 +1745,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return np.zeros((h, w), dtype=np.uint8)
 
-    def _opencv_floodfill(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_floodfill(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Сегментация методом заливки (Flood Fill).
 
@@ -1802,7 +1803,7 @@ class OpenCVSegmenter(BaseSegmenter):
     # ============ КЛАСТЕРИЗАЦИЯ ============
     def _opencv_kmeans_segmentation(
         self, img: np.ndarray, **kwargs
-    ) -> Tuple[np.ndarray]:
+    ) -> np.ndarray:
         """
         Сегментация методом K-Means кластеризации.
 
@@ -1849,7 +1850,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
     def _opencv_dbscan_segmentation(
         self, img: np.ndarray, **kwargs
-    ) -> Tuple[np.ndarray]:
+    ) -> np.ndarray:
         """
         Сегментация методом DBSCAN кластеризации.
 
@@ -1917,7 +1918,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    def _opencv_meanshift(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_meanshift(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Сегментация методом MeanShift.
 
@@ -1962,7 +1963,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
     # ============ АКТИВНЫЕ КОНТУРЫ ============
 
-    def _opencv_active_contour(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_active_contour(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Сегментация активными контурами (Snakes).
 
@@ -2010,7 +2011,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    def _opencv_gvf_contour(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_gvf_contour(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Сегментация на основе Gradient Vector Flow (GVF).
 
@@ -2072,7 +2073,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
     def _opencv_morphological_snakes(
         self, img: np.ndarray, **kwargs
-    ) -> Tuple[np.ndarray]:
+    ) -> np.ndarray:
         """
         Сегментация морфологическими змеями.
 
@@ -2125,7 +2126,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    def _opencv_chan_vese(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_chan_vese(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Модель Chan-Vese — активные контуры без градиентов.
 
@@ -2185,7 +2186,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
     # ============ WATERSHED И ГРАФОВЫЕ ============
 
-    def _opencv_watershed(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_watershed(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Сегментация методом водораздела (Watershed).
 
@@ -2249,7 +2250,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    def _opencv_random_walker(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_random_walker(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Сегментация методом Random Walker.
 
@@ -2365,7 +2366,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    def _opencv_slic(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_slic(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.
 
@@ -2428,7 +2429,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    def _opencv_felzenszwalb(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_felzenszwalb(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
 
@@ -2520,7 +2521,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
     #     return result_mask
 
-    def _opencv_grabcut(self, img: np.ndarray, **kwargs) -> Tuple[np.ndarray]:
+    def _opencv_grabcut(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Интерактивная сегментация GrabCut.
 
