@@ -3181,7 +3181,7 @@ class TorchSegmenter(BaseSegmenter):
                 "execution_time": exec_time,
             }
 
-            return mask
+            return mask.to(self.device)
 
         except Exception as e:
             warnings.warn(f"FloodFill failed: {e}")
@@ -3232,9 +3232,9 @@ class TorchSegmenter(BaseSegmenter):
 
         except Exception as e:
             warnings.warn(f"FloodFill visualization failed: {e}")
-            mask = self._floodfill(tensor)
+            fallback_mask: torch.Tensor = self._floodfill(tensor)
             img_np = self._tensor_to_numpy(tensor)
-            return img_np, mask
+            return img_np, fallback_mask
 
     def _flood_fill_single(
         self,

@@ -37,6 +37,8 @@ import cv2
 TRANSFORMERS_AVAILABLE = True
 num_classes: int = 150
 
+from typing_extensions import TypeAlias
+
 ImagePath: TypeAlias = str
 NumpyImage: TypeAlias = np.ndarray
 PILImage: TypeAlias = Image.Image

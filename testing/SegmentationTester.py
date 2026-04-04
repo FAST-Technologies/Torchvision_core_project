@@ -46,7 +46,7 @@ class SegmentationTester:
     ) -> None:
         self.methods: dict = {}
         self.results: dict = {}
-        self.base_output_dir: Optional[str] = base_output_dir
+        self.base_output_dir: str = base_output_dir
         self.current_test_id: Optional[str] = None
         self.ground_truth_path: Optional[str] = ground_truth_path
         self.ground_truth_mask: Optional[np.ndarray] = None
@@ -97,7 +97,7 @@ class SegmentationTester:
             )
             self.warmup_completed[method_name] = True
 
-    def _create_test_directory(self, test_name: Optional[str] = None) -> Optional[str]:
+    def _create_test_directory(self, test_name: Optional[str] = None) -> str:
         """Создает уникальную директорию для теста"""
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         test_dir: str

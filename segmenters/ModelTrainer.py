@@ -346,8 +346,13 @@ class ModelTrainer:
         for epoch in range(config.epochs):
             # 🔥 Разморозка backbone после 5 эпох для Torchvision моделей
             if is_torchvision_model and epoch == 5:
-                for param in model.backbone.parameters():
-                    param.requires_grad = True
+                if isinstance(model.backbone, nn.Module):
+                    for param in model.backbone.parameters():
+                        param.requires_grad = True
+                else:
+                    print(
+                        f"⚠️  Backbone не является nn.Module при разморозке: {type(model.backbone)}"
+                    )
 
                 # 🔥 Новый оптимизатор для всех параметров (как в старом варианте)
                 trainer.optimizer = torch.optim.AdamW(
@@ -490,7 +495,7 @@ class ModelTrainer:
                     continue
 
                 # Определяем тип модели по имени
-                model_type = None
+                model_type: Optional[str] = None
                 for mt in model_types:
                     if mt in path.lower() or mt in name.lower():
                         model_type = mt

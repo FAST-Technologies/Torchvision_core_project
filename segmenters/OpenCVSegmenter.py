@@ -754,8 +754,8 @@ class OpenCVSegmenter(BaseSegmenter):
         )
 
         # Находим точку максимального расстояния
-        max_dist = 0
-        best_threshold = peak_idx
+        max_dist: float = 0.0
+        best_threshold: int = peak_idx
 
         for t in range(int(peak_idx) + 1, int(num_bins)):
             # Расстояние от точки до линии
@@ -1018,7 +1018,9 @@ class OpenCVSegmenter(BaseSegmenter):
         # sobel_norm = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
         # _, mask = cv2.threshold(sobel_norm.astype(np.uint8), threshold, 255, cv2.THRESH_BINARY)
 
-        _, mask = cv2.threshold(magnitude, float(threshold), 255.0, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(
+            magnitude.astype(np.float32), float(threshold), 255.0, cv2.THRESH_BINARY
+        )
 
         exec_time = time.time() - start_time
 
@@ -2209,9 +2211,10 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Преобразование расстояния
         dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
-        _, sure_fg = cv2.threshold(dist_transform, 0.7 * dist_transform.max(), 255, 0)
-
-        sure_fg = np.uint8(sure_fg)
+        _, sure_fg_raw = cv2.threshold(
+            dist_transform, 0.7 * dist_transform.max(), 255.0, 0
+        )
+        sure_fg: np.ndarray = sure_fg_raw.astype(np.uint8)
         unknown = cv2.subtract(sure_bg, sure_fg)
 
         # Маркеры
@@ -2286,7 +2289,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR) if len(img.shape) == 2 else img
             )
             ws_markers = markers.copy().astype(np.int32)
-            ws_markers = cv2.watershed(color_img, ws_markers)
+            cv2.watershed(color_img, ws_markers)
             mask = (ws_markers == 2).astype(np.uint8) * 255
 
         exec_time = time.time() - start_time

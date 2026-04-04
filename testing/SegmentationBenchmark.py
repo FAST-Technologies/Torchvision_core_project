@@ -1015,7 +1015,7 @@ class SegmentationBenchmark:
 
     def plot_summary(
         self,
-        metrics: list = ["mIoU", "pixel_acc", "time_ms"],
+        metrics: List[str] = ["mIoU", "pixel_acc", "time_ms"],
         path: str = "./data/ade20k_test_trained/plot_summary.jpg",
     ) -> None:
         """Визуализация сводных результатов"""
@@ -1026,7 +1026,7 @@ class SegmentationBenchmark:
                 continue
             plt.figure(figsize=(10, 5))
             plt.bar(
-                summary.keys(),
+                list(summary.keys()),
                 values,
                 color=plt.get_cmap("Set2")(np.linspace(0, 1, len(summary))),
             )
