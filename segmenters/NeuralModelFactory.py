@@ -221,7 +221,7 @@ class NeuralModelFactory:
         local_path: Optional[str] = None,
         checkpoint_path: str = "model_path",
         device: str = "cuda",
-        num_classes: int = num_classes,
+        num_classes: int = 150,
         **kwargs,
     ) -> Tuple[Any, Any, str]:
         """
@@ -274,18 +274,22 @@ class NeuralModelFactory:
     # ========== SEGFORMER ==========
     @classmethod
     def _load_segformer(
-        cls, model_name: str = None, local_path: Optional[str] = None, device: str = "cuda"
+        cls,
+        model_name: Optional[str] = None,
+        local_path: Optional[str] = None,
+        device: str = "cuda",
     ) -> Tuple[Any, Any, str]:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
 
-        processor = SegformerImageProcessor.from_pretrained(
-            local_path if local_path else model_name
-        )
+        if model_name is None and local_path is None:
+            raise ValueError("Укажите model_name или local_path для SegFormer")
+
+        source = local_path if local_path else model_name
+
+        processor = SegformerImageProcessor.from_pretrained(source)  # type: ignore[arg-type]
         model = (
-            SegformerForSemanticSegmentation.from_pretrained(
-                local_path if local_path else model_name
-            )
+            SegformerForSemanticSegmentation.from_pretrained(source)  # type: ignore[arg-type]
             .to(device)
             .eval()
         )
@@ -317,12 +321,10 @@ class NeuralModelFactory:
             )
 
         model_name = variants[variant]
-        processor = SegformerImageProcessor.from_pretrained(model_name)
-        model = (
-            SegformerForSemanticSegmentation.from_pretrained(model_name)
-            .to(device)
-            .eval()
-        )
+        processor = SegformerImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
+        model = SegformerForSemanticSegmentation.from_pretrained(
+            model_name
+        ).eval()  # type: ignore[arg-type]
         return model, processor, f"segformer_{variant}"
 
     @classmethod
@@ -354,8 +356,8 @@ class NeuralModelFactory:
         if variant not in variants:
             raise ValueError(f"Unknown SegFormer variant: {variant}")
         model_name = variants[variant]
-        processor = SegformerImageProcessor.from_pretrained(model_name)
-        model = SegformerForSemanticSegmentation.from_pretrained(model_name).to(device)
+        processor = SegformerImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
+        model = SegformerForSemanticSegmentation.from_pretrained(model_name).to(device)  # type: ignore[arg-type]
         print(processor)
         print(model)
         print(f"✅ SegFormer-{variant} загружена!")
@@ -370,9 +372,9 @@ class NeuralModelFactory:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
 
-        processor = Mask2FormerImageProcessor.from_pretrained(model_name)
+        processor = Mask2FormerImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
         model = (
-            Mask2FormerForUniversalSegmentation.from_pretrained(model_name)
+            Mask2FormerForUniversalSegmentation.from_pretrained(model_name)  # type: ignore[arg-type]
             .to(device)
             .eval()
         )
@@ -385,8 +387,8 @@ class NeuralModelFactory:
         device: str = "cuda",
     ) -> None:
         """Вывод параметров Mask2Former"""
-        processor = Mask2FormerImageProcessor.from_pretrained(name)
-        model = Mask2FormerForUniversalSegmentation.from_pretrained(name).to(device)
+        processor = Mask2FormerImageProcessor.from_pretrained(name)  # type: ignore[arg-type]
+        model = Mask2FormerForUniversalSegmentation.from_pretrained(name).to(device)  # type: ignore[arg-type]
         print(processor)
         print(model)
         print("✅ Mask2Former загружена!")
@@ -401,9 +403,9 @@ class NeuralModelFactory:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
 
-        processor = MaskFormerImageProcessor.from_pretrained(model_name)
+        processor = MaskFormerImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
         model = (
-            MaskFormerForInstanceSegmentation.from_pretrained(model_name)
+            MaskFormerForInstanceSegmentation.from_pretrained(model_name)  # type: ignore[arg-type]
             .to(device)
             .eval()
         )
@@ -416,8 +418,8 @@ class NeuralModelFactory:
         device: str = "cuda",
     ) -> None:
         """Вывод параметров MaskFormer"""
-        processor = MaskFormerImageProcessor.from_pretrained(model_name)
-        model = MaskFormerForInstanceSegmentation.from_pretrained(model_name).to(device)
+        processor = MaskFormerImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
+        model = MaskFormerForInstanceSegmentation.from_pretrained(model_name).to(device)  # type: ignore[arg-type]
         print(processor)
         print(model)
         print("✅ MaskFormer загружена!")
@@ -438,9 +440,9 @@ class NeuralModelFactory:
             if any(f.endswith(".safetensors") for f in files)
             else "❌ Только pickle (.bin)"
         )
-        processor = OneFormerProcessor.from_pretrained(model_name)
+        processor = OneFormerProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
         model = (
-            OneFormerForUniversalSegmentation.from_pretrained(model_name)
+            OneFormerForUniversalSegmentation.from_pretrained(model_name)  # type: ignore[arg-type]
             .to(device)
             .eval()
         )
@@ -457,8 +459,8 @@ class NeuralModelFactory:
             if any(f.endswith(".safetensors") for f in files)
             else "❌ Только pickle (.bin)"
         )
-        processor = OneFormerProcessor.from_pretrained(name)
-        model = OneFormerForUniversalSegmentation.from_pretrained(name).to(device)
+        processor = OneFormerProcessor.from_pretrained(name)  # type: ignore[arg-type]
+        model = OneFormerForUniversalSegmentation.from_pretrained(name).to(device)  # type: ignore[arg-type]
         print(processor)
         print(model)
         print("✅ OneFormer загружена!")
@@ -471,8 +473,8 @@ class NeuralModelFactory:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
 
-        processor = DPTImageProcessor.from_pretrained(model_name)
-        model = DPTForSemanticSegmentation.from_pretrained(model_name).to(device).eval()
+        processor = DPTImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
+        model = DPTForSemanticSegmentation.from_pretrained(model_name).to(device).eval()  # type: ignore[arg-type]
         return model, processor, "dpt"
 
     @classmethod
@@ -480,8 +482,8 @@ class NeuralModelFactory:
         cls, model_name: str = "Intel/dpt-large-ade", device: str = "cuda"
     ) -> None:
         """Вывод параметров DPT"""
-        processor = DPTImageProcessor.from_pretrained(model_name)
-        model = DPTForSemanticSegmentation.from_pretrained(model_name).to(device)
+        processor = DPTImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
+        model = DPTForSemanticSegmentation.from_pretrained(model_name).to(device)  # type: ignore[arg-type]
         print(processor)
         print(model)
         print("✅ DPT загружена!")
@@ -496,9 +498,9 @@ class NeuralModelFactory:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
 
-        processor = AutoImageProcessor.from_pretrained(model_name)
+        processor = AutoImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
         model = (
-            AutoModelForSemanticSegmentation.from_pretrained(model_name)
+            AutoModelForSemanticSegmentation.from_pretrained(model_name)  # type: ignore[arg-type]
             .to(device)
             .eval()
         )
@@ -509,8 +511,8 @@ class NeuralModelFactory:
         cls, model_name: str = "openmmlab/upernet-convnext-small", device: str = "cuda"
     ) -> None:
         """Вывод параметров UPerNet"""
-        processor = AutoImageProcessor.from_pretrained(model_name)
-        model = AutoModelForSemanticSegmentation.from_pretrained(model_name).to(device)
+        processor = AutoImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
+        model = AutoModelForSemanticSegmentation.from_pretrained(model_name).to(device)  # type: ignore[arg-type]
         print(processor)
         print(model)
         print("✅ UPerNet загружена!")

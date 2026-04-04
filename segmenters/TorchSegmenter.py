@@ -9,15 +9,7 @@ import time
 from collections import deque
 import heapq
 import traceback
-from typing import (
-    List,
-    Union,
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-    Callable
-)
+from typing import List, Union, Tuple, Dict, Any, Optional, Callable, Deque
 
 import numpy as np
 from scipy import ndimage
@@ -31,14 +23,15 @@ from torchvision.transforms import functional as TF
 
 import cv2
 from sklearn.cluster import DBSCAN, MeanShift as SkMeanShift
+from torchvision.transforms.functional import gaussian_blur as tv_gaussian_blur
 
 
 class TorchSegmenter(BaseSegmenter):
     """
-    Класс для методов сегментации с использованием PyTorch. 
-    Все реализации сделаны без использования OpenCV, Scikit-learn, Scikit-image 
-    или специализированных библиотек для обработки изображений. 
-    Поддерживает как классические методы (пороговые, граничные), 
+    Класс для методов сегментации с использованием PyTorch.
+    Все реализации сделаны без использования OpenCV, Scikit-learn, Scikit-image
+    или специализированных библиотек для обработки изображений.
+    Поддерживает как классические методы (пороговые, граничные),
     так и методы на основе кластеризации, активных контуров и графов.
     """
 
@@ -167,13 +160,13 @@ class TorchSegmenter(BaseSegmenter):
 
         self._segment_func = self.method_map[self.method]
 
-    def preprocess_image(
+    def preprocess_image(  # type: ignore[override]
         self,
         image: Union[str, np.ndarray, Image.Image, torch.Tensor],
         as_gray: bool = False,
         target_size: Optional[Tuple[int, int]] = None,
         normalize: bool = False,
-    ) -> torch.Tensor:  # type: ignore[override]
+    ) -> torch.Tensor:
         """Предобработка изображения для PyTorch"""
         if isinstance(image, str):
             img = Image.open(image).convert("RGB")
@@ -319,10 +312,15 @@ class TorchSegmenter(BaseSegmenter):
         return TF.to_pil_image(tensor)
 
     @staticmethod
-    def _normalize_to_255(img: Image.Image | np.ndarray) -> Image.Image | np.ndarray:
+    def _normalize_to_255(
+        img: Union[Image.Image, np.ndarray]
+    ) -> Union[Image.Image, np.ndarray]:
         """Метод нормализации изображения"""
-        if img.dtype != np.uint8:
-            img = ((img - img.min()) / (img.max() - img.min()) * 255).astype(np.uint8)
+        if isinstance(img, np.ndarray):
+            if img.dtype != np.uint8:
+                img = ((img - img.min()) / (img.max() - img.min() + 1e-8) * 255).astype(
+                    np.uint8
+                )
         return img
 
     @staticmethod
@@ -621,14 +619,14 @@ class TorchSegmenter(BaseSegmenter):
         # Списки для построения разреженной матрицы
         rows = []
         cols = []
-        vals = []
+        vals: List[torch.Tensor] = []
 
         # Для каждого неразмеченного пикселя добавляем связи с соседями
         for idx in b_indices:
             y, x = y_coords[idx], x_coords[idx]
 
             # Диагональный элемент: сумма весов к соседям
-            diag_val = 0.0
+            diag_val = torch.tensor(0.0, dtype=torch.float32, device=image.device)
 
             # Соседи: вправо, вниз, влево, вверх
             neighbors = [
@@ -750,9 +748,8 @@ class TorchSegmenter(BaseSegmenter):
                 if 0 <= nx < w and 0 <= ny < h:
                     n_idx = ny * w + nx
                     if flat_markers[n_idx] > 0:  # размеченный сосед
-                        label = flat_markers[n_idx].item() - 1  # 0-based
-                        # Вес ребра (упрощённо: 1.0, можно улучшить)
-                        rhs[label, i] += 1.0
+                        label_int: int = int(flat_markers[n_idx].item() - 1)
+                        rhs[label_int, int(i)] += 1.0
 
         return rhs
 
@@ -1304,9 +1301,7 @@ class TorchSegmenter(BaseSegmenter):
     # ============ РЕАЛИЗАЦИИ МЕТОДОВ ============
     # ============ ПОРОГОВЫЕ МЕТОДЫ ============
 
-    def _global_thresholding(
-        self, tensor: torch.Tensor, **kwargs
-    ) -> torch.Tensor:
+    def _global_thresholding(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Глобальная пороговая сегментация.
 
@@ -1334,9 +1329,7 @@ class TorchSegmenter(BaseSegmenter):
         # print(f"Info after Torch_thresholding_global: {info}")
         return mask
 
-    def _adaptive_thresholding(
-        self, tensor: torch.Tensor, **kwargs
-    ) -> torch.Tensor:
+    def _adaptive_thresholding(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Адаптивная пороговая сегментация (Gaussian).
 
@@ -1592,8 +1585,8 @@ class TorchSegmenter(BaseSegmenter):
             stride=1,
             padding=pad,
         ).squeeze()
-        local_min = F.min_pool2d(
-            gray.unsqueeze(0).unsqueeze(0),
+        local_min = -F.max_pool2d(
+            -gray.unsqueeze(0).unsqueeze(0),
             kernel_size=window_size,
             stride=1,
             padding=pad,
@@ -1760,7 +1753,7 @@ class TorchSegmenter(BaseSegmenter):
         cum_mean = torch.cumsum(pdf * bins, dim=0)
 
         best_threshold = 128
-        min_criterion = float("inf")
+        min_criterion = torch.tensor(float("inf"), device=gray.device)
 
         for t in range(1, 255):
             if cum_pdf[t] < 1e-6 or (1 - cum_pdf[t]) < 1e-6:
@@ -1879,13 +1872,13 @@ class TorchSegmenter(BaseSegmenter):
         hist = torch.histc(gray, bins=256, min=0, max=1)
 
         # Находим пик гистограммы
-        peak_idx = torch.argmax(hist)
+        peak_idx: int = int(torch.argmax(hist).item())
 
         # Определяем направление (левый или правый хвост)
         if peak_idx < 128:
             # Пик слева - ищем в правом хвосте
-            start_idx = peak_idx
-            end_idx = 255
+            start_idx: int = peak_idx
+            end_idx: int = 255
         else:
             # Пик справа - ищем в левом хвосте
             start_idx = 0
@@ -1898,15 +1891,15 @@ class TorchSegmenter(BaseSegmenter):
         peak_val = hist_norm[peak_idx]
         end_val = hist_norm[end_idx]
 
-        best_threshold = peak_idx
-        max_distance = -1
+        best_threshold: int = peak_idx
+        max_distance: float = -1.0
 
         for t in range(start_idx, end_idx + 1):
             # Расстояние от точки до линии
             line_val = peak_val + (end_val - peak_val) * (t - peak_idx) / (
                 end_idx - peak_idx + 1e-10
             )
-            distance = torch.abs(hist_norm[t] - line_val)
+            distance: float = float(torch.abs(hist_norm[t] - line_val).item())
 
             if distance > max_distance:
                 max_distance = distance
@@ -2069,7 +2062,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask.unsqueeze(0).unsqueeze(0)
 
     # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
-    def _sobel_edge(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def _sobel_edge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Обнаружение границ оператором Собеля.
 
@@ -2158,9 +2151,11 @@ class TorchSegmenter(BaseSegmenter):
             if kernel_size % 2 == 0:
                 kernel_size += 1
             try:
-                gray = F.gaussian_blur(
-                    gray, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma]
-                )
+                gray = tv_gaussian_blur(
+                    gray.unsqueeze(0),  # (B, C, H, W) или (C, H, W)
+                    kernel_size=[kernel_size, kernel_size],
+                    sigma=[sigma, sigma],
+                ).squeeze(0)
             except AttributeError:
                 # Fallback для старых версий PyTorch
                 pass
@@ -2494,9 +2489,11 @@ class TorchSegmenter(BaseSegmenter):
             if kernel_size % 2 == 0:
                 kernel_size += 1
             try:
-                gray = F.gaussian_blur(
-                    gray, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma]
-                )
+                gray = tv_gaussian_blur(
+                    gray.unsqueeze(0),  # (B, C, H, W) или (C, H, W)
+                    kernel_size=[kernel_size, kernel_size],
+                    sigma=[sigma, sigma],
+                ).squeeze(0)
             except AttributeError:
                 pass  # Fallback для старых версий PyTorch
 
@@ -2591,9 +2588,11 @@ class TorchSegmenter(BaseSegmenter):
             kernel_size = int(2 * round(3 * sigma) + 1)
             if kernel_size % 2 == 0:
                 kernel_size += 1
-            gray = F.gaussian_blur(
-                gray, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma]
-            )
+            gray = tv_gaussian_blur(
+                gray.unsqueeze(0),  # (B, C, H, W) или (C, H, W)
+                kernel_size=[kernel_size, kernel_size],
+                sigma=[sigma, sigma],
+            ).squeeze(0)
 
         # 2. Laplacian kernel
         laplacian_kernel = torch.tensor(
@@ -2657,12 +2656,16 @@ class TorchSegmenter(BaseSegmenter):
             kernel_size2 += 1
 
         # Два гауссовых размытия
-        blurred1 = F.gaussian_blur(
-            gray, kernel_size=[kernel_size1, kernel_size1], sigma=[sigma1, sigma1]
-        )
-        blurred2 = F.gaussian_blur(
-            gray, kernel_size=[kernel_size2, kernel_size2], sigma=[sigma2, sigma2]
-        )
+        blurred1 = tv_gaussian_blur(
+            gray.unsqueeze(0),  # (B, C, H, W) или (C, H, W),
+            kernel_size=[kernel_size1, kernel_size1],
+            sigma=[sigma1, sigma1],
+        ).squeeze(0)
+        blurred2 = tv_gaussian_blur(
+            gray.unsqueeze(0),  # (B, C, H, W) или (C, H, W),
+            kernel_size=[kernel_size2, kernel_size2],
+            sigma=[sigma2, sigma2],
+        ).squeeze(0)
 
         # Разность
         dog = blurred1 - blurred2
@@ -2712,9 +2715,11 @@ class TorchSegmenter(BaseSegmenter):
             kernel_size = int(2 * round(3 * sigma) + 1)
             if kernel_size % 2 == 0:
                 kernel_size += 1
-            gray = F.gaussian_blur(
-                gray, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma]
-            )
+            gray = tv_gaussian_blur(
+                gray.unsqueeze(0),  # (B, C, H, W) или (C, H, W)
+                kernel_size=[kernel_size, kernel_size],
+                sigma=[sigma, sigma],
+            ).squeeze(0)
 
         # Laplacian kernel (5x5 для лучшей аппроксимации)
         laplacian_kernel = (
@@ -2977,7 +2982,8 @@ class TorchSegmenter(BaseSegmenter):
         visited = torch.zeros(h, w, dtype=torch.bool, device=self.device)
         seed_y, seed_x = seed
 
-        queue = deque([(seed_y, seed_x)])
+        # очередь кортежей (y, x)
+        queue: Deque[Tuple[int, int]] = deque([(seed_y, seed_x)])
         seed_value = gray[seed_y, seed_x]
 
         while queue:
@@ -3056,7 +3062,7 @@ class TorchSegmenter(BaseSegmenter):
                 img_np = (img_np * 255).astype(np.uint8)
 
             if len(img_np.shape) == 3:
-                gray = self.rgb_to_gray_numpy(img_np).astype(np.float32)
+                gray = self._rgb_to_gray_numpy(img_np).astype(np.float32)
             else:
                 gray = img_np.astype(np.float32)
 
@@ -3372,9 +3378,7 @@ class TorchSegmenter(BaseSegmenter):
 
         return mask.float()
 
-    def _dbscan_segmentation(
-        self, tensor: torch.Tensor, **kwargs
-    ) -> torch.Tensor:
+    def _dbscan_segmentation(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Сегментация методом DBSCAN кластеризации.
 
@@ -3649,9 +3653,11 @@ class TorchSegmenter(BaseSegmenter):
         ks = int(2 * round(3 * sigma_edge) + 1)
         if ks % 2 == 0:
             ks += 1
-        gray_smooth = F.gaussian_blur(
-            gray, kernel_size=[ks, ks], sigma=[sigma_edge, sigma_edge]
-        )
+        gray_smooth = tv_gaussian_blur(
+            gray.unsqueeze(0),  # (B, C, H, W) или (C, H, W),
+            kernel_size=[ks, ks],
+            sigma=[sigma_edge, sigma_edge],
+        ).squeeze(0)
 
         gx = F.conv2d(gray_smooth, sobel_x, padding=1).squeeze()
         gy = F.conv2d(gray_smooth, sobel_y, padding=1).squeeze()
@@ -3833,9 +3839,7 @@ class TorchSegmenter(BaseSegmenter):
 
         return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
-    def _morphological_snakes(
-        self, tensor: torch.Tensor, **kwargs
-    ) -> torch.Tensor:
+    def _morphological_snakes(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Сегментация морфологическими змеями.
 
@@ -4118,7 +4122,7 @@ class TorchSegmenter(BaseSegmenter):
         visited = torch.zeros_like(markers_int, dtype=torch.bool)  # (H, W)
 
         # Список всех пикселей, отсортированных по высоте (градиенту)
-        pixel_queue = []
+        pixel_queue: List = []
 
         # Заполняем очередь начальными маркерами
         for y in range(h):

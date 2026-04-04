@@ -32,7 +32,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-num_classes: int = 150
+num_classes_custom: int = 150
 
 
 class SegmentationBenchmark:
@@ -41,11 +41,11 @@ class SegmentationBenchmark:
     def __init__(
         self,
         device: str = "cuda",
-        num_classes: int = num_classes,
+        num_classes: int = num_classes_custom,
         ignore_index: int = 255,
         class_names: Optional[List] = None,
         gt_mask: Optional[Union[np.ndarray, Image.Image]] = None,
-        palette: Optional[Union[List[List[int]], Callable]] = None,
+        palette: Optional[Union[List[List[int]], Callable[[], List[List[int]]]]] = None,
     ) -> None:
         """
         Инициализация бенчмарка для сравнения моделей сегментации.
@@ -59,13 +59,17 @@ class SegmentationBenchmark:
             palette: Цветовая палитра для визуализации масок
         """
         if callable(palette):
-            palette = palette()
+            resolved_palette = palette()
+        elif palette is not None:
+            resolved_palette = palette
+        else:
+            resolved_palette = ade_palette()
 
         self.device: str = device
         self.num_classes: int = int(num_classes)
         self.ignore_index: int = ignore_index
         self.models: Dict[str, Dict[str, Any]] = {}
-        self.palette: List[List[int]] = palette if palette else ade_palette()
+        self.palette: List[List[int]] = resolved_palette
         self.results: Dict[str, Dict[str, Any]] = (
             {}
         )  # {model_name: {metrics, time, overlay, ...}}
@@ -280,7 +284,7 @@ class SegmentationBenchmark:
         return self
 
     def load_fpn_mit_pretrained(
-        self, variant: str = "b5", checkpoint_path: str = None
+        self, variant: str = "b5", checkpoint_path: Optional[str] = None
     ) -> "SegmentationBenchmark":
         """Загрузка FPN + MiT"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
@@ -702,7 +706,8 @@ class SegmentationBenchmark:
             print(f"⚠️ No valid data for metric '{metric_name}'")
             return
 
-        models, values = zip(*valid)
+        models: List[str] = [m for m, _ in valid]
+        values: List[float] = [v for _, v in valid]
 
         is_percentage = metric_name in ["mIoU", "pixel_acc", "f1_weighted"]
         multiplier = 100 if is_percentage else 1
@@ -711,7 +716,8 @@ class SegmentationBenchmark:
         use_percent_format = max_val < 1.0
 
         plt.figure(figsize=figsize)
-        colors = plt.cm.Set2(np.linspace(0, 1, len(models)))
+        cmap = plt.get_cmap("Set2")
+        colors = cmap(np.linspace(0, 1, len(models)))
 
         # Создаем бары
         x_pos = range(len(models))
@@ -785,8 +791,8 @@ class SegmentationBenchmark:
         Строит heatmap per-class IoU только для классов, присутствующих в GT.
         """
 
-        data = []
-        model_names = []
+        data: List[np.ndarray] = []
+        model_names: List[str] = []
         for model_name, res in self.results.items():
             iou_arr = res["metrics"].get("per_class_iou")
             if iou_arr is not None and len(iou_arr) > 0:
@@ -800,9 +806,9 @@ class SegmentationBenchmark:
             print("❌ No valid per-class IoU data.")
             return
 
-        data = np.array(data)  # [n_models, n_classes]
+        data_arr = np.array(data)  # type: np.ndarray
         if show_only_present_classes:
-            valid_classes = np.any(np.isfinite(data), axis=0)
+            valid_classes = np.any(np.isfinite(data_arr), axis=0)
             class_indices = np.where(valid_classes)[0]
         else:
             class_indices = np.arange(self.num_classes)
@@ -812,13 +818,13 @@ class SegmentationBenchmark:
             return
 
         # Берем top-k среди присутствующих классов
-        mean_iou = np.nanmean(data[:, class_indices], axis=0)
+        mean_iou = np.nanmean(data_arr[:, class_indices], axis=0)
         top_indices_in_subset = np.argsort(mean_iou)[::-1][:top_k]
         top_class_indices = class_indices[top_indices_in_subset]
 
         # Подписи классов
         class_labels = [f"Class {c}" for c in top_class_indices]
-        data_filtered = data[:, top_class_indices]
+        data_filtered = data_arr[:, top_class_indices]
 
         plt.figure(figsize=figsize)
         ax = sns.heatmap(
@@ -945,7 +951,8 @@ class SegmentationBenchmark:
         )
         if n_plots == 1:
             axes = [axes]
-        colors = plt.cm.Set2(np.linspace(0, 1, len(summary)))
+        cmap = plt.get_cmap("Set2")
+        colors = cmap(np.linspace(0, 1, len(summary)))
         for ax, (metric, label, transform) in zip(axes, valid_metrics):
             models = list(summary.keys())
             values = [transform(summary[m].get(metric, np.nan)) for m in models]
@@ -1021,13 +1028,14 @@ class SegmentationBenchmark:
             plt.bar(
                 summary.keys(),
                 values,
-                color=plt.cm.Set2(np.linspace(0, 1, len(summary))),
+                color=plt.get_cmap("Set2")(np.linspace(0, 1, len(summary))),
             )
             plt.ylabel(metric)
             plt.title(f"Model Comparison: {metric}")
             plt.xticks(rotation=45, ha="right")
             plt.grid(axis="y", alpha=0.3)
             plt.tight_layout()
+            # plt.savefig(path.replace(".jpg", f"_{metric}.jpg"), dpi=300)
             plt.savefig(
                 path, dpi=300, bbox_inches="tight", facecolor="white", format="png"
             )

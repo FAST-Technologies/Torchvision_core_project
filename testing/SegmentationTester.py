@@ -22,15 +22,8 @@ from typing import (
     Union,
     Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
     Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
 
 import numpy as np
@@ -55,7 +48,7 @@ class SegmentationTester:
         self.results: dict = {}
         self.base_output_dir: Optional[str] = base_output_dir
         self.current_test_id: Optional[str] = None
-        self.ground_truth_path: str = ground_truth_path
+        self.ground_truth_path: Optional[str] = ground_truth_path
         self.ground_truth_mask: Optional[np.ndarray] = None
         self.enable_warmup: bool = enable_warmup
         self.n_warmup_runs: int = n_warmup_runs
@@ -113,7 +106,7 @@ class SegmentationTester:
         else:
             test_dir = f"test_{timestamp}"
 
-        full_path: str = os.path.join(self.base_output_dir, test_dir)
+        full_path: Optional[str] = os.path.join(self.base_output_dir, test_dir)
         os.makedirs(full_path, exist_ok=True)
         os.makedirs(os.path.join(full_path, "images"), exist_ok=True)
         os.makedirs(os.path.join(full_path, "masks"), exist_ok=True)
@@ -880,7 +873,7 @@ class SegmentationTester:
         try:
             df_stats = []
             for stat in stats:
-                row = {}
+                row: Dict[str, Any] = {}
                 for key, value in stat.items():
                     if isinstance(value, np.integer):
                         row[key] = int(value)
@@ -1154,6 +1147,7 @@ class SegmentationTester:
         gt_binary = None
 
         if has_gt:
+            assert gt_mask_to_use is not None
             print(f"🎯 Обнаружен Ground Truth. Будет выполнен расчет метрик качества.")
             if gt_mask_to_use.max() <= 1.0:
                 gt_binary = (gt_mask_to_use * 255).astype(np.uint8)
@@ -1170,7 +1164,7 @@ class SegmentationTester:
             segmenter = self.methods[method_name]
 
             if not force_warmup:
-                self._ensure_warmup(method_name, segmenter, image)
+                self._ensure_warmup(method_name, segmenter, image_array)
 
             times: List[float] = []
             results_list: List[np.ndarray] = []
@@ -1217,15 +1211,14 @@ class SegmentationTester:
                     if run == 0:
                         break
 
-            mask_area = 0
-            total_pixels = 1
-            metrics_dict = {}
+            mask_area: int = 0
+            total_pixels: int = 1
+            metrics_dict: Dict[str, Any] = {}
             if masks_list and results_list:
                 mask = masks_list[0]
                 result_img: np.ndarray = results_list[0]
-                mask_area = np.sum(mask > 0)
-                total_pixels = mask.shape[0] * mask.shape[1]
-                metrics_dict = {}
+                mask_area = int(np.sum(mask > 0))
+                total_pixels = int(mask.shape[0] * mask.shape[1])
                 if has_gt and gt_binary is not None:
                     try:
                         # Ресайз GT под размер предсказания
@@ -1270,17 +1263,12 @@ class SegmentationTester:
                     result_path: str = os.path.join(
                         bench_dir, "images", f"{method_name}_result.jpg"
                     )
-                    result_pil: Image.Image = Image.fromarray(
-                        result_img.astype(np.uint8)
-                    ).save(result_path)
+                    result_pil = Image.fromarray(result_img.astype(np.uint8))
+                    result_pil.save(result_path)
 
                     # Сохраняем маску
-                    mask_path: str = os.path.join(
-                        bench_dir, "masks", f"{method_name}_mask.png"
-                    )
-                    mask_pil: Image.Image = Image.fromarray(mask.astype(np.uint8)).save(
-                        mask_path
-                    )
+                    mask_pil = Image.fromarray(mask.astype(np.uint8))
+                    mask_pil.save(mask_path)
 
                     # Сохраняем overlay (30% оригинал + 70% результат)
                     if image_array is not None:
@@ -1290,9 +1278,8 @@ class SegmentationTester:
                         overlay_path: str = os.path.join(
                             bench_dir, "images", f"{method_name}_overlay.jpg"
                         )
-                        overlay_pil: Image.Image = Image.fromarray(overlay).save(
-                            overlay_path
-                        )
+                        overlay_pil = Image.fromarray(overlay)
+                        overlay_pil.save(overlay_path)
 
                         print(f"    💾 Результаты сохранены в {bench_dir}")
                 except Exception as e:
@@ -1685,7 +1672,7 @@ class SegmentationTester:
         plt.suptitle(
             "Превью результатов сегментации (сортировка по скорости)", fontsize=14
         )
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.tight_layout(rect=(0, 0.03, 1, 0.95))
 
         preview_path: str = os.path.join(comp_dir, "methods_preview.jpg")
         plt.savefig(preview_path, dpi=150, bbox_inches="tight")
@@ -1696,11 +1683,10 @@ class SegmentationTester:
         results: Dict[str, Dict],
         show_masks: bool = True,
         save_visualization: bool = True,
-        output_dir: str = None,
+        output_dir: Optional[str] = None,
         show_plots: bool = True,
     ) -> None:
         """Визуализация сравнения результатов с сохранением"""
-        output_dir: str
         if output_dir is None and self.current_test_id:
             output_dir = os.path.join(self.base_output_dir, self.current_test_id)
         elif output_dir is None:
@@ -1713,7 +1699,7 @@ class SegmentationTester:
             for i, (method_name, result) in enumerate(results.items()):
                 # Результат
                 axes[0, i].imshow(result["result"])
-                title: str = f"{method_name}\n{result['time']:.2f}s"
+                title = f"{method_name}\n{result['time']:.2f}s"
                 axes[0, i].set_title(title, fontsize=10)
                 axes[0, i].axis("off")
 
@@ -1727,16 +1713,14 @@ class SegmentationTester:
 
             for i, (method_name, result) in enumerate(results.items()):
                 axes[i].imshow(result["result"])
-                title: str = (
-                    f"{method_name}\n{result['time']:.2f}s, {result['mask_percentage']:.3f}%"
-                )
+                title = f"{method_name}\n{result['time']:.2f}s, {result['mask_percentage']:.3f}%"
                 axes[i].set_title(title, fontsize=10)
                 axes[i].axis("off")
 
         plt.suptitle(
             "Визуализация результатов сегментации", fontsize=14, fontweight="bold"
         )
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.tight_layout(rect=(0, 0.03, 1, 0.95))
 
         # Сохраняем визуализацию
         if save_visualization:

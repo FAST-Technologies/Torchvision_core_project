@@ -2,15 +2,7 @@
 
 # Импорт основных библиотек
 from segmenters.BaseSegmenter import BaseSegmenter
-from typing import (
-    Union,
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-    Callable,
-    Literal
-)
+from typing import Union, Tuple, Dict, Any, Optional, Callable, Literal
 import numpy as np
 import warnings
 from collections import deque
@@ -28,22 +20,13 @@ from sklearn.cluster import (
     Birch,
     MiniBatchKMeans,
 )
-from sklearn.covariance import EllipticEnvelope
-from sklearn.decomposition import PCA, NMF, FastICA
+from sklearn.decomposition import PCA, NMF
 from sklearn.discriminant_analysis import (
     LinearDiscriminantAnalysis,
-    QuadraticDiscriminantAnalysis,
 )
 from sklearn.ensemble import IsolationForest, RandomForestClassifier
-from sklearn.feature_selection import SelectKBest, f_classif
 from sklearn.linear_model import LogisticRegression
-from sklearn.manifold import TSNE, Isomap, SpectralEmbedding
-from sklearn.metrics import (
-    silhouette_score,
-    calinski_harabasz_score,
-    davies_bouldin_score,
-    pairwise_distances,
-)
+from sklearn.manifold import TSNE
 from sklearn.mixture import GaussianMixture, BayesianGaussianMixture
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import (
@@ -56,9 +39,6 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import (
     StandardScaler,
-    MinMaxScaler,
-    RobustScaler,
-    PolynomialFeatures,
 )
 from sklearn.svm import SVC, OneClassSVM
 from sklearn.tree import DecisionTreeClassifier
@@ -375,7 +355,9 @@ class SklearnSegmenter(BaseSegmenter):
             result = result.astype(np.float32) / 255.0
         return result
 
-    def segment(self, image, *args: Any, **kwargs: Any) -> np.ndarray:
+    def segment(  # type: ignore[override]
+        self, image: ImageInput, *args: Any, **kwargs: Any
+    ) -> np.ndarray:
         """
         Основной метод сегментации.
 
@@ -395,26 +377,30 @@ class SklearnSegmenter(BaseSegmenter):
                 raise ValueError(f"Метод {self.method} не реализован")
 
             mask, info = self.methods[self.method](img_processed, **kwargs)
-            
+
             mask = self._ensure_uint8_mask(mask)
             if self.params.get("postprocess", True) and self.method not in [
-                "canny_edge", "sobel_edge"
+                "canny_edge",
+                "sobel_edge",
             ]:
                 mask = self._postprocess_mask(mask)
 
             return mask
         except Exception as e:
-            warnings.warn(f"Ошибка в методе {self.method}: {e}. Возвращаем пустую маску.", RuntimeWarning)
+            warnings.warn(
+                f"Ошибка в методе {self.method}: {e}. Возвращаем пустую маску.",
+                RuntimeWarning,
+            )
             h, w = img_processed.shape[:2]
             return np.zeros((h, w), dtype=np.uint8)
 
-    def segment_and_evaluate(
+    def segment_and_evaluate(  # type: ignore[override]
         self,
         image: ImageInput,
-        gt_mask: BinaryMask,               # имя как в базе
+        gt_mask: BinaryMask,  # имя как в базе
         threshold: float = 0.5,
-        **segment_kwargs: Any,             # имя как в базе
-    ) -> Tuple[MetricsDict, BinaryMask]:   # типы как в базе
+        **segment_kwargs: Any,  # имя как в базе
+    ) -> Tuple[MetricsDict, BinaryMask]:  # типы как в базе
         """
         Сегментация с немедленным вычислением метрик.
 
@@ -429,17 +415,18 @@ class SklearnSegmenter(BaseSegmenter):
         from metrics.SegmentationMetrics import SegmentationMetrics
 
         # Выполняем сегментацию
-        pred_mask = self.segment(image, **segment_kwargs)
+        img_array: np.ndarray = self.preprocess_image(image)
+        mask = self.segment(img_array, **kwargs)  # type: ignore[arg-type]
 
         # Вычисляем метрики
         metrics = SegmentationMetrics.calculate_all_metrics(
-            pred_mask=pred_mask,
+            pred_mask=mask,
             gt_mask=gt_mask,
             threshold=threshold,
             include_hausdorff=True,
         )
 
-        return metrics, pred_mask
+        return metrics, mask
 
     def segment_with_mask(
         self, image: np.ndarray, alpha: float = 0.9, **kwargs

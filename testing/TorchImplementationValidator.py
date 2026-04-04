@@ -14,20 +14,13 @@ import time
 from datetime import datetime
 from typing import (
     List,
-    Union,
     Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
-    Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
 from PIL import Image
+
+MethodConfig = Tuple[str, Dict[str, Any]]
 
 
 class TorchImplementationValidator:
@@ -40,7 +33,7 @@ class TorchImplementationValidator:
         self.output_dir: str = output_dir
         os.makedirs(output_dir, exist_ok=True)
         self.validation_results: Dict[str, Any] = {}
-        self.threshold_methods: List[Tuple[str, Dict[str, Any]]] = [
+        self.threshold_methods: List[MethodConfig] = [
             ("global_thresholding", {"threshold": 0.5}),
             ("otsu_thresholding", {}),
             ("adaptive_thresholding", {"block_size": 11, "C": 2}),
@@ -59,7 +52,7 @@ class TorchImplementationValidator:
             ("threshold_local_contrast", {"window_size": 15, "contrast_factor": 0.1}),
         ]
 
-        self.edge_methods: List[Tuple[str, Dict[str, Any]]] = [
+        self.edge_methods: List[MethodConfig] = [
             ("sobel_edge", {"threshold": 0.1}),
             ("canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
             ("prewitt_edge", {"threshold": 0.1}),
@@ -83,13 +76,13 @@ class TorchImplementationValidator:
             ),
         ]
 
-        self.region_methods: List[Tuple[str, Dict[str, Any]]] = [
+        self.region_methods: List[MethodConfig] = [
             ("region_growing", {"tolerance": 0.1}),
             ("split_and_merge", {"min_size": 50, "threshold": 20}),
             ("floodfill", {"tolerance": 0.15}),
         ]
 
-        self.clastering_methods: List[Tuple[str, Dict[str, Any]]] = [
+        self.clastering_methods: List[MethodConfig] = [
             ("kmeans_segmentation", {"k": 3}),
             ("dbscan_segmentation", {"eps": 0.1, "min_samples": 10}),
             (
@@ -103,7 +96,7 @@ class TorchImplementationValidator:
             ),
         ]
 
-        self.active_contour_methods: List[Tuple[str, Dict[str, Any]]] = [
+        self.active_contour_methods: List[MethodConfig] = [
             (
                 "active_contour",
                 {
@@ -135,7 +128,7 @@ class TorchImplementationValidator:
             ),
         ]
 
-        self.watershed_methods: List[Tuple[str, Dict[str, Any]]] = [
+        self.watershed_methods: List[MethodConfig] = [
             ("watershed", {}),
             (
                 "random_walker",
@@ -143,7 +136,7 @@ class TorchImplementationValidator:
             ),
         ]
 
-        self.super_pixel_methods: List[Tuple[str, Dict[str, Any]]] = [
+        self.super_pixel_methods: List[MethodConfig] = [
             # ("quickshift", {'kernel_size': 5, 'max_dist': 10, 'ratio': 1.0, 'sigma': 0.0, 'convert2lab': True}),
             (
                 "slic",
@@ -162,7 +155,7 @@ class TorchImplementationValidator:
             ("felzenszwalb", {"scale": 100, "sigma": 0.5, "min_size": 50}),
         ]
 
-        self.interactive_methods: List[Tuple[str, Dict[str, Any]]] = [
+        self.interactive_methods: List[MethodConfig] = [
             ("grabcut", {"num_iterations": 5}),
         ]
 
@@ -195,7 +188,7 @@ class TorchImplementationValidator:
     def validate_segmentation_methods(
         self,
         image_path: str,
-        methods_list: List[str],
+        methods_list: List[MethodConfig],
         torch_segmenter_class: type = TorchSegmenter,
         reference_segmenter_class: type = SklearnSegmenter,
         reference: str = "sklearn",

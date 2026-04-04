@@ -5,13 +5,7 @@ from segmenters.BaseSegmenter import BaseSegmenter
 
 import cv2
 import numpy as np
-from typing import (
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-    Callable
-)
+from typing import List, Tuple, Dict, Any, Optional, Callable
 import warnings
 from collections import deque
 from scipy import ndimage
@@ -242,9 +236,7 @@ class OpenCVSegmenter(BaseSegmenter):
     # ============ РЕАЛИЗАЦИИ МЕТОДОВ ============
     # ============ ПОРОГОВЫЕ МЕТОДЫ ============
 
-    def _opencv_global_thresholding(
-        self, img: np.ndarray, **kwargs
-    ) -> np.ndarray:
+    def _opencv_global_thresholding(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Глобальная пороговая сегментация.
 
@@ -266,8 +258,8 @@ class OpenCVSegmenter(BaseSegmenter):
 
         start_time = time.time()
 
-        threshold = self.params.get("threshold", 127)
-        _, mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+        threshold: int = self.params.get("threshold", 127)
+        _, mask = cv2.threshold(gray, float(threshold), 255, cv2.THRESH_BINARY)
 
         exec_time = time.time() - start_time
 
@@ -282,9 +274,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    def _opencv_adaptive_thresholding(
-        self, img: np.ndarray, **kwargs
-    ) -> np.ndarray:
+    def _opencv_adaptive_thresholding(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Адаптивная пороговая сегментация (Gaussian).
 
@@ -605,7 +595,7 @@ class OpenCVSegmenter(BaseSegmenter):
         num_bins: int = self.params.get("num_bins", 256)
 
         # Гистограмма
-        hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=[0, 256])
+        hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=(0.0, 256.0))
         hist = hist.astype(np.float64)
 
         # Нормализация
@@ -683,7 +673,7 @@ class OpenCVSegmenter(BaseSegmenter):
         num_bins: int = self.params.get("num_bins", 256)
 
         # Гистограмма
-        hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=[0, 256])
+        hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=(0.0, 256.0))
         hist = hist.astype(np.float64) + 1e-10  # Избегаем log(0)
         hist = hist / hist.sum()
 
@@ -746,10 +736,10 @@ class OpenCVSegmenter(BaseSegmenter):
         num_bins: int = self.params.get("num_bins", 256)
 
         # Гистограмма
-        hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=[0, 256])
+        hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=(0.0, 256.0))
 
         # Находим пик гистограммы
-        peak_idx = np.argmax(hist)
+        peak_idx: int = int(np.argmax(hist))
 
         # Линия от пика до конца диапазона
         y_peak = hist[peak_idx]
@@ -765,17 +755,18 @@ class OpenCVSegmenter(BaseSegmenter):
         max_dist = 0
         best_threshold = peak_idx
 
-        for t in range(peak_idx + 1, num_bins):
+        for t in range(int(peak_idx) + 1, int(num_bins)):
             # Расстояние от точки до линии
             y_line = y_peak + m * (t - peak_idx)
             dist = abs(hist[t] - y_line) / np.sqrt(1 + m**2)
 
             if dist > max_dist:
-                max_dist = dist
-                best_threshold = t
+                max_dist = float(dist)
+                best_threshold = int(t)
 
         # Бинаризация
-        _, mask = cv2.threshold(gray, best_threshold, 255, cv2.THRESH_BINARY)
+        best_threshold_int: int = best_threshold
+        _, mask = cv2.threshold(gray, float(best_threshold_int), 255, cv2.THRESH_BINARY)
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -811,7 +802,7 @@ class OpenCVSegmenter(BaseSegmenter):
         num_bins: int = self.params.get("num_bins", 256)
 
         # Гистограмма
-        hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=[0, 256])
+        hist, _ = np.histogram(gray.ravel(), bins=num_bins, range=(0.0, 256.0))
         hist = hist.astype(np.float64)
 
         if n_thresholds == 1:
@@ -878,22 +869,22 @@ class OpenCVSegmenter(BaseSegmenter):
             return mask
 
         # Для >2 порогов используем рекурсивный Оцу (упрощённо)
-        thresholds = []
+        thresholds: List[float] = []
         current_gray = gray.copy()
 
         for _ in range(n_thresholds):
             _, thresh = cv2.threshold(
-                current_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+                current_gray, 0.0, 255.0, cv2.THRESH_BINARY + cv2.THRESH_OTSU
             )
-            thresholds.append(thresh)
+            thresholds.append(float(thresh))
             current_gray = cv2.threshold(
-                current_gray, thresh, 255, cv2.THRESH_BINARY_INV
+                current_gray, float(thresh), 255.0, cv2.THRESH_BINARY_INV
             )[1]
 
         # Используем последний порог для бинаризации
-        _, mask = cv2.threshold(gray, thresholds[-1], 255, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(gray, float(thresholds[-1]), 255.0, cv2.THRESH_BINARY)
 
-        exec_time: float = time.time() - start_time
+        exec_time = time.time() - start_time
         self._log_info(
             "multi_otsu_thresholding_opencv",
             exec_time,
@@ -1801,9 +1792,7 @@ class OpenCVSegmenter(BaseSegmenter):
         return mask_final
 
     # ============ КЛАСТЕРИЗАЦИЯ ============
-    def _opencv_kmeans_segmentation(
-        self, img: np.ndarray, **kwargs
-    ) -> np.ndarray:
+    def _opencv_kmeans_segmentation(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Сегментация методом K-Means кластеризации.
 
@@ -1826,8 +1815,9 @@ class OpenCVSegmenter(BaseSegmenter):
 
         k = self.params.get("k", 3)
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
-        _, labels, centers = cv2.kmeans(
-            pixels, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS
+        best_labels = np.zeros((pixels.shape[0],), dtype=np.int32)
+        compactness, labels, centers = cv2.kmeans(
+            pixels, k, best_labels, criteria, 10, cv2.KMEANS_RANDOM_CENTERS
         )
 
         labels = labels.reshape(h, w)
@@ -1848,9 +1838,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    def _opencv_dbscan_segmentation(
-        self, img: np.ndarray, **kwargs
-    ) -> np.ndarray:
+    def _opencv_dbscan_segmentation(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Сегментация методом DBSCAN кластеризации.
 
@@ -2071,9 +2059,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    def _opencv_morphological_snakes(
-        self, img: np.ndarray, **kwargs
-    ) -> np.ndarray:
+    def _opencv_morphological_snakes(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
         Сегментация морфологическими змеями.
 
@@ -2393,6 +2379,19 @@ class OpenCVSegmenter(BaseSegmenter):
         ruler = self.params.get("ruler", 10.0)
         num_iterations = self.params.get("num_iterations", 10)
 
+        if not hasattr(cv2, "ximgproc"):
+            warnings.warn(
+                "cv2.ximgproc не доступен. Установите opencv-contrib-python "
+                "или используйте альтернативный метод.",
+                RuntimeWarning,
+            )
+            # Fallback: простая сетка или возвращаем исходное
+            return (
+                np.zeros_like(img)
+                if len(img.shape) == 2
+                else np.zeros(img.shape[:2], dtype=np.uint8)
+            )
+
         try:
             # cv2.ximgproc доступен в opencv-contrib-python
             slic = cv2.ximgproc.createSuperpixelSLIC(
@@ -2541,8 +2540,8 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Создаем маску и модель
         mask = np.zeros(img.shape[:2], dtype=np.uint8)
-        bgd_model = np.zeros((1, 65), dtype=np.float64)
-        fgd_model = np.zeros((1, 65), dtype=np.float64)
+        bgd_model = np.zeros((1, 65), dtype=np.float64)  # type: ignore[var-annotated]
+        fgd_model = np.zeros((1, 65), dtype=np.float64)  # type: ignore[var-annotated]
 
         # Если прямоугольник не задан, используем центральную часть
         if rect is None:
@@ -2550,19 +2549,19 @@ class OpenCVSegmenter(BaseSegmenter):
             rect = (int(w * 0.25), int(h * 0.25), int(w * 0.5), int(h * 0.5))
 
         # Применяем GrabCut
-        mask, bgd_model, fgd_model = cv2.grabCut(
+        mask, bgd_model, fgd_model = cv2.grabCut(  # type: ignore[assignment]
             img, mask, rect, bgd_model, fgd_model, iter_count, cv2.GC_INIT_WITH_RECT
         )
 
         # Создаем финальную маску (0-255)
-        mask_final = np.where(
+        mask_final: np.ndarray = np.where(
             (mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0
         ).astype(np.uint8)
 
         # Опционально: применение морфологических операций для улучшения результата
         kernel = np.ones((3, 3), np.uint8)
-        mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_CLOSE, kernel, iterations=2)
-        mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_OPEN, kernel, iterations=2)
+        mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_CLOSE, kernel, iterations=2)  # type: ignore[assignment]
+        mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_OPEN, kernel, iterations=2)  # type: ignore[assignment]
 
         exec_time = time.time() - start_time
 
@@ -2572,4 +2571,4 @@ class OpenCVSegmenter(BaseSegmenter):
             "execution_time": exec_time,
         }
 
-        return mask_final
+        return mask_final.astype(np.uint8)

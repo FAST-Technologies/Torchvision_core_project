@@ -10,9 +10,9 @@ import matplotlib.pyplot as plt
 from typing import (
     Dict,
     Any,
-
 )
 from datetime import datetime
+
 
 class CpuCudaBenchmark:
     """

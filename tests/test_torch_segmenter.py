@@ -8,6 +8,7 @@ from segmenters.TorchSegmenter import TorchSegmenter
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+
 class TestTorchSegmenter:
     @pytest.fixture
     def segmenter(self):

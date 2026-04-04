@@ -10,6 +10,7 @@ from typing import (
 )
 from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 
+
 def compute_metrics(
     pred_mask: np.ndarray,
     gt_mask: np.ndarray,

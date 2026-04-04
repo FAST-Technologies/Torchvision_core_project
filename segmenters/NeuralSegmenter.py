@@ -65,13 +65,16 @@ class NeuralSegmenter(BaseSegmenter):
         self.model_name: str = model_name
         self.local_path: Optional[str] = local_path
         self.variant: Optional[str] = variant
-        self.device: Optional[str] = torch.device(
+        self.device: torch.device = torch.device(
             device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         )
         self.params: Dict[str, Any] = kwargs
         self.num_classes: int = int(num_classes)
 
         start_time: float = time.time()
+        cp_path: str = (
+            checkpoint_path if checkpoint_path is not None else "checkpoint.pth"
+        )
         if variant is not None:
             # Загрузка из YAML конфига
             model, processor, model_type_str = (
@@ -79,7 +82,7 @@ class NeuralSegmenter(BaseSegmenter):
                     model_type=model_type,
                     variant=variant,
                     device=str(self.device),
-                    checkpoint_path=checkpoint_path,
+                    checkpoint_path=cp_path,
                     **kwargs,
                 )
             )
@@ -89,14 +92,14 @@ class NeuralSegmenter(BaseSegmenter):
                 model_type=self.model_type,
                 model_name=model_name,
                 local_path=local_path,
-                checkpoint_path=checkpoint_path,
+                checkpoint_path=cp_path,
                 device=str(self.device),
                 num_classes=num_classes,
                 **kwargs,
             )
         self.model = model
         self.processor = processor
-        self.model_type_str: str = model_type_str
+        self.model_type_str = model_type_str
         print(f"Модель загружена за {time.time() - start_time:.4f} секунд")
         self.palette: Optional[List[List[int]]] = (
             palette if palette else self._get_default_palette()
@@ -105,9 +108,7 @@ class NeuralSegmenter(BaseSegmenter):
         print("✅ Нейросетевая модель загружена!")
         print(f"   Тип: {self.model_type_str}")
         print(
-            f"   Источник: {self.local_path 
-            if self.local_path 
-            else (self.model_name if self.model_name else f'config:{variant}')}"
+            f"   Источник: {self.local_path if self.local_path else (self.model_name if self.model_name else f'config:{variant}')}"
         )
         print(f"   Устройство: {self.device}")
         print(f"   Количество классов: {self.num_classes}")
@@ -163,7 +164,7 @@ class NeuralSegmenter(BaseSegmenter):
     @staticmethod
     def cityscapes_palette() -> List[List[int]]:
         """ADE20K palette that maps each class to RGB values."""
-        return cityscapes_palette
+        return cityscapes_palette()
 
     @staticmethod
     def get_chexpert_observation_class_names() -> Dict[int, str]:
@@ -283,7 +284,7 @@ class NeuralSegmenter(BaseSegmenter):
         self,
         input_image: Union[str, Image.Image],
         verbose: bool = True,
-        class_names: dict = None,
+        class_names: Optional[Dict] = None,
         gt_mask=None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
@@ -316,7 +317,7 @@ class NeuralSegmenter(BaseSegmenter):
         input_image: Union[str, Image.Image],
         alpha: float = 0.9,
         verbose: bool = True,
-        class_names: dict = None,
+        class_names: Optional[Dict] = None,
         gt_mask=None,
     ) -> Tuple[Image.Image, Dict[str, Any]]:
         """
@@ -401,7 +402,9 @@ class NeuralSegmenter(BaseSegmenter):
         )
         return Image.fromarray(overlay)
 
-    def segment(self, image: Union[str, Image.Image], alpha: float = 0.9) -> np.ndarray:
+    def segment(  # type: ignore[override]
+        self, image: "ImageInput", *args: Any, **kwargs: Any
+    ) -> np.ndarray:
         """
         Основной метод сегментации.
 
@@ -411,12 +414,13 @@ class NeuralSegmenter(BaseSegmenter):
         Returns:
             np.ndarray: Бинарная маска сегментации (0-255)
         """
-        result_img: Image.Image = self.segment_image(image, alpha)
+        alpha = kwargs.get("alpha", 0.9)
+        result_img = self.segment_image(image, alpha)
         return np.array(result_img)
 
-    def segment_with_mask(
-        self, image: Union[str, Image.Image], alpha: float = 0.9
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def segment_with_mask(  # type: ignore[override]
+        self, image: "ImageInput", *args: Any, **kwargs: Any
+    ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """
         Сегментация с возвратом визуализации и маски.
 
@@ -429,6 +433,7 @@ class NeuralSegmenter(BaseSegmenter):
                 - Маска: бинарная маска (0–255, grayscale).
         """
         start_time: float = time.time()
+        alpha = kwargs.get("alpha", 0.9)
 
         # Получаем сегментированное изображение
         result_img: Image.Image = self.segment_image(image, alpha)
@@ -446,7 +451,7 @@ class NeuralSegmenter(BaseSegmenter):
             print(f"Class {cls}: {count} pixels")
 
         # Создаем бинарную маску (все, что не фон)
-        mask: np.ndarray = (seg_map > 0).astype(np.uint8) * 255
+        mask = (seg_map > 0).astype(np.uint8) * 255
 
         if len(result_np.shape) == 2:
             result_np = cv2.cvtColor(result_np, cv2.COLOR_GRAY2RGB)

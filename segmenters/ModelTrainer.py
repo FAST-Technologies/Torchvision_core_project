@@ -12,17 +12,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import torch
-import torch.nn.functional as F
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import segmentation_models_pytorch as smp
 
-import torchvision
-from torchvision import transforms
-import torchvision.transforms as T
 import torchvision.models.segmentation as tv_seg
 
-from sklearn.metrics import confusion_matrix, f1_score, accuracy_score, jaccard_score
+from sklearn.metrics import jaccard_score
 
 from datasets.ADE20KDataset import ADE20KDataset
 from .NeuralTrainer import NeuralTrainer
@@ -30,18 +26,10 @@ from utils.strategies import SegNet
 
 from typing import (
     List,
-    Union,
     Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
     Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -71,7 +59,7 @@ class TrainingConfig:
         variant: str = "b5",  # Для MiT encoder
         subset_fraction: float = 0.05,
         early_stop_patience: int = 5,
-        checkpoint_name: str = "checkpoint.pth",
+        checkpoint_name: Optional[str] = None,
     ) -> None:
         self.experiment_name = experiment_name
         self.model_type = model_type
@@ -170,8 +158,11 @@ class ModelTrainer:
             nn.init.normal_(model.classifier[4].weight, 0, 0.01)
             nn.init.constant_(model.classifier[4].bias, 0)
             if for_training:
-                for param in model.backbone.parameters():
-                    param.requires_grad = False
+                if isinstance(model.backbone, nn.Module):
+                    for param in model.backbone.parameters():
+                        param.requires_grad = False
+                else:
+                    print(f"⚠️  Backbone не является nn.Module: {type(model.backbone)}")
             print("   🔒 Backbone frozen for initial training")
 
             return model
@@ -348,7 +339,7 @@ class ModelTrainer:
         assert masks.min() >= 0 and masks.max() <= 149, "Mask values out of range!"
 
         # Обучение
-        checkpoint_path: str = os.path.join(self.checkpoint_dir, config.checkpoint_name)
+        checkpoint_path = os.path.join(self.checkpoint_dir, config.checkpoint_name)
 
         print("🎯 Starting training...")
 
@@ -459,6 +450,7 @@ class ModelTrainer:
             ]
 
         # Если пути не указаны, используем стандартные имена
+        checkpoint_paths: Optional[Dict[str, str]] = None
         if checkpoint_paths is None:
             checkpoint_paths = {}
             for model_type in model_types:
@@ -492,51 +484,52 @@ class ModelTrainer:
 
         # Загружаем модели
         models = {}
-        for name, path in checkpoint_paths.items():
-            if not os.path.exists(path):
-                print(f"⚠️  Чекпоинт не найден: {path}")
-                continue
+        if checkpoint_paths is not None:
+            for name, path in checkpoint_paths.items():
+                if not os.path.exists(path):
+                    print(f"⚠️  Чекпоинт не найден: {path}")
+                    continue
 
-            # Определяем тип модели по имени
-            model_type = None
-            for mt in model_types:
-                if mt in path.lower() or mt in name.lower():
-                    model_type = mt
-                    break
+                # Определяем тип модели по имени
+                model_type = None
+                for mt in model_types:
+                    if mt in path.lower() or mt in name.lower():
+                        model_type = mt
+                        break
 
-            if model_type is None:
-                print(f"⚠️  Не удалось определить тип модели для {name}")
-                continue
+                if model_type is None:
+                    print(f"⚠️  Не удалось определить тип модели для {name}")
+                    continue
 
-            # Создаём модель
-            model = self.create_model(model_type)
+                # Создаём модель
+                model = self.create_model(model_type)
 
-            # Загружаем веса
-            checkpoint = torch.load(path, map_location=self.device)
+                # Загружаем веса
+                checkpoint = torch.load(path, map_location=self.device)
 
-            if "model_state_dict" in checkpoint:
-                state_dict = checkpoint["model_state_dict"]
-            else:
-                state_dict = checkpoint
+                if "model_state_dict" in checkpoint:
+                    state_dict = checkpoint["model_state_dict"]
+                else:
+                    state_dict = checkpoint
 
-            # 🔥 Фильтрация aux_classifier для DeepLab (как в старом варианте)
-            if model_type == "deeplab_tv":
-                model_keys = {
-                    k: v
-                    for k, v in state_dict.items()
-                    if not k.startswith("aux_classifier")
-                }
-                model.load_state_dict(model_keys, strict=False)
-                print("   🔍 Filtered aux_classifier keys for DeepLab")
-            else:
-                model.load_state_dict(state_dict)
+                # 🔥 Фильтрация aux_classifier для DeepLab (как в старом варианте)
+                if model_type == "deeplab_tv":
+                    model_keys = {
+                        k: v
+                        for k, v in state_dict.items()
+                        if not k.startswith("aux_classifier")
+                    }
+                    model.load_state_dict(model_keys, strict=False)
+                    print("   🔍 Filtered aux_classifier keys for DeepLab")
+                else:
+                    model.load_state_dict(state_dict)
 
-            if model_type in ["deeplab_tv", "fcn_tv", "segnet"]:
-                models[name] = model.to(self.device).train()
-            else:
-                models[name] = model.to(self.device).eval()
+                if model_type in ["deeplab_tv", "fcn_tv", "segnet"]:
+                    models[name] = model.to(self.device).train()
+                else:
+                    models[name] = model.to(self.device).eval()
 
-            print(f"✅ Loaded {name}")
+                print(f"✅ Loaded {name}")
 
         if not models:
             print("⚠️  No trained models found. Run training first.")
@@ -827,8 +820,10 @@ class ModelTrainer:
         for result in self.experiment_results:
             aug_labels.append(result["augmentation_level"])
             miou_values.append(result["best_miou"] * 100)
+        from matplotlib.colors import Colormap
 
-        colors = plt.cm.viridis(np.linspace(0, 1, len(miou_values)))
+        cmap: Colormap = plt.get_cmap("viridis")
+        colors = cmap(np.linspace(0, 1, len(miou_values)))
         ax1.bar(aug_labels, miou_values, color=colors, edgecolor="black")
         ax1.set_xlabel("Уровень аугментаций")
         ax1.set_ylabel("Best mIoU (%)")

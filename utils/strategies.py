@@ -40,6 +40,7 @@ if project_root not in sys.path:
 
 num_classes: int = 150
 
+
 def infer_segformer(
     model: Any, processor: Any, image: Image.Image, device: str = "cuda"
 ) -> Tuple[np.ndarray, Image.Image]:
