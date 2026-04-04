@@ -72,7 +72,7 @@ class TrainingConfig:
         variant: str = "b5",  # Для MiT encoder
         subset_fraction: float = 0.05,
         early_stop_patience: int = 5,
-        checkpoint_name: str = None,
+        checkpoint_name: str = "checkpoint.pth",
     ) -> None:
         self.experiment_name = experiment_name
         self.model_type = model_type
@@ -116,7 +116,7 @@ class ModelTrainer:
         self.checkpoint_dir = checkpoint_dir
         self.root_dir = root_dir
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
-        self.experiment_results = []
+        self.experiment_results: List = []
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
     def create_model(
@@ -349,7 +349,7 @@ class ModelTrainer:
         assert masks.min() >= 0 and masks.max() <= 149, "Mask values out of range!"
 
         # Обучение
-        checkpoint_path = os.path.join(self.checkpoint_dir, config.checkpoint_name)
+        checkpoint_path: str = os.path.join(self.checkpoint_dir, config.checkpoint_name)
 
         print(f"🎯 Starting training...")
 
@@ -432,7 +432,7 @@ class ModelTrainer:
         self,
         augmentation_level: str = "medium",
         checkpoint_paths: Optional[List[str]] = None,
-        model_types: List[str] = None,
+        model_types: Optional[List[str]] = None,
     ) -> Dict[str, float]:
         """
         Сравнение обученных моделей на валидационном наборе
@@ -601,7 +601,7 @@ class ModelTrainer:
         self,
         checkpoints: Dict[str, str],
         val_fraction: float = 0.05,
-        model_types: List[str] = None,
+        model_types: Optional[List[str]] = None,
     ) -> Dict[str, float]:
         """
         Оценка обученных моделей на валидационном наборе
@@ -742,8 +742,8 @@ class ModelTrainer:
     def compare_augmentations(
         self,
         model_type: str = "unet_smp",
-        augmentation_levels: List[str] = None,
-        base_config: Dict = None,
+        augmentation_levels: Optional[List[str]] = None,
+        base_config: Optional[Dict[str, Any]] = None,
     ) -> pd.DataFrame:
         """
         Сравнение обучения с разными уровнями аугментаций
@@ -812,7 +812,7 @@ class ModelTrainer:
 
         return comparison_df
 
-    def plot_experiment_comparison(self, output_path: str = None):
+    def plot_experiment_comparison(self, output_path: Optional[str] = None):
         """Визуализация сравнения экспериментов"""
         if len(self.experiment_results) < 2:
             print("⚠️ Нужно минимум 2 эксперимента для сравнения")

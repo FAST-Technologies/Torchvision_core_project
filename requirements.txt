@@ -24,3 +24,7 @@ flake8==7.3.0
 mypy==1.20.0
 bandit==1.9.4
 safety==3.7.0
+types-requests>=2.33.0.20260402
+types-tabulate>=0.10.0.20260308
+PyYAML>=6.0.3
+types-PyYAML>=6.0.12.20250915

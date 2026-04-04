@@ -55,10 +55,10 @@ class NeuralSegmenter(BaseSegmenter):
         model_type: str = "segformer",
         model_name: str = "nvidia/segformer-b5-finetuned-ade-640-640",
         variant: Optional[str] = None,
-        device: str = None,
-        local_path: str = None,
+        device: Optional[str] = None,
+        local_path: Optional[str] = None,
         num_classes: int = num_classes,
-        palette: List[List[int]] = None,
+        palette: Optional[List[List[int]]] = None,
         checkpoint_path: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -70,9 +70,9 @@ class NeuralSegmenter(BaseSegmenter):
         self.model_type_str: str = model_type
         self.model_type: ModelType = ModelType(model_type)
         self.model_name: str = model_name
-        self.local_path: str = local_path
-        self.variant: str = variant
-        self.device: str = torch.device(
+        self.local_path: Optional[str] = local_path
+        self.variant: Optional[str] = variant
+        self.device: Optional[str] = torch.device(
             device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         )
         self.params: Dict[str, Any] = kwargs
@@ -105,7 +105,7 @@ class NeuralSegmenter(BaseSegmenter):
         self.processor = processor
         self.model_type_str: str = model_type_str
         print(f"Модель загружена за {time.time() - start_time:.4f} секунд")
-        self.palette: List[List[int]] = (
+        self.palette: Optional[List[List[int]]] = (
             palette if palette else self._get_default_palette()
         )
 
@@ -482,12 +482,11 @@ class NeuralSegmenter(BaseSegmenter):
             color_seg[seg_map == label] = color
 
         # Конвертируем из BGR в RGB
-        color_seg: np.ndarray = color_seg[..., ::-1]
+        color_seg_new: np.ndarray = color_seg[..., ::-1]
 
         # Создаем наложение
         orig_arr: np.ndarray = np.array(img)
-        overlay: np.ndarray = orig_arr * 0.2 + color_seg * 0.8
-        overlay: np.ndarray = overlay.astype(np.uint8)
+        overlay: np.ndarray = (orig_arr * 0.2 + color_seg_new * 0.8).astype(np.uint8)
 
         # Анализ распределения классов
         unique_classes: np.ndarray
@@ -506,7 +505,7 @@ class NeuralSegmenter(BaseSegmenter):
         return {
             "original": img,
             "segmentation_map": seg_map,
-            "color_seg": color_seg,
+            "color_seg": color_seg_new,
             "overlay": overlay,
             "class_distribution": class_distribution,
             "total_classes": len(unique_classes),

@@ -219,7 +219,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 - Визуализация: исходное изображение с наложенной маской (0–255, RGB).
                 - Маска: бинарная маска (0–255, grayscale).
         """
-        image: np.ndarray = self.preprocess_image(image)
+        image = self.preprocess_image(image)
         # print(f"Image after OpenCV preprocessing with mask: {image}")
         mask: np.ndarray = self.segment(image, **kwargs)
 
@@ -1922,7 +1922,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         info = {
             "method": "dbscan_opencv",
-            "parameters": {"min_area": min_area, **kwargs},
+            "parameters": {"min_samples": min_samples, "eps": eps, **kwargs},
             "execution_time": exec_time,
         }
 

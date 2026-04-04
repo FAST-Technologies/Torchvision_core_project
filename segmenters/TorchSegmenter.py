@@ -52,7 +52,7 @@ class TorchSegmenter(BaseSegmenter):
     def __init__(
         self,
         method: str = "global_thresholding",
-        device: str = None,
+        device: Optional[str] = None,
         use_external_libs: bool = True,
         **kwargs,
     ) -> None:

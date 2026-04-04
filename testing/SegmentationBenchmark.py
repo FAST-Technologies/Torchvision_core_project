@@ -93,9 +93,9 @@ class SegmentationBenchmark:
         device: str = "cuda",
         num_classes: int = num_classes,
         ignore_index: int = 255,
-        class_names: list = None,
+        class_names: Optional[List] = None,
         gt_mask: Optional[Union[np.ndarray, Image.Image]] = None,
-        palette: Optional[Union[List[List[int]], callable]] = None,
+        palette: Optional[Union[List[List[int]], typing.Callable]] = None,
     ) -> None:
         """
         Инициализация бенчмарка для сравнения моделей сегментации.
@@ -119,7 +119,7 @@ class SegmentationBenchmark:
         self.results: Dict[str, Dict[str, Any]] = (
             {}
         )  # {model_name: {metrics, time, overlay, ...}}
-        self.class_names: List[str] = class_names or [
+        self.class_names: Optional[List] = class_names or [
             f"Class {i}" for i in range(num_classes)
         ]
         self.gt_mask: Optional[Union[np.ndarray, Image.Image]] = gt_mask
@@ -330,7 +330,7 @@ class SegmentationBenchmark:
         return self
 
     def load_fpn_mit_pretrained(
-        self, variant: str = "b5", checkpoint_path: Optional[str] = None
+        self, variant: str = "b5", checkpoint_path: str = None
     ) -> "SegmentationBenchmark":
         """Загрузка FPN + MiT"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
@@ -351,7 +351,7 @@ class SegmentationBenchmark:
         return self
 
     def load_psp_mit_pretrained(
-        self, variant: str = "b5", checkpoint_path: Optional[str] = None
+        self, variant: str = "b5", checkpoint_path: str = "psp_smp_none"
     ) -> "SegmentationBenchmark":
         """Загрузка PSPNet + MiT"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
@@ -372,7 +372,7 @@ class SegmentationBenchmark:
         return self
 
     def load_fcn_resnet50_pretrained(
-        self, variant: str = "fcn_resnet50", checkpoint_path: Optional[str] = None
+        self, variant: str = "fcn_resnet50", checkpoint_path: str = "fcn_resnet50_none"
     ) -> "SegmentationBenchmark":
         """Загрузка FCN"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
@@ -393,7 +393,7 @@ class SegmentationBenchmark:
         return self
 
     def load_segnet_pretrained(
-        self, encoder_name: str = "resnet34", checkpoint_path: Optional[str] = None
+        self, encoder_name: str = "resnet34", checkpoint_path: str = "segnet_none"
     ) -> "SegmentationBenchmark":
         """Загрузка SegNet"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
@@ -725,7 +725,7 @@ class SegmentationBenchmark:
     def plot_comparison_chart(
         self,
         metric_name: str,
-        title: str = None,
+        title: Optional[str] = None,
         figsize=(12, 6),
         show_values: bool = True,
         path: str = "./data/ade20k_test_trained/plot_comparison_chart.jpg",
@@ -819,7 +819,7 @@ class SegmentationBenchmark:
             pad=20,
         )
         plt.grid(axis="y", alpha=0.3, linestyle="--", linewidth=0.5)
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.tight_layout(rect=(0, 0.03, 1, 0.95))
         plt.savefig(path, dpi=300, bbox_inches="tight", facecolor="white", format="png")
         plt.show()
 
@@ -1052,7 +1052,7 @@ class SegmentationBenchmark:
                 ax.set_yticks([])
 
         plt.suptitle("Model Comparison Summary", fontsize=14, fontweight="bold", y=1.02)
-        plt.tight_layout(rect=[0, 0, 1, 0.95])
+        plt.tight_layout(rect=(0, 0, 1, 0.95))
         plt.savefig(path, dpi=300, bbox_inches="tight", facecolor="white", format="png")
         plt.show()
 

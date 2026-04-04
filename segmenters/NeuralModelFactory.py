@@ -169,7 +169,7 @@ class NeuralModelFactory:
         model_type: str,
         variant: Optional[str] = None,
         device: str = "cuda",
-        checkpoint_path: Optional[str] = None,
+        checkpoint_path: str = "model_path",
         **kwargs,
     ) -> Tuple[Any, Any, str]:
         """
@@ -226,9 +226,9 @@ class NeuralModelFactory:
     def create_model(
         cls,
         model_type: ModelType,
-        model_name: str = None,
-        local_path: str = None,
-        checkpoint_path: str = None,
+        model_name: Optional[str] = None,
+        local_path: Optional[str] = None,
+        checkpoint_path: str = "model_path",
         device: str = "cuda",
         num_classes: int = num_classes,
         **kwargs,
@@ -283,7 +283,7 @@ class NeuralModelFactory:
     # ========== SEGFORMER ==========
     @classmethod
     def _load_segformer(
-        cls, model_name: str = None, local_path: str = None, device: str = "cuda"
+        cls, model_name: str = None, local_path: Optional[str] = None, device: str = "cuda"
     ) -> Tuple[Any, Any, str]:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
@@ -529,7 +529,7 @@ class NeuralModelFactory:
     # ========== DEEPLAB_TV ==========
     @classmethod
     def _load_deeplab_tv(
-        cls, device: str, num_classes: int, checkpoint_path: str = None
+        cls, device: str, num_classes: int, checkpoint_path: str = "model_path"
     ) -> Tuple[Any, Any, str]:
         num_classes = int(num_classes)
         if checkpoint_path and os.path.exists(checkpoint_path):
@@ -566,7 +566,7 @@ class NeuralModelFactory:
         cls,
         device: str,
         num_classes: int,
-        checkpoint_path: str = None,
+        checkpoint_path: str = "unet_smp.pth",
         encoder_name: str = "resnet34",
         **kwargs,
     ) -> Tuple[Any, Any, str]:
@@ -598,7 +598,7 @@ class NeuralModelFactory:
         cls,
         encoder_name: str = "resnet34",
         num_classes: int = num_classes,
-        checkpoint_path: str = None,
+        checkpoint_path: str = "unet_smp.pth",
         device: str = "cuda",
     ) -> None:
         """Вывод параметров U-Net"""
@@ -630,7 +630,7 @@ class NeuralModelFactory:
         cls,
         device: str,
         num_classes: int,
-        checkpoint_path: str = None,
+        checkpoint_path: str = "fpn_smp.pth",
         encoder_name: str = "mit_b5",
         **kwargs,
     ) -> Tuple[Any, Any, str]:
@@ -671,7 +671,7 @@ class NeuralModelFactory:
         cls,
         encoder_name: str = "mit_b5",
         num_classes: int = num_classes,
-        checkpoint_path: str = None,
+        checkpoint_path: str = "fpn_smp.pth",
         device: str = "cuda",
     ) -> None:
         """Вывод параметров FPN"""
@@ -707,7 +707,7 @@ class NeuralModelFactory:
         cls,
         device: str,
         num_classes: int,
-        checkpoint_path: str = None,
+        checkpoint_path: str = "psp_smp.pth",
         encoder_name: str = "mit_b5",
         **kwargs,
     ) -> Tuple[Any, Any, str]:
@@ -752,7 +752,7 @@ class NeuralModelFactory:
         cls,
         encoder_name: str = "mit_b5",
         num_classes: int = num_classes,
-        checkpoint_path: str = None,
+        checkpoint_path: str = "psp_smp.pth",,
         device: str = "cuda",
     ) -> None:
         """Вывод параметров PSPNet"""
@@ -790,7 +790,7 @@ class NeuralModelFactory:
         cls,
         device: str,
         num_classes: int,
-        checkpoint_path: str = None,
+        checkpoint_path: str = "fcn_resnet50.pth",
         variant: str = "fcn_resnet50",
         **kwargs,
     ) -> Tuple[Any, Any, str]:
@@ -846,7 +846,7 @@ class NeuralModelFactory:
         cls,
         device: str,
         num_classes: int,
-        checkpoint_path: str = None,
+        checkpoint_path: str = "segnet.pth",
         encoder_name: str = "resnet34",
         **kwargs,
     ) -> Tuple[Any, Any, str]:
