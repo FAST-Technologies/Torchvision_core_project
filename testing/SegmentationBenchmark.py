@@ -25,6 +25,7 @@ from typing import (
     Optional,
     Literal,
     Protocol,
+    Callable,
     runtime_checkable,
     overload,
     TYPE_CHECKING,
@@ -95,7 +96,7 @@ class SegmentationBenchmark:
         ignore_index: int = 255,
         class_names: Optional[List] = None,
         gt_mask: Optional[Union[np.ndarray, Image.Image]] = None,
-        palette: Optional[Union[List[List[int]], typing.Callable]] = None,
+        palette: Optional[Union[List[List[int]], Callable]] = None,
     ) -> None:
         """
         Инициализация бенчмарка для сравнения моделей сегментации.

@@ -752,7 +752,7 @@ class NeuralModelFactory:
         cls,
         encoder_name: str = "mit_b5",
         num_classes: int = num_classes,
-        checkpoint_path: str = "psp_smp.pth",,
+        checkpoint_path: str = "psp_smp.pth",
         device: str = "cuda",
     ) -> None:
         """Вывод параметров PSPNet"""
