@@ -288,8 +288,8 @@ class ADE20KDataset(Dataset):
         img = self._apply_photometric_augmentations(img)
 
         # 3. Конвертация маски в numpy
-        mask = np.array(mask_pil, dtype=np.int64)
-        mask = np.clip(mask, 0, 149)  # ADE20K имеет 150 классов (0-149)
+        mask_np: np.ndarray = np.array(mask_pil, dtype=np.int64)
+        mask_np = np.clip(mask_np, 0, 149)  # ADE20K имеет 150 классов (0-149)
 
         # 4. Resize к целевому размеру
         if img.size != self.image_size:
@@ -302,14 +302,14 @@ class ADE20KDataset(Dataset):
             mask_pil_resized = TF.resize(
                 mask_pil, self.image_size, interpolation=TF.InterpolationMode.NEAREST
             )
-            mask = np.array(mask_pil_resized, dtype=np.int64)
-            mask = np.clip(mask, 0, 149)
+            mask_np = np.array(mask_pil_resized, dtype=np.int64)
+            mask_np = np.clip(mask_np, 0, 149)
 
         # 5. Нормализация изображения
         img = self.img_transform(img)
 
         # 6. Конвертация маски в tensor
-        mask = torch.from_numpy(mask).long()
+        mask: torch.Tensor = torch.from_numpy(mask_np).long()
         return {"image": img, "mask": mask, "image_id": img_file}
 
 
@@ -355,7 +355,9 @@ class ADE20KDatasetWithTransforms(Dataset):
             n = int(len(self.valid_indices) * subset_fraction)
             self.valid_indices = self.valid_indices[:n]
 
-    def _get_train_transforms(self) -> Dict[str, transforms.Compose]:  # ✅ Добавлен метод
+    def _get_train_transforms(
+        self,
+    ) -> Dict[str, transforms.Compose]:  # ✅ Добавлен метод
         """Трансформации для обучения с аугментациями"""
         return {
             "image": transforms.Compose(
@@ -428,15 +430,11 @@ class ADE20KDatasetWithTransforms(Dataset):
         # Конвертация в tensor
         img_tensor: torch.Tensor = self.transform["image"](img)
         mask_tensor: torch.Tensor = self.transform["mask"](mask)
-        
+
         # Для маски используем long для совместимости с loss функциями
         mask_tensor = mask_tensor.squeeze(0).long()  # (1, H, W) -> (H, W)
 
-        return {
-            "image": img_tensor,
-            "mask": mask_tensor,
-            "image_id": img_file
-        }
+        return {"image": img_tensor, "mask": mask_tensor, "image_id": img_file}
 
 
 def test_dataloader() -> bool:

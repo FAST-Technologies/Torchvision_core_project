@@ -192,7 +192,10 @@ def extract_logits_info(outputs, model_type: str) -> Dict[str, Any]:
 
 
 def analyze_prediction(
-    mask: np.ndarray, class_names: Optional[Dict[str, Any]] = None, ignore_index: int = 255, top_k: int = 10
+    mask: np.ndarray,
+    class_names: Optional[Dict[str, Any]] = None,
+    ignore_index: int = 255,
+    top_k: int = 10,
 ) -> Dict[str, Any]:
     """
     Детальный анализ предсказанной маски.

@@ -6,16 +6,7 @@
 """
 
 # Импорт основных библиотек
-from typing import (
-    List,
-    Tuple,
-    Dict,
-    Optional,
-    Literal,
-    Callable,
-    Any,
-    TYPE_CHECKING
-)
+from typing import List, Tuple, Dict, Optional, Literal, Callable, Any, TYPE_CHECKING
 from dataclasses import dataclass, field
 from pathlib import Path
 from enum import Enum, auto
@@ -37,10 +28,11 @@ import yaml
 
 try:
     from huggingface_hub import hf_hub_download, list_repo_files, snapshot_download
+
     if TYPE_CHECKING:
         from datasets import load_dataset
     else:
-        from datasets import load_dataset
+        from datasets import load_dataset  # type: ignore[attr-defined]
 
     HF_AVAILABLE = True
 except ImportError:
@@ -1517,15 +1509,18 @@ if __name__ == "__main__":
         print("⚠️ Не удалось загрузить изображение cityscapes")
     print("\n COCO Dataset...")
     coco_img = manager.load_test_image_from_hf("detection-datasets/coco", split="train")
-    coco_img.save("./../data/coco_img.jpg")
+    if coco_img is not None:
+        coco_img.save("./../data/coco_img.jpg")
     print("\n Medical Dataset (ISIC - Skin Lesion)...")
     isic_img = manager.load_test_image_from_hf(
         "researchjyotsna/isic2018_10", split="train"
     )
-    isic_img.save("./../data/isic_img.jpg")
+    if isic_img is not None:
+        isic_img.save("./../data/isic_img.jpg")
     print("\n Chest X-Ray Segmentation...")
     chest_x_ray = manager.load_test_image_from_hf("danjacobellis/chexpert")
-    chest_x_ray.save("./../data/chest_x_ray.jpg")
+    if chest_x_ray is not None:
+        chest_x_ray.save("./../data/chest_x_ray.jpg")
 
     print("\n" + "=" * 70)
     print("✅ DATASET DOWNLOAD COMPLETE")

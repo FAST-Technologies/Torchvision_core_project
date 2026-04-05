@@ -9,15 +9,7 @@ from .utils import extract_logits_info
 import torchvision.transforms as T
 import segmentation_models_pytorch as smp
 
-from typing import (
-    List,
-    Union,
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-    Callable
-)
+from typing import List, Union, Tuple, Dict, Any, Optional, Callable
 import torch
 import numpy as np
 import requests
@@ -128,7 +120,7 @@ def infer_deeplab_torchvision(
     print(preprocess)
 
     # Ресайз к target_size (как при обучении!)
-    image_resized = image.resize(target_size, Image.BILINEAR)
+    image_resized = image.resize(target_size, Image.Resampling.BILINEAR)
     input_tensor = preprocess(image_resized).unsqueeze(0).to(device)
     print(input_tensor)
 
@@ -255,7 +247,9 @@ def infer_sam(
         for i, mask in enumerate(masks, start=1):
             mask_bin = (mask > 0.5).astype(np.uint8)
             mask_pil = Image.fromarray(mask_bin)
-            mask_resized = np.array(mask_pil.resize((img_w, img_h), Image.Resampling.NEAREST))
+            mask_resized = np.array(
+                mask_pil.resize((img_w, img_h), Image.Resampling.NEAREST)
+            )
             empty = seg_map == 0
             # Теперь размеры совпадают: seg_map[H,W] и mask_resized[H,W]
             seg_map[empty & (mask_resized > 0)] = i
@@ -552,7 +546,9 @@ def infer_mask_rcnn(
         # Ресайз
         if mask_bin.shape != (img_h, img_w):
             mask_pil = Image.fromarray(mask_bin)
-            mask_bin = np.array(mask_pil.resize((img_w, img_h), Image.Resampling.NEAREST))
+            mask_bin = np.array(
+                mask_pil.resize((img_w, img_h), Image.Resampling.NEAREST)
+            )
 
         semantic_map[mask_bin > 0] = label
 
@@ -811,7 +807,10 @@ def _log_inference_details_standalone(
     elif model_type in ["deeplab_tv", "fcn_tv", "maskrcnn_tv"]:
         print(f"\n   ⚠️  Torchvision models: {n_classes} output channels")
         print("      Class mapping depends on training dataset (COCO/ADE20K)")
-    elif model_type in ["unet_smp", "mit_smp", "fpn_mit", "psp_mit", "segnet_custom"]:
+    elif (
+        model_type in ["unet_smp", "mit_smp", "fpn_mit", "psp_mit", "segnet_custom"]
+        and n_classes is not None
+    ):
         print(
             f"\n   ⚠️  SMP/Custom models: {n_classes} output channels (indices 0..{n_classes - 1})"
         )

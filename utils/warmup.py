@@ -13,6 +13,7 @@ from typing import (
 )
 import torch
 
+
 class WarmupStats(TypedDict):
     method: str
     n_runs: int
@@ -150,10 +151,10 @@ class SegmentationWarmUp:
                 np.median(warmup_times) * 1000 if warmup_times else float("inf")
             ),
             "mean_time_ms": (
-                np.mean(warmup_times) * 1000 if warmup_times else float("inf")
+                float(np.mean(warmup_times) * 1000) if warmup_times else float("inf")
             ),
             "std_time_ms": (
-                np.std(warmup_times) * 1000 if warmup_times else float("inf")
+                float(np.std(warmup_times) * 1000) if warmup_times else float("inf")
             ),
             "min_time_ms": (
                 np.min(warmup_times) * 1000 if warmup_times else float("inf")
