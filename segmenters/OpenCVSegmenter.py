@@ -260,8 +260,8 @@ class OpenCVSegmenter(BaseSegmenter):
 
         start_time = time.time()
 
-        threshold: int = self.params.get("threshold", 127)
-        _, mask = cv2.threshold(gray, float(threshold), 255, cv2.THRESH_BINARY)
+        threshold: float = self.params.get("threshold", 127)
+        _, mask = cv2.threshold(gray, float(threshold), 255.0, cv2.THRESH_BINARY)
 
         exec_time = time.time() - start_time
 
@@ -305,7 +305,12 @@ class OpenCVSegmenter(BaseSegmenter):
             block_size += 1
 
         mask = cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, block_size, C
+            gray,
+            255.0,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            block_size,
+            C,
         )
 
         exec_time = time.time() - start_time
@@ -340,7 +345,7 @@ class OpenCVSegmenter(BaseSegmenter):
         # print(f"Gray after OpenCV_thresholding_otsu: {gray}")
         start_time = time.time()
 
-        _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        _, mask = cv2.threshold(gray, 0.0, 255.0, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         exec_time = time.time() - start_time
 
         info = {
@@ -641,7 +646,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 best_threshold = t
 
         # Бинаризация
-        _, mask = cv2.threshold(gray, best_threshold, 255, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(gray, float(best_threshold), 255.0, cv2.THRESH_BINARY)
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -703,7 +708,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 best_threshold = t
 
         # Бинаризация
-        _, mask = cv2.threshold(gray, best_threshold, 255, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(gray, float(best_threshold), 255.0, cv2.THRESH_BINARY)
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -767,8 +772,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 best_threshold = int(t)
 
         # Бинаризация
-        best_threshold_int: int = best_threshold
-        _, mask = cv2.threshold(gray, float(best_threshold_int), 255, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(gray, float(best_threshold), 255.0, cv2.THRESH_BINARY)
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -809,7 +813,9 @@ class OpenCVSegmenter(BaseSegmenter):
 
         if n_thresholds == 1:
             # Обычный Оцу
-            _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            _, mask = cv2.threshold(
+                gray, 0.0, 255.0, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            )
             return mask
 
         # Упрощённый поиск порогов (для 2 порогов)
@@ -921,7 +927,7 @@ class OpenCVSegmenter(BaseSegmenter):
         threshold = np.percentile(gray, percentile)
 
         # Бинаризация
-        _, mask = cv2.threshold(gray, int(threshold), 255, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(gray, int(threshold), 255.0, cv2.THRESH_BINARY)
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -1941,7 +1947,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Конвертируем в grayscale и пороговую обработку
         gray = cv2.cvtColor(shifted, cv2.COLOR_BGR2GRAY)
-        _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        _, mask = cv2.threshold(gray, 0.0, 255.0, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
         exec_time = time.time() - start_time
 
@@ -2210,7 +2216,9 @@ class OpenCVSegmenter(BaseSegmenter):
         # blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         # _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         # Бинаризация
-        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        _, binary = cv2.threshold(
+            gray, 0.0, 255.0, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        )
 
         # Морфологические операции
         kernel = np.ones((3, 3), np.uint8)
@@ -2222,7 +2230,7 @@ class OpenCVSegmenter(BaseSegmenter):
         # Преобразование расстояния
         dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
         _, sure_fg_raw = cv2.threshold(
-            dist_transform, 0.7 * dist_transform.max(), 255.0, 0
+            dist_transform, float(0.7 * dist_transform.max()), 255.0, 0
         )
         sure_fg: np.ndarray = sure_fg_raw.astype(np.uint8)
         unknown = cv2.subtract(sure_bg, sure_fg)

@@ -564,7 +564,7 @@ def main():
             palette=NeuralSegmenter.ade_palette,
         )
         # benchmark.load_all_trained_models(checkpoint_dir="./../models")
-        # benchmark_ade.load_segformer("/home/yamshchikov/models/segformer-b5-ready")
+        benchmark_ade.load_segformer("/home/yamshchikov/models/segformer-b5-ready")
         benchmark_ade.load_mask2former("facebook/mask2former-swin-base-ade-semantic")
         benchmark_ade.load_oneformer("shi-labs/oneformer_ade20k_swin_large")
         benchmark_ade.load_unet_trained(
@@ -577,7 +577,7 @@ def main():
         benchmark_ade.load_sam("models/sam2_t.pt")
         benchmark_ade.load_dpt("Intel/dpt-large-ade")
         benchmark_ade.load_upernet("openmmlab/upernet-convnext-small")
-        # benchmark_ade.load_segformer_variant("b2")
+        benchmark_ade.load_segformer_variant("b2")
         benchmark_ade.load_mask_rcnn_pretrained(variant="maskrcnn_resnet50_fpn")
         benchmark_ade.load_fpn_mit_pretrained(
             variant="b5", checkpoint_path="models/fpn_mit_b5_ade20k_best_200_epochs.pth"
@@ -617,7 +617,7 @@ def main():
 
         benchmark_ade.results["maskformer"] = maskformer_manual_ade_result
         results_map_ade = {
-            # "segformer": benchmark_ade.results["segformer"]["overlay"],
+            "segformer": benchmark_ade.results["segformer"]["overlay"],
             "mask2former": benchmark_ade.results["mask2former"]["overlay"],
             "oneformer": benchmark_ade.results["oneformer"]["overlay"],
             "unet_smp": benchmark_ade.results["unet_pretrained"]["overlay"],
@@ -626,7 +626,7 @@ def main():
             "sam2": benchmark_ade.results["sam2"]["overlay"],
             "dpt": benchmark_ade.results["dpt"]["overlay"],
             "upernet": benchmark_ade.results["upernet"]["overlay"],
-            # "segformer_b2": benchmark_ade.results["segformer_b2"]["overlay"],
+            "segformer_b2": benchmark_ade.results["segformer_b2"]["overlay"],
             "maskformer": benchmark_ade.results["maskformer"]["overlay"],
             "fpn_mit": benchmark_ade.results["fpn_mit_b5_pretrained"]["overlay"],
             "psp_mit": benchmark_ade.results["psp_mit_b5_pretrained"]["overlay"],
@@ -711,7 +711,7 @@ def main():
         plt.figure(figsize=(20, 10))
         titles = [
             "Original",
-            # "SegFormer",
+            "SegFormer",
             "Mask2Former",
             "OneFormer",
             "U_Net",
@@ -720,7 +720,7 @@ def main():
             "SAM2",
             "DPT-Large",
             "UPerNet",
-            # "SegFormer-B2",
+            "SegFormer-B2",
             "FPN + MiT-B5",
             "PSPNet + MiT-B5",
             "MaskFormer",
@@ -733,7 +733,7 @@ def main():
 
         images = [
             original_img_0,  # Original
-            # results_map_ade["segformer"],  # SegFormer
+            results_map_ade["segformer"],  # SegFormer
             results_map_ade["mask2former"],  # Mask2Former
             results_map_ade["oneformer"],  # OneFormer
             results_map_ade["unet_smp"],  # U_Net
@@ -742,7 +742,7 @@ def main():
             results_map_ade["sam2"],  # SAM2
             results_map_ade["dpt"],  # DPT-Large
             results_map_ade["upernet"],  # UPerNet
-            # results_map_ade["segformer_b2"],  # SegFormer-B2
+            results_map_ade["segformer_b2"],  # SegFormer-B2
             results_map_ade["fpn_mit"],  # FPN + MiT-B5
             results_map_ade["psp_mit"],  # PSPNet + MiT-B5
             results_map_ade["maskformer"],  # MaskFormer
@@ -1039,8 +1039,8 @@ def main():
             # "unet_smp",  # U-Net
             # "fpn_smp",  # FPN + MiT-B5
             # "psp_smp",  # PSPNet + MiT-B5
-            "deeplab_tv",  # DeepLabV3+
-            # "fcn_tv",  # FCN ResNet-50
+            # "deeplab_tv",  # DeepLabV3+
+            "fcn_tv",  # FCN ResNet-50
             # "segnet",  # SegNet
         ]
         results_by_model_and_aug: Dict[str, Dict[str, Any]] = {
