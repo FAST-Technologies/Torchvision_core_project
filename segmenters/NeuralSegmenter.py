@@ -455,7 +455,14 @@ class NeuralSegmenter(BaseSegmenter):
         alpha = kwargs.get("alpha", 0.9)
 
         # Получаем карту сегментации
-        seg_map, result_info = self.predict_segmentation_map(image, verbose=False)  # type: ignore[arg-type]
+        seg_map, _ = self.predict_segmentation_map(image, verbose=False)  # type: ignore[arg-type]
+        unique_classes = np.unique(seg_map)
+        print("Предугаданные классы:", unique_classes)
+
+        # Проверяем количество пикселей для каждого класса
+        for cls in unique_classes:
+            count = (seg_map == cls).sum()
+            print(f"Class {cls}: {count} pixels")
 
         # Загружаем оригинал
         img_pil: Image.Image = self.load_image(image)  # type: ignore[arg-type]

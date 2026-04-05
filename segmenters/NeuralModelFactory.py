@@ -324,11 +324,7 @@ class NeuralModelFactory:
 
         model_name = variants[variant]
         processor = SegformerImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
-        model = (
-            SegformerForSemanticSegmentation.from_pretrained(model_name)
-            .to(device)
-            .eval()
-        )  # type: ignore[arg-type]
+        model = SegformerForSemanticSegmentation.from_pretrained(model_name).to(device).eval()  # type: ignore[arg-type]
         return model, processor, f"segformer_{variant}"
 
     @classmethod
@@ -550,7 +546,7 @@ class NeuralModelFactory:
     @classmethod
     def print_deeplab_params(cls, device: str = "cuda") -> None:
         """Вывод параметров DeepLab"""
-        model = tv_seg.deeplabv3_resnet101(weights="DEFAULT")
+        model = tv_seg.deeplabv3_resnet101(weights="DEFAULT")  # Было pretrained=True
         print(model)
         print("✅ DeepLab загружена!")
         print(f"   Устройство: {device}")
@@ -945,7 +941,7 @@ class NeuralModelFactory:
 
         if variant not in variants:
             raise ValueError(f"Unknown Mask R-CNN variant: {variant}")
-        model = variants[variant](weights="DEFAULT")
+        model = variants[variant](weights="DEFAULT")  # Было weights="COCO_V1"
         model = model.to(device).eval()
         score_thresh = kwargs.get("score_thresh", 0.5)
         model.score_thresh = score_thresh
@@ -962,7 +958,9 @@ class NeuralModelFactory:
         }
         if variant not in variants:
             raise ValueError(f"Unknown Mask R-CNN variant: {variant}")
-        model = variants[variant](weights=None)
+        model = variants[variant](
+            weights=None
+        )  # Было weights="DEFAULT", pretrained=False
         model = model.to(device)
         print(model)
         print("✅ Mask R-CNN загружена!")

@@ -1057,7 +1057,7 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
-
+        print(f"Gray after OpenCV_canny_edge: {gray}")
         start_time = time.time()
 
         low = self.params.get("low", 50)
@@ -1072,6 +1072,8 @@ class OpenCVSegmenter(BaseSegmenter):
             "parameters": {"low": low, "high": high, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Mask after OpenCV_canny_edge: {mask}")
+        print(f"Info after OpenCV_canny_edge: {info}")
 
         return mask
 
