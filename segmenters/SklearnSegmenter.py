@@ -36,16 +36,14 @@ from sklearn.neighbors import (
     NearestNeighbors,
 )
 from sklearn.neural_network import MLPClassifier
-from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import (
     StandardScaler,
 )
 from sklearn.svm import SVC, OneClassSVM
 from sklearn.tree import DecisionTreeClassifier
 
-from scipy import ndimage, signal, sparse
+from scipy import ndimage, signal
 from scipy.ndimage import gaussian_filter, laplace, sobel, prewitt
-from scipy.sparse.linalg import eigsh
 from skimage.util import img_as_float, img_as_ubyte
 
 # Импорт scikit-image компонентов
@@ -53,20 +51,10 @@ import skimage
 from skimage import (
     filters,
     segmentation,
-    morphology,
-    measure,
     feature,
     color,
-    exposure,
-    transform,
-    util,
-    restoration,
-    graph,
-    draw,
 )
-from skimage.color import label2rgb
 from skimage.draw import polygon
-from skimage.feature import canny, structure_tensor
 from skimage.filters import (
     threshold_otsu,
     threshold_local,

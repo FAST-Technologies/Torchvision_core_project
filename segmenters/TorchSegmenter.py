@@ -1326,7 +1326,7 @@ class TorchSegmenter(BaseSegmenter):
             "execution_time": exec_time,
         }
         # print(f"Mask after Torch_thresholding_global: {mask}")
-        # print(f"Info after Torch_thresholding_global: {info}")
+        print(f"Info after Torch_thresholding_global: {info}")
         return mask
 
     def _adaptive_thresholding(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -1365,7 +1365,7 @@ class TorchSegmenter(BaseSegmenter):
         }
 
         # print(f"Mask after Torch_thresholding_adaptive: {mask}")
-        # print(f"Info after Torch_thresholding_adaptive: {info}")
+        print(f"Info after Torch_thresholding_adaptive: {info}")
         return mask
 
     def _otsu_thresholding(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -1419,7 +1419,7 @@ class TorchSegmenter(BaseSegmenter):
             "execution_time": exec_time,
         }
         # print(f"Mask after Torch_thresholding_otsu: {mask.unsqueeze(0).unsqueeze(0)}")
-        # print(f"Info after Torch_thresholding_otsu: {info}")
+        print(f"Info after Torch_thresholding_otsu: {info}")
         return mask.unsqueeze(0).unsqueeze(0)
 
     def _threshold_niblack(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -1472,7 +1472,7 @@ class TorchSegmenter(BaseSegmenter):
                 "execution_time": exec_time,
             }
             # print(f"Mask after Torch_thresholding_niblack: {mask.unsqueeze(0).unsqueeze(0)}")
-            # print(f"Info after Torch_thresholding_niblack: {info}")
+            print(f"Info after Torch_thresholding_niblack: {info}")
             return mask.unsqueeze(0).unsqueeze(0)
 
         except Exception as e:
@@ -1530,7 +1530,7 @@ class TorchSegmenter(BaseSegmenter):
                 "execution_time": exec_time,
             }
             # print(f"Mask after Torch_thresholding_sauvola: {mask.unsqueeze(0).unsqueeze(0)}")
-            # print(f"Info after Torch_thresholding_sauvola: {info}")
+            print(f"Info after Torch_thresholding_sauvola: {info}")
             return mask.unsqueeze(0).unsqueeze(0)
 
         except Exception as e:

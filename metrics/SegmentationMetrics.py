@@ -214,10 +214,10 @@ class SegmentationMetrics:
             print("--- Сравнение Precision/Recall ---")
             print(f"TP: {tp}, FP: {fp}, FN: {fn}, TN: {tn}")
             print(
-                f"Precision: Sklearn={p_sklearn:.6f} | Custom={p_custom:.6f} | Diff={abs(p_sklearn-p_custom):.2e}"
+                f"Precision: Sklearn={p_sklearn:.6f} | Custom={p_custom:.6f} | Diff={abs(p_sklearn - p_custom):.2e}"
             )
             print(
-                f"Recall:    Sklearn={r_sklearn:.6f} | Custom={r_custom:.6f} | Diff={abs(r_sklearn-r_custom):.2e}"
+                f"Recall:    Sklearn={r_sklearn:.6f} | Custom={r_custom:.6f} | Diff={abs(r_sklearn - r_custom):.2e}"
             )
 
         # print(f"Check difference precision: sklearn {p_custom} && custom {p_sklearn}")
@@ -257,7 +257,7 @@ class SegmentationMetrics:
         f1_sklearn = f1_score(gt_binary.ravel(), pred_binary.ravel())
         if verbose:
             print(
-                f"F1-Score: Sklearn={f1_sklearn:.6f} | Custom={f1_custom:.6f} | Diff={abs(f1_sklearn-f1_custom):.2e}"
+                f"F1-Score: Sklearn={f1_sklearn:.6f} | Custom={f1_custom:.6f} | Diff={abs(f1_sklearn - f1_custom):.2e}"
             )
         return float(f1_custom)
 
@@ -302,7 +302,7 @@ class SegmentationMetrics:
 
         if verbose:
             print(
-                f"MAE: Sklearn={mae_sklearn:.6f} | Custom={mae_custom:.6f} | Diff={abs(mae_sklearn-mae_custom):.2e}"
+                f"MAE: Sklearn={mae_sklearn:.6f} | Custom={mae_custom:.6f} | Diff={abs(mae_sklearn - mae_custom):.2e}"
             )
         return float(mae_custom)
 
@@ -448,7 +448,7 @@ class SegmentationMetrics:
 
         if verbose_comparison:
             print(
-                f"IoU Check: Custom={iou_custom:.6f} | Sklearn={iou_sklearn:.6f} | Diff={abs(iou_custom-iou_sklearn):.2e}"
+                f"IoU Check: Custom={iou_custom:.6f} | Sklearn={iou_sklearn:.6f} | Diff={abs(iou_custom - iou_sklearn):.2e}"
             )
 
         # 3. Dice

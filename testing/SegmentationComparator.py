@@ -3,24 +3,11 @@
 # Импорт основных библиотек
 import os
 import time
-import warnings
-from PIL import Image
-import requests
-from io import BytesIO
 from typing import (
     List,
-    Union,
-    Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
     Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
 from datetime import datetime
 import itertools
@@ -28,9 +15,6 @@ import itertools
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
-from scipy import ndimage
-from scipy import ndimage as ndi
 import traceback
 from metrics.SegmentationMetrics import SegmentationMetrics
 
@@ -676,6 +660,7 @@ class SegmentationComparator:
                             color="black" if matrix[i, j] < 0.7 else "white",
                             fontsize=8,
                         )
+                        print(text)
 
             ax.set_title(f"Матрица сравнения: {metric.upper()}", fontsize=14)
             plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)

@@ -272,7 +272,7 @@ class OpenCVSegmenter(BaseSegmenter):
         }
 
         # print(f"Mask after OpenCV_thresholding_global: {mask}")
-        # print(f"Info after OpenCV_thresholding_global: {info}")
+        print(f"Info after OpenCV_thresholding_global: {info}")
 
         return mask
 
@@ -317,7 +317,7 @@ class OpenCVSegmenter(BaseSegmenter):
         }
 
         # print(f"Mask after OpenCV_thresholding_adaptive: {mask}")
-        # print(f"Info after OpenCV_thresholding_adaptive: {info}")
+        print(f"Info after OpenCV_thresholding_adaptive: {info}")
         return mask
 
     def _opencv_otsu_thresholding(self, img: np.ndarray, **kwargs) -> np.ndarray:
@@ -350,7 +350,7 @@ class OpenCVSegmenter(BaseSegmenter):
         }
 
         # print(f"Mask after OpenCV_thresholding_otsu: {mask}")
-        # print(f"Info after OpenCV_thresholding_otsu: {info}")
+        print(f"Info after OpenCV_thresholding_otsu: {info}")
         return mask
 
     def _opencv_threshold_niblack(self, img: np.ndarray, **kwargs) -> np.ndarray:
@@ -401,7 +401,7 @@ class OpenCVSegmenter(BaseSegmenter):
         }
 
         # print(f"Mask after OpenCV_thresholding_niblack: {mask}")
-        # print(f"Info after OpenCV_thresholding_niblack: {info}")
+        print(f"Info after OpenCV_thresholding_niblack: {info}")
 
         return mask
 
@@ -454,7 +454,7 @@ class OpenCVSegmenter(BaseSegmenter):
         }
 
         # print(f"Mask after OpenCV_thresholding_sauvola: {mask}")
-        # print(f"Info after OpenCV_thresholding_sauvola: {info}")
+        print(f"Info after OpenCV_thresholding_sauvola: {info}")
 
         return mask
 
@@ -1031,7 +1031,7 @@ class OpenCVSegmenter(BaseSegmenter):
         }
 
         # print(f"Mask after OpenCV_sobel_edge: {mask}")
-        # print(f"Info after OpenCV_sobel_edge: {info}")
+        print(f"Info after OpenCV_sobel_edge: {info}")
         return mask
 
     def _opencv_canny_edge(self, img: np.ndarray, **kwargs) -> np.ndarray:
@@ -1624,6 +1624,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "parameters": {"seed": seed, "tolerance": tolerance, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_region_growing: {info}")
 
         return mask
 
@@ -1735,6 +1736,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 "parameters": {"threshold": threshold, "min_size": min_size, **kwargs},
                 "execution_time": exec_time,
             }
+            print(f"Info after OpenCV_split_and_merge: {info}")
 
             return mask.astype(np.uint8) * 255
 
@@ -1792,6 +1794,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "parameters": {"seed": seed, "tolerance": tolerance, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_floodfill: {info}")
 
         return mask_final
 
@@ -1839,6 +1842,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "parameters": {"k": k, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_kmeans: {info}")
 
         return mask
 
@@ -1907,6 +1911,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "parameters": {"min_samples": min_samples, "eps": eps, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_dbscan: {info}")
 
         return mask
 
@@ -1950,6 +1955,7 @@ class OpenCVSegmenter(BaseSegmenter):
             },
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_meanshift: {info}")
 
         return mask
 
@@ -2000,6 +2006,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "parameters": {"iterations": iterations, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_active_contour: {info}")
 
         return mask
 
@@ -2060,6 +2067,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "parameters": {"iterations": iterations, "mu": mu, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_gvf_contour: {info}")
 
         return mask
 
@@ -2113,6 +2121,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "parameters": {"iterations": iterations, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_morphological_snakes: {info}")
 
         return mask
 
@@ -2171,6 +2180,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "parameters": {"mu": mu, "iterations": iterations, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_chan_vese: {info}")
 
         return mask
 
@@ -2238,6 +2248,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "parameters": {**kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_watershed: {info}")
 
         return mask
 
@@ -2298,6 +2309,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "parameters": {"beta": beta, "mode": mode, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_random_walker: {info}")
 
         return mask
 
@@ -2354,6 +2366,7 @@ class OpenCVSegmenter(BaseSegmenter):
             },
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_quickshift: {info}")
 
         return mask
 
@@ -2430,6 +2443,7 @@ class OpenCVSegmenter(BaseSegmenter):
             },
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_slic: {info}")
 
         return mask
 
@@ -2483,6 +2497,7 @@ class OpenCVSegmenter(BaseSegmenter):
             },
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_felzenszwalb: {info}")
 
         return mask
 
@@ -2575,5 +2590,6 @@ class OpenCVSegmenter(BaseSegmenter):
             "parameters": {"iterations": iter_count, "rect": rect, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after OpenCV_grabcut: {info}")
 
         return mask_final.astype(np.uint8)

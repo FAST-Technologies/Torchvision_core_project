@@ -254,9 +254,7 @@ class NeuralSegmenter(BaseSegmenter):
             return zoom(mask, (sh, sw), order=0)
         return mask
 
-    def load_image(
-        self, input_image: ImageInput
-    ) -> Image.Image:
+    def load_image(self, input_image: ImageInput) -> Image.Image:
         """Загрузка изображения из различных источников"""
         img: Image.Image
         if isinstance(input_image, str):

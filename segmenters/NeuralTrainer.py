@@ -93,7 +93,7 @@ class NeuralTrainer:
             total_loss += loss.item()
             if (batch_idx + 1) % 10 == 0:
                 print(
-                    f"   Batch {batch_idx+1}/{len(self.train_loader)} | Loss: {loss.item():.4f}"
+                    f"   Batch {batch_idx + 1}/{len(self.train_loader)} | Loss: {loss.item():.4f}"
                 )
 
         return total_loss / len(self.train_loader)
@@ -149,7 +149,7 @@ class NeuralTrainer:
             self.history["train_loss"].append(train_loss)
             self.history["val_loss"].append(val_loss)
             self.history["val_miou"].append(val_miou)
-            print(f"📊 Epoch {epoch+1}/{epochs} | Time: {epoch_time:.3f}s")
+            print(f"📊 Epoch {epoch + 1}/{epochs} | Time: {epoch_time:.3f}s")
             print(f"   Train Loss: {train_loss:.4f}")
             print(f"   Val Loss:   {val_loss:.4f}")
             print(f"   Val mIoU:   {val_miou:.4f}")

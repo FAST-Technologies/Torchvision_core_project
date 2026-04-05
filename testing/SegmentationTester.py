@@ -5,10 +5,6 @@
 import os
 import sys
 
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
 from segmenters.BaseSegmenter import BaseSegmenter
 from metrics.SegmentationMetrics import SegmentationMetrics
 from utils.warmup import SegmentationWarmUp
@@ -31,7 +27,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 import cv2
-from sklearn.metrics import confusion_matrix
+
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 
 class SegmentationTester:
@@ -69,7 +68,7 @@ class SegmentationTester:
             else:
                 raise ValueError(f"Неизвестный формат ground truth: {gt_path}")
             if self.ground_truth_mask is None:
-                raise ValueError(f"Не удалось прочитать файл (возвращён None)")
+                raise ValueError("Не удалось прочитать файл (возвращён None)")
         except Exception as e:
             print(f"❌ Ошибка загрузки ground truth: {e}")
             self.ground_truth_mask = None
@@ -382,7 +381,7 @@ class SegmentationTester:
                 # Информация о маске
                 mask = result_data.get("mask")
                 if mask is not None:
-                    f.write(f"\nИнформация о маске:\n")
+                    f.write("\nИнформация о маске:\n")
                     f.write("-" * 30 + "\n")
                     f.write(f"Размер: {mask.shape}\n")
                     f.write(f"Тип данных: {mask.dtype}\n")
@@ -554,6 +553,7 @@ class SegmentationTester:
         else:
             original_img = Image.fromarray(image.astype(np.uint8))
             image_path = None
+        print(image_path)
 
         orig_save_path: str = os.path.join(test_dir, "images", "original.jpg")
         original_img.save(orig_save_path)
@@ -1079,9 +1079,9 @@ class SegmentationTester:
                 summary_path.replace(".json", "_simple.txt"), "w", encoding="utf-8"
             ) as f:
                 for method_name, method_data in summary_data["methods"].items():
-                    f.write(f"\n{'='*40}\n")
+                    f.write(f"\n{'=' * 40}\n")
                     f.write(f"Метод: {method_name}\n")
-                    f.write(f"{'='*40}\n")
+                    f.write(f"{'=' * 40}\n")
                     for key, value in method_data.items():
                         f.write(f"{key}: {value}\n")
 
@@ -1148,7 +1148,7 @@ class SegmentationTester:
 
         if has_gt:
             assert gt_mask_to_use is not None
-            print(f"🎯 Обнаружен Ground Truth. Будет выполнен расчет метрик качества.")
+            print("🎯 Обнаружен Ground Truth. Будет выполнен расчет метрик качества.")
             if gt_mask_to_use.max() <= 1.0:
                 gt_binary = (gt_mask_to_use * 255).astype(np.uint8)
             else:
@@ -1207,7 +1207,7 @@ class SegmentationTester:
                         masks_list.append(mask)
                         results_list.append(result)
                 except Exception as e:
-                    print(f"    ❌ Ошибка в {method_name} (запуск {run+1}): {e}")
+                    print(f"    ❌ Ошибка в {method_name} (запуск {run + 1}): {e}")
                     if run == 0:
                         break
 
@@ -1352,7 +1352,7 @@ class SegmentationTester:
             excel_path: str = os.path.join(bench_stats_dir, "benchmark_results.xlsx")
             df.to_excel(excel_path, index=False)
             print(f"📊 Excel отчет сохранен: {excel_path}")
-        except:
+        except Exception:
             pass
 
         # Создаем текстовый отчет
@@ -1603,7 +1603,7 @@ class SegmentationTester:
 
             # График 2: Scatter plot IoU vs Время
             fig, ax = plt.subplots(figsize=(10, 6))
-            scatter = ax.scatter(df["time"], df["iou"], s=100, alpha=0.7)
+            _ = ax.scatter(df["time"], df["iou"], s=100, alpha=0.7)
             for i, row in df.iterrows():
                 ax.annotate(
                     row["method"],

@@ -277,10 +277,10 @@ class ModelTrainer:
         Returns:
             Dict с результатами обучения
         """
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"ЭКСПЕРИМЕНТ: {config.experiment_name}")
         print(f"Аугментации: {config.augmentation_level}")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
 
         # Создание модели
         model = self.create_model(
@@ -374,7 +374,7 @@ class ModelTrainer:
             trainer.history["val_loss"].append(val_loss)
             trainer.history["val_miou"].append(val_miou)
 
-            print(f"\n📊 Epoch {epoch+1}/{config.epochs} | Time: {epoch_time:.1f}s")
+            print(f"\n📊 Epoch {epoch + 1}/{config.epochs} | Time: {epoch_time:.1f}s")
             print(f"   Train Loss: {train_loss:.4f}")
             print(f"   Val Loss:   {val_loss:.4f}")
             print(f"   Val mIoU:   {val_miou:.4f}")
@@ -418,7 +418,7 @@ class ModelTrainer:
         self.experiment_results.append(result)
 
         print("\n✅ Эксперимент завершён!")
-        print(f"   Best mIoU: {trainer.best_miou*100:.4f}%")
+        print(f"   Best mIoU: {trainer.best_miou * 100:.4f}%")
         print(f"   Чекпоинт: {checkpoint_path}")
 
         return result
@@ -570,7 +570,7 @@ class ModelTrainer:
                     all_targets.extend(masks_gt.cpu().flatten().tolist())
 
                     if (batch_idx + 1) % 10 == 0:
-                        print(f"   Processed {batch_idx+1}/{len(val_loader)} batches")
+                        print(f"   Processed {batch_idx + 1}/{len(val_loader)} batches")
 
             # Вычисление mIoU
             miou = jaccard_score(
@@ -582,14 +582,14 @@ class ModelTrainer:
             )
 
             results[name] = miou
-            print(f"   ✅ mIoU: {miou*100:.2f}%")
+            print(f"   ✅ mIoU: {miou * 100:.2f}%")
 
         # Таблица результатов
         print("\n" + "=" * 60)
         print("RESULTS SUMMARY")
         print("=" * 60)
         for name, miou in sorted(results.items(), key=lambda x: x[1], reverse=True):
-            print(f"{name:20s} : {miou*100:6.2f}% mIoU")
+            print(f"{name:20s} : {miou * 100:6.2f}% mIoU")
 
         return results
 
@@ -708,7 +708,7 @@ class ModelTrainer:
                     all_targets.extend(masks_gt.cpu().flatten().tolist())
 
                     if (batch_idx + 1) % 20 == 0:
-                        print(f"   Processed {batch_idx+1}/{len(val_loader)} batches")
+                        print(f"   Processed {batch_idx + 1}/{len(val_loader)} batches")
 
             # Метрики
             miou = jaccard_score(
@@ -720,7 +720,7 @@ class ModelTrainer:
             )
 
             results[model_name] = miou
-            print(f"   ✅ mIoU: {miou*100:.2f}%")
+            print(f"   ✅ mIoU: {miou * 100:.2f}%")
 
             del model
             torch.cuda.empty_cache()
@@ -731,7 +731,7 @@ class ModelTrainer:
         print("TRAINED MODELS COMPARISON (on validation set)")
         print("=" * 60)
         for name, miou in sorted(results.items(), key=lambda x: x[1], reverse=True):
-            print(f"{name:20s} : {miou*100:6.2f}% mIoU")
+            print(f"{name:20s} : {miou * 100:6.2f}% mIoU")
 
         return results
 
@@ -757,10 +757,10 @@ class ModelTrainer:
                 "subset_fraction": 0.05,
             }
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("СРАВНЕНИЕ УРОВНЕЙ АУГМЕНТАЦИЙ")
         print(f"Модель: {model_type}")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
 
         results = []
 
@@ -800,9 +800,9 @@ class ModelTrainer:
         )
         comparison_df.to_csv(comparison_path, index=False)
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("РЕЗУЛЬТАТЫ СРАВНЕНИЯ")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(comparison_df.to_string(index=False))
         print(f"\n📊 Таблица сохранена: {comparison_path}")
 
@@ -845,7 +845,7 @@ class ModelTrainer:
             ax2.plot(
                 epochs,
                 np.array(result["history"]["val_miou"]) * 100,
-                label=f"{result['augmentation_level']} (mIoU={result['best_miou']*100:.2f}%)",
+                label=f"{result['augmentation_level']} (mIoU={result['best_miou'] * 100:.2f}%)",
                 linewidth=2,
             )
 
@@ -889,7 +889,7 @@ class ModelTrainer:
             table_data.append(
                 [
                     result["augmentation_level"],
-                    f"{result['best_miou']*100:.2f}%",
+                    f"{result['best_miou'] * 100:.2f}%",
                     f"{result['epochs_trained']}",
                     (
                         f"{result['final_train_loss']:.4f}"
@@ -986,9 +986,9 @@ class ModelTrainer:
         )
         summary_df.to_csv(summary_path, index=False)
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("СВОДНАЯ ТАБЛИЦА ВСЕХ МОДЕЛЕЙ")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(summary_df.to_string(index=False))
         print(f"\n📊 Таблица сохранена: {summary_path}")
 
@@ -1006,9 +1006,9 @@ class ModelTrainer:
         """
         from sklearn.metrics import jaccard_score
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("ОЦЕНКА ЧЕКПОИНТОВ")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
 
         # Валидационный датасет (без аугментаций!)
         val_dataset = ADE20KDataset(
@@ -1088,7 +1088,7 @@ class ModelTrainer:
             }
             results.append(result)
 
-            print(f"✅ {checkpoint_name}: mIoU = {miou*100:.2f}%")
+            print(f"✅ {checkpoint_name}: mIoU = {miou * 100:.2f}%")
 
             # Очистка памяти
             del model
@@ -1105,9 +1105,9 @@ class ModelTrainer:
         )
         results_df.to_csv(eval_path, index=False)
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("РЕЗУЛЬТАТЫ ОЦЕНКИ")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(results_df.to_string(index=False))
         print(f"\n📊 Таблица сохранена: {eval_path}")
 

@@ -79,7 +79,7 @@ class CpuCudaBenchmark:
                 times.append(end - start)
 
             except Exception as e:
-                print(f"⚠️ Error in {method_name} ({device}), run {run+1}: {e}")
+                print(f"⚠️ Error in {method_name} ({device}), run {run + 1}: {e}")
                 break
 
         torch.cuda.synchronize() if device == "cuda" else None
@@ -146,11 +146,11 @@ class CpuCudaBenchmark:
             print(f"\n🔹 Метод: {method_name}")
 
             # Тест на CPU
-            print(f"   📊 Тестирование на CPU...")
+            print("   📊 Тестирование на CPU...")
             cpu_result = self.benchmark_method(segmenter, image, method_name, "cpu")
             all_results.append(cpu_result)
             print(
-                f"      CPU: {cpu_result['mean_time']*1000:.2f}ms ± {cpu_result['std_time']*1000:.2f}ms"
+                f"      CPU: {cpu_result['mean_time'] * 1000:.2f}ms ± {cpu_result['std_time'] * 1000:.2f}ms"
             )
 
             # Тест на CUDA (только если доступно)
@@ -161,7 +161,7 @@ class CpuCudaBenchmark:
                 )
                 all_results.append(cuda_result)
                 print(
-                    f"      CUDA: {cuda_result['mean_time']*1000:.2f}ms ± {cuda_result['std_time']*1000:.2f}ms"
+                    f"      CUDA: {cuda_result['mean_time'] * 1000:.2f}ms ± {cuda_result['std_time'] * 1000:.2f}ms"
                 )
 
                 # Ускорение
@@ -236,13 +236,13 @@ class CpuCudaBenchmark:
                 cpu_data = method_data[method_data["device"] == "cpu"]
                 if not cpu_data.empty:
                     f.write(
-                        f"  CPU:  {cpu_data['mean_time'].values[0]*1000:.2f}ms ± {cpu_data['std_time'].values[0]*1000:.2f}ms\n"
+                        f"  CPU:  {cpu_data['mean_time'].values[0] * 1000:.2f}ms ± {cpu_data['std_time'].values[0] * 1000:.2f}ms\n"
                     )
 
                 cuda_data = method_data[method_data["device"] == "cuda"]
                 if not cuda_data.empty:
                     f.write(
-                        f"  CUDA: {cuda_data['mean_time'].values[0]*1000:.2f}ms ± {cuda_data['std_time'].values[0]*1000:.2f}ms\n"
+                        f"  CUDA: {cuda_data['mean_time'].values[0] * 1000:.2f}ms ± {cuda_data['std_time'].values[0] * 1000:.2f}ms\n"
                     )
 
                     if not cpu_data.empty and cuda_data["mean_time"].values[0] > 0:

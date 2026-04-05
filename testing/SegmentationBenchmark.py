@@ -364,7 +364,7 @@ class SegmentationBenchmark:
             "type": model_type_str,
             "checkpoint": checkpoint_path,
         }
-        print(f"✅ Loaded SegNet-like")
+        print("✅ Loaded SegNet-like")
         return self
 
     def load_mask_rcnn_pretrained(
@@ -382,7 +382,7 @@ class SegmentationBenchmark:
             "processor": processor,
             "type": model_type_str,
         }
-        print(f"✅ Loaded Mask R-CNN")
+        print("✅ Loaded Mask R-CNN")
         return self
 
     def load_unet_trained(
@@ -414,7 +414,7 @@ class SegmentationBenchmark:
             "type": model_type_str,
             "checkpoint": checkpoint_path,
         }
-        print(f"✅ Loaded Unet pretrained")
+        print("✅ Loaded Unet pretrained")
         return self
 
     def load_deeplab_trained(
@@ -444,7 +444,7 @@ class SegmentationBenchmark:
             "type": model_type_str,
             "checkpoint": checkpoint_path,
         }
-        print(f"✅ Loaded deeplab pretrained")
+        print("✅ Loaded deeplab pretrained")
         return self
 
     def load_all_pretrained_cnn(
@@ -827,7 +827,7 @@ class SegmentationBenchmark:
         data_filtered = data_arr[:, top_class_indices]
 
         plt.figure(figsize=figsize)
-        ax = sns.heatmap(
+        _ = sns.heatmap(
             data_filtered,
             xticklabels=class_labels,
             yticklabels=model_names,
@@ -847,7 +847,7 @@ class SegmentationBenchmark:
         plt.tight_layout()
         plt.savefig(path, dpi=300, bbox_inches="tight", facecolor="white", format="png")
         plt.show()
-        print(f"\n📊 Per-class IoU Statistics:")
+        print("\n📊 Per-class IoU Statistics:")
         print(f"  Total classes in dataset: {self.num_classes}")
         print(f"  Classes present in GT: {len(class_indices)}")
         print(f"  Showing top {len(top_class_indices)} classes")
@@ -895,7 +895,7 @@ class SegmentationBenchmark:
         cm_subset = cm_display[np.ix_(gt_classes, gt_classes)]
 
         plt.figure(figsize=figsize)
-        ax = sns.heatmap(
+        _ = sns.heatmap(
             cm_subset,
             xticklabels=class_labels,
             yticklabels=class_labels,
@@ -970,6 +970,7 @@ class SegmentationBenchmark:
                 )
                 for bar, val, name in zip(bars, plot_values, plot_models):
                     display_name = name.replace("_", "_\n") if len(name) > 15 else name
+                    print(display_name)
                     ax.text(
                         bar.get_x() + bar.get_width() / 2,
                         bar.get_height(),
@@ -1120,10 +1121,10 @@ class SegmentationBenchmark:
 
         for model, metrics in summary.items():
             mIoU = (
-                f"{metrics['mIoU']*100:.3f}" if not np.isnan(metrics["mIoU"]) else "-"
+                f"{metrics['mIoU'] * 100:.3f}" if not np.isnan(metrics["mIoU"]) else "-"
             )
             acc = (
-                f"{metrics['pixel_acc']*100:.3f}"
+                f"{metrics['pixel_acc'] * 100:.3f}"
                 if not np.isnan(metrics["pixel_acc"])
                 else "-"
             )

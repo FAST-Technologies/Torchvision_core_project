@@ -62,7 +62,7 @@ class ThresholdWarmUp:
                         if hasattr(segmenter, "segment"):
                             segmenter.segment(img)
                         times.append(time.perf_counter() - start)
-                    except:
+                    except Exception:
                         times.append(float("inf"))
 
                 method_results["sizes"][str(size)] = {
@@ -107,7 +107,7 @@ class ThresholdWarmUp:
                         if hasattr(segmenter, "segment"):
                             segmenter.segment(img)
                         times.append(time.perf_counter() - start)
-                    except:
+                    except Exception:
                         times.append(float("inf"))
 
                 method_results["patterns"][pattern] = {
@@ -126,9 +126,9 @@ class ThresholdWarmUp:
         img = np.zeros((h, w), dtype=np.uint8)
 
         if pattern == "horizontal":
-            img[h // 2 - 5 : h // 2 + 5, :] = 255
+            img[(h // 2 - 5) : (h // 2 + 5), :] = 255
         elif pattern == "vertical":
-            img[:, w // 2 - 5 : w // 2 + 5] = 255
+            img[:, (w // 2 - 5) : (w // 2 + 5)] = 255
         elif pattern == "diagonal":
             for i in range(min(h, w) - 1):
                 img[i, i] = 255

@@ -213,10 +213,10 @@ class TorchImplementationValidator:
         Returns:
             Dict с результатами валидации по каждому методу
         """
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"{status_message}")
         print(f"Референс: {reference.upper()}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         results = {}
         img_array: np.ndarray = self._load_image(image_path)
 
@@ -353,7 +353,7 @@ class TorchImplementationValidator:
                 os.makedirs(method_dir, exist_ok=True)
 
                 # Torch маска
-                if flag_torch == True:
+                if flag_torch:
                     torch_mask = data["torch_mask"]
                     np.save(os.path.join(method_dir, "torch_mask.npy"), torch_mask)
                 else:
@@ -428,7 +428,7 @@ class TorchImplementationValidator:
 
             # Оригинальное изображение
             axes[row, 0].imshow(original)
-            axes[row, 0].set_title(f"Original Image")
+            axes[row, 0].set_title("Original Image")
             axes[row, 0].axis("off")
 
             # Torch маска
@@ -534,13 +534,13 @@ class TorchImplementationValidator:
 
         if total_methods > 0:
             report_lines.append(
-                f"✅ PASS: {passed_methods} ({passed_methods/total_methods*100:.2f}%)"
+                f"✅ PASS: {passed_methods} ({passed_methods / total_methods * 100:.2f}%)"
             )
             report_lines.append(
-                f"⚠️ WARNING: {warning_methods} ({warning_methods/total_methods*100:.2f}%)"
+                f"⚠️ WARNING: {warning_methods} ({warning_methods / total_methods * 100:.2f}%)"
             )
             report_lines.append(
-                f"❌ FAIL: {failed_methods} ({failed_methods/total_methods*100:.2f}%)"
+                f"❌ FAIL: {failed_methods} ({failed_methods / total_methods * 100:.2f}%)"
             )
         else:
             report_lines.append("⚠️ Нет данных для статистики (все методы не прошли)")

@@ -62,7 +62,7 @@ class SegmentationWarmUp:
             for i in range(0, h, square_size):
                 for j in range(0, w, square_size):
                     if (i // square_size + j // square_size) % 2 == 0:
-                        img[i : i + square_size, j : j + square_size] = 255
+                        img[i : (i + square_size), j : (j + square_size)] = 255
 
         elif pattern == "circles":
             # Круги для тестирования детекции границ
@@ -117,10 +117,11 @@ class SegmentationWarmUp:
                     raise AttributeError(
                         "Segmenter must have 'segment' or 'segment_with_mask' method"
                     )
+                print(result)
                 end_time = time.perf_counter()
                 warmup_times.append(end_time - start_time)
                 if verbose and i == 0:
-                    print(f"   ✅ Run 1: {warmup_times[-1]*1000:.2f}ms")
+                    print(f"   ✅ Run 1: {warmup_times[-1] * 1000:.2f}ms")
             except Exception as e:
                 print(f"   ❌ Warm-up failed: {e}")
                 warmup_times.append(float("inf"))
@@ -165,7 +166,7 @@ class SegmentationWarmUp:
         Специальный warm-up для CUDA kernels (Torch сегментеры).
         """
         if verbose:
-            print(f"   🔥 CUDA warm-up...")
+            print("   🔥 CUDA warm-up...")
 
         # Синхронизация перед warm-up
         torch.cuda.synchronize()
@@ -177,7 +178,7 @@ class SegmentationWarmUp:
                     segmenter.segment_with_mask(image)
                 elif hasattr(segmenter, "segment"):
                     segmenter.segment(image)
-            except:
+            except Exception:
                 pass
 
         # Синхронизация после warm-up
@@ -185,7 +186,7 @@ class SegmentationWarmUp:
         torch.cuda.empty_cache()
 
         if verbose:
-            print(f"   ✅ CUDA kernels warmed up")
+            print("   ✅ CUDA kernels warmed up")
 
     def warmup_all_segmenters(
         self,

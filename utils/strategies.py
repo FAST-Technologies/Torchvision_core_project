@@ -6,7 +6,6 @@ import os
 
 from .utils import extract_logits_info
 
-from torchvision import transforms
 import torchvision.transforms as T
 import segmentation_models_pytorch as smp
 
@@ -53,6 +52,7 @@ def infer_segformer(
     print(type(outputs[0]))
     logits_info = extract_logits_info(outputs, "segformer")
     print(f"📈 SegFormer logits: {logits_info}")
+    print(f"📈 SegFormer custom logits: {logits}")
     seg_map = (
         processor.post_process_semantic_segmentation(
             outputs, target_sizes=[image.size[::-1]]  # [H, W] = [height, width]
@@ -178,11 +178,13 @@ def infer_unet_smp(
         else:
             # Fallback для SegNet без encoder атрибута
             raise AttributeError("No encoder attribute")
-    except:
+    except Exception:
         # Стандартный ImageNet preprocessing для SegNet
         mean = np.array([0.485, 0.456, 0.406])
         std = np.array([0.229, 0.224, 0.225])
-        preprocess_fn = lambda x: (x.astype(np.float32) / 255.0 - mean) / std
+
+        def preprocess_fn(x):
+            return (x.astype(np.float32) / 255.0 - mean) / std
 
     image_np = np.array(image)
 
@@ -239,7 +241,7 @@ def infer_sam(
     results = model(image)
     print(results)
 
-    print(f"📈 MobileSAM: instance segmentation (no class logits)")
+    print("📈 MobileSAM: instance segmentation (no class logits)")
     if results[0].masks is not None:
         print(
             f"   Masks: {results[0].masks.data.shape}, conf: {results[0].boxes.conf if hasattr(results[0], 'boxes') else 'N/A'}"
@@ -307,7 +309,7 @@ def infer_smp_model(
     # Preprocessing
     try:
         encoder_name = model.encoder.name
-    except:
+    except Exception:
         encoder_name = "mit_b5"
 
     preprocess_fn = smp.encoders.get_preprocessing_fn(encoder_name, "imagenet")
@@ -376,7 +378,7 @@ def infer_smp_model_fixed(
     # Получаем encoder_name и preprocessing функцию
     try:
         encoder_name = model.encoder.name
-    except:
+    except Exception:
         encoder_name = "resnet34"
 
     preprocess_fn = smp.encoders.get_preprocessing_fn(encoder_name, "imagenet")
@@ -790,7 +792,7 @@ def _log_inference_details_standalone(
     )
 
     total_pixels = seg_map.size
-    print(f"   Top 5 classes by pixel count:")
+    print("   Top 5 classes by pixel count:")
     class_stats = []
     for cls in unique_classes:
         count = np.sum(seg_map == cls)
@@ -811,20 +813,20 @@ def _log_inference_details_standalone(
     # Вывод информации о классах
     if hasattr(model, "config") and hasattr(model.config, "id2label"):
         print(f"\n   Class names (from model.config.id2label, {n_classes} total):")
-        print(f"\n   ✅ HF model: class names from config.id2label")
+        print("\n   ✅ HF model: class names from config.id2label")
     elif model_type in ["deeplab_tv", "fcn_tv", "maskrcnn_tv"]:
         print(f"\n   ⚠️  Torchvision models: {n_classes} output channels")
-        print(f"      Class mapping depends on training dataset (COCO/ADE20K)")
+        print("      Class mapping depends on training dataset (COCO/ADE20K)")
     elif model_type in ["unet_smp", "mit_smp", "fpn_mit", "psp_mit", "segnet_custom"]:
         print(
             f"\n   ⚠️  SMP/Custom models: {n_classes} output channels (indices 0..{n_classes-1})"
         )
-        print(f"      Mapping to ADE20K names requires external label file")
+        print("      Mapping to ADE20K names requires external label file")
     elif model_type in ["sam", "mobile_sam", "sam2"]:
         print(
             f"\n   ⚠️  SAM models: instance IDs (1..{len(unique_classes)}), not semantic classes"
         )
-        print(f"      Each detected object gets a unique ID, no class names")
+        print("      Each detected object gets a unique ID, no class names")
 
     # Анализ предсказания
     try:
@@ -850,7 +852,7 @@ def _log_inference_details_standalone(
         except Exception as e:
             print(f"⚠️  Metrics computation failed: {e}")
     else:
-        print(f"⚠️  GT mask not provided, metrics skipped")
+        print("⚠️  GT mask not provided, metrics skipped")
 
     # Создание overlay
     alpha = 0.5
@@ -893,7 +895,7 @@ def _get_num_classes_standalone(
         if model_type in ["sam", "mobile_sam", "sam2"]:
             return None
         return fallback
-    except:
+    except Exception:
         return fallback
 
 

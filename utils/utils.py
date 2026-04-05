@@ -49,7 +49,7 @@ def compute_metrics(
     gt_min, gt_max = gt_valid.min(), gt_valid.max()
     if gt_min < 0 or gt_max >= num_classes:
         print(
-            f"⚠️ Warning: gt_mask values out of range [{gt_min}, {gt_max}], expected [0, {num_classes-1}]"
+            f"⚠️ Warning: gt_mask values out of range [{gt_min}, {gt_max}], expected [0, {num_classes - 1}]"
         )
         gt_valid = np.clip(gt_valid, 0, num_classes - 1)
 
@@ -213,8 +213,10 @@ def analyze_prediction(
     unique, counts = np.unique(mask_valid, return_counts=True)
     total: int = len(mask_valid)
 
-    print(f"\n📊 Prediction Analysis")
-    print(f"   Valid pixels: {total:,} / {mask.size:,} ({100*total/mask.size:.3f}%)")
+    print("\n📊 Prediction Analysis")
+    print(
+        f"   Valid pixels: {total:,} / {mask.size:,} ({100 * total / mask.size:.3f}%)"
+    )
     print(f"   Unique classes: {len(unique)}")
 
     # Топ классы
@@ -232,9 +234,9 @@ def analyze_prediction(
     if len(counts) > 0 and counts[0] / total > 0.5:
         dominant_cls = unique[np.argmax(counts)]
         print(
-            f"\n   ⚠️  Dominant class: {dominant_cls} ({100*counts.max()/total:.3f}% of pixels)"
+            f"\n   ⚠️  Dominant class: {dominant_cls} ({100 * counts.max() / total:.3f}% of pixels)"
         )
-        print(f"      This may indicate under-segmentation or background bias")
+        print("      This may indicate under-segmentation or background bias")
 
     return {
         "total_pixels": int(total),
@@ -307,7 +309,7 @@ def export_class_report(report: dict, output_file: str, format: str = "csv") -> 
     elif format == "markdown":
         md = df.to_markdown(index=False)
         with open(output_file, "w", encoding="utf-8") as f:
-            f.write(f"# Class Prediction Report\n\n")
+            f.write("# Class Prediction Report\n\n")
             f.write(
                 f"**Valid pixels:** {report['total_valid_pixels']:,} / {report['total_image_pixels']:,} ({report['coverage_pct']}%)\n\n"
             )
