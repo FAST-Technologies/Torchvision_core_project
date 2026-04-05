@@ -529,7 +529,7 @@ class TorchSegmenter(BaseSegmenter):
         markers = torch.zeros((h, w), dtype=torch.int32, device=device)
 
         # Центральная область - объект (маркер 2)
-        markers[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 2
+        markers[(h // 4) : (3 * h // 4), (w // 4) : (3 * w // 4)] = 2
 
         # Углы - фон (маркер 1)
         corner_size = min(h, w) // 8
@@ -767,7 +767,7 @@ class TorchSegmenter(BaseSegmenter):
 
         # Диагональ матрицы (для нормировки)
         diag = torch.sparse.sum(L, dim=1).to_dense()
-        diag_unlabeled = diag[x_init[0].numel():]  # только для неразмеченных
+        diag_unlabeled = diag[x_init[0].numel() :]  # только для неразмеченных
 
         for iteration in range(max_iter):
             x_old = x.clone()
@@ -985,7 +985,7 @@ class TorchSegmenter(BaseSegmenter):
 
         for i in range(n):
             # Расстояние до сэмплов
-            dists = np.sqrt(np.sum((features_flat[i:i + 1] - samples) ** 2, axis=1))
+            dists = np.sqrt(np.sum((features_flat[i : i + 1] - samples) ** 2, axis=1))
             # Гауссово ядро
             density[i] = np.sum(np.exp(-0.5 * (dists / kernel_size) ** 2))
 
@@ -1710,7 +1710,7 @@ class TorchSegmenter(BaseSegmenter):
         # Вычисляем локальный процентиль для каждого пикселя
         for i in range(h):
             for j in range(w):
-                window = gray_padded[i:(i + window_size), j:(j + window_size)]
+                window = gray_padded[i : (i + window_size), j : (j + window_size)]
                 threshold[i, j] = np.percentile(window, percentile)
 
         # Бинаризация
@@ -1832,10 +1832,10 @@ class TorchSegmenter(BaseSegmenter):
             entropy0 = -torch.sum(p0 * torch.log(p0 + 1e-10))
 
             # Класс 1: [t+1, 255]
-            w1 = pdf[t + 1:].sum()
+            w1 = pdf[t + 1 :].sum()
             if w1 < 1e-6:
                 continue
-            p1 = pdf[t + 1:] / w1
+            p1 = pdf[t + 1 :] / w1
             entropy1 = -torch.sum(p1 * torch.log(p1 + 1e-10))
 
             # Общая энтропия
@@ -1951,16 +1951,16 @@ class TorchSegmenter(BaseSegmenter):
 
             for t in range(start + 1, end):
                 # Класс 0: [start, t]
-                w0 = pdf[start:t + 1].sum()
+                w0 = pdf[start : t + 1].sum()
                 if w0 < 1e-6:
                     continue
-                mu0 = torch.sum(pdf[start:t + 1] * bins[start:t + 1]) / w0
+                mu0 = torch.sum(pdf[start : t + 1] * bins[start : t + 1]) / w0
 
                 # Класс 1: [t+1, end]
-                w1 = pdf[t + 1:end + 1].sum()
+                w1 = pdf[t + 1 : end + 1].sum()
                 if w1 < 1e-6:
                     continue
-                mu1 = torch.sum(pdf[t + 1:end + 1] * bins[t + 1:end + 1]) / w1
+                mu1 = torch.sum(pdf[t + 1 : end + 1] * bins[t + 1 : end + 1]) / w1
 
                 # Межклассовая дисперсия
                 var_between = w0 * w1 * (mu0 - mu1) ** 2
@@ -3087,7 +3087,7 @@ class TorchSegmenter(BaseSegmenter):
                 if h_r <= min_size or w_r <= min_size:
                     return [(y, x, h_r, w_r)]
 
-                region = gray[y:(y + h_r), x:(x + w_r)]
+                region = gray[y : (y + h_r), x : (x + w_r)]
                 if region.std() < threshold:
                     return [(y, x, h_r, w_r)]
 
@@ -3130,7 +3130,7 @@ class TorchSegmenter(BaseSegmenter):
 
                 mask_np = np.zeros((h, w), dtype=np.float32)
                 y, x, h_r, w_r = target_region
-                mask_np[y:(y + h_r), x:(x + w_r)] = 1.0
+                mask_np[y : (y + h_r), x : (x + w_r)] = 1.0
             else:
                 mask_np = np.zeros((h, w), dtype=np.float32)
 
@@ -4524,7 +4524,7 @@ class TorchSegmenter(BaseSegmenter):
 
             # === ИНИЦИАЛИЗАЦИЯ ЦЕНТРОИДОВ ===
             # Регулярная сетка центроидов
-            grid_y, grid_x = np.mgrid[(step / 2):h:step, (step / 2):w:step]
+            grid_y, grid_x = np.mgrid[(step / 2) : h : step, (step / 2) : w : step]
             grid_y = grid_y.ravel()
             grid_x = grid_x.ravel()
 
@@ -4634,7 +4634,7 @@ class TorchSegmenter(BaseSegmenter):
         labels_out = labels.copy()
 
         # Вычисляем целевой размер сегмента
-        target_size = (h * w) / n_segments
+        # target_size = (h * w) / n_segments
         # min_size = int(min_size_factor * target_size)
         # max_size = int(max_size_factor * target_size)
 
@@ -4805,7 +4805,7 @@ class TorchSegmenter(BaseSegmenter):
 
             mask = torch.zeros(h, w, device=self.device)
             x, y, rw, rh = rect
-            mask[y:(y + rh), x:(x + rw)] = 1  # Foreground
+            mask[y : (y + rh), x : (x + rw)] = 1  # Foreground
 
             # Flatten image for processing
             image_flat = tensor.squeeze(0).permute(1, 2, 0).reshape(-1, 3)

@@ -608,7 +608,7 @@ def main():
         torch.cuda.synchronize()
         gc.collect()
 
-        print(f"VRAM After Clean: {torch.cuda.memory_allocated()/1024**2:.1f} MB")
+        print(f"VRAM After Clean: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
         print(f"mask_2d_ade: {mask_2d_ade}")
 
         print("🚀 Запуск бенчмарка...")
@@ -848,7 +848,7 @@ def main():
                 print(df_compare_methods)
             except TypeError as te:
                 print(
-                    f"   ⚠️ Метод compare_methods требует старой сигнатуры. Пропускаем или используем альтернативу."
+                    f"   ⚠️ Метод compare_methods требует старой сигнатуры. Пропускаем или используем альтернативу. {te}"
                 )
             except Exception as e:
                 print(f"   ❌ Ошибка попарного сравнения: {e}")
@@ -1715,7 +1715,7 @@ def load_test_images(
                 img.save(local_path)
 
                 gt_synthetic = np.zeros((img.size[1], img.size[0]), dtype=np.uint8)
-                gt_synthetic[img.size[1] // 2:, :] = 255
+                gt_synthetic[img.size[1] // 2 :, :] = 255
                 test_images[name] = (local_path, img, gt_synthetic)
 
                 print(f"✅ {name}: {img.size}, ground truth: {gt_synthetic}")
@@ -1727,7 +1727,7 @@ def load_test_images(
             try:
                 img = Image.open(path)
                 gt_synthetic = np.zeros((img.size[1], img.size[0]), dtype=np.uint8)
-                gt_synthetic[img.size[1] // 2:, :] = 255
+                gt_synthetic[img.size[1] // 2 :, :] = 255
                 test_images[name] = (path, img, gt_synthetic)
                 print(f"✅ {name}: {img.size}, ground truth: {gt_synthetic}")
 

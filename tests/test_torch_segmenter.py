@@ -1,12 +1,12 @@
 # tests/test_torch_segmenter.py
-import pytest
-import numpy as np
 import sys
 from pathlib import Path
 
-from segmenters.TorchSegmenter import TorchSegmenter
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import pytest
+import numpy as np
+from segmenters.TorchSegmenter import TorchSegmenter
 
 
 class TestTorchSegmenter:

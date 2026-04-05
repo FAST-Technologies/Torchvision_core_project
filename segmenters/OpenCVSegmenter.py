@@ -1698,7 +1698,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 current = reg1.copy()
                 mean1, _ = region_stats(reg1)
 
-                for j, reg2 in enumerate(regions[i + 1:], i + 1):
+                for j, reg2 in enumerate(regions[i + 1 :], i + 1):
                     if used[j]:
                         continue
 
@@ -2280,7 +2280,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Создаём маркеры: 1=фон (углы), 2=объект (центр)
         markers = np.zeros((h, w), dtype=np.int32)
-        markers[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 2
+        markers[(h // 4) : (3 * h // 4), (w // 4) : (3 * w // 4)] = 2
         corner_size = min(h, w) // 8
         markers[:corner_size, :corner_size] = 1
         markers[:corner_size, -corner_size:] = 1

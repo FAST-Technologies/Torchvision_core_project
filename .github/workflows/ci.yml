@@ -79,7 +79,7 @@ jobs:
     - name: Check dependencies for vulnerabilities
       run: |
         pip install safety
-        safety scan --file requirements.txt --continue-on-error --json 2>/dev/null | jq -r '.vulnerabilities | length // 0' || echo "0"
+        safety check --file requirements.txt --json 2>/dev/null | jq -r 'length' || echo "0"
         echo "✅ Dependency check completed"
       continue-on-error: true
     
@@ -103,9 +103,13 @@ jobs:
       uses: codecov/codecov-action@v4
       with:
         file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
         fail_ci_if_error: false
-        # token: ${{ secrets.CODECOV_TOKEN }}
-      if: false
+        verbose: true
+        # token: ${{ secrets.CODECOV_TOKEN }}  # Раскомментируйте для приватных репо
+      # ✅ Загружаем покрытие только с Python 3.12, чтобы избежать дублей
+      if: ${{ matrix.python-version == '3.12' }}
     
     - name: Run basic import tests
       run: |
@@ -127,6 +131,11 @@ jobs:
       with:
         python-version: "3.12"
         cache: 'pip'
+
+    - name: Set PYTHONPATH
+      run: |
+        echo "PYTHONPATH=${{ github.workspace }}" >> $GITHUB_ENV
+        export PYTHONPATH="${{ github.workspace }}:$PYTHONPATH"
     
     - name: Install PyTorch with CUDA support
       run: |

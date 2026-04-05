@@ -62,7 +62,7 @@ class SegmentationWarmUp:
             for i in range(0, h, square_size):
                 for j in range(0, w, square_size):
                     if (i // square_size + j // square_size) % 2 == 0:
-                        img[i:(i + square_size), j:(j + square_size)] = 255
+                        img[i : (i + square_size), j : (j + square_size)] = 255
 
         elif pattern == "circles":
             # Круги для тестирования детекции границ

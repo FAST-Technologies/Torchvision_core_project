@@ -43,8 +43,10 @@ from sklearn.svm import SVC, OneClassSVM
 from sklearn.tree import DecisionTreeClassifier
 
 from scipy import ndimage, signal
-from scipy.ndimage import gaussian_filter, laplace, sobel, prewitt
-from skimage.util import img_as_float, img_as_ubyte
+from scipy.ndimage import gaussian_filter
+
+# from scipy.ndimage import laplace, sobel, prewitt
+from skimage.util import img_as_float
 
 # Импорт scikit-image компонентов
 from skimage import (
@@ -2577,7 +2579,7 @@ class SklearnSegmenter(BaseSegmenter):
         # Применяем морфологические активные контуры
         init_level_set = np.zeros(gray.shape, dtype=np.int8)
         h, w = gray.shape
-        init_level_set[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 1
+        init_level_set[(h // 4) : (3 * h // 4), (w // 4) : (3 * w // 4)] = 1
 
         smoothing = self.params.get("smoothing", 1)
         threshold = self.params.get("threshold", 0.5)
@@ -2635,7 +2637,7 @@ class SklearnSegmenter(BaseSegmenter):
         # Начальная маска
         init_level_set = np.zeros(gray.shape, dtype=np.int8)
         h, w = gray.shape
-        init_level_set[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 1
+        init_level_set[(h // 4) : (3 * h // 4), (w // 4) : (3 * w // 4)] = 1
 
         # Параметры Chan-Vese
         mu = self.params.get("mu", 0.25)
@@ -2767,7 +2769,7 @@ class SklearnSegmenter(BaseSegmenter):
         h, w = gray.shape
 
         # Центральная область - объект
-        markers[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 2
+        markers[(h // 4) : (3 * h // 4), (w // 4) : (3 * w // 4)] = 2
 
         # Углы - фон
         corner_size = min(h, w) // 8
@@ -2965,7 +2967,7 @@ class SklearnSegmenter(BaseSegmenter):
         rect = self.params.get("rect", (w // 4, h // 4, w // 2, h // 2))
         x, y, w_rect, h_rect = rect
 
-        mask[y:(y + h_rect), x:(x + w_rect)] = 3  # Вероятный передний план
+        mask[y : (y + h_rect), x : (x + w_rect)] = 3  # Вероятный передний план
 
         # Углы - определенный фон
         corner_size = min(h, w) // 8
@@ -4856,8 +4858,8 @@ class SklearnSegmenter(BaseSegmenter):
         center_h, center_w = h // 2, w // 2
         obj_size = min(h, w) // 4
         train_mask[
-            (center_h - obj_size):(center_h + obj_size),
-            (center_w - obj_size):(center_w + obj_size),
+            (center_h - obj_size) : (center_h + obj_size),
+            (center_w - obj_size) : (center_w + obj_size),
         ] = True
         labels_train[train_mask.ravel()] = 1
 
@@ -4920,8 +4922,8 @@ class SklearnSegmenter(BaseSegmenter):
         center_h, center_w = h // 2, w // 2
         obj_size = min(h, w) // 4
         train_mask[
-            (center_h - obj_size):(center_h + obj_size),
-            (center_w - obj_size):(center_w + obj_size),
+            (center_h - obj_size) : (center_h + obj_size),
+            (center_w - obj_size) : (center_w + obj_size),
         ] = True
         labels_train[train_mask.ravel()] = 1
 
@@ -5244,7 +5246,7 @@ class SklearnSegmenter(BaseSegmenter):
 
             # Начальный уровень (прямоугольник в центре)
             init_level_set = np.zeros(gray_norm.shape, dtype=np.int8)
-            init_level_set[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 1
+            init_level_set[(h // 4) : (3 * h // 4), (w // 4) : (3 * w // 4)] = 1
 
             # Параметры
             iterations = self.params.get("iterations", 50)
@@ -5309,7 +5311,7 @@ class SklearnSegmenter(BaseSegmenter):
 
             # Начальный уровень
             init_level_set = np.zeros(gray_norm.shape, dtype=np.int8)
-            init_level_set[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 1
+            init_level_set[(h // 4) : (3 * h // 4), (w // 4) : (3 * w // 4)] = 1
 
             # Параметры
             mu = self.params.get("mu", 0.25)
@@ -5429,7 +5431,7 @@ class SklearnSegmenter(BaseSegmenter):
             markers = np.zeros(gray.shape, dtype=np.uint8)
 
             # Центральная область - объект (маркер 2)
-            markers[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 2
+            markers[(h // 4) : (3 * h // 4), (w // 4) : (3 * w // 4)] = 2
 
             # Углы - фон (маркер 1)
             corner_size = min(h, w) // 8
@@ -5665,7 +5667,7 @@ class SklearnSegmenter(BaseSegmenter):
             # Прямоугольник в центре - вероятный передний план
             rect = self.params.get("rect", (w // 4, h // 4, w // 2, h // 2))
             x, y, rw, rh = rect
-            mask[y:(y + rh), x:(x + rw)] = 3  # Вероятный передний план
+            mask[y : (y + rh), x : (x + rw)] = 3  # Вероятный передний план
 
             # Углы - определённый фон
             corner_size = min(h, w) // 8
