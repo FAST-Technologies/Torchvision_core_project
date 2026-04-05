@@ -6,7 +6,7 @@
 """
 
 # Импорт основных библиотек
-from typing import List, Tuple, Dict, Optional, Literal, Callable, Any, TYPE_CHECKING
+from typing import List, Tuple, Dict, Optional, Literal, Callable, Any
 from dataclasses import dataclass, field
 from pathlib import Path
 from enum import Enum, auto
@@ -420,7 +420,7 @@ class DatasetManager:
                 return
 
             print("📦 Скачивание файлов датасета...")
-            snapshot_download(  # type: ignore[call-arg]
+            snapshot_download(  # type: ignore
                 repo_id=config.source_url,
                 repo_type="dataset",
                 local_dir=str(local_dir),
@@ -1336,11 +1336,12 @@ class MedicalDatasetUtils:
             raise ImportError("Install nibabel: pip install nibabel")
 
         nii = nib.load(str(path))
-        data = nii.get_fdata()
+        
+        data = nii.get_fdata()  # type: ignore[attr-defined]
         metadata = {
             "shape": data.shape,
-            "affine": nii.affine.tolist(),
-            "header": dict(nii.header),
+            "affine": nii.affine.tolist(),  # type: ignore[attr-defined]
+            "header": dict(nii.header),  # type: ignore[call-overload]
         }
         return data, metadata
 

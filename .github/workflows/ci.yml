@@ -74,7 +74,7 @@ jobs:
     - name: Check for security issues with Bandit
       run: |
         pip install bandit
-        bandit -r segmenters/ testing/ metrics/ utils/ dataseters/ c -ll -f screen -s B614,B615,B113
+        bandit -r segmenters/ testing/ metrics/ utils/ dataseters/ -ll -f screen -s B614,B615,B113
       continue-on-error: true
 
     - name: Check dependencies for vulnerabilities
