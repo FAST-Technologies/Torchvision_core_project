@@ -3,12 +3,24 @@
 # Импорт основных библиотек
 import numpy as np
 from typing import (
+    TypedDict,
     Union,
     List,
     Dict,
     Any,
 )
 import time
+
+class WarmupMetrics(TypedDict):
+    mean_ms: float
+    std_ms: float
+    n_runs: int  # или total: int
+
+class SizeResults(TypedDict):
+    sizes: Dict[str, WarmupMetrics]
+
+class PatternResults(TypedDict):
+    patterns: Dict[str, WarmupMetrics]
 
 
 class ThresholdWarmUp:
@@ -22,7 +34,7 @@ class ThresholdWarmUp:
         segmenters_dict: Dict[str, Any],
         image_sizes: List[tuple] = [(128, 128), (256, 256), (512, 512)],
         n_runs_per_size: int = 2,
-    ) -> Dict[str, Dict[str, Dict[str, Union[float, int]]]]:
+    ) -> Dict[str, SizeResults]:
         """
         Прогрев пороговых методов на изображениях разного размера.
 
@@ -42,7 +54,7 @@ class ThresholdWarmUp:
             "sauvola",
         ]
 
-        results: Dict[str, Dict[str, Dict[str, Union[float, int]]]] = {}
+        results: Dict[str, Dict[str, Dict[str, Dict[str, Union[float, int]]]]] = {}
 
         print("\n🔥 WARM-UP ПОРОГОВЫХ МЕТОДОВ")
         print("=" * 60)
@@ -51,7 +63,7 @@ class ThresholdWarmUp:
             is_threshold = any(tm in name.lower() for tm in threshold_methods)
             if not is_threshold:
                 continue
-            method_results: Dict[str, Dict[str, Union[float, int]]] = {"sizes": {}}
+            method_results: SizeResults = {"sizes": {}}
             for size in image_sizes:
                 # Создаём тестовое изображение
                 img = np.random.randint(0, 256, (*size, 3), dtype=np.uint8)
@@ -66,11 +78,11 @@ class ThresholdWarmUp:
                     except Exception:
                         times.append(float("inf"))
 
-                method_results["sizes"][str(size)] = {
-                    "mean_ms": float(np.mean(times) * 1000),
-                    "std_ms": float(np.std(times) * 1000),
-                    "n_runs": len(times),
-                }
+                method_results["sizes"][str(size)] = WarmupMetrics(
+                    mean_ms=float(np.mean(times) * 1000),
+                    std_ms=float(np.std(times) * 1000),
+                    n_runs=len(times),
+                )
             results[name] = method_results
             print(f"✅ {name}: {method_results['sizes']}")
         return results
@@ -79,12 +91,12 @@ class ThresholdWarmUp:
     def warmup_edge_methods(
         segmenters_dict: Dict[str, Any],
         edge_patterns: List[str] = ["horizontal", "vertical", "diagonal", "noise"],
-    ) -> Dict[str, Dict[str, Dict[str, float]]]:
+    ) -> Dict[str, PatternResults]:
         """
         Прогрев граничных методов на различных паттернах.
         """
         edge_methods = ["sobel", "canny", "laplacian", "prewitt"]
-        results: Dict[str, Dict[str, Dict[str, float]]] = {}
+        results: Dict[str, Dict[str, Dict[str, Dict[str, float]]]] = {}
 
         print("\n🔥 WARM-UP ГРАНИЧНЫХ МЕТОДОВ")
         print("=" * 60)
@@ -94,8 +106,8 @@ class ThresholdWarmUp:
             if not is_edge:
                 continue
 
-            method_results: Dict[str, Dict[str, float]] = {"patterns": {}}
-
+            method_results: PatternResults = {"patterns": {}}
+            
             for pattern in edge_patterns:
                 img = ThresholdWarmUp._create_edge_pattern(256, 256, pattern)
 
@@ -109,9 +121,10 @@ class ThresholdWarmUp:
                     except Exception:
                         times.append(float("inf"))
 
-                method_results["patterns"][pattern] = {
-                    "mean_ms": float(np.mean(times) * 1000),
-                    "std_ms": float(np.std(times) * 1000),
+                method_results["patterns"][pattern] = WarmupMetrics{
+                    mean_ms=float(np.mean(times) * 1000),
+                    std_ms=float(np.std(times) * 1000),
+                    n_runs=len(times),
                 }
 
             results[name] = method_results

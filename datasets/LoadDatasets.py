@@ -28,15 +28,14 @@ import yaml
 
 try:
     from huggingface_hub import hf_hub_download, list_repo_files, snapshot_download
-
-    if TYPE_CHECKING:
-        from datasets import load_dataset
-    else:
-        from datasets import load_dataset  # type: ignore[attr-defined]
-
+    
+    # 🔥 Добавляем type: ignore для mypy
+    from datasets import load_dataset  # type: ignore[attr-defined]
+    
     HF_AVAILABLE = True
 except ImportError:
     HF_AVAILABLE = False
+    load_dataset = None  # type: ignore
 
 # ============================================================================
 # КОНФИГУРАЦИЯ И ТИПЫ ДАННЫХ
@@ -414,13 +413,14 @@ class DatasetManager:
 
                 self._log("📊 Загрузка через datasets library...")
                 hf_dataset = load_dataset(
-                    config.source_url, cache_dir=str(self.base_dir / ".cache")
+                    path=config.source_url,
+                    cache_dir=str(self.base_dir / ".cache")
                 )
                 self._log("✅ Загружено через datasets library")
                 self._create_index_from_hf_dataset(config, hf_dataset)
                 return
 
-            print(f"📦 Скачивание файлов датасета...")
+            print("📦 Скачивание файлов датасета...")
             snapshot_download(
                 repo_id=config.source_url,
                 repo_type="dataset",
@@ -430,7 +430,7 @@ class DatasetManager:
                 cache_dir=None,
                 force_download=False,
             )
-            print(f"✅ Скачивание завершено")
+            print("✅ Скачивание завершено")
 
         except Exception as e:
             error_msg = str(e)
@@ -536,7 +536,7 @@ class DatasetManager:
             try:
                 head = requests.head(config.source_url, allow_redirects=True)
                 size_bytes = int(head.headers.get("content-length", 0))
-                print(f"   Размер: ~{size_bytes / (1024*1024*1024):.1f} GB")
+                print(f"   Размер: ~{size_bytes / (1024 * 1024 * 1024):.1f} GB")
             except Exception:
                 print("   Размер: неизвестен")
             self._streaming_download(config.source_url, zip_path, config.checksum)
@@ -706,8 +706,8 @@ class DatasetManager:
                 print(f"\n✅ Файлы организованы в: {target}")
                 return
         if not found_structure:
-            print(f"❌ Не удалось найти папки images и annotations")
-            print(f"\n📂 Содержимое распакованной папки:")
+            print("❌ Не удалось найти папки images и annotations")
+            print("\n📂 Содержимое распакованной папки:")
             for root, dirs, files in os.walk(source):
                 level = root.replace(str(source), "").count(os.sep)
                 indent = " " * 2 * level
@@ -735,7 +735,7 @@ class DatasetManager:
 
     def _postprocess_dataset(self, config: DatasetConfig):
         """Пост-обработка с поддержкой Parquet"""
-        self._log(f"\n🔧 Пост-обработка датасета...")
+        self._log("\n🔧 Пост-обработка датасета...")
 
         parquet_files = list(config.full_path.rglob("*.parquet"))
         if parquet_files:
@@ -743,12 +743,12 @@ class DatasetManager:
             self._convert_parquet_to_files(config)
 
         if isinstance(config, MedicalConfig):
-            print(f"🏥 Применение медицинской пост-обработки...")
+            print("🏥 Применение медицинской пост-обработки...")
             self._medical_postprocess(config)
 
-        print(f"📄 Создание индексного файла...")
+        print("📄 Создание индексного файла...")
         self._create_index(config)
-        print(f"✅ Пост-обработка завершена")
+        print("✅ Пост-обработка завершена")
 
     def _decode_image_from_hf(self, data, convert_to_rgb: bool = True):
         """
@@ -832,9 +832,6 @@ class DatasetManager:
         """Конвертация Parquet → файловая структура с полной поддержкой HF форматов"""
         try:
             import pandas as pd
-            from PIL import Image
-            from io import BytesIO
-            import base64
         except ImportError as e:
             self._log(f"⚠️ Missing dependencies for Parquet conversion: {e}", "warning")
             return
@@ -981,9 +978,9 @@ class DatasetManager:
         if total_rows > 0:
             success_rate = (converted_count / total_rows) * 100
             print(f"   📈 Успешность: {success_rate:.1f}%")
-        print(f"{'-'*50}")
+        print(f"{'-' * 50}")
         self._create_index(config)
-        print(f"✅ Конвертация завершена")
+        print("✅ Конвертация завершена")
 
     def _medical_postprocess(self, config: MedicalConfig):
         """Специальная обработка медицинских датасетов"""
@@ -1006,7 +1003,7 @@ class DatasetManager:
             self._log("⚠️ OpenCV не установлен, пропускаем CLAHE", "warning")
             return
 
-        print(f"🔧 Применение CLAHE к изображениям...")
+        print("🔧 Применение CLAHE к изображениям...")
         for img_path in tqdm(
             list(images_dir.rglob("*.jpg")), desc="CLAHE", unit="imgs"
         ):
@@ -1022,7 +1019,7 @@ class DatasetManager:
 
     def _normalize_masks(self, masks_dir: Path, num_classes: int):
         """Приведение масок к единому формату"""
-        print(f"🎭 Нормализация масок...")
+        print("🎭 Нормализация масок...")
         for mask_path in tqdm(list(masks_dir.rglob("*.png")), desc="Normalizing masks"):
             try:
                 mask = np.array(Image.open(mask_path))
@@ -1102,7 +1099,7 @@ class DatasetManager:
                 (config.full_path / "annotations").rglob(f"*{config.mask_ext}")
             )
             if has_images and has_masks:
-                self._log(f"✅ Структура медицинского датасета валидирована", "success")
+                self._log("✅ Структура медицинского датасета валидирована", "success")
                 return True
 
         missing = [d for d in required_dirs if not (config.full_path / d).exists()]
@@ -1525,9 +1522,9 @@ if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("✅ DATASET DOWNLOAD COMPLETE")
     print("=" * 70)
-    print(f"\n📁 Available test images:")
-    print(f"   • ADE20K:     ADE20K_img.jpg")
-    print(f"   • Cityscapes: cityscapes_img.jpg")
-    print(f"   • COCO:       coco_img.jpg")
-    print(f"   • Medical:    isic_img.jpg")
-    print(f"   • Medical:    chest_x_ray.jpg")
+    print("\n📁 Available test images:")
+    print("   • ADE20K:     ADE20K_img.jpg")
+    print("   • Cityscapes: cityscapes_img.jpg")
+    print("   • COCO:       coco_img.jpg")
+    print("   • Medical:    isic_img.jpg")
+    print("   • Medical:    chest_x_ray.jpg")

@@ -496,11 +496,11 @@ def test_dataloader() -> bool:
             img = np.clip(img, 0, 1)
 
             axes[0, i].imshow(img)
-            axes[0, i].set_title(f"Image {i+1}")
+            axes[0, i].set_title(f"Image {i + 1}")
             axes[0, i].axis("off")
 
             axes[1, i].imshow(mask, cmap="tab20")
-            axes[1, i].set_title(f"Mask {i+1}")
+            axes[1, i].set_title(f"Mask {i + 1}")
             axes[1, i].axis("off")
 
         plt.tight_layout()
