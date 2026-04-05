@@ -669,8 +669,8 @@ class DatasetManager:
         self._log("✅ Контрольная сумма совпадает", "success")
 
     def _reorganize_ade_structure(
-        self, source: Path, target: Path, use_symlinks: bool = Fals
-    ):
+        self, source: Path, target: Path, use_symlinks: bool = False
+    ) -> None:
         """Приведение структуры к стандартному формату"""
         found_structure = False
         for root, dirs, _ in os.walk(source):

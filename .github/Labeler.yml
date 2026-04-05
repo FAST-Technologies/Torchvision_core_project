@@ -6,9 +6,16 @@ testing:
   - testing/**/*
   - tests/**/*
 
+datasets:
+  - datasets/**/*
+
 metrics:
   - metrics/**/*
+
+utils:
+  - utils/**/*
 
 documentation:
   - README.md
   - docs/**/*
+  - htmlcov/**/*

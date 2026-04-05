@@ -1,5 +1,7 @@
 # tests/integration/test_validation_pipeline.py
 """Интеграционные тесты для пайплайна валидации"""
+
+# Импорт основных библиотек
 import sys
 from pathlib import Path
 
@@ -13,7 +15,7 @@ import tempfile
 
 @pytest.mark.integration
 class TestValidationPipeline:
-    def test_torch_vs_opencv_validation(self, rgb_image):
+    def test_torch_vs_opencv_validation(self, rgb_image) -> None:
         """Валидация Torch vs OpenCV реализаций"""
         from testing.TorchImplementationValidator import TorchImplementationValidator
 
@@ -35,7 +37,7 @@ class TestValidationPipeline:
 
             assert len(results) >= 0
 
-    def test_metrics_calculation_consistency(self):
+    def test_metrics_calculation_consistency(self) -> None:
         """Проверка согласованности метрик между разными вызовами"""
         from metrics.SegmentationMetrics import SegmentationMetrics
 
@@ -49,7 +51,7 @@ class TestValidationPipeline:
         assert metrics1["iou"] == metrics2["iou"]
         assert metrics1["dice"] == metrics2["dice"]
 
-    def test_benchmark_reproducibility(self, rgb_image):
+    def test_benchmark_reproducibility(self, rgb_image) -> None:
         """Проверка воспроизводимости бенчмарка"""
         from testing.SegmentationTester import SegmentationTester
         from segmenters.TorchSegmenter import TorchSegmenter

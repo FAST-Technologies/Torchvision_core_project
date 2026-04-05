@@ -1,4 +1,6 @@
 # tests/test_base_segmenter.py
+
+# Импорт основных библиотек
 import sys
 from pathlib import Path
 
@@ -35,37 +37,37 @@ class DummySegmenter(BaseSegmenter):
 
 
 class TestBaseSegmenter:
-    def test_import(self):
+    def test_import(self) -> None:
         from segmenters.BaseSegmenter import BaseSegmenter
 
         assert BaseSegmenter is not None
 
-    def test_abstract_methods(self):
+    def test_abstract_methods(self) -> None:
         """Базовый класс не должен инстанцироваться напрямую"""
         with pytest.raises(TypeError):
             BaseSegmenter()
 
-    def test_preprocess_image_from_path(self, temp_image_file):
+    def test_preprocess_image_from_path(self, temp_image_file) -> None:
         """Тест предобработки из файла"""
         seg = DummySegmenter()
         result = seg.preprocess_image(temp_image_file)
         assert result is not None
 
-    def test_preprocess_image_from_pil(self):
+    def test_preprocess_image_from_pil(self) -> None:
         """Тест предобработки из PIL Image"""
         img = Image.fromarray(np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8))
         seg = DummySegmenter()
         result = seg.preprocess_image(img)
         assert result is not None
 
-    def test_preprocess_image_from_numpy(self):
+    def test_preprocess_image_from_numpy(self) -> None:
         """Тест предобработки из numpy array"""
         img = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
         seg = DummySegmenter()
         result = seg.preprocess_image(img)
         assert result is not None
 
-    def test_segment_with_mask_base(self):
+    def test_segment_with_mask_base(self) -> None:
         """Тест базового segment_with_mask"""
         seg = DummySegmenter()
         img = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)

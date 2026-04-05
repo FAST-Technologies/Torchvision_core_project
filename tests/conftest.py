@@ -1,4 +1,6 @@
 # tests/conftest.py
+
+# Импорт основных библиотек
 import pytest
 import numpy as np
 from PIL import Image
@@ -23,6 +25,19 @@ def rgb_image():
 def gray_image():
     """Grayscale изображение 256x256"""
     return np.random.randint(0, 255, (256, 256), dtype=np.uint8)
+
+
+@pytest.fixture
+def textured_gray_image():
+    """Grayscale изображение с текстурными областями для тестов адаптивных порогов"""
+    img = np.zeros((256, 256), dtype=np.uint8)
+    # Тёмная текстура
+    img[32:96, 32:96] = np.random.randint(80, 120, (64, 64), dtype=np.uint8)
+    # Светлая текстура
+    img[160:224, 160:224] = np.random.randint(200, 240, (64, 64), dtype=np.uint8)
+    # Градиент для проверки адаптивности
+    img[:, 128:] = np.tile(np.linspace(0, 255, 128), (256, 1))
+    return img
 
 
 @pytest.fixture

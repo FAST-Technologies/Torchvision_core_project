@@ -1,5 +1,6 @@
 # tests/test_segmentation_metrics.py
 
+# Импорт основных библиотек
 import sys
 from pathlib import Path
 
@@ -34,12 +35,12 @@ class TestSegmentationMetrics:
         pred = np.zeros((100, 100), dtype=np.uint8)
         return gt, pred
 
-    def test_import(self):
+    def test_import(self) -> None:
         from metrics.SegmentationMetrics import SegmentationMetrics
 
         assert SegmentationMetrics is not None
 
-    def test_calculate_all_metrics_perfect(self, perfect_prediction):
+    def test_calculate_all_metrics_perfect(self, perfect_prediction) -> None:
         gt, pred = perfect_prediction
         metrics = SegmentationMetrics.calculate_all_metrics(pred, gt)
 
@@ -50,7 +51,7 @@ class TestSegmentationMetrics:
         assert metrics["f1_score"] == pytest.approx(1.0, rel=1e-5)
         assert metrics["pixel_accuracy"] == pytest.approx(1.0, rel=1e-5)
 
-    def test_calculate_all_metrics_random(self, random_prediction):
+    def test_calculate_all_metrics_random(self, random_prediction) -> None:
         gt, pred = random_prediction
         metrics = SegmentationMetrics.calculate_all_metrics(pred, gt)
 
@@ -61,7 +62,7 @@ class TestSegmentationMetrics:
         assert 0 <= metrics["f1_score"] <= 1
         assert 0 <= metrics["pixel_accuracy"] <= 1
 
-    def test_empty_prediction_metrics(self, empty_prediction):
+    def test_empty_prediction_metrics(self, empty_prediction) -> None:
         gt, pred = empty_prediction
         metrics = SegmentationMetrics.calculate_all_metrics(pred, gt)
 
@@ -70,7 +71,7 @@ class TestSegmentationMetrics:
         assert metrics["precision"] == pytest.approx(0, abs=1e-6)
         assert metrics["recall"] == pytest.approx(0, abs=1e-6)
 
-    def test_metrics_with_threshold(self):
+    def test_metrics_with_threshold(self) -> None:
         """Тест с порогом для бинаризации"""
         gt = np.array([[0, 1], [1, 0]], dtype=np.float32)
         pred_prob = np.array([[0.3, 0.6], [0.7, 0.4]], dtype=np.float32)
@@ -87,7 +88,7 @@ class TestSegmentationMetrics:
         )
         assert metrics["iou"] != metrics_high["iou"]
 
-    def test_hausdorff_distance_included(self):
+    def test_hausdorff_distance_included(self) -> None:
         """Проверка включения Hausdorff distance"""
         gt = np.zeros((50, 50), dtype=np.uint8)
         gt[10:40, 10:40] = 255
@@ -106,7 +107,7 @@ class TestSegmentationMetrics:
         )
         assert "hausdorff_distance" not in metrics_no_h
 
-    def test_area_metrics(self):
+    def test_area_metrics(self) -> None:
         """Проверка метрик площади"""
         gt = np.zeros((100, 100), dtype=np.uint8)
         gt[20:80, 20:80] = 255  # 60x60 = 3600 пикселей
@@ -121,7 +122,7 @@ class TestSegmentationMetrics:
         # min/max (коэффициент перекрытия)
         assert metrics["area_ratio"] == pytest.approx(3600 / 6400, rel=1e-3)  # 0.5625
 
-    def test_mae_metric(self):
+    def test_mae_metric(self) -> None:
         """Проверка MAE (Mean Absolute Error)"""
         # Используем нормализованные данные [0, 1]
         gt = np.array([[0, 1], [1, 0]], dtype=np.float32)
@@ -133,7 +134,7 @@ class TestSegmentationMetrics:
         # MAE = (|0-0| + |0.8-1| + |1-1| + |0.2-0|) / 4 = (0+0.2+0+0.2)/4 = 0.1
         assert metrics["mae"] == pytest.approx(0.1, rel=1e-2)
 
-    def test_invalid_input_shapes(self):
+    def test_invalid_input_shapes(self) -> None:
         """Обработка несовпадающих размеров"""
         gt = np.zeros((50, 50), dtype=np.uint8)
         pred = np.zeros((100, 100), dtype=np.uint8)
@@ -141,7 +142,7 @@ class TestSegmentationMetrics:
         with pytest.raises((ValueError, AssertionError)):
             SegmentationMetrics.calculate_all_metrics(pred, gt)
 
-    def test_binary_input_handling(self):
+    def test_binary_input_handling(self) -> None:
         """Обработка бинарных входов [0,1]"""
         gt = np.array([[0, 1], [1, 0]], dtype=np.float32)
         pred = np.array([[0, 1], [0, 0]], dtype=np.float32)

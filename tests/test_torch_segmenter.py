@@ -1,4 +1,6 @@
 # tests/test_torch_segmenter.py
+
+# Импорт основных библиотек
 import sys
 from pathlib import Path
 
@@ -16,28 +18,28 @@ class TestTorchSegmenter:
         return TorchSegmenter("global_thresholding", threshold=0.5)
 
     @pytest.fixture
-    def test_image(self):
+    def test_image(self) -> np.ndarray:
         """Тестовое изображение"""
         return np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
 
     @pytest.fixture
-    def test_gray_image(self):
+    def test_gray_image(self) -> np.ndarray:
         """Тестовое grayscale изображение"""
         return np.random.randint(0, 255, (256, 256), dtype=np.uint8)
 
-    def test_import(self):
+    def test_import(self) -> None:
         """Проверка импорта"""
         from segmenters.TorchSegmenter import TorchSegmenter
 
         assert TorchSegmenter is not None
 
-    def test_initialization(self):
+    def test_initialization(self) -> None:
         """Проверка инициализации"""
         segmenter = TorchSegmenter("global_thresholding", threshold=0.5)
         assert segmenter.method == "global_thresholding"
         assert segmenter.params["threshold"] == 0.5
 
-    def test_segment_rgb(self, test_image):
+    def test_segment_rgb(self, test_image) -> None:
         """Сегментация RGB изображения"""
         segmenter = TorchSegmenter("global_thresholding", threshold=0.5)
         mask = segmenter.segment(test_image)
@@ -48,7 +50,7 @@ class TestTorchSegmenter:
         assert mask.min() >= 0
         assert mask.max() <= 255
 
-    def test_segment_grayscale(self, test_gray_image):
+    def test_segment_grayscale(self, test_gray_image) -> None:
         """Сегментация grayscale изображения"""
         segmenter = TorchSegmenter("otsu_thresholding")
         mask = segmenter.segment(test_gray_image)
@@ -57,7 +59,7 @@ class TestTorchSegmenter:
         assert mask.shape == test_gray_image.shape
         assert mask.dtype == np.uint8
 
-    def test_unknown_method(self, test_image):
+    def test_unknown_method(self, test_image) -> None:
         """Проверка обработки неизвестного метода"""
         with pytest.raises(ValueError):
             segmenter = TorchSegmenter("unknown_method")
@@ -73,7 +75,7 @@ class TestTorchSegmenter:
             ("canny_edge", {"low": 0.1, "high": 0.3}),
         ],
     )
-    def test_methods(self, test_image, method, params):
+    def test_methods(self, test_image, method, params) -> None:
         """Параметризованный тест методов"""
         segmenter = TorchSegmenter(method, **params)
         mask = segmenter.segment(test_image)
@@ -83,7 +85,7 @@ class TestTorchSegmenter:
         assert mask.dtype == np.uint8
 
     @pytest.mark.gpu
-    def test_cuda_availability(self):
+    def test_cuda_availability(self) -> None:
         """Проверка доступности CUDA (только для GPU тестов)"""
 
         if torch.cuda.is_available():
@@ -92,12 +94,12 @@ class TestTorchSegmenter:
         else:
             pytest.skip("CUDA not available")
 
-    def test_segment_returns_numpy(self, segmenter):
+    def test_segment_returns_numpy(self, segmenter) -> None:
         result = segmenter.segment("test_images/animals.jpg")
         assert isinstance(result, np.ndarray)
         assert result.dtype == np.uint8
 
-    def test_invalid_method_raises(self):
+    def test_invalid_method_raises(self) -> None:
         with pytest.raises(ValueError):
             TorchSegmenter("invalid_method")
 

@@ -252,12 +252,9 @@ def infer_sam(
     if results[0].masks is not None:
         masks = results[0].masks.data.cpu().numpy()
         for i, mask in enumerate(masks, start=1):
-            # mask имеет форму (H_mask, W_mask) — обычно меньше оригинала
             mask_bin = (mask > 0.5).astype(np.uint8)
             mask_pil = Image.fromarray(mask_bin)
-            # Ресайз: image.size = (width, height) — именно так ждёт resize()
             mask_resized = np.array(mask_pil.resize((img_w, img_h), Image.NEAREST))
-            # Заполняем только пустые пиксели (избегаем перекрытия)
             empty = seg_map == 0
             # Теперь размеры совпадают: seg_map[H,W] и mask_resized[H,W]
             seg_map[empty & (mask_resized > 0)] = i
@@ -329,11 +326,9 @@ def infer_smp_model(
         if pad_h > 0 or pad_w > 0:
             input_tensor = torch.nn.functional.pad(
                 input_tensor,
-                (0, pad_w, 0, pad_h),  # left, right, top, bottom
-                mode="reflect",  # или 'constant', value=0
+                (0, pad_w, 0, pad_h),
+                mode="reflect",
             )
-
-    # Добавляем batch dimension и переносим на device
     input_tensor = input_tensor.unsqueeze(0).to(device)
     print(input_tensor)
 
@@ -375,7 +370,6 @@ def infer_smp_model_fixed(
     # Ресайз к target_size
     image_resized = image.resize(target_size, Image.BILINEAR)
 
-    # Получаем encoder_name и preprocessing функцию
     try:
         encoder_name = model.encoder.name
     except Exception:
@@ -638,7 +632,6 @@ class SegNet(torch.nn.Module):
         """
         x = encoder(x)
         pooled, indices = torch.nn.functional.max_pool2d(x, 2, 2, return_indices=True)
-        # Возвращаем features для skip-connection и pooled для следующего слоя
         return x, pooled
 
     def _decode(self, decoder, x, output_size):

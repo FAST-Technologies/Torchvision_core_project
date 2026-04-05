@@ -1,8 +1,9 @@
 # main.py
 
+from typing import Dict
 from PIL import Image
 
-image_paths = {
+image_paths: Dict[str, str] = {
     "war_frame_1": "2340_frame.jpg",
     "war_frame_2": "3330_frame.jpg",
     "war_frame_3": "4130_frame.jpg",

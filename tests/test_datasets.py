@@ -1,4 +1,6 @@
 # tests/test_datasets.py
+
+# Импорт основных библиотек
 import sys
 from pathlib import Path
 
@@ -19,7 +21,7 @@ def import_ade20k():
 
 class TestADE20KDataset:
     @pytest.fixture
-    def temp_dataset_dir(self, tmp_path):
+    def temp_dataset_dir(self, tmp_path) -> str:
         """Создаёт временную структуру ADE20K"""
         base_dir = tmp_path / "ADEChallengeData2016"
         images_dir = base_dir / "images" / "training"
@@ -42,11 +44,11 @@ class TestADE20KDataset:
 
         return str(tmp_path)
 
-    def test_import(self):
+    def test_import(self) -> None:
         ADE20KDataset = import_ade20k()
         assert ADE20KDataset is not None
 
-    def test_dataset_initialization(self, temp_dataset_dir):
+    def test_dataset_initialization(self, temp_dataset_dir) -> None:
         ADE20KDataset = import_ade20k()
         dataset = ADE20KDataset(
             root_dir=temp_dataset_dir,
@@ -57,7 +59,7 @@ class TestADE20KDataset:
         assert len(dataset) == 3
         assert dataset.image_size == (128, 128)
 
-    def test_dataset_getitem(self, temp_dataset_dir):
+    def test_dataset_getitem(self, temp_dataset_dir) -> None:
         ADE20KDataset = import_ade20k()
         dataset = ADE20KDataset(
             root_dir=temp_dataset_dir,
@@ -79,7 +81,7 @@ class TestADE20KDataset:
         assert item["image"].dtype == torch.float32
         assert item["mask"].dtype == torch.int64
 
-    def test_dataset_with_augmentation(self, temp_dataset_dir):
+    def test_dataset_with_augmentation(self, temp_dataset_dir) -> None:
         ADE20KDataset = import_ade20k()
         dataset = ADE20KDataset(
             root_dir=temp_dataset_dir,
@@ -93,7 +95,7 @@ class TestADE20KDataset:
         item2 = dataset[0]
         assert item1["mask"].shape == item2["mask"].shape
 
-    def test_subset_fraction(self, temp_dataset_dir):
+    def test_subset_fraction(self, temp_dataset_dir) -> None:
         ADE20KDataset = import_ade20k()
         dataset = ADE20KDataset(
             root_dir=temp_dataset_dir,
@@ -102,7 +104,7 @@ class TestADE20KDataset:
         )
         assert len(dataset) <= 2
 
-    def test_ignore_index_in_mask(self, temp_dataset_dir):
+    def test_ignore_index_in_mask(self, temp_dataset_dir) -> None:
         ADE20KDataset = import_ade20k()
         dataset = ADE20KDataset(root_dir=temp_dataset_dir, ignore_index=255)
 
@@ -112,7 +114,7 @@ class TestADE20KDataset:
         assert valid_values.min() >= 0
         assert valid_values.max() <= 149
 
-    def test_validation_split(self, temp_dataset_dir):
+    def test_validation_split(self, temp_dataset_dir) -> None:
         ADE20KDataset = import_ade20k()
         # Создаём валидационную директорию
         base_dir = Path(temp_dataset_dir) / "ADEChallengeData2016"

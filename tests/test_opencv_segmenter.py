@@ -1,5 +1,6 @@
 # tests/test_opencv_segmenter.py
 
+# Импорт основных библиотек
 import sys
 from pathlib import Path
 
@@ -15,24 +16,24 @@ class TestOpenCVSegmenter:
     def segmenter(self):
         return OpenCVSegmenter("global_thresholding", threshold=0.5)
 
-    def test_import(self):
+    def test_import(self) -> None:
         from segmenters.OpenCVSegmenter import OpenCVSegmenter
 
         assert OpenCVSegmenter is not None
 
-    def test_initialization(self):
+    def test_initialization(self) -> None:
         seg = OpenCVSegmenter("otsu_thresholding")
         assert seg.method == "otsu_thresholding"
         assert seg.params == {}
 
-    def test_segment_rgb(self, rgb_image):
+    def test_segment_rgb(self, rgb_image) -> None:
         seg = OpenCVSegmenter("global_thresholding", threshold=0.5)
         mask = seg.segment(rgb_image)
         assert mask.shape == rgb_image.shape[:2]
         assert mask.dtype == np.uint8
         assert np.all((mask == 0) | (mask == 255))
 
-    def test_segment_grayscale(self, gray_image):
+    def test_segment_grayscale(self, gray_image) -> None:
         seg = OpenCVSegmenter("adaptive_thresholding", block_size=11, C=2)
         mask = seg.segment(gray_image)
         assert mask.shape == gray_image.shape
@@ -50,20 +51,20 @@ class TestOpenCVSegmenter:
             ("canny_edge", {"low": 0.1, "high": 0.3}),
         ],
     )
-    def test_methods_basic(self, rgb_image, method, params):
+    def test_methods_basic(self, rgb_image, method, params) -> None:
         seg = OpenCVSegmenter(method, **params)
         mask = seg.segment(rgb_image)
         assert mask is not None
         assert mask.shape == rgb_image.shape[:2]
         assert mask.dtype == np.uint8
 
-    def test_canny_edge_output(self, rgb_image):
+    def test_canny_edge_output(self, rgb_image) -> None:
         """Canny должен возвращать тонкие границы"""
         seg = OpenCVSegmenter("canny_edge", low=0.3, high=0.7)
         mask = seg.segment(rgb_image)
         assert np.mean(mask > 0) < 0.5
 
-    def test_sauvola_vs_niblack(self, gray_image):
+    def test_sauvola_vs_niblack(self, gray_image) -> None:
         """Sauvola и Niblack должны давать разные результаты на структурированном изображении"""
         test_img = np.zeros((256, 256), dtype=np.uint8)
 
@@ -86,12 +87,12 @@ class TestOpenCVSegmenter:
         assert np.all((mask_s == 0) | (mask_s == 255))
         assert np.all((mask_n == 0) | (mask_n == 255))
 
-    def test_invalid_method_raises(self):
+    def test_invalid_method_raises(self) -> None:
         with pytest.raises(ValueError, match="Неизвестный метод"):
             seg = OpenCVSegmenter("invalid_method")
             seg.segment(np.zeros((100, 100)))
 
-    def test_segment_with_mask(self, rgb_image):
+    def test_segment_with_mask(self, rgb_image) -> None:
         """Проверка segment_with_mask"""
         seg = OpenCVSegmenter("global_thresholding", threshold=0.5)
         result, mask = seg.segment_with_mask(rgb_image)
