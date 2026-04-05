@@ -1050,7 +1050,7 @@ class DatasetManager:
             "dataset": config.name,
             "type": config.dataset_type.name,
             "created": datetime.now().isoformat(),
-            "splits": {},  # type: Dict[str, Dict[str, Any]]
+            "splits": {},
         }
 
         for split_name, split_dir in config.splits.items():

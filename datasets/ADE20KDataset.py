@@ -3,6 +3,7 @@
 # Импорт основных библиотек
 import os
 from typing import (
+    Optional,
     List,
     Tuple,
     Dict,
