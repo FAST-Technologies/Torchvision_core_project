@@ -819,7 +819,7 @@ def _log_inference_details_standalone(
         print("      Class mapping depends on training dataset (COCO/ADE20K)")
     elif model_type in ["unet_smp", "mit_smp", "fpn_mit", "psp_mit", "segnet_custom"]:
         print(
-            f"\n   ⚠️  SMP/Custom models: {n_classes} output channels (indices 0..{n_classes-1})"
+            f"\n   ⚠️  SMP/Custom models: {n_classes} output channels (indices 0..{n_classes - 1})"
         )
         print("      Mapping to ADE20K names requires external label file")
     elif model_type in ["sam", "mobile_sam", "sam2"]:

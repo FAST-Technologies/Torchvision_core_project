@@ -115,7 +115,7 @@ class NeuralSegmenter(BaseSegmenter):
         print("✅ Нейросетевая модель загружена!")
         print(f"   Тип: {self.model_type_str}")
         print(
-            f"   Источник: {self.local_path if self.local_path else (self.model_name if self.model_name else f'config:{variant}')}"
+            f"   Source: {self.local_path if self.local_path else (self.model_name if self.model_name else f'config:{variant}')}"
         )
         print(f"   Устройство: {self.device}")
         print(f"   Количество классов: {self.num_classes}")

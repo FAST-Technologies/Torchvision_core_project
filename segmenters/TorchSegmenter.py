@@ -529,7 +529,7 @@ class TorchSegmenter(BaseSegmenter):
         markers = torch.zeros((h, w), dtype=torch.int32, device=device)
 
         # Центральная область - объект (маркер 2)
-        markers[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4] = 2
+        markers[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 2
 
         # Углы - фон (маркер 1)
         corner_size = min(h, w) // 8
@@ -767,7 +767,7 @@ class TorchSegmenter(BaseSegmenter):
 
         # Диагональ матрицы (для нормировки)
         diag = torch.sparse.sum(L, dim=1).to_dense()
-        diag_unlabeled = diag[x_init[0].numel() :]  # только для неразмеченных
+        diag_unlabeled = diag[x_init[0].numel():]  # только для неразмеченных
 
         for iteration in range(max_iter):
             x_old = x.clone()
@@ -985,7 +985,7 @@ class TorchSegmenter(BaseSegmenter):
 
         for i in range(n):
             # Расстояние до сэмплов
-            dists = np.sqrt(np.sum((features_flat[i : i + 1] - samples) ** 2, axis=1))
+            dists = np.sqrt(np.sum((features_flat[i:i + 1] - samples) ** 2, axis=1))
             # Гауссово ядро
             density[i] = np.sum(np.exp(-0.5 * (dists / kernel_size) ** 2))
 
@@ -1710,7 +1710,7 @@ class TorchSegmenter(BaseSegmenter):
         # Вычисляем локальный процентиль для каждого пикселя
         for i in range(h):
             for j in range(w):
-                window = gray_padded[i : i + window_size, j : j + window_size]
+                window = gray_padded[i:(i + window_size), j:(j + window_size)]
                 threshold[i, j] = np.percentile(window, percentile)
 
         # Бинаризация
@@ -1798,6 +1798,7 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {"threshold": threshold, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_kittler: {info}")
 
         return mask.unsqueeze(0).unsqueeze(0)
 
@@ -1831,10 +1832,10 @@ class TorchSegmenter(BaseSegmenter):
             entropy0 = -torch.sum(p0 * torch.log(p0 + 1e-10))
 
             # Класс 1: [t+1, 255]
-            w1 = pdf[t + 1 :].sum()
+            w1 = pdf[t + 1:].sum()
             if w1 < 1e-6:
                 continue
-            p1 = pdf[t + 1 :] / w1
+            p1 = pdf[t + 1:] / w1
             entropy1 = -torch.sum(p1 * torch.log(p1 + 1e-10))
 
             # Общая энтропия
@@ -1853,6 +1854,7 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {"threshold": threshold, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_thresholding_entropy_kapur: {info}")
 
         return mask.unsqueeze(0).unsqueeze(0)
 
@@ -1914,6 +1916,7 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {"threshold": threshold, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_thresholding_triangle: {info}")
 
         return mask.unsqueeze(0).unsqueeze(0)
 
@@ -1948,16 +1951,16 @@ class TorchSegmenter(BaseSegmenter):
 
             for t in range(start + 1, end):
                 # Класс 0: [start, t]
-                w0 = pdf[start : t + 1].sum()
+                w0 = pdf[start:t + 1].sum()
                 if w0 < 1e-6:
                     continue
-                mu0 = torch.sum(pdf[start : t + 1] * bins[start : t + 1]) / w0
+                mu0 = torch.sum(pdf[start:t + 1] * bins[start:t + 1]) / w0
 
                 # Класс 1: [t+1, end]
-                w1 = pdf[t + 1 : end + 1].sum()
+                w1 = pdf[t + 1:end + 1].sum()
                 if w1 < 1e-6:
                     continue
-                mu1 = torch.sum(pdf[t + 1 : end + 1] * bins[t + 1 : end + 1]) / w1
+                mu1 = torch.sum(pdf[t + 1:end + 1] * bins[t + 1:end + 1]) / w1
 
                 # Межклассовая дисперсия
                 var_between = w0 * w1 * (mu0 - mu1) ** 2
@@ -1995,6 +1998,7 @@ class TorchSegmenter(BaseSegmenter):
             },
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_thresholding_multi_otsu: {info}")
 
         return mask.unsqueeze(0).unsqueeze(0)
 
@@ -2058,6 +2062,7 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {"window_size": window_size, "k": k, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_thresholding_local_contrast: {info}")
 
         return mask.unsqueeze(0).unsqueeze(0)
 
@@ -2105,7 +2110,7 @@ class TorchSegmenter(BaseSegmenter):
             "execution_time": exec_time,
         }
         # print(f"Mask after Torch_sobel_edge: {mask}")
-        # print(f"Info after Torch_sobel_edge: {info}")
+        print(f"Info after Torch_sobel_edge: {info}")
 
         return mask
 
@@ -2628,6 +2633,7 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {"sigma": sigma, "threshold": threshold, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_log_edge: {info}")
 
         return mask
 
@@ -2696,6 +2702,7 @@ class TorchSegmenter(BaseSegmenter):
             },
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_dog_edge: {info}")
 
         return mask
 
@@ -2768,6 +2775,7 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {"sigma": sigma, "threshold": threshold, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_marr_hildreth_edge: {info}")
 
         return mask
 
@@ -2819,6 +2827,7 @@ class TorchSegmenter(BaseSegmenter):
             "direction": direction,
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_gradient_magnitude_direction: {info}")
 
         return mask
 
@@ -2840,7 +2849,7 @@ class TorchSegmenter(BaseSegmenter):
         sectors[(angle > 112.5) & (angle <= 157.5)] = 3  # 135°
 
         suppressed = torch.zeros_like(magnitude)
-        h, w = magnitude.shape[2], magnitude.shape[3]
+        _, _ = magnitude.shape[2], magnitude.shape[3]
 
         # Паддинг для доступа к соседям
         mag_padded = F.pad(magnitude, (1, 1, 1, 1), mode="reflect")
@@ -2851,7 +2860,7 @@ class TorchSegmenter(BaseSegmenter):
                 continue
 
             if s == 0:  # Горизонталь: сравниваем лево/право
-                neighbors = mag_padded[:, :, 1:-1, :-2] + mag_padded[:, :, 1:-1, 2:]
+                _ = mag_padded[:, :, 1:-1, :-2] + mag_padded[:, :, 1:-1, 2:]
                 is_max = (magnitude >= mag_padded[:, :, 1:-1, :-2]) & (
                     magnitude >= mag_padded[:, :, 1:-1, 2:]
                 )
@@ -2923,7 +2932,7 @@ class TorchSegmenter(BaseSegmenter):
 
             # Амплитуда и фаза
             amplitude = torch.abs(filtered)
-            phase = torch.angle(filtered)
+            # phase = torch.angle(filtered)
 
             # Вклад в фазовую конгруэнтность
             # Упрощённая метрика: нормализованная амплитуда
@@ -3012,6 +3021,7 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {"seed": seed, "tolerance": tolerance, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_region_growing: {info}")
 
         return mask.float().unsqueeze(0).unsqueeze(0)
 
@@ -3119,7 +3129,7 @@ class TorchSegmenter(BaseSegmenter):
 
                 mask_np = np.zeros((h, w), dtype=np.float32)
                 y, x, h_r, w_r = target_region
-                mask_np[y : y + h_r, x : x + w_r] = 1.0
+                mask_np[y:(y + h_r), x:(x + w_r)] = 1.0
             else:
                 mask_np = np.zeros((h, w), dtype=np.float32)
 
@@ -3131,6 +3141,7 @@ class TorchSegmenter(BaseSegmenter):
                 "parameters": {"min_size": min_size, "threshold": threshold, **kwargs},
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_split_and_merge: {info}")
             return mask.unsqueeze(0).unsqueeze(0)
 
         except Exception as e:
@@ -3180,6 +3191,7 @@ class TorchSegmenter(BaseSegmenter):
                 "parameters": {"points": points, "tolerance": tolerance, **kwargs},
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_floodfill: {info}")
 
             return mask.to(self.device)
 
@@ -3227,6 +3239,7 @@ class TorchSegmenter(BaseSegmenter):
                 "parameters": {"points": points, "tolerance": tolerance, **kwargs},
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_floodfill_visual: {info}")
 
             return result_np, mask_tensor
 
@@ -3286,6 +3299,7 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {"tolerance": tolerance, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_floodfill_single: {info}")
 
         return mask
 
@@ -3375,6 +3389,7 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {"k": k, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_kmeans: {info}")
 
         return mask.float()
 
@@ -3436,6 +3451,7 @@ class TorchSegmenter(BaseSegmenter):
                 "parameters": {"eps": eps, "min_samples": min_samples, **kwargs},
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_dbscan: {info}")
 
             return mask.unsqueeze(0).unsqueeze(0)
 
@@ -3517,6 +3533,7 @@ class TorchSegmenter(BaseSegmenter):
                 },
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_meanshift: {info}")
 
             return mask
 
@@ -3598,6 +3615,7 @@ class TorchSegmenter(BaseSegmenter):
                 },
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_meanshift_visual: {info}")
 
             return result_np, mask
 
@@ -3683,7 +3701,7 @@ class TorchSegmenter(BaseSegmenter):
         # --- Матрица пентадиагональная для внутренней энергии (трёхточечная для 1D) ---
         # Строим матрицу A = alpha * D2 + beta * D4, где D2 — вторые разности, D4 — четвёртые
         N = n_points
-        row = torch.zeros(N, device=self.device)
+        _ = torch.zeros(N, device=self.device)
 
         # Коэффициенты для второй разности (упругость)
         a2 = alpha
@@ -3783,6 +3801,7 @@ class TorchSegmenter(BaseSegmenter):
             },
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_active_contour: {info}")
 
         return mask
 
@@ -3836,6 +3855,7 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {**kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_gvf_contour: {info}")
 
         return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
@@ -3887,8 +3907,6 @@ class TorchSegmenter(BaseSegmenter):
             grad_mag = grad_mag / (grad_mag.max() + 1e-8)
 
             # Морфологические операции
-            from skimage import morphology
-
             for _ in range(iterations):
                 # Расширяем где градиент низкий, сужаем где высокий
                 mask_bool = mask_np > 0.5
@@ -3921,6 +3939,7 @@ class TorchSegmenter(BaseSegmenter):
                 },
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_morphological_snakes: {info}")
             return mask.unsqueeze(0).unsqueeze(0)
 
         except Exception as e:
@@ -4008,6 +4027,7 @@ class TorchSegmenter(BaseSegmenter):
                 },
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_chan_vese: {info}")
             return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
         except Exception as e:
@@ -4166,6 +4186,7 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {"markers": markers, **kwargs},
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_watershed: {info}")
 
         return gradient_magnitude.squeeze(), mask
 
@@ -4210,6 +4231,7 @@ class TorchSegmenter(BaseSegmenter):
                 "parameters": {**kwargs},
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_watershed_visual: {info}")
             return result, mask_tensor
 
         except Exception as e:
@@ -4313,6 +4335,7 @@ class TorchSegmenter(BaseSegmenter):
                 },
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_random_walker: {info}")
 
             return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
@@ -4422,6 +4445,7 @@ class TorchSegmenter(BaseSegmenter):
                 },
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_quickshift: {info}")
 
             return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
@@ -4499,7 +4523,7 @@ class TorchSegmenter(BaseSegmenter):
 
             # === ИНИЦИАЛИЗАЦИЯ ЦЕНТРОИДОВ ===
             # Регулярная сетка центроидов
-            grid_y, grid_x = np.mgrid[step / 2 : h : step, step / 2 : w : step]
+            grid_y, grid_x = np.mgrid[(step / 2):h:step, (step / 2):w:step]
             grid_y = grid_y.ravel()
             grid_x = grid_x.ravel()
 
@@ -4578,6 +4602,7 @@ class TorchSegmenter(BaseSegmenter):
                 },
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_slic: {info}")
             return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
         except Exception as e:
@@ -4727,6 +4752,7 @@ class TorchSegmenter(BaseSegmenter):
                 },
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_felzenszwalb: {info}")
             return mask.unsqueeze(0).unsqueeze(0)
 
         except Exception as e:
@@ -4778,7 +4804,7 @@ class TorchSegmenter(BaseSegmenter):
 
             mask = torch.zeros(h, w, device=self.device)
             x, y, rw, rh = rect
-            mask[y : y + rh, x : x + rw] = 1  # Foreground
+            mask[y:(y + rh), x:(x + rw)] = 1  # Foreground
 
             # Flatten image for processing
             image_flat = tensor.squeeze(0).permute(1, 2, 0).reshape(-1, 3)
@@ -4818,6 +4844,7 @@ class TorchSegmenter(BaseSegmenter):
                 },
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_grabcut: {info}")
 
             return final_mask
 

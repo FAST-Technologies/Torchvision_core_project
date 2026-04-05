@@ -97,11 +97,10 @@ from skimage.segmentation import (
 )
 from skimage.util import img_as_ubyte, img_as_float
 import cv2
-
-SKIMAGE_AVAILABLE = True
-
 import torch
 from typing_extensions import TypeAlias
+
+SKIMAGE_AVAILABLE = True
 
 # Определение типов для изображений
 ImagePath: TypeAlias = str
@@ -551,7 +550,7 @@ class SklearnSegmenter(BaseSegmenter):
             return np.zeros(shape, dtype=bool)
 
         # Находим самый большой кластер как фон
-        label_sizes = [np.sum(labels_2d == label) for label in valid_labels]
+        label_sizes = [np.sum(labels_2d == label1) for label1 in valid_labels]
         bg_label = valid_labels[np.argmax(label_sizes)]
 
         # Создаем маску (все кроме фона) — uint8 0/255
@@ -1075,7 +1074,7 @@ class SklearnSegmenter(BaseSegmenter):
         peak_idx = np.argmax(hist)
 
         # Линия от пика до конца диапазона
-        x = np.arange(num_bins)
+        # x = np.arange(num_bins)
         y_peak = hist[peak_idx]
         y_end = hist[-1]
 
@@ -1767,7 +1766,7 @@ class SklearnSegmenter(BaseSegmenter):
         for scale in range(nscales):
             wavelength = min_wavelength * (mult**scale)
             fo = 1.0 / wavelength
-            sigma_f = fo * sigma_onf
+            # sigma_f = fo * sigma_onf
 
             # Радиальная часть Log-Gabor
             log_gabor = np.exp(-0.5 * (np.log(R / fo) / np.log(sigma_onf)) ** 2)
@@ -1931,8 +1930,8 @@ class SklearnSegmenter(BaseSegmenter):
         min_size = self.params.get("min_size", 50)
 
         # Начальный регион
-        regions = [gray.copy()]
-        region_masks = [np.ones((h, w), dtype=bool)]
+        # regions = [gray.copy()]
+        # region_masks = [np.ones((h, w), dtype=bool)]
 
         # Простая реализация Split
         def split_region(region, mask):
@@ -2046,7 +2045,7 @@ class SklearnSegmenter(BaseSegmenter):
 
             # Вычисляем статистики региона
             region = gray[y1:y2, x1:x2]
-            mean = np.mean(region)
+            # mean = np.mean(region)
             std = np.std(region)
 
             if std < threshold:
@@ -2190,7 +2189,7 @@ class SklearnSegmenter(BaseSegmenter):
         labels = kmeans.fit_predict(features)
 
         unique, counts = np.unique(labels, return_counts=True)
-        bg_label = unique[np.argmax(counts)]
+        # bg_label = unique[np.argmax(counts)]
 
         # Создаем маску
         mask = self._create_mask_from_labels(labels, (h, w))
@@ -2593,7 +2592,7 @@ class SklearnSegmenter(BaseSegmenter):
         # Применяем морфологические активные контуры
         init_level_set = np.zeros(gray.shape, dtype=np.int8)
         h, w = gray.shape
-        init_level_set[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4] = 1
+        init_level_set[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 1
 
         smoothing = self.params.get("smoothing", 1)
         threshold = self.params.get("threshold", 0.5)
@@ -2651,7 +2650,7 @@ class SklearnSegmenter(BaseSegmenter):
         # Начальная маска
         init_level_set = np.zeros(gray.shape, dtype=np.int8)
         h, w = gray.shape
-        init_level_set[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4] = 1
+        init_level_set[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 1
 
         # Параметры Chan-Vese
         mu = self.params.get("mu", 0.25)
@@ -2783,7 +2782,7 @@ class SklearnSegmenter(BaseSegmenter):
         h, w = gray.shape
 
         # Центральная область - объект
-        markers[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4] = 2
+        markers[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 2
 
         # Углы - фон
         corner_size = min(h, w) // 8
@@ -2981,7 +2980,7 @@ class SklearnSegmenter(BaseSegmenter):
         rect = self.params.get("rect", (w // 4, h // 4, w // 2, h // 2))
         x, y, w_rect, h_rect = rect
 
-        mask[y : y + h_rect, x : x + w_rect] = 3  # Вероятный передний план
+        mask[y:(y + h_rect), x:(x + w_rect)] = 3  # Вероятный передний план
 
         # Углы - определенный фон
         corner_size = min(h, w) // 8
@@ -4284,7 +4283,7 @@ class SklearnSegmenter(BaseSegmenter):
                 gmm = GaussianMixture(n_components=n, random_state=42)
                 gmm.fit(features)
                 bics.append(gmm.bic(features))
-            except:
+            except Exception:
                 bics.append(np.inf)
 
         if bics:
@@ -4872,8 +4871,8 @@ class SklearnSegmenter(BaseSegmenter):
         center_h, center_w = h // 2, w // 2
         obj_size = min(h, w) // 4
         train_mask[
-            center_h - obj_size : center_h + obj_size,
-            center_w - obj_size : center_w + obj_size,
+            (center_h - obj_size):(center_h + obj_size),
+            (center_w - obj_size):(center_w + obj_size),
         ] = True
         labels_train[train_mask.ravel()] = 1
 
@@ -4936,8 +4935,8 @@ class SklearnSegmenter(BaseSegmenter):
         center_h, center_w = h // 2, w // 2
         obj_size = min(h, w) // 4
         train_mask[
-            center_h - obj_size : center_h + obj_size,
-            center_w - obj_size : center_w + obj_size,
+            (center_h - obj_size):(center_h + obj_size),
+            (center_w - obj_size):(center_w + obj_size),
         ] = True
         labels_train[train_mask.ravel()] = 1
 
@@ -5035,7 +5034,7 @@ class SklearnSegmenter(BaseSegmenter):
             return np.zeros(shape, dtype=bool)
 
         # Находим самый большой кластер как фон
-        label_sizes = [np.sum(labels_2d == label) for label in valid_labels]
+        label_sizes = [np.sum(labels_2d == label1) for label1 in valid_labels]
         bg_label = valid_labels[np.argmax(label_sizes)]
 
         # Создаем маску (все кроме фона)
@@ -5260,7 +5259,7 @@ class SklearnSegmenter(BaseSegmenter):
 
             # Начальный уровень (прямоугольник в центре)
             init_level_set = np.zeros(gray_norm.shape, dtype=np.int8)
-            init_level_set[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4] = 1
+            init_level_set[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 1
 
             # Параметры
             iterations = self.params.get("iterations", 50)
@@ -5325,7 +5324,7 @@ class SklearnSegmenter(BaseSegmenter):
 
             # Начальный уровень
             init_level_set = np.zeros(gray_norm.shape, dtype=np.int8)
-            init_level_set[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4] = 1
+            init_level_set[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 1
 
             # Параметры
             mu = self.params.get("mu", 0.25)
@@ -5445,7 +5444,7 @@ class SklearnSegmenter(BaseSegmenter):
             markers = np.zeros(gray.shape, dtype=np.uint8)
 
             # Центральная область - объект (маркер 2)
-            markers[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4] = 2
+            markers[(h // 4):(3 * h // 4), (w // 4):(3 * w // 4)] = 2
 
             # Углы - фон (маркер 1)
             corner_size = min(h, w) // 8
@@ -5681,7 +5680,7 @@ class SklearnSegmenter(BaseSegmenter):
             # Прямоугольник в центре - вероятный передний план
             rect = self.params.get("rect", (w // 4, h // 4, w // 2, h // 2))
             x, y, rw, rh = rect
-            mask[y : y + rh, x : x + rw] = 3  # Вероятный передний план
+            mask[y:(y + rh), x:(x + rw)] = 3  # Вероятный передний план
 
             # Углы - определённый фон
             corner_size = min(h, w) // 8

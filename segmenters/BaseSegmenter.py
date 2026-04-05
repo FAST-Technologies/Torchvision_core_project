@@ -49,7 +49,8 @@ class SegmentationMetricsProtocol(Protocol):
     @staticmethod
     def calculate_all_metrics(
         pred_mask: BinaryMask, gt_mask: BinaryMask, threshold: float
-    ) -> MetricsDict: ...
+    ) -> MetricsDict: 
+        ...
 
 
 T = TypeVar("T", bound="BaseSegmenter")
@@ -179,8 +180,7 @@ class BaseSegmenter(ABC):
                 target_size,
                 interpolation=(
                     cv2.INTER_AREA
-                    if result.shape[0] * result.shape[1]
-                    > target_size[0] * target_size[1]
+                    if result.shape[0] * result.shape[1] > target_size[0] * target_size[1]
                     else cv2.INTER_LINEAR
                 ),
             )
@@ -274,12 +274,14 @@ class BaseSegmenter(ABC):
     @overload
     def __call__(
         self, image: ImageInput, return_mask: Literal[False] = False, **kwargs: Any
-    ) -> BinaryMask: ...
+    ) -> BinaryMask: 
+        ...
 
     @overload
     def __call__(
         self, image: ImageInput, return_mask: Literal[True], **kwargs: Any
-    ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]: ...
+    ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]: 
+        ...
 
     def __call__(
         self, image: ImageInput, return_mask: bool = False, **kwargs: Any

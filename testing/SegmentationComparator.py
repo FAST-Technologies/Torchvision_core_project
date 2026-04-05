@@ -776,8 +776,7 @@ class SegmentationComparator:
                 </style>
             </head>
             <body>
-                <h1>📊 Отчет сравнения методов сегментации</h1>
-                
+                <h1>📊 Отчет сравнения методов сегментации</h1>=
                 <div class="summary">
                     <h2>Общая информация</h2>
                     <p><strong>Дата:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
@@ -785,7 +784,6 @@ class SegmentationComparator:
                     <p><strong>Тип сравнения:</strong> {comparison_type}</p>
                     <p><strong>Референсный метод:</strong> {reference_method if reference_method else 'Нет (все со всеми)'}</p>
                 </div>
-                
                 <h2>📈 Матрицы сравнения</h2>
                 <div class="metrics">
                     <div class="metric-card">
@@ -801,10 +799,8 @@ class SegmentationComparator:
                         <img src="all_masks.png" alt="All Masks">
                     </div>
                 </div>
-                
                 <h2>🏆 Топ методов</h2>
                 {top_methods_html}
-                
                 <h2>📋 Статистика методов</h2>
                 <table>
                     <tr>
@@ -815,7 +811,6 @@ class SegmentationComparator:
                     </tr>
             """
             )
-
             for stat in sorted(methods_stats, key=lambda x: x["area"], reverse=True):
                 f.write(
                     f"""
@@ -827,7 +822,6 @@ class SegmentationComparator:
                     </tr>
                 """
                 )
-
             f.write(
                 """
                 </table>
@@ -846,5 +840,4 @@ class SegmentationComparator:
             </html>
             """
             )
-
         print(f"📄 HTML отчет: {html_path}")

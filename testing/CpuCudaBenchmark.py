@@ -57,7 +57,7 @@ class CpuCudaBenchmark:
         for _ in range(self.warmup_runs):
             try:
                 segmenter.segment(image)
-            except:
+            except Exception:
                 pass
 
         # Основное тестирование
@@ -207,7 +207,7 @@ class CpuCudaBenchmark:
                         try:
                             if len(str(cell.value)) > max_length:
                                 max_length = len(str(cell.value))
-                        except:
+                        except Exception:
                             pass
                     adjusted_width = min(max_length + 2, 50)
                     worksheet.column_dimensions[column_letter].width = adjusted_width

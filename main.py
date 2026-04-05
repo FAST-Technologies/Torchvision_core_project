@@ -6,42 +6,27 @@ from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
 from segmenters.TorchSegmenter import TorchSegmenter
 from segmenters.ModelTrainer import ModelTrainer, TrainingConfig
-from segmenters.NeuralTrainer import NeuralTrainer
-from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType
+from segmenters.NeuralModelFactory import NeuralModelFactory
 from testing.SegmentationTester import SegmentationTester
 from testing.SegmentationComparator import SegmentationComparator
 from testing.SegmentationBenchmark import SegmentationBenchmark, export_comparison_table
 from testing.TorchImplementationValidator import TorchImplementationValidator
 from metrics.SegmentationMetrics import SegmentationMetrics
-from datasets.ADE20KDataset import ADE20KDataset
-from utils.warmup import SegmentationWarmUp
-from utils.threshold_warmup import ThresholdWarmUp
 
 from transformers import MaskFormerImageProcessor, MaskFormerForInstanceSegmentation
 from utils.strategies import _create_overlay_standalone, segment_image_unified
 from segmenters.NeuralSegmenter import NeuralSegmenter
 
-from torch.utils.data import Dataset, DataLoader
-
 from typing import (
     List,
-    Union,
     Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
     Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
 
 import os
 import sys
-from datetime import datetime
 import traceback
 import warnings
 import time
@@ -49,7 +34,6 @@ import requests
 from io import BytesIO
 from PIL import Image
 import json
-import glob
 
 from huggingface_hub import hf_hub_download
 import matplotlib.pyplot as plt
@@ -79,7 +63,7 @@ def main():
         print("CUDA")
         print(f"   Device: {torch.cuda.get_device_name(0)}")
         print(
-            f"   VRAM: {torch.cuda.get_device_properties(0).total_memory/1024**3:.1f} GB"
+            f"   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB"
         )
         print(
             f"   GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB"
@@ -211,7 +195,7 @@ def main():
         # "GrabCut_Torch": TorchSegmenter("grabcut", rect=(100, 100, 200, 200), num_iterations=5),
     }
 
-    if test_classic_logic == True:
+    if test_classic_logic:
         try:
             for name, segmenter in {
                 **cv2_methods,
@@ -229,7 +213,7 @@ def main():
         torch.cuda.synchronize()
     gc.collect()
 
-    if test_neural_logic == True:
+    if test_neural_logic:
         neural_models_config = [
             # Предобученные
             {
@@ -308,7 +292,7 @@ def main():
                 tester.add_method(config["name"], segmenter)
                 print(f"   ✅ {config['name']}")
                 segmenter.get_class_info()
-                print(f"   ✅ Neural_SegFormer")
+                print("   ✅ Neural_SegFormer")
             except Exception as e:
                 print(f"  ⚠️ Нейросетевая сегментация недоступна: {e}")
                 print(f"   ❌ Neural_SegFormer - ошибка: {e}")
@@ -319,7 +303,7 @@ def main():
 
         # ========== ВАРИАНТ 2: Через YAML конфиг ==========
         print("\n=== ВАРИАНТ 2: Через YAML конфиг ===")
-        segmenter2 = NeuralSegmenter(
+        _ = NeuralSegmenter(
             model_type="segformer",
             variant="b5",  # ← Берётся из configs/neural_models.yaml
             num_classes=num_classes,
@@ -327,13 +311,13 @@ def main():
 
         # ========== ВАРИАНТ 3: Factory + конфиг ==========
         print("\n=== ВАРИАНТ 3: Factory метод ===")
-        model, processor, model_type = NeuralModelFactory.create_model_from_config(
+        _, _, model_type = NeuralModelFactory.create_model_from_config(
             model_type="segformer", variant="b2", device="cuda"  # ← Берётся из конфига
         )
 
         # ========== ВАРИАНТ 4: Обученная модель с чекпоинтом ==========
         print("\n=== ВАРИАНТ 4: Обученная модель ===")
-        segmenter3 = NeuralSegmenter(
+        _ = NeuralSegmenter(
             model_type="unet_smp",
             encoder_name="resnet34",  # ← Можно из конфига
             checkpoint_path="./models/unet_ade20k_best.pth",
