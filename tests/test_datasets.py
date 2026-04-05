@@ -8,8 +8,6 @@ import pytest
 import numpy as np
 from pathlib import Path
 from PIL import Image
-import tempfile
-import os
 import torch
 
 
