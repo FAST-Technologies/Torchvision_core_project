@@ -407,6 +407,31 @@ train_config = NeuralModelFactory.get_training_config("ade20k")
 print(f"Batch size: {train_config['batch_size']}")
 ```
 
+## Тестирование
+
+```
+# Все тесты
+pytest tests/ -v
+
+# Только быстрые тесты (без slow и integration)
+pytest tests/ -v -m "not slow and not integration"
+
+# Только тесты TorchSegmenter
+pytest tests/test_torch_segmenter.py -v
+
+# С покрытием кода
+pytest tests/ --cov=segmenters --cov=metrics --cov-report=html
+
+# С выводом самых медленных тестов
+pytest tests/ --durations=10
+
+# Только GPU тесты (если есть CUDA)
+pytest tests/ -v -m gpu
+
+# Параллельный запуск (требует pytest-xdist)
+pytest tests/ -n auto
+```
+
 ---
 
 ## 💡 Примеры

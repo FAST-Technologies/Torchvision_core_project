@@ -1038,7 +1038,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # print(f"Mask after OpenCV_sobel_edge: {mask}")
         print(f"Info after OpenCV_sobel_edge: {info}")
-        return mask
+        return mask.astype(np.uint8)
 
     def _opencv_canny_edge(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """

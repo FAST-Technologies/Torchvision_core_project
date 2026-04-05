@@ -1,8 +1,19 @@
-# pyproject.toml (в корне проекта)
+# pyproject.toml
 [tool.pytest.ini_options]
+minversion = "7.0"
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--doctest-modules",
+]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
 markers = [
     "gpu: marks tests that require CUDA",
-    "slow: marks tests as slow",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
 ]
 filterwarnings = [
@@ -10,7 +21,21 @@ filterwarnings = [
     "ignore::UserWarning",
     "ignore::pytest.PytestUnknownMarkWarning",
 ]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
+
+[tool.coverage.run]
+source = ["segmenters", "metrics", "testing", "datasets", "utils"]
+omit = [
+    "*/__pycache__/*",
+    "*/tests/*",
+    "*/venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

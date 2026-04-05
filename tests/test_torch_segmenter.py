@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 import numpy as np
 from segmenters.TorchSegmenter import TorchSegmenter
+import torch
 
 
 class TestTorchSegmenter:
@@ -84,7 +85,6 @@ class TestTorchSegmenter:
     @pytest.mark.gpu
     def test_cuda_availability(self):
         """Проверка доступности CUDA (только для GPU тестов)"""
-        import torch
 
         if torch.cuda.is_available():
             segmenter = TorchSegmenter("global_thresholding", device="cuda")
