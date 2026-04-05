@@ -2959,6 +2959,7 @@ class TorchSegmenter(BaseSegmenter):
             },
             "execution_time": exec_time,
         }
+        print(f"Info after Torch_phase_congruency_edge: {info}")
 
         return mask.unsqueeze(0).unsqueeze(0)
 
@@ -3086,7 +3087,7 @@ class TorchSegmenter(BaseSegmenter):
                 if h_r <= min_size or w_r <= min_size:
                     return [(y, x, h_r, w_r)]
 
-                region = gray[y : y + h_r, x : x + w_r]
+                region = gray[y:(y + h_r), x:(x + w_r)]
                 if region.std() < threshold:
                     return [(y, x, h_r, w_r)]
 
@@ -3258,7 +3259,7 @@ class TorchSegmenter(BaseSegmenter):
     ) -> torch.Tensor:
         """FloodFill из одной точки"""
         start_time = time.time()
-        c, h, w = tensor.shape[1], tensor.shape[2], tensor.shape[3]
+        _, h, w = tensor.shape[1], tensor.shape[2], tensor.shape[3]
 
         # Создаем маску посещенных пикселей
         visited = torch.zeros(h, w, dtype=torch.bool, device=self.device)
@@ -4634,8 +4635,8 @@ class TorchSegmenter(BaseSegmenter):
 
         # Вычисляем целевой размер сегмента
         target_size = (h * w) / n_segments
-        min_size = int(min_size_factor * target_size)
-        max_size = int(max_size_factor * target_size)
+        # min_size = int(min_size_factor * target_size)
+        # max_size = int(max_size_factor * target_size)
 
         # Находим все уникальные метки
         unique_labels = np.unique(labels_out)
@@ -4887,6 +4888,7 @@ class TorchSegmenter(BaseSegmenter):
                 "parameters": {**kwargs},
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_grabcut_visualization: {info}")
 
             return result, mask_tensor
 

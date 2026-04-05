@@ -49,7 +49,7 @@ class SegmentationMetricsProtocol(Protocol):
     @staticmethod
     def calculate_all_metrics(
         pred_mask: BinaryMask, gt_mask: BinaryMask, threshold: float
-    ) -> MetricsDict: 
+    ) -> MetricsDict:
         ...
 
 
@@ -274,13 +274,13 @@ class BaseSegmenter(ABC):
     @overload
     def __call__(
         self, image: ImageInput, return_mask: Literal[False] = False, **kwargs: Any
-    ) -> BinaryMask: 
+    ) -> BinaryMask:
         ...
 
     @overload
     def __call__(
         self, image: ImageInput, return_mask: Literal[True], **kwargs: Any
-    ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]: 
+    ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
         ...
 
     def __call__(

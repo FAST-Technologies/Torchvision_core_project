@@ -15,7 +15,6 @@ from metrics.SegmentationMetrics import SegmentationMetrics
 
 from transformers import MaskFormerImageProcessor, MaskFormerForInstanceSegmentation
 from utils.strategies import _create_overlay_standalone, segment_image_unified
-from segmenters.NeuralSegmenter import NeuralSegmenter
 
 from typing import (
     List,
@@ -484,7 +483,7 @@ def main():
     #     avg_speedup = summary.groupby('method')['speedup'].mean().sort_values(ascending=False)
     #     print(avg_speedup)
 
-    if test_neural_logic == True:
+    if test_neural_logic is True:
         # ============ 4. СЕГМЕНТАЦИОННЫЙ БЕНЧМАРК (опционально) ============
         repo_id = "hf-internal-testing/fixtures_ade20k"
         image_path = hf_hub_download(
@@ -553,7 +552,7 @@ def main():
         gc.collect()
 
         print(
-            f"✅ MaskFormer готов. VRAM освобождена: {torch.cuda.memory_allocated()/1024**2:.1f} MB"
+            f"✅ MaskFormer готов. VRAM освобождена: {torch.cuda.memory_allocated() / 1024**2:.1f} MB"
         )
 
         # Инициализация бенчмарка (для Cityscapes Classic: 19 классов)
@@ -598,9 +597,9 @@ def main():
         print("=" * 50)
         print("CUDA DIAGNOSTICS")
         print("=" * 50)
-        print(f"VRAM Allocated: {torch.cuda.memory_allocated()/1024**2:.1f} MB")
-        print(f"VRAM Reserved:  {torch.cuda.memory_reserved()/1024**2:.1f} MB")
-        print(f"VRAM Max:       {torch.cuda.max_memory_allocated()/1024**2:.1f} MB")
+        print(f"VRAM Allocated: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
+        print(f"VRAM Reserved:  {torch.cuda.memory_reserved() / 1024**2:.1f} MB")
+        print(f"VRAM Max:       {torch.cuda.max_memory_allocated() / 1024**2:.1f} MB")
         print(f"Deterministic:  {torch.are_deterministic_algorithms_enabled()}")
         print(f"cuDNN Benchmark: {torch.backends.cudnn.benchmark}")
         print("=" * 50)
@@ -696,7 +695,7 @@ def main():
             sf["mIoU"] = sf["mIoU"] * 100
             print(sf.to_string(float_format="%.2f"))
             print(
-                f"\n💡 B2 is {df.loc['segformer', 'time_ms']/df.loc['segformer_b2', 'time_ms']:.1f}x faster with {df.loc['segformer', 'mIoU']-df.loc['segformer_b2', 'mIoU']:.1f} pp mIoU drop"
+                f"\n💡 B2 is {df.loc['segformer', 'time_ms'] / df.loc['segformer_b2', 'time_ms']:.1f}x faster with {df.loc['segformer', 'mIoU'] - df.loc['segformer_b2', 'mIoU']:.1f} pp mIoU drop"
             )
 
         print("\n" + "=" * 70)
@@ -774,7 +773,7 @@ def main():
         df = pd.DataFrame(benchmark_ade.get_summary()).T
         print(df.sort_values("mIoU", ascending=False).to_string())
 
-    if test_classic_logic == True:
+    if test_classic_logic is True:
         # ============ 4. ВАЛИДАЦИЯ (Torch vs OpenCV/Sklearn) ============
         print("\n4. Валидация реализаций...")
         validator = TorchImplementationValidator(output_dir="./data/validation")
@@ -830,7 +829,8 @@ def main():
                     save_results=True,
                     output_dir="./data/batch_comparison",
                 )
-                print(f"   ✅ Пакетное сравнение завершено. Топ-3 метода сохранены.")
+                print("   ✅ Пакетное сравнение завершено. Топ-3 метода сохранены.")
+                print(df_results)
             except Exception as e:
                 print(f"   ❌ Ошибка пакетного сравнения: {e}")
 
@@ -844,7 +844,8 @@ def main():
                     save_comparison=True,
                     output_path=f"./data/compare_methods_{img_name}",
                 )
-                print(f"   ✅ Попарное сравнение сохранено.")
+                print("   ✅ Попарное сравнение сохранено.")
+                print(df_compare_methods)
             except TypeError as te:
                 print(
                     f"   ⚠️ Метод compare_methods требует старой сигнатуры. Пропускаем или используем альтернативу."
@@ -853,7 +854,7 @@ def main():
                 print(f"   ❌ Ошибка попарного сравнения: {e}")
 
     # ============ 6. СРАВНЕНИЕ С GROUND TRUTH (если есть) ============
-    if test_classic_logic == True:
+    if test_classic_logic is True:
         print("\n6. Сравнение с Ground Truth и оценка качества...")
         has_gt_images = False
         for img_name, (img_path, img, gt_mask) in test_images.items():
@@ -1015,9 +1016,9 @@ def main():
     print("=" * 60)
     print(f"✓ Методов протестировано: {len(tester.methods)}")
     print(f"✓ Изображений обработано: {len(test_images)}")
-    print(f"✓ Результаты в: ./data/")
+    print("✓ Результаты в: ./data/")
 
-    if test_neural_logic == True:
+    if test_neural_logic is True:
         # ====================================================================
         # 5. ОБУЧЕНИЕ МОДЕЛЕЙ С РАЗНЫМИ УРОВНЯМИ АУГМЕНТАЦИЙ
         # ====================================================================
@@ -1046,17 +1047,17 @@ def main():
             model_type: {} for model_type in model_types
         }
 
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print(
             f"ОБУЧЕНИЕ {len(model_types)} МОДЕЛЕЙ × {len(augmentation_configs)} УРОВНЕЙ АУГМЕНТАЦИЙ"
         )
-        print(f"{'='*80}")
+        print(f"{'=' * 80}")
 
         for config in augmentation_configs:
             for model_type in model_types:
-                print(f"\n{'='*60}")
+                print(f"\n{'=' * 60}")
                 print(f"🔹 Модель: {model_type} | Аугментации: {config['level']}")
-                print(f"{'='*60}")
+                print(f"{'=' * 60}")
 
                 if model_type in ["fpn_smp", "psp_smp"]:
                     encoder_name = "mit_b5"
@@ -1077,7 +1078,7 @@ def main():
                 result = trainer.train_experiment(training_config)
                 results_by_model_and_aug[model_type][config["level"]] = result
                 print(
-                    f"✅ {model_type} ({config['level']}): Best mIoU = {result['best_miou']*100:.2f}%"
+                    f"✅ {model_type} ({config['level']}): Best mIoU = {result['best_miou'] * 100:.2f}%"
                 )
 
         # ====================================================================
@@ -1092,7 +1093,7 @@ def main():
             print("-" * 60)
 
             for level, result in results_by_model_and_aug[model_type].items():
-                print(f"   {level:10s}: {result['best_miou']*100:6.2f}% mIoU")
+                print(f"   {level:10s}: {result['best_miou'] * 100:6.2f}% mIoU")
 
         # ====================================================================
         # 5.3. ВИЗУАЛИЗАЦИЯ: Влияние аугментаций на каждую модель
@@ -1145,7 +1146,7 @@ def main():
             dpi=300,
             bbox_inches="tight",
         )
-        print(f"📊 График сохранён: ./data/augmentation_comparison_all_models.png")
+        print("📊 График сохранён: ./data/augmentation_comparison_all_models.png")
         plt.show()
 
         # График 2: Сравнение моделей для каждого уровня аугментаций
@@ -1201,7 +1202,7 @@ def main():
         plt.savefig(
             "./data/model_comparison_by_augmentation.png", dpi=300, bbox_inches="tight"
         )
-        print(f"📊 График сохранён: ./data/model_comparison_by_augmentation.png")
+        print("📊 График сохранён: ./data/model_comparison_by_augmentation.png")
         plt.show()
 
         # ====================================================================
@@ -1291,6 +1292,7 @@ def main():
             eval_results = trainer.evaluate_trained_models_on_val(
                 checkpoints=checkpoint_paths, val_fraction=0.05
             )
+            print(eval_results)
 
         # ====================================================================
         # 5.6. СВОДНАЯ ТАБЛИЦА РЕЗУЛЬТАТОВ
@@ -1325,7 +1327,7 @@ def main():
 
         # Сохранение сводки
         summary_df.to_csv("./data/augmentation_impact_full_summary.csv", index=False)
-        print(f"\n📊 Сводка сохранена: ./data/augmentation_impact_full_summary.csv")
+        print("\n📊 Сводка сохранена: ./data/augmentation_impact_full_summary.csv")
 
         # ====================================================================
         # 5.7. ГРАФИК: Тепловая карта влияния аугментаций
@@ -1361,7 +1363,7 @@ def main():
 
         plt.tight_layout()
         plt.savefig("./data/augmentation_heatmap.png", dpi=300, bbox_inches="tight")
-        print(f"📊 Тепловая карта сохранена: ./data/augmentation_heatmap.png")
+        print("📊 Тепловая карта сохранена: ./data/augmentation_heatmap.png")
         plt.show()
 
         # ====================================================================
@@ -1374,16 +1376,16 @@ def main():
         top_combinations = summary_df.nlargest(3, "Best mIoU (%)")
 
         for idx, row in top_combinations.iterrows():
-            print(f"\n{idx+1}. {row['Model']} + {row['Augmentation Level']}")
+            print(f"\n{idx + 1}. {row['Model']} + {row['Augmentation Level']}")
             print(f"   mIoU: {row['Best mIoU (%)']:.2f}%")
             print(f"   Epochs: {row['Epochs']}")
             print(f"   Final Val Loss: {row['Final Val Loss']}")
 
         # Сохранение топ-3
         top_combinations.to_csv("./data/top_3_combinations.csv", index=False)
-        print(f"\n📊 Топ-3 сохранён: ./data/top_3_combinations.csv")
+        print("\n📊 Топ-3 сохранён: ./data/top_3_combinations.csv")
 
-    if test_classic_logic == True:
+    if test_classic_logic is True:
         print("\n" + "=" * 80)
         print("ДОПОЛНИТЕЛЬНЫЕ ИССЛЕДОВАНИЯ")
         print("=" * 80)
@@ -1432,7 +1434,7 @@ def prepare_mask_for_overlay(mask_input) -> np.ndarray:
         elif mask.shape[2] == 3:
             # RGB изображение → нужно конвертировать в классы
             # Для Cityscapes: используем первый канал или конвертируем через палитру
-            print(f"⚠️  RGB mask detected, using first channel")
+            print("⚠️  RGB mask detected, using first channel")
             mask = mask[:, :, 0]  # или используйте proper label conversion
         else:
             raise ValueError(f"Unexpected mask shape: {mask.shape}")
@@ -1683,7 +1685,7 @@ def load_test_images(
         print(f"✅ Загружен образец ADE20K: {img.size}, GT: {binary_gt.shape}")
 
     else:
-        print(f"⚠️ Не удалось загрузить реальные GT. Используем только изображения.")
+        print("⚠️ Не удалось загрузить реальные GT. Используем только изображения.")
 
         # Примеры изображений с возможными ground truth
         image_urls = {
@@ -1713,7 +1715,7 @@ def load_test_images(
                 img.save(local_path)
 
                 gt_synthetic = np.zeros((img.size[1], img.size[0]), dtype=np.uint8)
-                gt_synthetic[img.size[1] // 2 :, :] = 255
+                gt_synthetic[img.size[1] // 2:, :] = 255
                 test_images[name] = (local_path, img, gt_synthetic)
 
                 print(f"✅ {name}: {img.size}, ground truth: {gt_synthetic}")
@@ -1725,7 +1727,7 @@ def load_test_images(
             try:
                 img = Image.open(path)
                 gt_synthetic = np.zeros((img.size[1], img.size[0]), dtype=np.uint8)
-                gt_synthetic[img.size[1] // 2 :, :] = 255
+                gt_synthetic[img.size[1] // 2:, :] = 255
                 test_images[name] = (path, img, gt_synthetic)
                 print(f"✅ {name}: {img.size}, ground truth: {gt_synthetic}")
 

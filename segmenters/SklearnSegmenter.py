@@ -47,7 +47,6 @@ from scipy.ndimage import gaussian_filter, laplace, sobel, prewitt
 from skimage.util import img_as_float, img_as_ubyte
 
 # Импорт scikit-image компонентов
-import skimage
 from skimage import (
     filters,
     segmentation,
@@ -63,24 +62,12 @@ from skimage.filters import (
     gaussian,
     sobel,
     prewitt,
-    roberts,
-    scharr,
     laplace,
-    farid,
-    butterworth,
 )
-from skimage.measure import label, regionprops
 from skimage.morphology import (
     disk,
-    square,
-    dilation,
-    erosion,
     opening,
     closing,
-    white_tophat,
-    black_tophat,
-    skeletonize,
-    thin,
     remove_small_objects,
     remove_small_holes,
 )
@@ -93,9 +80,7 @@ from skimage.segmentation import (
     active_contour,
     morphological_chan_vese,
     morphological_geodesic_active_contour,
-    mark_boundaries,
 )
-from skimage.util import img_as_ubyte, img_as_float
 import cv2
 import torch
 from typing_extensions import TypeAlias
@@ -1939,7 +1924,7 @@ class SklearnSegmenter(BaseSegmenter):
             if h_reg * w_reg <= min_size:
                 return [(region, mask)]
 
-            mean = np.mean(region[mask])
+            # mean = np.mean(region[mask])
             std = np.std(region[mask])
 
             if std < threshold:

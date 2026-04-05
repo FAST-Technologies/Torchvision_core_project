@@ -825,14 +825,12 @@ class SegmentationComparator:
             f.write(
                 """
                 </table>
-                
                 <h2>🔗 Быстрые ссылки</h2>
                 <ul>
                     <li><a href="comparisons.csv">CSV с результатами сравнения</a></li>
                     <li><a href="masks/">Папка с масками</a></li>
                     <li><a href="images/">Папка с изображениями</a></li>
                 </ul>
-                
                 <footer>
                     <p>Сгенерировано автоматически с помощью SegmentationComparator</p>
                 </footer>
