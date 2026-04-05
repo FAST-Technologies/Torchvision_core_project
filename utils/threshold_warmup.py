@@ -4,7 +4,6 @@
 import numpy as np
 from typing import (
     TypedDict,
-    Union,
     List,
     Dict,
     Any,

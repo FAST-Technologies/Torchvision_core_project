@@ -20,7 +20,7 @@ jobs:
       with:
         submodules: false
         sparse-checkout: |
-          datasets
+          dataseters
           segmenters
           testing
           metrics
@@ -74,7 +74,7 @@ jobs:
     - name: Check for security issues with Bandit
       run: |
         pip install bandit
-        bandit -r segmenters/ testing/ metrics/ utils/ datasets/ c -ll -f screen -s B614,B615,B113
+        bandit -r segmenters/ testing/ metrics/ utils/ dataseters/ c -ll -f screen -s B614,B615,B113
       continue-on-error: true
 
     - name: Check dependencies for vulnerabilities
@@ -93,12 +93,12 @@ jobs:
     - name: Type checking with mypy
       run: |
         export PYTHONPATH="${{ github.workspace }}"
-        mypy segmenters/ testing/ metrics/ utils/ datasets/ --ignore-missing-imports --explicit-package-bases
+        mypy segmenters/ testing/ metrics/ utils/ dataseters/ --ignore-missing-imports --explicit-package-bases
       continue-on-error: true
 
     - name: Test with pytest
       run: |
-        pytest tests/ -v --cov=segmenters --cov=testing --cov=metrics --cov=utils --cov=datasets --cov-report=xml
+        pytest tests/ -v --cov=segmenters --cov=testing --cov=metrics --cov=utils --cov=dataseters --cov-report=xml
       continue-on-error: true
     
     - name: Upload coverage to Codecov
