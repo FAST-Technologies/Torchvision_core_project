@@ -1121,9 +1121,7 @@ class TorchSegmenter(BaseSegmenter):
         """
         try:
             tensor: torch.Tensor = self.preprocess_image(image)
-            print(f"Image after Torch preprocessing (tensor): {tensor}")
             mask_tensor = self._segment_func(tensor)
-            print(f"Image after Torch preprocessing (mask_tensor): {mask_tensor}")
 
             # Преобразуем маску в numpy
             if mask_tensor.dim() == 4:
@@ -1176,7 +1174,6 @@ class TorchSegmenter(BaseSegmenter):
         """
         try:
             tensor = self.preprocess_image(image)
-            print(f"Image after Torch preprocessing with mask (tensor): {tensor}")
             result_vis, mask_tensor = self._segment_with_visualization(tensor, **kwargs)
             print(
                 f"Image after Torch preprocessing with mask (result_vis): {result_vis}"
@@ -1207,8 +1204,6 @@ class TorchSegmenter(BaseSegmenter):
             else:
                 result_np = result_vis
 
-            print(f"Mask after Torch segment_with_mask: {mask_np}")
-            print(f"Result after Torch segment_with_mask: {result_np}")
             return result_np, mask_np
 
         except Exception as e:
@@ -1569,7 +1564,6 @@ class TorchSegmenter(BaseSegmenter):
             .squeeze(0)
             .squeeze(0)
         )
-        print(gray_padded)
 
         h, w = gray.shape
         mask = torch.zeros_like(gray)
@@ -1577,7 +1571,6 @@ class TorchSegmenter(BaseSegmenter):
         # Локальное вычисление мин/макс через свёртку с ядрами
         # Для эффективности используем pooling
         kernel = torch.ones(1, 1, window_size, window_size, device=self.device)
-        print(kernel)
         # Локальный максимум и минимум через pooling
         local_max = F.max_pool2d(
             gray.unsqueeze(0).unsqueeze(0),
@@ -1752,44 +1745,41 @@ class TorchSegmenter(BaseSegmenter):
         cum_pdf = torch.cumsum(pdf, dim=0)
         cum_mean = torch.cumsum(pdf * bins, dim=0)
 
-        best_threshold = 128
-        min_criterion = torch.tensor(float("inf"), device=gray.device)
+        # Векторизованный критерий Киттлера-Иллингворта (без Python-цикла)
+        cum_sq = torch.cumsum(pdf * bins**2, dim=0)
+        total_sq = cum_sq[-1]
+        total_mean = cum_mean[-1]
 
-        for t in range(1, 255):
-            if cum_pdf[t] < 1e-6 or (1 - cum_pdf[t]) < 1e-6:
-                continue
+        t_idx = torch.arange(1, 255, device=self.device)
+        w0 = cum_pdf[t_idx]  # (254,)
+        w1 = 1.0 - w0
+        valid = (w0 > 1e-6) & (w1 > 1e-6)
 
-            # Статистики класса 0 (фон)
-            w0 = cum_pdf[t]
-            mu0 = cum_mean[t] / w0
-            var0 = (torch.cumsum(pdf * bins**2, dim=0)[t] / w0) - mu0**2
-            var0 = torch.clamp(var0, min=1e-6)
+        mu0 = cum_mean[t_idx] / w0.clamp(min=1e-8)
+        mu1 = (total_mean - cum_mean[t_idx]) / w1.clamp(min=1e-8)
 
-            # Статистики класса 1 (объект)
-            w1 = 1 - cum_pdf[t]
-            mu1 = (cum_mean[-1] - cum_mean[t]) / w1
-            var1 = (
-                (
-                    torch.cumsum(pdf * bins**2, dim=0)[-1]
-                    - torch.cumsum(pdf * bins**2, dim=0)[t]
-                )
-                / w1
-            ) - mu1**2
-            var1 = torch.clamp(var1, min=1e-6)
+        var0 = (cum_sq[t_idx] / w0.clamp(min=1e-8) - mu0**2).clamp(min=1e-6)
+        var1 = ((total_sq - cum_sq[t_idx]) / w1.clamp(min=1e-8) - mu1**2).clamp(
+            min=1e-6
+        )
 
-            # Критерий Киттлера-Иллингворта
-            criterion = (
-                1
-                + 2
-                * (w0 * torch.log(torch.sqrt(var0)) + w1 * torch.log(torch.sqrt(var1)))
-                - 2 * (w0 * torch.log(w0) + w1 * torch.log(w1))
+        criterion = (
+            1.0
+            + 2.0 * (w0 * 0.5 * torch.log(var0) + w1 * 0.5 * torch.log(var1))
+            - 2.0
+            * (
+                w0 * torch.log(w0.clamp(min=1e-10))
+                + w1 * torch.log(w1.clamp(min=1e-10))
             )
+        )
+        criterion = torch.where(
+            valid, criterion, torch.full_like(criterion, float("inf"))
+        )
+        best_threshold_idx = (
+            criterion.argmin().item() + 1
+        )  # +1 т.к. t_idx начинается с 1
 
-            if criterion < min_criterion:
-                min_criterion = criterion
-                best_threshold = t
-
-        threshold = best_threshold / 255.0
+        threshold = best_threshold_idx / 255.0
         mask = (gray > threshold).float()
 
         exec_time = time.time() - start_time
@@ -1798,8 +1788,6 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {"threshold": threshold, **kwargs},
             "execution_time": exec_time,
         }
-        print(f"Info after Torch_kittler: {info}")
-
         return mask.unsqueeze(0).unsqueeze(0)
 
     def _threshold_entropy_kapur(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -1820,32 +1808,29 @@ class TorchSegmenter(BaseSegmenter):
 
         pdf = hist / total
 
-        best_threshold = 128
-        max_entropy = torch.tensor(-float("inf"), device=gray.device)
+        # Векторизованный критерий Капура — без Python-цикла
+        eps = 1e-10
+        pdf_log = pdf * torch.log(pdf + eps)  # pdf[i]*log(pdf[i]), shape (256,)
+        cum_pdf = torch.cumsum(pdf, dim=0)
+        cum_pdflog = torch.cumsum(pdf_log, dim=0)
+        total_pdflog = cum_pdflog[-1]
 
-        for t in range(1, 255):
-            # Класс 0: [0, t]
-            w0 = pdf[: t + 1].sum()
-            if w0 < 1e-6:
-                continue
-            p0 = pdf[: t + 1] / w0
-            entropy0 = -torch.sum(p0 * torch.log(p0 + 1e-10))
+        t_idx = torch.arange(1, 255, device=self.device)  # (254,)
+        w0 = cum_pdf[t_idx]
+        w1 = 1.0 - w0
+        valid = (w0 > 1e-6) & (w1 > 1e-6)
 
-            # Класс 1: [t+1, 255]
-            w1 = pdf[t + 1 :].sum()
-            if w1 < 1e-6:
-                continue
-            p1 = pdf[t + 1 :] / w1
-            entropy1 = -torch.sum(p1 * torch.log(p1 + 1e-10))
+        # H(C0) = log(w0) - (1/w0) * sum_{i<=t}(pdf[i]*log(pdf[i]))
+        H0 = torch.log(w0.clamp(min=eps)) - cum_pdflog[t_idx] / w0.clamp(min=eps)
+        # H(C1) = log(w1) - (1/w1) * sum_{i>t}(pdf[i]*log(pdf[i]))
+        H1 = torch.log(w1.clamp(min=eps)) - (
+            total_pdflog - cum_pdflog[t_idx]
+        ) / w1.clamp(min=eps)
 
-            # Общая энтропия
-            total_entropy = entropy0 + entropy1
+        total_entropy = torch.where(valid, H0 + H1, torch.full_like(H0, -float("inf")))
+        best_t = int(total_entropy.argmax().item()) + 1  # +1 т.к. t_idx начинается с 1
 
-            if total_entropy > max_entropy:
-                max_entropy = total_entropy
-                best_threshold = t
-
-        threshold = best_threshold / 255.0
+        threshold = best_t / 255.0
         mask = (gray > threshold).float()
 
         exec_time = time.time() - start_time
@@ -1854,8 +1839,6 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {"threshold": threshold, **kwargs},
             "execution_time": exec_time,
         }
-        print(f"Info after Torch_thresholding_entropy_kapur: {info}")
-
         return mask.unsqueeze(0).unsqueeze(0)
 
     def _threshold_triangle(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -1893,19 +1876,16 @@ class TorchSegmenter(BaseSegmenter):
         peak_val = hist_norm[peak_idx]
         end_val = hist_norm[end_idx]
 
-        best_threshold: int = peak_idx
-        max_distance: float = -1.0
-
-        for t in range(start_idx, end_idx + 1):
-            # Расстояние от точки до линии
-            line_val = peak_val + (end_val - peak_val) * (t - peak_idx) / (
-                end_idx - peak_idx + 1e-10
-            )
-            distance: float = float(torch.abs(hist_norm[t] - line_val).item())
-
-            if distance > max_distance:
-                max_distance = distance
-                best_threshold = t
+        # Векторизованный треугольный метод — без Python-цикла
+        t_range = torch.arange(
+            start_idx, end_idx + 1, device=self.device, dtype=torch.float32
+        )
+        line_vals = peak_val + (end_val - peak_val) * (
+            t_range - float(peak_idx.item())
+        ) / (float((end_idx - peak_idx).item()) + 1e-10)
+        distances = torch.abs(hist_norm[start_idx : end_idx + 1] - line_vals)
+        best_local = int(distances.argmax().item())
+        best_threshold = start_idx + best_local
 
         threshold = best_threshold / 255.0
         mask = (gray > threshold).float()
@@ -2026,7 +2006,6 @@ class TorchSegmenter(BaseSegmenter):
             .squeeze(0)
             .squeeze(0)
         )
-        print(gray_padded)
 
         # Локальное среднее через свёртку
         kernel = torch.ones(1, 1, window_size, window_size, device=self.device) / (
@@ -2142,7 +2121,6 @@ class TorchSegmenter(BaseSegmenter):
             >>> mask = segmenter.segment("image.jpg")
         """
         gray = self._to_grayscale(tensor)  # (B, 1, H, W)
-        print(f"Gray after Torch_canny_edge: {gray}")
         start_time = time.time()
 
         low = self.params.get("low", 0.1)
@@ -2288,7 +2266,6 @@ class TorchSegmenter(BaseSegmenter):
             "execution_time": exec_time,
         }
 
-        print(f"Mask after Torch_canny_edge: {final_mask.unsqueeze(0)}")
         print(f"Info after Torch_canny_edge: {info}")
 
         final_mask = final_mask.squeeze()  # Удаляет ВСЕ размерности 1

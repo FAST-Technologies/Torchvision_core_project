@@ -37,11 +37,9 @@ def infer_segformer(
 ) -> Tuple[np.ndarray, Image.Image]:
     """Инференс для SegFormer — возвращает маску в размере оригинального изображения (работает для B0-B5)."""
     inputs = processor(images=image, return_tensors="pt").to(device)
-    print(inputs)
     with torch.no_grad():
         outputs = model(**inputs)
         logits = outputs.logits
-    print(type(outputs[0]))
     logits_info = extract_logits_info(outputs, "segformer")
     print(f"📈 SegFormer logits: {logits_info}")
     print(f"📈 SegFormer custom logits: {logits}")
@@ -52,7 +50,6 @@ def infer_segformer(
         .cpu()
         .numpy()
     )
-    print(seg_map)
     return seg_map, image
 
 
@@ -63,17 +60,14 @@ def infer_mask2former(
         raise ValueError("Image has zero dimensions")
 
     inputs = processor(images=image, return_tensors="pt").to(device)
-    print(inputs)
     with torch.no_grad():
         outputs = model(**inputs)
-    print(type(outputs[0]))
     logits_info = extract_logits_info(outputs, "mask2former")
     print(f"📈 Mask2Former logits: {logits_info}")
     result = processor.post_process_semantic_segmentation(
         outputs, target_sizes=[image.size[::-1]]
     )[0]
     predicted_mask = result.cpu().numpy()
-    print(predicted_mask)
     return predicted_mask, image
 
 
@@ -83,10 +77,8 @@ def infer_oneformer(
     inputs = processor(images=image, task_inputs=["semantic"], return_tensors="pt").to(
         device
     )
-    print(inputs)
     with torch.no_grad():
         outputs = model(**inputs)
-    print(type(outputs[0]))
     logits_info = extract_logits_info(outputs, "oneformer")
     print(f"📈 OneFormer logits: {logits_info}")
     predicted_mask = (
@@ -96,7 +88,6 @@ def infer_oneformer(
         .cpu()
         .numpy()
     )
-    print(predicted_mask)
     return predicted_mask, image
 
 
@@ -116,12 +107,10 @@ def infer_deeplab_torchvision(
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     )
-    print(preprocess)
 
     # Ресайз к target_size (как при обучении!)
     image_resized = image.resize(target_size, Image.Resampling.BILINEAR)
     input_tensor = preprocess(image_resized).unsqueeze(0).to(device)
-    print(input_tensor)
 
     with torch.no_grad():
         raw_output = model(input_tensor)
@@ -146,7 +135,6 @@ def infer_deeplab_torchvision(
             image.size[0] / predicted_mask.shape[1],
         )
         predicted_mask = zoom(predicted_mask, (sh, sw), order=0)
-    print(predicted_mask)
     return predicted_mask, image
 
 
@@ -182,11 +170,9 @@ def infer_unet_smp(
 
     # Preprocessing
     input_tensor = preprocess_fn(image_np)
-    print(input_tensor)
     input_tensor = (
         torch.from_numpy(input_tensor).permute(2, 0, 1).float().unsqueeze(0).to(device)
     )
-    print(input_tensor)
 
     # Паддинг под output_stride
     pad_h, pad_w = 0, 0
@@ -201,7 +187,6 @@ def infer_unet_smp(
 
     with torch.no_grad():
         outputs = model(input_tensor)  # [B, C, H, W]
-    print(type(outputs[0]))
     is_segnet = "SegNet" in str(type(model))
     model_type = "segnet" if is_segnet else "unet_smp"
     logits_info = extract_logits_info(outputs, model_type)
@@ -220,7 +205,6 @@ def infer_unet_smp(
             image.size[0] / predicted_mask.shape[1],
         )
         predicted_mask = zoom(predicted_mask, (sh, sw), order=0)
-    print(predicted_mask)
     return predicted_mask, image
 
 
@@ -231,7 +215,6 @@ def infer_sam(
 
     # Инференс (без prompts=None!)
     results = model(image)
-    print(results)
 
     print("📈 MobileSAM: instance segmentation (no class logits)")
     if results[0].masks is not None:
@@ -260,10 +243,8 @@ def infer_dpt(
     model: Any, processor: Any, image: Image.Image, device: str = "cuda"
 ) -> Tuple[np.ndarray, Image.Image]:
     inputs = processor(images=image, return_tensors="pt").to(device)
-    print(inputs)
     with torch.no_grad():
         outputs = model(**inputs)
-    print(type(outputs[0]))
     logits_info = extract_logits_info(outputs, "dpt")
     print(f"📈 DPT logits: {logits_info}")
 
@@ -304,7 +285,6 @@ def infer_smp_model(
         encoder_name = "mit_b5"
 
     preprocess_fn = smp.encoders.get_preprocessing_fn(encoder_name, "imagenet")
-    print(preprocess_fn)
 
     # Конвертация + препроцессинг
     image_np = np.array(image)
@@ -324,7 +304,6 @@ def infer_smp_model(
                 mode="reflect",
             )
     input_tensor = input_tensor.unsqueeze(0).to(device)
-    print(input_tensor)
 
     # Инференс
     with torch.no_grad():
@@ -399,7 +378,7 @@ def infer_smp_model_fixed(
     # Пост-процессинг
     pred_mask = outputs.argmax(1).squeeze(0).cpu().numpy()
 
-    # Кроппинг паддинга
+    # Кроппинг паддинга (target_size=(W,H) как в PIL, поэтому [1]=H, [0]=W)
     if pad_h > 0 or pad_w > 0:
         pred_mask = pred_mask[: target_size[1], : target_size[0]]
 
@@ -424,7 +403,6 @@ def infer_fcn_torchvision(
     )
 
     input_tensor = preprocess(image).unsqueeze(0).to(device)
-    print(input_tensor)
 
     with torch.no_grad():
         outputs = model(input_tensor)
@@ -509,7 +487,6 @@ def infer_mask_rcnn(
     )
 
     input_tensor = preprocess(image).unsqueeze(0).to(device)
-    print(input_tensor)
 
     with torch.no_grad():
         outputs = model(input_tensor)
@@ -719,11 +696,10 @@ def segment_image_unified(
 
     infer_func = INFERENCE_STRATEGIES[model_type]
 
-    # Выполнение инференса
-    with torch.no_grad():
-        seg_map, _ = infer_func(
-            model=model, processor=processor, image=image, device=device
-        )
+    # Выполнение инференса (стратегии уже содержат torch.no_grad() внутри)
+    seg_map, _ = infer_func(
+        model=model, processor=processor, image=image, device=device
+    )
 
     # Вербозный вывод и метрики
     result_info = {}
@@ -917,8 +893,11 @@ def _create_overlay_standalone(
     h, w = mask.shape
     color_mask = np.zeros((h, w, 3), dtype=np.uint8)
 
-    for label, color in enumerate(palette[: mask.max() + 1]):
-        color_mask[mask == label] = color
+    # Защита от выхода за пределы палитры
+    max_label = int(mask.max())
+    safe_max = min(max_label + 1, len(palette))
+    for label in range(safe_max):
+        color_mask[mask == label] = palette[label]
 
     img_arr = np.array(image.convert("RGB"))
     overlay = (img_arr * (1 - alpha) + color_mask * alpha).astype(np.uint8)

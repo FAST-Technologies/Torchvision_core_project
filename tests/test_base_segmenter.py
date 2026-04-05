@@ -6,7 +6,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import pytest
 import numpy as np
 from PIL import Image
 from segmenters.BaseSegmenter import BaseSegmenter

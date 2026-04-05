@@ -77,9 +77,14 @@ class NeuralModelFactory:
 
     @classmethod
     def load_config(cls, config_path: Optional[str] = None) -> Dict[str, Any]:
-        """Ленивая загрузка конфига"""
+        """Ленивая загрузка конфига. При передаче нового пути сбрасывает кеш."""
+        if config_path is not None:
+            new_path = Path(config_path)
+            if cls._config is None or new_path != cls._config_path:
+                cls._config = None  # сбрасываем кеш для нового пути
+                cls._config_path = new_path  # запоминаем новый путь
         if cls._config is None:
-            path = Path(config_path) if config_path else cls._config_path
+            path = cls._config_path
             if path.exists():
                 with open(path, "r", encoding="utf-8") as f:
                     cls._config = yaml.safe_load(f)
@@ -319,9 +324,11 @@ class NeuralModelFactory:
 
         model_name = variants[variant]
         processor = SegformerImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
-        model = SegformerForSemanticSegmentation.from_pretrained(
-            model_name
-        ).eval()  # type: ignore[arg-type]
+        model = (
+            SegformerForSemanticSegmentation.from_pretrained(model_name)
+            .to(device)
+            .eval()
+        )  # type: ignore[arg-type]
         return model, processor, f"segformer_{variant}"
 
     @classmethod
@@ -543,7 +550,7 @@ class NeuralModelFactory:
     @classmethod
     def print_deeplab_params(cls, device: str = "cuda") -> None:
         """Вывод параметров DeepLab"""
-        model = tv_seg.deeplabv3_resnet101(pretrained=True)
+        model = tv_seg.deeplabv3_resnet101(weights="DEFAULT")
         print(model)
         print("✅ DeepLab загружена!")
         print(f"   Устройство: {device}")
@@ -938,7 +945,7 @@ class NeuralModelFactory:
 
         if variant not in variants:
             raise ValueError(f"Unknown Mask R-CNN variant: {variant}")
-        model = variants[variant](weights="COCO_V1")
+        model = variants[variant](weights="DEFAULT")
         model = model.to(device).eval()
         score_thresh = kwargs.get("score_thresh", 0.5)
         model.score_thresh = score_thresh
@@ -955,7 +962,7 @@ class NeuralModelFactory:
         }
         if variant not in variants:
             raise ValueError(f"Unknown Mask R-CNN variant: {variant}")
-        model = variants[variant](weights="DEFAULT", pretrained=False)
+        model = variants[variant](weights=None)
         model = model.to(device)
         print(model)
         print("✅ Mask R-CNN загружена!")

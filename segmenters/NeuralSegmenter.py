@@ -279,9 +279,23 @@ class NeuralSegmenter(BaseSegmenter):
                     raise ValueError(
                         f"Неподдерживаемое количество каналов: {input_image.shape[2]}"
                     )
+        elif isinstance(input_image, torch.Tensor):
+            # PyTorch tensor → numpy → PIL
+            t = input_image
+            if t.dim() == 4:
+                t = t.squeeze(0)
+            np_img = (
+                t.permute(1, 2, 0).cpu().numpy() if t.dim() == 3 else t.cpu().numpy()
+            )
+            if np_img.max() <= 1.0:
+                np_img = (np_img * 255).astype(np.uint8)
+            else:
+                np_img = np_img.astype(np.uint8)
+            img = Image.fromarray(np_img).convert("RGB")
         else:
             raise ValueError(
-                "Unsupported input type. Provide a file path, URL, or PIL.Image."
+                f"Unsupported input type: {type(input_image)}. "
+                "Provide a file path, URL, PIL.Image, np.ndarray, or torch.Tensor."
             )
         return img
 
@@ -415,11 +429,13 @@ class NeuralSegmenter(BaseSegmenter):
             image: Входное изображение (RGB, grayscale или любой формат)
 
         Returns:
-            np.ndarray: Бинарная маска сегментации (0-255)
+            np.ndarray: Бинарная маска сегментации (H, W) uint8 [0/255]
         """
-        alpha = kwargs.get("alpha", 0.9)
-        result_img = self.segment_image(image, alpha)
-        return np.array(result_img)
+        # Получаем карту сегментации через стратегию инференса
+        seg_map, _ = self.predict_segmentation_map(image, verbose=False)
+        # Возвращаем бинарную маску (всё кроме фона = 0)
+        mask = (seg_map > 0).astype(np.uint8) * 255
+        return mask
 
     def segment_with_mask(  # type: ignore[override]
         self, image: ImageInput, *args: Any, **kwargs: Any
@@ -438,31 +454,27 @@ class NeuralSegmenter(BaseSegmenter):
         start_time: float = time.time()
         alpha = kwargs.get("alpha", 0.9)
 
-        # Получаем сегментированное изображение
-        result_img: Image.Image = self.segment_image(image, alpha)  # type: ignore[arg-type]
-        result_np: np.ndarray = np.array(result_img)
-
         # Получаем карту сегментации
-        seg_map, _ = self.predict_segmentation_map(image, verbose=False)  # type: ignore[arg-type]
+        seg_map, result_info = self.predict_segmentation_map(image, verbose=False)  # type: ignore[arg-type]
 
-        unique_classes = np.unique(seg_map)
-        print("Предугаданные классы:", unique_classes)
+        # Загружаем оригинал
+        img_pil: Image.Image = self.load_image(image)  # type: ignore[arg-type]
+        img_np: np.ndarray = np.array(img_pil.convert("RGB"))
 
-        # Проверяем количество пикселей для каждого класса
-        for cls in unique_classes:
-            count = (seg_map == cls).sum()
-            print(f"Class {cls}: {count} pixels")
+        # Создаем бинарную маску (все, что не фон = 0)
+        mask: np.ndarray = (seg_map > 0).astype(np.uint8) * 255
 
-        # Создаем бинарную маску (все, что не фон)
-        mask = (seg_map > 0).astype(np.uint8) * 255
+        # Создаем overlay: цветная сегментация поверх оригинала
+        palette_array: np.ndarray = np.array(self.palette, dtype=np.uint8)
+        h, w = seg_map.shape
+        color_mask = np.zeros((h, w, 3), dtype=np.uint8)
+        for label in np.unique(seg_map):
+            if label < len(palette_array):
+                color_mask[seg_map == label] = palette_array[label]
 
-        if len(result_np.shape) == 2:
-            result_np = cv2.cvtColor(result_np, cv2.COLOR_GRAY2RGB)
-
-        overlay = result_np.copy()
-        mask_bool: np.ndarray = mask > 0
-        overlay[mask_bool] = [255, 0, 0]
-        result = cv2.addWeighted(result_np, alpha, overlay, 1 - alpha, 0)
+        result: np.ndarray = (img_np * (1 - alpha) + color_mask * alpha).astype(
+            np.uint8
+        )
 
         print(f"Neural segmentation completed in {time.time() - start_time:.2f}s")
         return result, mask

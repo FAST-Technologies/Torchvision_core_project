@@ -82,7 +82,7 @@ class TrainingConfig:
     def __repr__(self):
         return (
             f"TrainingConfig({self.experiment_name}, "
-            f"model={self.model_type}"
+            f"model={self.model_type}, "
             f"aug={self.augmentation_level}, "
             f"epochs={self.epochs}, lr={self.lr})"
         )
@@ -321,10 +321,7 @@ class ModelTrainer:
         )
 
         # Переопределяем оптимизатор и scheduler
-        if config.model_type in ["deeplab_tv"]:
-            trainer.criterion = nn.CrossEntropyLoss(ignore_index=0)
-        elif config.model_type in ["fcn_tv"]:
-            trainer.criterion = nn.CrossEntropyLoss(ignore_index=255)
+        trainer.criterion = nn.CrossEntropyLoss(ignore_index=255)
         trainer.optimizer = optimizer
         trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=len(train_loader) * config.epochs
@@ -336,7 +333,11 @@ class ModelTrainer:
         masks = sample_batch["mask"]
         print(f"   Mask range: [{masks.min()}, {masks.max()}]")
         print(f"   Unique values: {torch.unique(masks)[:20].tolist()}")
-        assert masks.min() >= 0 and masks.max() <= 149, "Mask values out of range!"
+        valid_masks = masks[masks != 255]
+        if len(valid_masks) > 0:
+            assert (
+                valid_masks.min() >= 0 and valid_masks.max() <= 149
+            ), f"Mask values out of range! Got [{valid_masks.min()}, {valid_masks.max()}]"
 
         # Обучение
         checkpoint_path = os.path.join(self.checkpoint_dir, config.checkpoint_name)

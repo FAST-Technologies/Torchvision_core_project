@@ -415,7 +415,6 @@ class SklearnSegmenter(BaseSegmenter):
             Tuple[np.ndarray, np.ndarray]: Визуализация и маска
         """
         image = self.preprocess_image(image)
-        print(f"Image after sklearn preprocessing with mask: {image}")
         mask = self.segment(image, **kwargs)
 
         # Создаем визуализацию
@@ -431,9 +430,6 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Смешивание
         result = (alpha * overlay + (1 - alpha) * original_rgb).astype(np.uint8)
-
-        print(f"Mask after sklearn segment_with_mask: {mask}")
-        print(f"Result after sklearn segment_with_mask: {result}")
 
         return result, mask
 

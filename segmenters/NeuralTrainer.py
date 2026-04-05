@@ -49,7 +49,7 @@ class NeuralTrainer:
             "val_loss": [],
             "val_miou": [],
         }
-        self.best_miou: float = 0
+        self.best_miou: float = 0.0
 
     def train_epoch(self) -> float:
         """Одна эпоха обучения"""
@@ -81,7 +81,8 @@ class NeuralTrainer:
                         f"⚠️  Invalid mask values: min={masks.min()}, max={masks.max()}"
                     )
                     print(f"   Unique invalid: {torch.unique(masks[invalid])}")
-                    masks = torch.clamp(masks, 0, self.num_classes - 1)
+                    masks = masks.clone()
+                    masks[invalid] = self.criterion.ignore_index
             loss = self.criterion(outputs, masks.long())
             loss.backward()
 
@@ -123,13 +124,22 @@ class NeuralTrainer:
                 all_targets.extend(masks.cpu().flatten().tolist())
 
         avg_loss = total_loss / len(self.val_loader)
-        miou = jaccard_score(
-            all_targets,
-            all_preds,
-            average="weighted",
-            labels=range(self.num_classes),
-            zero_division=0,
-        )
+        filtered = [
+            (p, t) for p, t in zip(all_preds, all_targets) if t != self.ignore_index
+        ]
+        if filtered:
+            f_preds, f_targets = zip(*filtered)
+            # Используем macro для честного mIoU (среднее по классам, не взвешенное)
+            present_labels = list(set(f_targets))
+            miou = jaccard_score(
+                f_targets,
+                f_preds,
+                average="macro",
+                labels=present_labels,
+                zero_division=0,
+            )
+        else:
+            miou = 0.0
         return avg_loss, miou
 
     def fit(
