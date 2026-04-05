@@ -3,6 +3,7 @@
 # Импорт основных библиотек
 import numpy as np
 from typing import (
+    Union,
     List,
     Dict,
     Any,
@@ -21,7 +22,7 @@ class ThresholdWarmUp:
         segmenters_dict: Dict[str, Any],
         image_sizes: List[tuple] = [(128, 128), (256, 256), (512, 512)],
         n_runs_per_size: int = 2,
-    ) -> Dict[str, Dict]:
+    ) -> Dict[str, Dict[str, Union[float, int]]]:
         """
         Прогрев пороговых методов на изображениях разного размера.
 
@@ -50,7 +51,7 @@ class ThresholdWarmUp:
             is_threshold = any(tm in name.lower() for tm in threshold_methods)
             if not is_threshold:
                 continue
-            method_results = {"sizes": {}}
+            method_results: Dict[str, Dict] = {"sizes": {}}
             for size in image_sizes:
                 # Создаём тестовое изображение
                 img = np.random.randint(0, 256, (*size, 3), dtype=np.uint8)
@@ -78,7 +79,7 @@ class ThresholdWarmUp:
     def warmup_edge_methods(
         segmenters_dict: Dict[str, Any],
         edge_patterns: List[str] = ["horizontal", "vertical", "diagonal", "noise"],
-    ) -> Dict[str, Dict]:
+    ) -> Dict[str, Dict[str, float]]:
         """
         Прогрев граничных методов на различных паттернах.
         """

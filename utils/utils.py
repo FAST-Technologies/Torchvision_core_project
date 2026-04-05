@@ -162,11 +162,12 @@ def extract_logits_info(outputs, model_type: str) -> Dict[str, Any]:
             return {"type": "None", "note": "logits not found"}
 
         logits_cpu = logits.cpu().float()
+        logits_np = logits_cpu.numpy()
         try:
-            min_val = float(torch.nanmin(logits_cpu))
-            max_val = float(torch.nanmax(logits_cpu))
-            mean_val = float(torch.nanmean(logits_cpu))
-            std_val = float(torch.nanstd(logits_cpu))
+            min_val = float(np.nanmin(logits_np))
+            max_val = float(np.nanmax(logits_np))
+            mean_val = float(np.nanmean(logits_np))
+            std_val = float(np.nanstd(logits_np))
         except AttributeError:
             # Fallback для PyTorch < 1.9
             flat = logits_cpu.flatten()
@@ -190,7 +191,7 @@ def extract_logits_info(outputs, model_type: str) -> Dict[str, Any]:
 
 
 def analyze_prediction(
-    mask: np.ndarray, class_names: dict = None, ignore_index: int = 255, top_k: int = 10
+    mask: np.ndarray, class_names: Optional[Dict[str, Any]] = None, ignore_index: int = 255, top_k: int = 10
 ) -> Dict[str, Any]:
     """
     Детальный анализ предсказанной маски.
@@ -207,7 +208,7 @@ def analyze_prediction(
 
     if len(mask_valid) == 0:
         print("⚠️  No valid pixels (all ignored)")
-        return
+        return {}
 
     # Статистика
     unique, counts = np.unique(mask_valid, return_counts=True)
@@ -248,7 +249,7 @@ def analyze_prediction(
 
 def generate_class_report(
     mask: np.ndarray,
-    class_names: dict = None,
+    class_names: Optional[Dict[str, Any]] = None,
     ignore_index: int = 255,
     min_pixels: int = 100,
 ) -> Dict[str, Any]:

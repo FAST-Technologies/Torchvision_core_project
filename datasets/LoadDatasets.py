@@ -8,16 +8,13 @@
 # Импорт основных библиотек
 from typing import (
     List,
-    Union,
     Tuple,
     Dict,
     Optional,
     Literal,
     Callable,
     Any,
-    TypeVar,
-    Protocol,
-    runtime_checkable,
+    TYPE_CHECKING
 )
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,9 +27,7 @@ import zipfile
 import tarfile
 import shutil
 import requests
-from io import BytesIO
 from datetime import datetime
-import warnings
 
 import torch
 import numpy as np
@@ -42,7 +37,10 @@ import yaml
 
 try:
     from huggingface_hub import hf_hub_download, list_repo_files, snapshot_download
-    from datasets import load_dataset, Dataset as HFDataset
+    if TYPE_CHECKING:
+        from datasets import load_dataset
+    else:
+        from datasets import load_dataset
 
     HF_AVAILABLE = True
 except ImportError:
@@ -331,18 +329,18 @@ class DatasetManager:
         """Скачивание датасета с валидацией"""
         config = self.get_config(dataset_name)
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(
             f"📦 ЗАГРУЗКА ДАТАСЕТА: {config.name.upper()} ({config.dataset_type.name})..."
         )
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(f"Тип: {config.dataset_type.name}")
-        print(f"Источник: {config.source_type.upper()}")
+        print(f"Источник: {config.source_type.name.upper()}")
         print(f"Классы: {config.num_classes}")
         if isinstance(config, MedicalConfig):
             print(f"Модальность: {config.modality}")
         print(f"Целевая директория: {config.full_path}")
-        print(f"{'='*70}\n")
+        print(f"{'=' * 70}\n")
 
         if config.full_path.exists() and not force:
             if self._validate_dataset(config):
@@ -379,7 +377,7 @@ class DatasetManager:
                 self._print_dataset_summary(config)
                 return config.full_path
             else:
-                self._log(f"\n⚠️ Датасет загружен, но валидация не пройдена", "warning")
+                self._log("\n⚠️ Датасет загружен, но валидация не пройдена", "warning")
                 return config.full_path
 
         except Exception as e:
@@ -389,7 +387,7 @@ class DatasetManager:
     def _print_dataset_summary(self, config: DatasetConfig):
         """Печать сводной информации о датасете"""
         print(f"\n📊 СВОДКА ПО ДАТАСЕТУ: {config.name.upper()}")
-        print(f"{'='*50}")
+        print(f"{'=' * 50}")
         print(f"Тип: {config.dataset_type.value}")
         print(f"Классы: {config.num_classes}")
         if isinstance(config, MedicalConfig):
@@ -409,7 +407,7 @@ class DatasetManager:
                 )
                 print(f"   {split_name:12s}: {n_images:5d} images, {n_masks:5d} masks")
 
-        print(f"{'-'*50}")
+        print(f"{'-' * 50}")
 
     def _download_huggingface(self, config: DatasetConfig):
         """Загрузка из HuggingFace Hub"""
@@ -422,11 +420,11 @@ class DatasetManager:
                     print("❌ Недостаточно места на диске для датасета")
                     return
 
-                self._log(f"📊 Загрузка через datasets library...")
+                self._log("📊 Загрузка через datasets library...")
                 hf_dataset = load_dataset(
                     config.source_url, cache_dir=str(self.base_dir / ".cache")
                 )
-                self._log(f"✅ Загружено через datasets library")
+                self._log("✅ Загружено через datasets library")
                 self._create_index_from_hf_dataset(config, hf_dataset)
                 return
 
@@ -437,6 +435,8 @@ class DatasetManager:
                 local_dir=str(local_dir),
                 local_dir_use_symlinks=False,
                 resume_download=True,
+                cache_dir=None,
+                force_download=False,
             )
             print(f"✅ Скачивание завершено")
 
@@ -534,10 +534,10 @@ class DatasetManager:
         """Скачивание ZIP-архива с прогрессом и валидацией"""
         zip_path = config.full_path.with_suffix(".zip")
         print(f"📦 ЗАГРУЗКА АРХИВА: {config.name}")
-        print(f"{'-'*50}")
+        print(f"{'-' * 50}")
 
         if not zip_path.exists():
-            self._log(f"📥 Скачивание архива...")
+            self._log("📥 Скачивание архива...")
             self._log(f"   URL: {config.source_url}")
             if config.checksum:
                 print(f"   SHA256: {config.checksum[:16]}...")
@@ -545,7 +545,7 @@ class DatasetManager:
                 head = requests.head(config.source_url, allow_redirects=True)
                 size_bytes = int(head.headers.get("content-length", 0))
                 print(f"   Размер: ~{size_bytes / (1024*1024*1024):.1f} GB")
-            except:
+            except Exception:
                 print("   Размер: неизвестен")
             self._streaming_download(config.source_url, zip_path, config.checksum)
             zip_size = os.path.getsize(zip_path) / (1024 * 1024 * 1024)
@@ -556,7 +556,7 @@ class DatasetManager:
 
         extract_dir = config.full_path / "temp_extract"
         if not (config.full_path / "images").exists():
-            self._log(f"\n📦 Распаковка архива...")
+            self._log("\n📦 Распаковка архива...")
             extract_dir.mkdir(parents=True, exist_ok=True)
 
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
@@ -570,14 +570,14 @@ class DatasetManager:
                     ):
                         raise ValueError(f"Unsafe path in archive: {member}")
                     zip_ref.extract(member, extract_dir)
-            print(f"✅ Распаковка завершена!")
-            print(f"\n🔍 Анализ структуры распакованных файлов...")
+            print("✅ Распаковка завершена!")
+            print("\n🔍 Анализ структуры распакованных файлов...")
             self._reorganize_ade_structure(extract_dir, config.full_path)
-            print(f"\n🧹 Очистка временных файлов...")
+            print("\n🧹 Очистка временных файлов...")
             shutil.rmtree(extract_dir, ignore_errors=True)
             if config.checksum:
                 zip_path.unlink()
-                print(f"✅ Архив удалён")
+                print("✅ Архив удалён")
         else:
             print(f"✅ Датасет уже распакован в {config.full_path}")
 
@@ -587,14 +587,14 @@ class DatasetManager:
         print(f"📦 ЗАГРУЗКА TAR-АРХИВА: {config.name}")
 
         if not tar_path.exists():
-            self._log(f"📥 Скачивание архива...")
+            self._log("📥 Скачивание архива...")
             self._streaming_download(config.source_url, tar_path, config.checksum)
-            print(f"✅ Скачивание завершено")
+            print("✅ Скачивание завершено")
 
         # Распаковка
         extract_dir = config.full_path / "temp_extract"
         if not (config.full_path / "images").exists():
-            self._log(f"\n📦 Распаковка TAR-архива...")
+            self._log("\n📦 Распаковка TAR-архива...")
             extract_dir.mkdir(parents=True, exist_ok=True)
 
             with tarfile.open(tar_path, "r:gz") as tar_ref:
@@ -613,7 +613,7 @@ class DatasetManager:
             if config.checksum:
                 tar_path.unlink()
         else:
-            print(f"✅ Датасет уже распакован")
+            print("✅ Датасет уже распакован")
 
     def _download_direct(self, config: DatasetConfig):
         """Прямая загрузка файлов"""
@@ -783,7 +783,7 @@ class DatasetManager:
                     if convert_to_rgb
                     else Image.open(BytesIO(data))
                 )
-            except:
+            except ImportError:
                 return None
 
         # 🔹 dict с 'bytes' или 'path' (формат HF datasets)
@@ -798,7 +798,7 @@ class DatasetManager:
                         if convert_to_rgb
                         else Image.open(BytesIO(data["bytes"]))
                     )
-                except:
+                except ImportError:
                     return None
             if "path" in data and data["path"] and os.path.exists(data["path"]):
                 try:
@@ -809,7 +809,7 @@ class DatasetManager:
                         if convert_to_rgb
                         else Image.open(data["path"])
                     )
-                except:
+                except ImportError:
                     return None
 
         # 🔹 base64 строка
@@ -825,7 +825,7 @@ class DatasetManager:
                     if convert_to_rgb
                     else Image.open(BytesIO(base64.b64decode(encoded)))
                 )
-            except:
+            except ImportError:
                 return None
 
         # 🔹 PIL.Image (уже готов)
@@ -851,7 +851,7 @@ class DatasetManager:
 
         parquet_files = list(config.full_path.rglob("*.parquet"))
         if not parquet_files:
-            self._log(f"⚠️ Parquet-файлы не найдены", "warning")
+            self._log("⚠️ Parquet-файлы не найдены", "warning")
             return
         print(f"📁 Найдено Parquet-файлов: {len(parquet_files)}")
 
@@ -980,9 +980,9 @@ class DatasetManager:
             f"✅ Converted {converted_count} samples, {error_count} errors", "success"
         )
 
-        print(f"\n{'='*50}")
-        print(f"📊 СТАТИСТИКА КОНВЕРТАЦИИ")
-        print(f"{'-'*50}")
+        print(f"\n{'=' * 50}")
+        print("📊 СТАТИСТИКА КОНВЕРТАЦИИ")
+        print(f"{'-' * 50}")
         print(f"   Всего обработано строк: {total_rows}")
         print(f"   ✅ Успешно конвертировано: {converted_count}")
         print(f"   ❌ Ошибок: {error_count}")
@@ -1046,11 +1046,11 @@ class DatasetManager:
 
     def _create_index(self, config: DatasetConfig):
         """Создание индексного файла для быстрого доступа"""
-        index = {
+        index: Dict[str, Any] = {
             "dataset": config.name,
             "type": config.dataset_type.name,
             "created": datetime.now().isoformat(),
-            "splits": {},
+            "splits": {},  # type: Dict[str, Dict[str, Any]]
         }
 
         for split_name, split_dir in config.splits.items():
@@ -1094,7 +1094,7 @@ class DatasetManager:
                 if index.get("source") == "huggingface_datasets":
                     self._log("✅ Валидировано как HF datasets формат", "success")
                     return True
-            except:
+            except Exception:
                 pass
         required_dirs = [
             "images/training",
@@ -1152,7 +1152,7 @@ class DatasetManager:
                         f"⚠️ Несоответствие файлов в {key}: ожидалось ~{len(expected_files)}, найдено {len(actual_files)}",
                         "warning",
                     )
-        self._log(f"✅ Валидация пройдена", "success")
+        self._log("✅ Валидация пройдена", "success")
         return True
 
     def load_sample(
@@ -1214,7 +1214,7 @@ class DatasetManager:
         self._log(f"📄 Создан HF индекс: {index_path}")
 
     def load_test_image_from_hf(
-        self, repo_id: str, filename: str = None, split: str = "validation"
+        self, repo_id: str, filename: Optional[str] = None, split: str = "validation"
     ) -> Optional[Image.Image | None]:
         """
         Универсальная загрузка тестового изображения из HuggingFace.
@@ -1511,7 +1511,10 @@ if __name__ == "__main__":
     manager = DatasetManager(base_dir=args.base_dir)
     print("\n Cityscapes Dataset...")
     cityscapes_img = manager.load_test_image_from_hf("Chris1/cityscapes", split="train")
-    cityscapes_img.save("./../data/cityscapes_img.jpg")
+    if cityscapes_img is not None:  # 🔥 Проверка
+        cityscapes_img.save("./../data/cityscapes_img.jpg")
+    else:
+        print("⚠️ Не удалось загрузить изображение cityscapes")
     print("\n COCO Dataset...")
     coco_img = manager.load_test_image_from_hf("detection-datasets/coco", split="train")
     coco_img.save("./../data/coco_img.jpg")

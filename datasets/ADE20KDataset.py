@@ -4,18 +4,9 @@
 import os
 from typing import (
     List,
-    Union,
     Tuple,
     Dict,
-    Set,
     Any,
-    TypeVar,
-    Optional,
-    Literal,
-    Protocol,
-    runtime_checkable,
-    overload,
-    TYPE_CHECKING,
 )
 import random
 import traceback
@@ -40,7 +31,7 @@ class ADE20KDataset(Dataset):
         split: str = "training",
         image_size: tuple = (512, 512),
         augment: bool = False,
-        subset_fraction: float = None,
+        subset_fraction: Optional[float] = None,
         augmentation_level: str = "basic",  # 'none', 'basic', 'medium', 'aggressive'
         hflip_prob: float = 0.5,
         vflip_prob: float = 0.0,
@@ -89,7 +80,7 @@ class ADE20KDataset(Dataset):
         if subset_fraction is not None and subset_fraction < 1.0:
             n = int(len(self.valid_indices) * subset_fraction)
             self.valid_indices = self.valid_indices[:n]
-            print(f"   Используем {n} образцов ({subset_fraction*100:.0f}%)")
+            print(f"   Используем {n} образцов ({subset_fraction * 100:.0f}%)")
 
         self.img_transform = transforms.Compose(
             [
@@ -333,7 +324,7 @@ class ADE20KDatasetWithTransforms(Dataset):
         split: str = "training",
         image_size: tuple = (512, 512),
         augment: bool = False,
-        subset_fraction: float = None,
+        subset_fraction: Optional[float] = None,
         ignore_index: int = 255,
     ) -> None:
         self.image_size = image_size
@@ -362,6 +353,26 @@ class ADE20KDatasetWithTransforms(Dataset):
         if subset_fraction is not None and subset_fraction < 1.0:
             n = int(len(self.valid_indices) * subset_fraction)
             self.valid_indices = self.valid_indices[:n]
+
+    def _get_train_transforms(self) -> Dict[str, transforms.Compose]:  # ✅ Добавлен метод
+        """Трансформации для обучения с аугментациями"""
+        return {
+            "image": transforms.Compose(
+                [
+                    transforms.RandomHorizontalFlip(p=0.5),
+                    transforms.RandomRotation(degrees=15),
+                    transforms.ColorJitter(brightness=0.2, contrast=0.2),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+                ]
+            ),
+            "mask": transforms.Compose(
+                [
+                    # Только ToTensor для маски, без нормализации
+                    transforms.ToTensor(),
+                ]
+            ),
+        }
 
     def _get_val_transforms(self) -> Dict[str, transforms.Compose]:
         """Трансформации для валидации"""
@@ -414,10 +425,17 @@ class ADE20KDatasetWithTransforms(Dataset):
         )
 
         # Конвертация в tensor
-        img = self.transform["image"](img)
-        mask = torch.from_numpy(np.array(mask)).long()
+        img_tensor: torch.Tensor = self.transform["image"](img)
+        mask_tensor: torch.Tensor = self.transform["mask"](mask)
+        
+        # Для маски используем long для совместимости с loss функциями
+        mask_tensor = mask_tensor.squeeze(0).long()  # (1, H, W) -> (H, W)
 
-        return {"image": img, "mask": mask, "image_id": img_file}
+        return {
+            "image": img_tensor,
+            "mask": mask_tensor,
+            "image_id": img_file
+        }
 
 
 def test_dataloader() -> bool:

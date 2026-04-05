@@ -4,6 +4,7 @@
 import time
 import numpy as np
 from typing import (
+    TypedDict,
     List,
     Tuple,
     Dict,
@@ -11,6 +12,15 @@ from typing import (
     Optional,
 )
 import torch
+
+class WarmupStats(TypedDict):
+    method: str
+    n_runs: int
+    median_time_ms: float
+    mean_time_ms: float
+    std_time_ms: float
+    min_time_ms: float
+    max_time_ms: float
 
 
 class SegmentationWarmUp:
@@ -83,7 +93,7 @@ class SegmentationWarmUp:
         real_image: Optional[np.ndarray] = None,
         verbose: bool = True,
         use_real_image: bool = False,
-    ) -> Dict[str, float]:
+    ) -> WarmupStats:
         """
         Прогрев конкретного сегментера.
 
@@ -92,16 +102,17 @@ class SegmentationWarmUp:
             method_name: Имя метода для логирования
             image: Тестовое изображение (если None, создаётся автоматически)
             verbose: Логировать ли процесс
+            use_real_image: Использовать ли реальное изображение
 
         Returns:
-            Dict с временем warm-up и статистикой
+            WarmupStats: Словарь со статистикой warm-up
         """
         if use_real_image and real_image is not None:
             image = real_image
         else:
             image = self.create_test_image(pattern="gradient")
 
-        warmup_times = []
+        warmup_times: List[float] = []
 
         if verbose:
             print(f"🔥 Warm-up: {method_name} ({self.n_warmup_runs} runs)")
@@ -132,7 +143,7 @@ class SegmentationWarmUp:
             self._warmup_cuda(segmenter, image, verbose)
         self.warmup_results[method_name] = warmup_times
 
-        stats = {
+        stats: WarmupStats = {
             "method": method_name,
             "n_runs": len(warmup_times),
             "median_time_ms": (
@@ -205,7 +216,7 @@ class SegmentationWarmUp:
         Returns:
             Dict с результатами warm-up для каждого метода
         """
-        all_results = {}
+        all_results: Dict[str, Any] = {}
 
         print("\n" + "=" * 60)
         print("🔥 WARM-UP ВСЕХ МЕТОДОВ СЕГМЕНТАЦИИ")
