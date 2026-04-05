@@ -57,7 +57,7 @@ class ThresholdWarmUp:
             "sauvola",
         ]
 
-        results: Dict[str, Dict[str, Dict[str, Dict[str, Union[float, int]]]]] = {}
+        results: Dict[str, SizeResults] = {}
 
         print("\n🔥 WARM-UP ПОРОГОВЫХ МЕТОДОВ")
         print("=" * 60)
@@ -69,9 +69,9 @@ class ThresholdWarmUp:
             method_results: SizeResults = {"sizes": {}}
             for size in image_sizes:
                 # Создаём тестовое изображение
-                img = np.random.randint(0, 256, (*size, 3), dtype=np.uint8)
+                img: np.ndarray = np.random.randint(0, 256, (*size, 3), dtype=np.uint8)
 
-                times = []
+                times: List[float] = []
                 for _ in range(n_runs_per_size):
                     start = time.perf_counter()
                     try:
@@ -99,7 +99,7 @@ class ThresholdWarmUp:
         Прогрев граничных методов на различных паттернах.
         """
         edge_methods = ["sobel", "canny", "laplacian", "prewitt"]
-        results: Dict[str, Dict[str, Dict[str, Dict[str, float]]]] = {}
+        results: Dict[str, PatternResults] = {}
 
         print("\n🔥 WARM-UP ГРАНИЧНЫХ МЕТОДОВ")
         print("=" * 60)
@@ -112,9 +112,11 @@ class ThresholdWarmUp:
             method_results: PatternResults = {"patterns": {}}
 
             for pattern in edge_patterns:
-                img = ThresholdWarmUp._create_edge_pattern(256, 256, pattern)
+                img: np.ndarray = ThresholdWarmUp._create_edge_pattern(
+                    256, 256, pattern
+                )
 
-                times = []
+                times: List[float] = []
                 for _ in range(3):
                     start = time.perf_counter()
                     try:
@@ -124,7 +126,7 @@ class ThresholdWarmUp:
                     except Exception:
                         times.append(float("inf"))
 
-                method_results["patterns"][pattern] = WarmupMetrics(
+                method_results["patterns"][pattern] = WarmupMetrics(  # type: ignore[typeddict-item]
                     mean_ms=float(np.mean(times) * 1000),
                     std_ms=float(np.std(times) * 1000),
                     n_runs=len(times),
@@ -138,7 +140,7 @@ class ThresholdWarmUp:
     @staticmethod
     def _create_edge_pattern(h: int, w: int, pattern: str) -> np.ndarray:
         """Создаёт тестовые паттерны для граничных методов."""
-        img = np.zeros((h, w), dtype=np.uint8)
+        img: np.ndarray = np.zeros((h, w), dtype=np.uint8)
 
         if pattern == "horizontal":
             img[(h // 2 - 5) : (h // 2 + 5), :] = 255
@@ -150,6 +152,10 @@ class ThresholdWarmUp:
                 img[i, i + 1] = 255
                 img[i + 1, i] = 255
         elif pattern == "noise":
-            img = np.random.randint(0, 256, (h, w), dtype=np.uint8)
+            img = np.random.randint(0, 256, (h, w, 3), dtype=np.uint8)
+        else:
+            # Default: checkerboard
+            img[::2, ::2, :] = 255
+            img[1::2, 1::2, :] = 255
 
-        return np.stack([img] * 3, axis=-1)
+        return img

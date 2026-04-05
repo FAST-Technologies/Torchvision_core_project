@@ -20,7 +20,7 @@ import torchvision.models.segmentation as tv_seg
 
 from sklearn.metrics import jaccard_score
 
-from datasets.ADE20KDataset import ADE20KDataset
+from dataseters.ADE20KDataset import ADE20KDataset
 from .NeuralTrainer import NeuralTrainer
 from utils.strategies import SegNet
 

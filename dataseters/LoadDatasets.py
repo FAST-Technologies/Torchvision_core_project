@@ -420,7 +420,7 @@ class DatasetManager:
                 return
 
             print("📦 Скачивание файлов датасета...")
-            snapshot_download(
+            snapshot_download(  # type: ignore[call-arg]
                 repo_id=config.source_url,
                 repo_type="dataset",
                 local_dir=str(local_dir),
@@ -1061,7 +1061,7 @@ class DatasetManager:
                         "warning",
                     )
 
-                index["splits"][split_name] = {
+                index["splits"][split_name] = {  # type: ignore[index]
                     "count": len(images),
                     "images": images[:10] + ["..."] if len(images) > 10 else images,
                 }
@@ -1176,7 +1176,7 @@ class DatasetManager:
     def _create_index_from_hf_dataset(self, config: DatasetConfig, hf_dataset):
         """Создание index.json для датасета из datasets library"""
         index_path = config.full_path / "index.json"
-        index = {
+        index: Dict[str, Any] = {
             "dataset": config.name,
             "type": config.dataset_type.name,
             "num_classes": config.num_classes,
@@ -1187,7 +1187,7 @@ class DatasetManager:
 
         for split_name in hf_dataset.keys():
             split_data = hf_dataset[split_name]
-            index["splits"][split_name] = {
+            index["splits"][split_name] = {  # type: ignore[index]
                 "count": len(split_data),
                 "columns": (
                     list(split_data.features.keys())

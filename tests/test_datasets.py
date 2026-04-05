@@ -14,7 +14,7 @@ import torch
 
 
 def import_ade20k():
-    from datasets.ADE20KDataset import ADE20KDataset
+    from dataseters.ADE20KDataset import ADE20KDataset
 
     return ADE20KDataset
 
