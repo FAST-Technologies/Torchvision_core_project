@@ -28,10 +28,10 @@ import yaml
 
 try:
     from huggingface_hub import hf_hub_download, list_repo_files, snapshot_download
-    
+
     # 🔥 Добавляем type: ignore для mypy
     from datasets import load_dataset  # type: ignore[attr-defined]
-    
+
     HF_AVAILABLE = True
 except ImportError:
     HF_AVAILABLE = False
@@ -413,8 +413,7 @@ class DatasetManager:
 
                 self._log("📊 Загрузка через datasets library...")
                 hf_dataset = load_dataset(
-                    path=config.source_url,
-                    cache_dir=str(self.base_dir / ".cache")
+                    path=config.source_url, cache_dir=str(self.base_dir / ".cache")
                 )
                 self._log("✅ Загружено через datasets library")
                 self._create_index_from_hf_dataset(config, hf_dataset)

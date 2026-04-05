@@ -11,13 +11,16 @@ from typing import (
 )
 import time
 
+
 class WarmupMetrics(TypedDict):
     mean_ms: float
     std_ms: float
     n_runs: int  # или total: int
 
+
 class SizeResults(TypedDict):
     sizes: Dict[str, WarmupMetrics]
+
 
 class PatternResults(TypedDict):
     patterns: Dict[str, WarmupMetrics]
@@ -107,7 +110,7 @@ class ThresholdWarmUp:
                 continue
 
             method_results: PatternResults = {"patterns": {}}
-            
+
             for pattern in edge_patterns:
                 img = ThresholdWarmUp._create_edge_pattern(256, 256, pattern)
 
@@ -121,11 +124,11 @@ class ThresholdWarmUp:
                     except Exception:
                         times.append(float("inf"))
 
-                method_results["patterns"][pattern] = WarmupMetrics{
+                method_results["patterns"][pattern] = WarmupMetrics(
                     mean_ms=float(np.mean(times) * 1000),
                     std_ms=float(np.std(times) * 1000),
                     n_runs=len(times),
-                }
+                )
 
             results[name] = method_results
             print(f"✅ {name}: {method_results['patterns']}")
