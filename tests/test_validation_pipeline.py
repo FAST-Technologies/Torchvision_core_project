@@ -18,6 +18,8 @@ class TestValidationPipeline:
     def test_torch_vs_opencv_validation(self, rgb_image) -> None:
         """Валидация Torch vs OpenCV реализаций"""
         from testing.TorchImplementationValidator import TorchImplementationValidator
+        from segmenters.TorchSegmenter import TorchSegmenter
+        from segmenters.SklearnSegmenter import SklearnSegmenter
 
         with tempfile.TemporaryDirectory() as tmpdir:
             validator = TorchImplementationValidator(output_dir=tmpdir)
@@ -26,8 +28,8 @@ class TestValidationPipeline:
             results = validator.validate_segmentation_methods(
                 image_path=rgb_image,
                 methods_list=[("global_thresholding", {"threshold": 0.5})],
-                torch_segmenter_class=None,
-                reference_segmenter_class=None,
+                torch_segmenter_class=TorchSegmenter,
+                reference_segmenter_class=SklearnSegmenter,
                 reference="opencv",
                 status_message="Test",
                 prefix="test",

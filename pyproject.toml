@@ -1,4 +1,14 @@
 # pyproject.toml
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+explicit_package_bases = true
+namespace_packages = true
+mypy_path = "."
+
+[[tool.mypy.overrides]]
+module = "utils.*"
+implicit_reexport = true
 [tool.pytest.ini_options]
 minversion = "7.0"
 addopts = [

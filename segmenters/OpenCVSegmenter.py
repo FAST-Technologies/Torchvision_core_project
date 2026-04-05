@@ -924,7 +924,7 @@ class OpenCVSegmenter(BaseSegmenter):
         percentile: float = self.params.get("percentile", 90)
 
         # Вычисляем процентиль
-        threshold = np.percentile(gray, percentile)
+        threshold = np.percentile(gray.astype(np.float32), percentile)
 
         # Бинаризация
         _, mask = cv2.threshold(gray, int(threshold), 255.0, cv2.THRESH_BINARY)
@@ -2162,8 +2162,16 @@ class OpenCVSegmenter(BaseSegmenter):
 
         for _ in range(iterations):
             # Вычисляем средние значения внутри и снаружи маски
-            inside_mean = np.mean(gray[mask > 0]) if np.any(mask > 0) else 0
-            outside_mean = np.mean(gray[mask == 0]) if np.any(mask == 0) else 0
+            inside_mean = (
+                float(np.mean(gray[mask > 0].astype(np.float32)))
+                if np.any(mask > 0)
+                else 0.0
+            )
+            outside_mean = (
+                float(np.mean(gray[mask == 0].astype(np.float32)))
+                if np.any(mask == 0)
+                else 0.0
+            )
 
             # Обновляем маску на основе разности с средними
             diff_inside = np.abs(gray.astype(float) - inside_mean)

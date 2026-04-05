@@ -1336,7 +1336,6 @@ class MedicalDatasetUtils:
             raise ImportError("Install nibabel: pip install nibabel")
 
         nii = nib.load(str(path))
-        
         data = nii.get_fdata()  # type: ignore[attr-defined]
         metadata = {
             "shape": data.shape,

@@ -64,7 +64,7 @@ class SegmentationWarmUp:
 
         elif pattern == "noise":
             # Шум для тестирования граничных методов
-            img = np.random.randint(0, 256, (h, w, 3), dtype=np.uint8)
+            img = np.random.randint(0, 256, (h, w, 3), dtype=np.uint8)  # type: ignore[assignment]
 
         elif pattern == "checkerboard":
             # Шахматная доска для тестирования контуров
@@ -84,7 +84,7 @@ class SegmentationWarmUp:
                 mask = (x - center_x) ** 2 + (y - center_y) ** 2 <= radius**2
                 img[mask] = 0
         else:
-            img = np.random.randint(0, 256, (h, w, 3), dtype=np.uint8)
+            img = np.random.randint(0, 256, (h, w, 3), dtype=np.uint8)  # type: ignore[assignment]
         return img
 
     def warmup_segmenter(
@@ -148,7 +148,7 @@ class SegmentationWarmUp:
             "method": method_name,
             "n_runs": len(warmup_times),
             "median_time_ms": (
-                np.median(warmup_times) * 1000 if warmup_times else float("inf")
+                float(np.median(warmup_times) * 1000) if warmup_times else float("inf")
             ),
             "mean_time_ms": (
                 float(np.mean(warmup_times) * 1000) if warmup_times else float("inf")

@@ -3773,7 +3773,6 @@ class TorchSegmenter(BaseSegmenter):
 
         # --- Строим бинарную маску из контура ---
         # Растеризуем полигон через torch операции
-        mask_np = np.zeros((h, w), dtype=np.float32)
         snake_np = snake.cpu().numpy()
         # Заполняем полигон
         from PIL import Image as PILImage, ImageDraw
@@ -3784,9 +3783,10 @@ class TorchSegmenter(BaseSegmenter):
             (float(snake_np[i, 0]), float(snake_np[i, 1])) for i in range(n_points)
         ]
         draw.polygon(polygon_pts, fill=255)
-        mask_np = np.array(pil_mask, dtype=np.float32) / 255.0
+        mask_np: np.ndarray = np.asarray(pil_mask, dtype=np.uint8)  # type: ignore[assignment]
+        mask_np_fix = mask_np.astype(np.float32) / 255.0
 
-        mask = torch.from_numpy(mask_np).to(self.device)
+        mask = torch.from_numpy(mask_np_fix).to(self.device)
 
         exec_time = time.time() - start_time
         info = {

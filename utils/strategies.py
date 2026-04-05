@@ -4,8 +4,6 @@
 import sys
 import os
 
-from .utils import extract_logits_info
-
 import torchvision.transforms as T
 import segmentation_models_pytorch as smp
 
@@ -19,6 +17,7 @@ import time
 from scipy.ndimage import zoom
 
 from utils.utils import (
+    extract_logits_info,
     compute_metrics,
     analyze_prediction,
     generate_class_report,
