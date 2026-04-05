@@ -621,7 +621,7 @@ class SegNet(torch.nn.Module):
 def segment_image_unified(
     model: Any,
     processor: Any,
-    image_input: Union[str, Image.Image, np.ndarray],
+    image_input: Union[str, Image.Image, np.ndarray, torch.Tensor],
     model_type: str,
     alpha: float = 0.5,
     palette: Optional[Union[List[List[int]], Callable]] = None,

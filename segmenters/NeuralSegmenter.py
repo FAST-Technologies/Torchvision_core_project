@@ -32,7 +32,6 @@ import numpy as np
 from scipy.ndimage import zoom
 
 import torch
-import cv2
 from typing_extensions import TypeAlias
 
 TRANSFORMERS_AVAILABLE = True
@@ -301,7 +300,7 @@ class NeuralSegmenter(BaseSegmenter):
 
     def predict_segmentation_map(
         self,
-        input_image: Union[str, Image.Image],
+        input_image: Union[ImageInput],
         verbose: bool = True,
         class_names: Optional[Dict] = None,
         gt_mask=None,
