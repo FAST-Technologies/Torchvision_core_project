@@ -65,7 +65,7 @@ class TorchImplementationValidator:
             ("canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
             ("prewitt_edge", {"threshold": 0.1}),
             ("scharr_edge", {"threshold": 0.1}),
-            ("roberts_cross_edge", {"threshold": 0.1}),  # OpenCV/Sklearn name
+            ("roberts_cross_edge", {"threshold": 0.1}),
             ("log_edge", {"sigma": 1.0, "threshold": 0.01}),
             ("dog_edge", {"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01}),
             ("marr_hildreth_edge", {"sigma": 1.5, "threshold": 0.01}),
@@ -82,7 +82,7 @@ class TorchImplementationValidator:
                     "mult": 2.0,
                     "sigma_onf": 0.55,
                     "k_noise": 2.0,
-                    "threshold": 0.3,
+                    "threshold": 0.5,
                 },
             ),
         ]
@@ -625,7 +625,7 @@ class TorchImplementationValidator:
             ),
             (
                 "edge_custom",
-                self.edge_methods,  # OpenCV/Sklearn names ('roberts_cross_edge')
+                self.edge_methods,
                 OpenCVSegmenter,
                 SklearnSegmenter,
                 "ВАЛИДАЦИЯ ОПЕРАТОРОВ ГРАНИЦ (OpenCV + Sklearn)",

@@ -612,7 +612,7 @@ class SklearnSegmenter(BaseSegmenter):
         # gray = self._normalize_for_skimage(img) if img.max() > 1.0 else img.astype(np.float32)
 
         start_time = time.time()
-        threshold = self.params.get("threshold", 0.5, **kwargs)
+        threshold = self.params.get("threshold", 0.5)
         mask = gray > threshold
         exec_time = time.time() - start_time
         mask = (mask * 255).astype(np.uint8)
@@ -879,7 +879,7 @@ class SklearnSegmenter(BaseSegmenter):
         start_time = time.time()
         window_size = self.params.get("window_size", 15)
         k = self.params.get("k", 0.25)
-        r = self.params.get("r", 0.5)
+        r = self.params.get("r", 128.0)
         m = self.params.get("m", 0.5)
 
         # h, w = img.shape
@@ -905,8 +905,15 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Адаптированная формула для диапазона [0, 1]
         # Порог Фансалкара
+        img_range = img.max() - img.min()
+        is_normalized = img_range <= 1.0
+
+        # R = половина от максимального значения диапазона
+        R = 0.5 if is_normalized else 128.0
+
+        # 🔥 ЕДИНАЯ ФОРМУЛА: T = μ + k·σ·(σ/R) + m·(μ/R - 1)
         threshold_map = (
-            local_mean + k * local_std * (local_std / r) + m * (local_mean / 0.5 - 1)
+            local_mean + k * local_std * (local_std / R) + m * (local_mean / R - 1)
         )
         mask = img > threshold_map
 
@@ -935,9 +942,20 @@ class SklearnSegmenter(BaseSegmenter):
         start_time = time.time()
         num_bins = self.params.get("num_bins", 256)
 
+        img_min = img.min()
+        img_max = img.max()
+        img_range = img_max - img_min
+        is_normalized = img_range <= 1.0
+
         # Гистограмма изображения
-        hist, bin_edges = np.histogram(img.flatten(), bins=num_bins, range=(0, 1))
-        hist = hist.astype(np.float64)
+        if is_normalized:
+            hist, _ = np.histogram(img.flatten(), bins=num_bins, range=(0.0, 1.0))
+            bin_edges = np.linspace(0, 1, num_bins + 1)
+        else:
+            hist, _ = np.histogram(img.flatten(), bins=num_bins, range=(0.0, 256.0))
+            bin_edges = np.linspace(0, 256, num_bins + 1)
+
+        hist = hist.astype(np.float64) + 1e-10
 
         # Нормализация гистограммы
         hist = hist / hist.sum()
@@ -977,8 +995,9 @@ class SklearnSegmenter(BaseSegmenter):
 
             if error < min_error:
                 min_error = error
-                best_threshold = t / num_bins
+                best_bin = t
 
+        best_threshold = bin_edges[best_bin]
         mask = img > best_threshold
         exec_time = time.time() - start_time
         mask = (mask * 255).astype(np.uint8)
@@ -1001,7 +1020,18 @@ class SklearnSegmenter(BaseSegmenter):
         num_bins = self.params.get("num_bins", 256)
 
         # Гистограмма изображения
-        hist, bin_edges = np.histogram(img.flatten(), bins=num_bins, range=(0, 1))
+        img_min = img.min()
+        img_max = img.max()
+        img_range = img_max - img_min
+        is_normalized = img_range <= 1.0
+
+        # Гистограмма изображения
+        if is_normalized:
+            hist, _ = np.histogram(img.flatten(), bins=num_bins, range=(0.0, 1.0))
+            bin_edges = np.linspace(0, 1, num_bins + 1)
+        else:
+            hist, _ = np.histogram(img.flatten(), bins=num_bins, range=(0.0, 256.0))
+            bin_edges = np.linspace(0, 256, num_bins + 1)
         hist = hist.astype(np.float64) + 1e-10  # Избегаем log(0)
         hist = hist / hist.sum()
 
@@ -1028,8 +1058,9 @@ class SklearnSegmenter(BaseSegmenter):
 
             if total_entropy > max_entropy:
                 max_entropy = total_entropy
-                best_threshold = t / num_bins
+                best_bin = t
 
+        best_threshold = bin_edges[best_bin]
         mask = img > best_threshold
         exec_time = time.time() - start_time
         mask = (mask * 255).astype(np.uint8)
@@ -1053,7 +1084,18 @@ class SklearnSegmenter(BaseSegmenter):
         num_bins = self.params.get("num_bins", 256)
 
         # Гистограмма изображения
-        hist, bin_edges = np.histogram(img.flatten(), bins=num_bins, range=(0, 1))
+        img_min = img.min()
+        img_max = img.max()
+        img_range = img_max - img_min
+        is_normalized = img_range <= 1.0
+
+        # Гистограмма изображения
+        if is_normalized:
+            hist, _ = np.histogram(img.flatten(), bins=num_bins, range=(0.0, 1.0))
+            bin_edges = np.linspace(0, 1, num_bins + 1)
+        else:
+            hist, _ = np.histogram(img.flatten(), bins=num_bins, range=(0.0, 256.0))
+            bin_edges = np.linspace(0, 256, num_bins + 1)
 
         # Находим пик гистограммы
         peak_idx = np.argmax(hist)
@@ -1080,7 +1122,9 @@ class SklearnSegmenter(BaseSegmenter):
 
             if dist > max_dist:
                 max_dist = dist
-                best_threshold = t / num_bins
+                best_bin = t
+
+        best_threshold = bin_edges[best_bin]
         mask = img > best_threshold
         exec_time = time.time() - start_time
         mask = (mask * 255).astype(np.uint8)
@@ -1714,13 +1758,13 @@ class SklearnSegmenter(BaseSegmenter):
         start_time = time.time()
 
         # ============ ПАРАМЕТРЫ ============
-        nscales = self.params.get("nscales", 4)
+        nscale = self.params.get("nscale", 4)
         norientations = self.params.get("norientations", 4)
         min_wavelength = self.params.get("min_wavelength", 3)
         mult = self.params.get("mult", 2.0)
         sigma_onf = self.params.get("sigma_onf", 0.55)
         k_noise = self.params.get("k_noise", 2.0)
-        cutoff_pc = self.params.get("cutoff_pc", 0.5)
+        cutoff_pc = self.params.get("threshold", 0.5)
         epsilon = 1e-6
 
         # Нормализация
@@ -1747,7 +1791,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         orientations = np.linspace(0, np.pi, norientations, endpoint=False)
 
-        for scale in range(nscales):
+        for scale in range(nscale):
             wavelength = min_wavelength * (mult**scale)
             fo = 1.0 / wavelength
             # sigma_f = fo * sigma_onf
@@ -1805,7 +1849,7 @@ class SklearnSegmenter(BaseSegmenter):
         info = {
             "method": "phase_congruency_edge_sklearn",
             "parameters": {
-                "nscales": nscales,
+                "nscale": nscale,
                 "norientations": norientations,
                 "min_wavelength": min_wavelength,
                 "mult": mult,

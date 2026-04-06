@@ -51,8 +51,8 @@ num_classes: int = 150
 
 
 def main():
-    test_neural_logic: bool = True
-    test_classic_logic: bool = False
+    test_neural_logic: bool = False
+    test_classic_logic: bool = True
     print(f"📍 CWD: {os.getcwd()}")
     print(f"📍 __file__: {__file__}")
     print(f"📍 sys.path: {sys.path[:3]}...")
@@ -779,7 +779,7 @@ def main():
         all_results = {}
         # test_images['ade20k_sample'][0]
         # test_images['countryside'][0]
-        all_results = validator.validate_all_methods(test_images["countryside"][0])
+        all_results = validator.validate_all_methods(test_images["trucks"][0])
         validator.generate_validation_report(all_results)
         print(f"\n✅ Все результаты сохранены в: {validator.output_dir}")
 

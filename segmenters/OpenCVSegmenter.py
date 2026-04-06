@@ -88,7 +88,12 @@ class OpenCVSegmenter(BaseSegmenter):
                     adapted[key] = int(val * 255)
 
         # Параметры, зависящие от интенсивности (смещения)
-        offset_params = ["C", "tolerance", "c", "k"]
+        offset_params = [
+            "C",
+            "tolerance",
+            "c",
+            #  "k"
+        ]
         for key in offset_params:
             if key in adapted:
                 val = adapted[key]
@@ -382,6 +387,7 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+
         # print(f"Gray after OpenCV_thresholding_niblack: {gray}")
 
         start_time = time.time()
@@ -394,7 +400,7 @@ class OpenCVSegmenter(BaseSegmenter):
         mean_sq = cv2.boxFilter(
             gray.astype(np.float32) ** 2, cv2.CV_32F, (window_size, window_size)
         )
-        std = np.sqrt(mean_sq - mean**2)
+        std = np.sqrt(np.maximum(mean_sq - mean**2, 0))
 
         # Или
         # mean = cv2.blur(gray, (window_size, window_size))
@@ -553,6 +559,10 @@ class OpenCVSegmenter(BaseSegmenter):
         else:
             gray = img.copy()
 
+        gray_range = gray.max() - gray.min()
+        is_normalized = gray_range <= 1.0
+        R = 0.5 if is_normalized else 128.0
+
         start_time: float = time.time()
 
         window_size: int = self.params.get("window_size", 15)
@@ -570,7 +580,7 @@ class OpenCVSegmenter(BaseSegmenter):
         )
         std = np.sqrt(np.maximum(mean_sq - mean**2, 0))
         # Порог Фансалкара
-        threshold = mean + k * std * (std / r) + m * (mean / 128.0 - 1)
+        threshold = mean + k * std * (std / R) + m * (mean / R - 1)
 
         mask = (gray.astype(np.float32) > threshold).astype(np.uint8) * 255
 
@@ -1299,8 +1309,6 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Векторизованное zero-crossing: соседние пиксели имеют противоположные знаки
         magnitude = np.abs(laplacian)
-        if magnitude.max() > 0:
-            magnitude = magnitude / magnitude.max()
         sign = np.sign(laplacian)
         zc_h = sign[:, :-1] * sign[:, 1:] < 0  # горизонтальное пересечение
         zc_v = sign[:-1, :] * sign[1:, :] < 0  # вертикальное пересечение
@@ -1375,8 +1383,6 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Векторизованное zero-crossing
         magnitude = np.abs(dog)
-        if magnitude.max() > 0:
-            magnitude = magnitude / magnitude.max()
         sign = np.sign(dog)
         zc_h = sign[:, :-1] * sign[:, 1:] < 0
         zc_v = sign[:-1, :] * sign[1:, :] < 0
@@ -1425,8 +1431,6 @@ class OpenCVSegmenter(BaseSegmenter):
         # Лапласиан Гауссиана через OpenCV
         laplacian = cv2.Laplacian(cv2.GaussianBlur(gray, (0, 0), sigma), cv2.CV_64F)
         magnitude = np.abs(laplacian)
-        if magnitude.max() > 0:
-            magnitude = magnitude / magnitude.max()
 
         # # Zero-crossing detection
         # zero_crossing = np.zeros_like(laplacian, dtype=np.uint8)
@@ -1483,6 +1487,8 @@ class OpenCVSegmenter(BaseSegmenter):
         start_time: float = time.time()
 
         threshold: int = self.params.get("threshold", 50)
+        if threshold > 1.0:  # Если порог в [0,255]
+            threshold = threshold / 255.0
         angle_range: Optional[Tuple[float, float]] = self.params.get(
             "angle_range", None
         )

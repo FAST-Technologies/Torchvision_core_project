@@ -555,6 +555,7 @@ class SegmentationTester:
         else:
             original_img = Image.fromarray(image.astype(np.uint8))
             image_path = None
+        print(image_path)
         orig_save_path: str = os.path.join(test_dir, "images", "original.jpg")
         original_img.save(orig_save_path)
         print(f"📸 Оригинальное изображение сохранено: {orig_save_path}")
@@ -1765,8 +1766,8 @@ class SegmentationTester:
 
             records.append(record)
             print(
-                f"  ✅ {method_name}: {record['mean_time_s']*1000:.1f}ms "
-                f"(±{record['std_time_s']*1000:.1f}ms), mask={record['mask_pct']:.1f}%"
+                f"  ✅ {method_name}: {record['mean_time_s'] * 1000:.1f}ms "
+                f"(±{record['std_time_s'] * 1000:.1f}ms), mask={record['mask_pct']:.1f}%"
             )
 
         df = pd.DataFrame(records)

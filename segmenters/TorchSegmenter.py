@@ -1552,7 +1552,7 @@ class TorchSegmenter(BaseSegmenter):
         Returns:
             torch.Tensor: Бинарная маска (B, 1, H, W)
         """
-        gray = self._to_grayscale(tensor).squeeze(0)  # (H, W)
+        gray = self._to_grayscale(tensor)  # (1, 1, H, W)
 
         start_time = time.time()
         window_size = self.params.get("window_size", 15)
@@ -1562,34 +1562,45 @@ class TorchSegmenter(BaseSegmenter):
             window_size += 1
         pad = window_size // 2
 
+        if gray.dim() == 2:
+            gray = gray.unsqueeze(0).unsqueeze(0)  # (H,W) -> (1,1,H,W)
+        elif gray.dim() == 3:
+            if gray.shape[0] == 1:
+                gray = gray.unsqueeze(0)  # (1,H,W) -> (1,1,H,W)
+
         # Паддинг для обработки краёв
-        gray_padded = (
-            F.pad(gray.unsqueeze(0).unsqueeze(0), (pad, pad, pad, pad), mode="reflect")
-            .squeeze(0)
-            .squeeze(0)
-        )
+        gray_padded = F.pad(gray, (pad, pad, pad, pad), mode="reflect")
         print(gray_padded)
 
-        h, w = gray.shape
-        mask = torch.zeros_like(gray)
+        h, w = gray.shape[2], gray.shape[3]
+        mask = torch.zeros((h, w), device=self.device)
 
         # Локальное вычисление мин/макс через свёртку с ядрами
         # Для эффективности используем pooling
         kernel = torch.ones(1, 1, window_size, window_size, device=self.device)
         print(kernel)
         # Локальный максимум и минимум через pooling
-        local_max = F.max_pool2d(
-            gray.unsqueeze(0).unsqueeze(0),
-            kernel_size=window_size,
-            stride=1,
-            padding=pad,
-        ).squeeze()
-        local_min = -F.max_pool2d(
-            -gray.unsqueeze(0).unsqueeze(0),
-            kernel_size=window_size,
-            stride=1,
-            padding=pad,
-        ).squeeze()
+        local_max = (
+            F.max_pool2d(
+                gray,
+                kernel_size=window_size,
+                stride=1,
+                padding=pad,
+            )
+            .squeeze(0)
+            .squeeze(0)
+        )  # (1, 1, H, W) -> (H, W)
+
+        local_min = (
+            -F.max_pool2d(
+                -gray,
+                kernel_size=window_size,
+                stride=1,
+                padding=pad,
+            )
+            .squeeze(0)
+            .squeeze(0)
+        )
 
         # Контраст в окне
         contrast = local_max - local_min
@@ -1599,12 +1610,14 @@ class TorchSegmenter(BaseSegmenter):
 
         # Применяем порог только там, где контраст достаточный
         high_contrast = contrast > contrast_threshold
-        mask[high_contrast] = (gray[high_contrast] > threshold[high_contrast]).float()
-
+        gray_2d = gray.squeeze(0).squeeze(0)  # (1,1,H,W) -> (H,W)
+        mask[high_contrast] = (
+            gray_2d[high_contrast] > threshold[high_contrast]
+        ).float()
         # Там, где контраст низкий — классифицируем по глобальному среднему
         if not high_contrast.all():
-            global_mean = gray.mean()
-            mask[~high_contrast] = (gray[~high_contrast] > global_mean).float()
+            global_mean = gray_2d.mean()
+            mask[~high_contrast] = (gray_2d[~high_contrast] > global_mean).float()
 
         exec_time = time.time() - start_time
         self.params["execution_info"] = {
@@ -1612,7 +1625,7 @@ class TorchSegmenter(BaseSegmenter):
             "execution_time": exec_time,
         }
 
-        return mask.unsqueeze(0).unsqueeze(0)
+        return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
     def _threshold_phansalkar(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
@@ -1630,7 +1643,12 @@ class TorchSegmenter(BaseSegmenter):
         Returns:
             torch.Tensor: Бинарная маска
         """
-        gray = self._to_grayscale(tensor).squeeze(0)  # (H, W)
+        gray = self._to_grayscale(tensor)  # (1, 1, H, W)
+
+        if gray.dim() == 4:
+            gray = gray.squeeze(0).squeeze(0)  # (1, 1, H, W) -> (H, W)
+        elif gray.dim() == 3 and gray.shape[0] == 1:
+            gray = gray.squeeze(0)  # (1, H, W) -> (H, W)
 
         start_time = time.time()
         window_size = self.params.get("window_size", 15)
@@ -1652,8 +1670,6 @@ class TorchSegmenter(BaseSegmenter):
         local_mean = self._local_mean_numpy(gray_np, window_size)
         local_std = self._local_std_numpy(gray_np, window_size)
         # Формула Фансалкара
-        # sigma_r = local_std / r
-        # threshold = local_mean * (1 + p * (sigma_r - 1) + q * (sigma_r - 1)**2)
         # T = μ + k·σ·(σ/R) + m·(μ/128 - 1)
         sigma_r = local_std / r
         threshold = local_mean + k * local_std * sigma_r + m * (local_mean / 128.0 - 1)
@@ -1668,7 +1684,7 @@ class TorchSegmenter(BaseSegmenter):
             "execution_time": exec_time,
         }
 
-        return mask.unsqueeze(0).unsqueeze(0)
+        return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
     def _threshold_percentile(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
@@ -2127,7 +2143,11 @@ class TorchSegmenter(BaseSegmenter):
         exec_time = time.time() - start_time
         info = {
             "method": "local_contrast_torch",
-            "parameters": {"window_size": window_size, "contrast_factor": contrast_factor, **kwargs},
+            "parameters": {
+                "window_size": window_size,
+                "contrast_factor": contrast_factor,
+                **kwargs,
+            },
             "execution_time": exec_time,
         }
         print(f"Info after Torch_thresholding_local_contrast: {info}")
@@ -2217,6 +2237,13 @@ class TorchSegmenter(BaseSegmenter):
         high = self.params.get("high", 0.3)
         sigma = self.params.get("sigma", 1.0)
 
+        if gray.dim() == 2:
+            gray = gray.unsqueeze(0).unsqueeze(0)  # (H, W) -> (1, 1, H, W)
+        elif gray.dim() == 3:
+            if gray.shape[0] == 1:
+                gray = gray.unsqueeze(0)  # (1, H, W) -> (1, 1, H, W)
+            # else: уже (B, C, H, W) или (C, H, W) — оставляем как есть
+
         # 1. Gaussian Blur (если sigma > 0)
         if sigma > 0:
             kernel_size = int(2 * round(3 * sigma) + 1)
@@ -2229,9 +2256,9 @@ class TorchSegmenter(BaseSegmenter):
                     kernel_size=[kernel_size, kernel_size],
                     sigma=[sigma, sigma],
                 ).squeeze(0)
-            except AttributeError:
-                # Fallback для старых версий PyTorch
-                pass
+            except (AttributeError, NotImplementedError, RuntimeError) as e:
+                # 🔥 Ловим NotImplementedError от внутреннего pad()
+                print(f"⚠️ Gaussian blur failed: {e}. Skipping blur step.")
 
         # 2. Градиенты Собеля
         sobel_x = torch.tensor(
@@ -2252,8 +2279,7 @@ class TorchSegmenter(BaseSegmenter):
         angle = torch.atan2(gy, gx)  # Радианы от -pi до pi
 
         # Нормализуем угол в диапазон [0, 180] градусов
-        angle_deg = torch.rad2deg(angle)
-        angle_deg = torch.abs(angle_deg)
+        angle_deg = torch.abs(torch.rad2deg(angle))
 
         # 3. Non-Maximum Suppression (NMS) с правильным паддингом
         # Используем reflection padding, чтобы сохранить размерность
@@ -2358,13 +2384,10 @@ class TorchSegmenter(BaseSegmenter):
         # print(f"Mask after Torch_canny_edge: {final_mask.unsqueeze(0)}")
         print(f"Info after Torch_canny_edge: {info}")
 
-        final_mask = final_mask.squeeze()  # Удаляет ВСЕ размерности 1
         if final_mask.dim() == 2:
-            final_mask = final_mask.unsqueeze(0).unsqueeze(
-                0
-            )  # Возвращаем к (1, 1, H, W)
+            final_mask = final_mask.unsqueeze(0).unsqueeze(0)
         elif final_mask.dim() == 3:
-            final_mask = final_mask.unsqueeze(0)  # Если было (1, H, W)
+            final_mask = final_mask.unsqueeze(0)
 
         return final_mask  # Возвращаем (1, 1, H, W)
 
@@ -2650,6 +2673,11 @@ class TorchSegmenter(BaseSegmenter):
         Применяет гауссово размытие, затем лапласиан, ищет пересечения нуля.
         """
         gray = self._to_grayscale(tensor)
+        if gray.dim() == 2:
+            gray = gray.unsqueeze(0).unsqueeze(0)  # (H, W) -> (1, 1, H, W)
+        elif gray.dim() == 3:
+            if gray.shape[0] == 1:
+                gray = gray.unsqueeze(0)  # (1, H, W) -> (1, 1, H, W)
 
         start_time = time.time()
 
@@ -2661,11 +2689,15 @@ class TorchSegmenter(BaseSegmenter):
             kernel_size = int(2 * round(3 * sigma) + 1)
             if kernel_size % 2 == 0:
                 kernel_size += 1
-            gray = tv_gaussian_blur(
-                gray.unsqueeze(0),  # (B, C, H, W) или (C, H, W)
-                kernel_size=[kernel_size, kernel_size],
-                sigma=[sigma, sigma],
-            ).squeeze(0)
+            try:
+                # 🔥 Передаём уже 4D тензор, без лишнего unsqueeze
+                gray = tv_gaussian_blur(
+                    gray,
+                    kernel_size=[kernel_size, kernel_size],
+                    sigma=[sigma, sigma],
+                )
+            except (AttributeError, NotImplementedError, RuntimeError) as e:
+                print(f"⚠️ Gaussian blur failed: {e}. Skipping blur step.")
 
         # 2. Laplacian kernel
         laplacian_kernel = torch.tensor(
@@ -2680,12 +2712,12 @@ class TorchSegmenter(BaseSegmenter):
         sign = torch.sign(laplacian)
 
         # Пересечение нуля: соседние пиксели имеют разные знаки
-        zero_crossing = torch.zeros_like(laplacian)
+        zero_crossing = torch.zeros_like(laplacian, dtype=torch.bool)
 
         # Проверяем горизонтальные и вертикальные соседи
         for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
             shifted = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
-            zero_crossing |= sign * shifted < 0
+            zero_crossing = torch.logical_or(zero_crossing, (sign * shifted < 0))
 
         # Магнитуда лапласиана для порога
         magnitude = torch.abs(laplacian)
@@ -2716,6 +2748,12 @@ class TorchSegmenter(BaseSegmenter):
         """
         gray = self._to_grayscale(tensor)
 
+        if gray.dim() == 2:
+            gray = gray.unsqueeze(0).unsqueeze(0)
+        elif gray.dim() == 3:
+            if gray.shape[0] == 1:
+                gray = gray.unsqueeze(0)
+
         start_time = time.time()
 
         sigma1 = self.params.get("sigma1", 1.0)
@@ -2731,27 +2769,28 @@ class TorchSegmenter(BaseSegmenter):
             kernel_size2 += 1
 
         # Два гауссовых размытия
-        blurred1 = tv_gaussian_blur(
-            gray.unsqueeze(0),  # (B, C, H, W) или (C, H, W),
-            kernel_size=[kernel_size1, kernel_size1],
-            sigma=[sigma1, sigma1],
-        ).squeeze(0)
-        blurred2 = tv_gaussian_blur(
-            gray.unsqueeze(0),  # (B, C, H, W) или (C, H, W),
-            kernel_size=[kernel_size2, kernel_size2],
-            sigma=[sigma2, sigma2],
-        ).squeeze(0)
+        try:
+            blurred1 = tv_gaussian_blur(
+                gray, kernel_size=[kernel_size1, kernel_size1], sigma=[sigma1, sigma1]
+            )
+            blurred2 = tv_gaussian_blur(
+                gray, kernel_size=[kernel_size2, kernel_size2], sigma=[sigma2, sigma2]
+            )
+        except (AttributeError, NotImplementedError, RuntimeError) as e:
+            print(f"⚠️ DoG gaussian blur failed: {e}. Skipping blur step.")
+            blurred1 = gray
+            blurred2 = gray
 
         # Разность
         dog = blurred1 - blurred2
 
         # Zero-crossing detection
         sign = torch.sign(dog)
-        zero_crossing = torch.zeros_like(dog)
+        zero_crossing = torch.zeros_like(dog, dtype=torch.bool)
 
         for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
             shifted = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
-            zero_crossing |= sign * shifted < 0
+            zero_crossing = torch.logical_or(zero_crossing, (sign * shifted < 0))
 
         # Магнитуда для порога
         magnitude = torch.abs(dog)
@@ -2782,6 +2821,12 @@ class TorchSegmenter(BaseSegmenter):
         """
         gray = self._to_grayscale(tensor)
 
+        if gray.dim() == 2:
+            gray = gray.unsqueeze(0).unsqueeze(0)
+        elif gray.dim() == 3:
+            if gray.shape[0] == 1:
+                gray = gray.unsqueeze(0)
+
         start_time = time.time()
 
         sigma = self.params.get("sigma", 1.5)
@@ -2792,11 +2837,14 @@ class TorchSegmenter(BaseSegmenter):
             kernel_size = int(2 * round(3 * sigma) + 1)
             if kernel_size % 2 == 0:
                 kernel_size += 1
-            gray = tv_gaussian_blur(
-                gray.unsqueeze(0),  # (B, C, H, W) или (C, H, W)
-                kernel_size=[kernel_size, kernel_size],
-                sigma=[sigma, sigma],
-            ).squeeze(0)
+            try:
+                gray = tv_gaussian_blur(
+                    gray,
+                    kernel_size=[kernel_size, kernel_size],
+                    sigma=[sigma, sigma],
+                )
+            except (AttributeError, NotImplementedError, RuntimeError) as e:
+                print(f"⚠️ Marr-Hildreth gaussian blur failed: {e}. Skipping blur step.")
 
         # Laplacian kernel (5x5 для лучшей аппроксимации)
         laplacian_kernel = (
@@ -2825,7 +2873,7 @@ class TorchSegmenter(BaseSegmenter):
             magnitude = magnitude / magnitude.max()
 
         # Zero-crossing detection с проверкой магнитуды
-        zero_crossing = torch.zeros_like(laplacian)
+        zero_crossing = torch.zeros_like(laplacian, dtype=torch.bool)
 
         for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
             shifted_sign = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
@@ -2835,7 +2883,7 @@ class TorchSegmenter(BaseSegmenter):
             crossing = (sign * shifted_sign < 0) & (
                 (magnitude > threshold) | (shifted_mag > threshold)
             )
-            zero_crossing |= crossing
+            zero_crossing = torch.logical_or(zero_crossing, crossing)
 
         mask = zero_crossing.float()
 
@@ -3026,9 +3074,7 @@ class TorchSegmenter(BaseSegmenter):
             sum_amp = torch.zeros((h, w), device=device, dtype=torch.float32)
             noise_energy = torch.zeros((h, w), device=device, dtype=torch.float32)
 
-            orientations = torch.linspace(
-                0, torch.pi, norientations, device=device
-            )
+            orientations = torch.linspace(0, torch.pi, norientations, device=device)
 
             for scale in range(nscales):
                 wavelength = min_wavelength * (mult**scale)
@@ -3099,6 +3145,7 @@ class TorchSegmenter(BaseSegmenter):
                 },
                 "execution_time": exec_time,
             }
+            print(f"Info after Torch_phase_congruency_edge: {info}")
 
             return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
