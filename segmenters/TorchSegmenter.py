@@ -1554,6 +1554,11 @@ class TorchSegmenter(BaseSegmenter):
         """
         gray = self._to_grayscale(tensor)  # (1, 1, H, W)
 
+        if gray.dim() == 2:
+            gray = gray.unsqueeze(0).unsqueeze(0)
+        elif gray.dim() == 3 and gray.shape[0] == 1:
+            gray = gray.unsqueeze(0)
+
         start_time = time.time()
         window_size = self.params.get("window_size", 15)
         contrast_threshold = self.params.get("contrast_threshold", 0.1)
@@ -1562,11 +1567,7 @@ class TorchSegmenter(BaseSegmenter):
             window_size += 1
         pad = window_size // 2
 
-        if gray.dim() == 2:
-            gray = gray.unsqueeze(0).unsqueeze(0)  # (H,W) -> (1,1,H,W)
-        elif gray.dim() == 3:
-            if gray.shape[0] == 1:
-                gray = gray.unsqueeze(0)  # (1,H,W) -> (1,1,H,W)
+        gray_padded = F.pad(gray, (pad, pad, pad, pad), mode="reflect")
 
         # Паддинг для обработки краёв
         gray_padded = F.pad(gray, (pad, pad, pad, pad), mode="reflect")
@@ -1580,26 +1581,18 @@ class TorchSegmenter(BaseSegmenter):
         kernel = torch.ones(1, 1, window_size, window_size, device=self.device)
         print(kernel)
         # Локальный максимум и минимум через pooling
-        local_max = (
-            F.max_pool2d(
-                gray,
-                kernel_size=window_size,
-                stride=1,
-                padding=pad,
-            )
-            .squeeze(0)
-            .squeeze(0)
+        local_max = F.max_pool2d(
+            gray_padded,
+            kernel_size=window_size,
+            stride=1,
+            padding=0,
         )  # (1, 1, H, W) -> (H, W)
 
-        local_min = (
-            -F.max_pool2d(
-                -gray,
-                kernel_size=window_size,
-                stride=1,
-                padding=pad,
-            )
-            .squeeze(0)
-            .squeeze(0)
+        local_min = -F.max_pool2d(
+            -gray_padded,
+            kernel_size=window_size,
+            stride=1,
+            padding=0,
         )
 
         # Контраст в окне
@@ -1611,6 +1604,7 @@ class TorchSegmenter(BaseSegmenter):
         # Применяем порог только там, где контраст достаточный
         high_contrast = contrast > contrast_threshold
         gray_2d = gray.squeeze(0).squeeze(0)  # (1,1,H,W) -> (H,W)
+        mask = torch.zeros((h, w), device=self.device)
         mask[high_contrast] = (
             gray_2d[high_contrast] > threshold[high_contrast]
         ).float()

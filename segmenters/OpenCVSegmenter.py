@@ -503,10 +503,30 @@ class OpenCVSegmenter(BaseSegmenter):
 
         if window_size % 2 == 0:
             window_size += 1
+        pad = window_size // 2
+
+        gray_padded = cv2.copyMakeBorder(
+            gray,
+            pad,
+            pad,
+            pad,
+            pad,
+            cv2.BORDER_REFLECT_101,  # Эквивалент reflect в PyTorch
+        )
 
         # Вычисляем локальные min и max
-        min_filter = cv2.erode(gray, np.ones((window_size, window_size), np.uint8))
-        max_filter = cv2.dilate(gray, np.ones((window_size, window_size), np.uint8))
+        min_filter = cv2.erode(
+            gray_padded,
+            np.ones((window_size, window_size), np.uint8),
+            borderType=cv2.BORDER_REFLECT_101,
+        )
+        max_filter = cv2.dilate(
+            gray_padded,
+            np.ones((window_size, window_size), np.uint8),
+            borderType=cv2.BORDER_REFLECT_101,
+        )
+        min_filter = min_filter[pad:-pad, pad:-pad]
+        max_filter = max_filter[pad:-pad, pad:-pad]
 
         # Контраст
         contrast = max_filter - min_filter
@@ -1600,8 +1620,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
             # === Log-Gabor фильтр (радиальная часть) ===
             # Избегаем log(0) и деления на 0
-            log_ratio = np.log(R / fo + 1e-10) / np.log(sigma_onf + 1e-10)
-            log_gabor = np.exp(-0.5 * log_ratio**2)
+            sigma_f = sigma_onf * fo  # sigma_f пропорциональна fo
+            log_gabor = np.zeros_like(R)
+            mask = R > 0
+            log_gabor[mask] = np.exp(
+                -0.5 * (np.log(R[mask] / fo) / np.log(sigma_f[mask] + 1e-10)) ** 2
+            )
             log_gabor[0, 0] = 0.0  # DC компонента = 0
 
             for angle in orientations:
@@ -1639,6 +1663,8 @@ class OpenCVSegmenter(BaseSegmenter):
         # Компенсация шума (Ковези)
         T = noise_energy * k_noise
         pc_map = np.maximum(local_energy - T, 0) / (sum_amp + epsilon)
+        if pc_map.max() > 0:
+            pc_map = pc_map / pc_map.max()
 
         # Ограничение [0, 1]
         pc_map = np.clip(pc_map, 0, 1)

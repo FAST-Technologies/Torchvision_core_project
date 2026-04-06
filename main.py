@@ -779,7 +779,7 @@ def main():
         all_results = {}
         # test_images['ade20k_sample'][0]
         # test_images['countryside'][0]
-        all_results = validator.validate_all_methods(test_images["trucks"][0])
+        all_results = validator.validate_all_methods(test_images["architecture"][0])
         validator.generate_validation_report(all_results)
         print(f"\n✅ Все результаты сохранены в: {validator.output_dir}")
 

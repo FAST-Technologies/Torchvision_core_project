@@ -848,8 +848,8 @@ class SklearnSegmenter(BaseSegmenter):
 
         from scipy.ndimage import minimum_filter, maximum_filter
 
-        local_min = minimum_filter(img, size=window_size)
-        local_max = maximum_filter(img, size=window_size)
+        local_min = minimum_filter(img, size=window_size, mode="reflect")
+        local_max = maximum_filter(img, size=window_size, mode="reflect")
         local_contrast = local_max - local_min
 
         threshold_map = (local_min + local_max) / 2.0
