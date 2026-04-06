@@ -497,6 +497,7 @@ class SegmentationTester:
             execution_time = time.time() - start_time
             # Вычисляем метрики отдельно (без повторной сегментации)
             from metrics.SegmentationMetrics import SegmentationMetrics as _SM
+
             metrics = _SM.calculate_all_metrics(pred_mask, gt_mask, threshold=threshold)
 
             result_data = {
@@ -1680,7 +1681,6 @@ class SegmentationTester:
         plt.savefig(preview_path, dpi=150, bbox_inches="tight")
         plt.close()
 
-
     def benchmark_all_methods(
         self,
         image,
@@ -1711,7 +1711,11 @@ class SegmentationTester:
                 print(f"⚠️ Метод {method_name} не найден, пропускаем")
                 continue
             segmenter = self.methods[method_name]
-            self._ensure_warmup(method_name, segmenter, np.array(image) if not isinstance(image, np.ndarray) else image)
+            self._ensure_warmup(
+                method_name,
+                segmenter,
+                np.array(image) if not isinstance(image, np.ndarray) else image,
+            )
 
             times = []
             last_result = None
@@ -1745,14 +1749,17 @@ class SegmentationTester:
             if ground_truth is not None:
                 try:
                     from metrics.SegmentationMetrics import SegmentationMetrics as _SM
+
                     m = _SM.calculate_all_metrics(mask, ground_truth, threshold=0.5)
-                    record.update({
-                        "iou": m.get("iou", float("nan")),
-                        "dice": m.get("dice", float("nan")),
-                        "pixel_accuracy": m.get("pixel_accuracy", float("nan")),
-                        "precision": m.get("precision", float("nan")),
-                        "recall": m.get("recall", float("nan")),
-                    })
+                    record.update(
+                        {
+                            "iou": m.get("iou", float("nan")),
+                            "dice": m.get("dice", float("nan")),
+                            "pixel_accuracy": m.get("pixel_accuracy", float("nan")),
+                            "precision": m.get("precision", float("nan")),
+                            "recall": m.get("recall", float("nan")),
+                        }
+                    )
                 except Exception as e:
                     print(f"⚠️ Метрики для {method_name}: {e}")
 

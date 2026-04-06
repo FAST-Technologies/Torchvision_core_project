@@ -191,7 +191,9 @@ class CpuCudaBenchmark:
 
         return df
 
-    def _save_results(self, df: pd.DataFrame, test_name: str, output_dir: Optional[str] = None):
+    def _save_results(
+        self, df: pd.DataFrame, test_name: str, output_dir: Optional[str] = None
+    ):
         """Сохранение результатов"""
         if output_dir is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -287,7 +289,9 @@ class CpuCudaBenchmark:
 
         print(f"✅ Результаты сохранены в: {output_dir}")
 
-    def _plot_results(self, df: pd.DataFrame, test_name: str, output_dir: Optional[str] = None):
+    def _plot_results(
+        self, df: pd.DataFrame, test_name: str, output_dir: Optional[str] = None
+    ):
         """Визуализация результатов"""
         if output_dir is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

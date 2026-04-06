@@ -42,20 +42,24 @@ class TorchImplementationValidator:
             ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
             (
                 "threshold_phansalkar",
-                {"window_size": 15, "p": 0.25, "q": 0.5, "r": 128},
+                {
+                    "window_size": 15,
+                    "k": 0.25,  # чувствительность
+                    "r": 128.0,  # динамический диапазон [0, 255]
+                    "m": 0.5,  # смещение
+                },
             ),
-            ("threshold_kittler_illingworth", {}),
-            ("threshold_entropy_kapur", {}),
-            ("threshold_triangle", {}),
-            ("threshold_multi_otsu", {"n_thresholds": 2}),  # Было nb_classes
+            ("threshold_kittler_illingworth", {"num_bins": 256}),
+            ("threshold_entropy_kapur", {"num_bins": 256}),
+            ("threshold_triangle", {"num_bins": 256}),
+            ("threshold_multi_otsu", {"n_thresholds": 2}),
             ("threshold_percentile", {"percentile": 90}),
             (
                 "threshold_local_contrast",
-                {"window_size": 15, "k": 0.2},  # TorchSegmenter uses k for local contrast
+                {"window_size": 15, "contrast_factor": 0.1},
             ),
         ]
 
-        # Методы для кросс-валидации OpenCV/Sklearn (используют 'roberts_cross_edge')
         self.edge_methods: List[MethodConfig] = [
             ("sobel_edge", {"threshold": 0.1}),
             ("canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
@@ -68,37 +72,21 @@ class TorchImplementationValidator:
             (
                 "gradient_magnitude_direction",
                 {"threshold": 0.1},
-            ),  # operator удалён (используется sobel по умолчанию)
+            ),
             (
                 "phase_congruency_edge",
                 {
                     "nscales": 4,
+                    "norientations": 4,
                     "min_wavelength": 3,
                     "mult": 2.0,
-                    "sigma_onf": 0.55,  # TorchSegmenter param
-                    "threshold": 0.3,   # правильное имя параметра
+                    "sigma_onf": 0.55,
+                    "k_noise": 2.0,
+                    "threshold": 0.3,
                 },
             ),
         ]
 
-
-        # Краевые методы с именованием TorchSegmenter ('roberts_edge' вместо 'roberts_cross_edge')
-        self.edge_methods_torch: List[MethodConfig] = [
-            ("sobel_edge", {"threshold": 0.1}),
-            ("canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
-            ("prewitt_edge", {"threshold": 0.1}),
-            ("scharr_edge", {"threshold": 0.1}),
-            ("roberts_edge", {"threshold": 0.1}),   # TorchSegmenter name
-            ("log_edge", {"sigma": 1.0, "threshold": 0.01}),
-            ("dog_edge", {"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01}),
-            ("marr_hildreth_edge", {"sigma": 1.5, "threshold": 0.01}),
-            ("gradient_magnitude_direction", {"threshold": 0.1}),
-            (
-                "phase_congruency_edge",
-                {"nscales": 4, "min_wavelength": 3, "mult": 2.0,
-                 "sigma_onf": 0.55, "threshold": 0.3},
-            ),
-        ]
         self.region_methods: List[MethodConfig] = [
             ("region_growing", {"tolerance": 0.1}),
             ("split_and_merge", {"min_size": 50, "threshold": 20}),
@@ -186,13 +174,13 @@ class TorchImplementationValidator:
         # Разные реализации одного алгоритма дают близкие, но не идентичные результаты
         # из-за различий в padding, численной точности и порядка операций.
         self.success_thresholds: Dict[str, float] = {
-            "iou": 0.80,            # IoU > 0.80
-            "dice": 0.85,           # Dice > 0.85
-            "pixel_accuracy": 0.90, # Pixel Accuracy > 0.90
-            "precision": 0.80,      # Precision > 0.80
-            "recall": 0.80,         # Recall > 0.80
-            "f1_score": 0.82,       # F1 Score > 0.82
-            "mae": 0.15,            # MAE < 0.15
+            "iou": 0.80,  # IoU > 0.80
+            "dice": 0.85,  # Dice > 0.85
+            "pixel_accuracy": 0.90,  # Pixel Accuracy > 0.90
+            "precision": 0.80,  # Precision > 0.80
+            "recall": 0.80,  # Recall > 0.80
+            "f1_score": 0.82,  # F1 Score > 0.82
+            "mae": 0.15,  # MAE < 0.15
         }
 
     def _load_image(self, image_path: str) -> np.ndarray:
@@ -617,7 +605,7 @@ class TorchImplementationValidator:
             ),
             (
                 "edge_sklearn",
-                self.edge_methods_torch,   # TorchSegmenter names ('roberts_edge')
+                self.edge_methods,
                 TorchSegmenter,
                 SklearnSegmenter,
                 "ВАЛИДАЦИЯ ОПЕРАТОРОВ ГРАНИЦ (Torch + Sklearn)",
@@ -627,7 +615,7 @@ class TorchImplementationValidator:
             ),
             (
                 "edge_opencv",
-                self.edge_methods_torch,   # TorchSegmenter names ('roberts_edge')
+                self.edge_methods,
                 TorchSegmenter,
                 OpenCVSegmenter,
                 "ВАЛИДАЦИЯ ОПЕРАТОРОВ ГРАНИЦ (Torch + OpenCV)",
@@ -637,7 +625,7 @@ class TorchImplementationValidator:
             ),
             (
                 "edge_custom",
-                self.edge_methods,         # OpenCV/Sklearn names ('roberts_cross_edge')
+                self.edge_methods,  # OpenCV/Sklearn names ('roberts_cross_edge')
                 OpenCVSegmenter,
                 SklearnSegmenter,
                 "ВАЛИДАЦИЯ ОПЕРАТОРОВ ГРАНИЦ (OpenCV + Sklearn)",

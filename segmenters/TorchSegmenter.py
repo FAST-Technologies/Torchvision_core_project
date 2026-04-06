@@ -122,7 +122,7 @@ class TorchSegmenter(BaseSegmenter):
             "prewitt_edge": self._prewitt_edge,
             "scharr_edge": self._scharr_edge,
             "laplacian_edge": self._laplacian_edge,
-            "roberts_edge": self._roberts_edge,
+            "roberts_cross_edge": self._roberts_edge,
             "log_edge": self._log_edge,
             "dog_edge": self._dog_edge,
             "marr_hildreth_edge": self._marr_hildreth_edge,
@@ -1547,7 +1547,7 @@ class TorchSegmenter(BaseSegmenter):
         Args:
             tensor: Входное изображение (B, C, H, W)
             window_size: Размер окна (нечётное, по умолчанию 15)
-            contrast_threshold: Минимальный контраст для применения порога (по умолчанию 0.2)
+            contrast_threshold: Минимальный контраст для применения порога (по умолчанию 0.1)
 
         Returns:
             torch.Tensor: Бинарная маска (B, 1, H, W)
@@ -1556,7 +1556,7 @@ class TorchSegmenter(BaseSegmenter):
 
         start_time = time.time()
         window_size = self.params.get("window_size", 15)
-        contrast_threshold = self.params.get("contrast_threshold", 0.2)
+        contrast_threshold = self.params.get("contrast_threshold", 0.1)
 
         if window_size % 2 == 0:
             window_size += 1
@@ -1634,10 +1634,9 @@ class TorchSegmenter(BaseSegmenter):
 
         start_time = time.time()
         window_size = self.params.get("window_size", 15)
-        p = self.params.get("p", 0.25)
-        q = self.params.get("q", 0.5)
-        k = self.params.get("k", 0.2)
-        r = self.params.get("r", 128)
+        k = self.params.get("k", 0.25)
+        r = self.params.get("r", 128.0)
+        m = self.params.get("m", 0.5)
 
         if window_size % 2 == 0:
             window_size += 1
@@ -1655,8 +1654,9 @@ class TorchSegmenter(BaseSegmenter):
         # Формула Фансалкара
         # sigma_r = local_std / r
         # threshold = local_mean * (1 + p * (sigma_r - 1) + q * (sigma_r - 1)**2)
+        # T = μ + k·σ·(σ/R) + m·(μ/128 - 1)
         sigma_r = local_std / r
-        threshold = local_mean * (1 + p * np.exp(-q * local_mean) + k * (sigma_r - 1))
+        threshold = local_mean + k * local_std * sigma_r + m * (local_mean / 128.0 - 1)
 
         # Бинаризация
         mask_np = (gray_np > threshold).astype(np.float32)
@@ -1685,14 +1685,13 @@ class TorchSegmenter(BaseSegmenter):
         Returns:
             torch.Tensor: Бинарная маска
         """
-        gray = self._to_grayscale(tensor).squeeze(0)  # (H, W)
+        gray = self._to_grayscale(tensor).squeeze()
+        if gray.dim() == 3 and gray.shape[0] == 1:
+            gray = gray.squeeze(0)
 
         start_time = time.time()
-        window_size = self.params.get("window_size", 15)
-        percentile = self.params.get("percentile", 50)
-
-        if window_size % 2 == 0:
-            window_size += 1
+        # threshold = self.params.get("threshold", 0.1)
+        percentile = self.params.get("percentile", 90)
 
         # Конвертируем в numpy для вычисления процентиля
         gray_np = gray.cpu().numpy()
@@ -1701,20 +1700,8 @@ class TorchSegmenter(BaseSegmenter):
         else:
             gray_np = gray_np.astype(np.float32)
 
-        h, w = gray_np.shape
-        pad = window_size // 2
-        gray_padded = np.pad(gray_np, pad, mode="reflect")
-
-        threshold = np.zeros_like(gray_np)
-        # Вычисляем локальный процентиль для каждого пикселя
-        for i in range(h):
-            for j in range(w):
-                window = gray_padded[i : (i + window_size), j : (j + window_size)]
-                threshold[i, j] = np.percentile(window, percentile)
-
-        # Бинаризация
-        mask_np = (gray_np > threshold).astype(np.float32)
-        mask = torch.from_numpy(mask_np).to(self.device)
+        threshold = np.percentile(gray_np, percentile) / 255.0  # Нормализация обратно
+        mask = (gray > threshold).float()
 
         exec_time = time.time() - start_time
         self.params["execution_info"] = {
@@ -1737,15 +1724,17 @@ class TorchSegmenter(BaseSegmenter):
 
         start_time = time.time()
 
+        num_bins: int = self.params.get("num_bins", 256)
+
         # Гистограмма
-        hist = torch.histc(gray, bins=256, min=0, max=1)
+        hist = torch.histc(gray, bins=num_bins, min=0, max=1)
         total = hist.sum()
         if total == 0:
             return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
 
         # Нормализованная гистограмма
         pdf = hist / total
-        bins = torch.arange(256, dtype=torch.float32, device=self.device) / 255.0
+        bins = torch.arange(num_bins, dtype=torch.float32, device=self.device) / 255.0
 
         # Кумулятивные суммы
         cum_pdf = torch.cumsum(pdf, dim=0)
@@ -1845,9 +1834,10 @@ class TorchSegmenter(BaseSegmenter):
             gray = gray.squeeze(0)
 
         start_time = time.time()
+        num_bins = self.params.get("num_bins", 256)
 
         # Гистограмма
-        hist = torch.histc(gray, bins=256, min=0, max=1)
+        hist = torch.histc(gray, bins=num_bins, min=0, max=1)
         total = hist.sum()
         if total == 0:
             return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
@@ -1926,9 +1916,10 @@ class TorchSegmenter(BaseSegmenter):
             gray = gray.squeeze(0)
 
         start_time = time.time()
+        num_bins: int = self.params.get("num_bins", 256)
 
         # Гистограмма
-        hist = torch.histc(gray, bins=256, min=0, max=1)
+        hist = torch.histc(gray, bins=num_bins, min=0, max=1)
 
         # Находим пик гистограммы
         peak_idx: int = int(torch.argmax(hist).item())
@@ -1988,9 +1979,7 @@ class TorchSegmenter(BaseSegmenter):
 
         return mask.unsqueeze(0).unsqueeze(0)
 
-    def _threshold_multi_otsu(
-        self, tensor: torch.Tensor, n_thresholds: int = 2, **kwargs
-    ) -> torch.Tensor:
+    def _threshold_multi_otsu(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Мульти-пороговый метод Оцу для разделения на несколько классов.
         """
@@ -2000,14 +1989,17 @@ class TorchSegmenter(BaseSegmenter):
 
         start_time = time.time()
 
+        n_thresholds = self.params.get("n_thresholds", 2)
+        num_bins: int = self.params.get("num_bins", 256)
+
         # Гистограмма
-        hist = torch.histc(gray, bins=256, min=0, max=1)
+        hist = torch.histc(gray, bins=num_bins, min=0, max=1)
         total = hist.sum()
         if total == 0:
             return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
 
         pdf = hist / total
-        bins = torch.arange(256, dtype=torch.float32, device=self.device) / 255.0
+        bins = torch.arange(num_bins, dtype=torch.float32, device=self.device) / 255.0
 
         # Рекурсивный поиск порогов
         def find_thresholds(start: int, end: int, n: int) -> List[int]:
@@ -2050,9 +2042,8 @@ class TorchSegmenter(BaseSegmenter):
 
         # Создаём маску: объект = всё кроме самого большого класса
         if thresholds:
-            # Берём средний порог для бинарной маски
-            mid_threshold = thresholds[len(thresholds) // 2] / 255.0
-            mask = (gray > mid_threshold).float()
+            final_threshold = thresholds[-1] / 255.0
+            mask = (gray > final_threshold).float()
         else:
             mask = (gray > 0.5).float()
 
@@ -2070,19 +2061,18 @@ class TorchSegmenter(BaseSegmenter):
 
         return mask.unsqueeze(0).unsqueeze(0)
 
-    def _threshold_local_contrast(
-        self, tensor: torch.Tensor, window_size: int = 15, k: float = 0.2, **kwargs
-    ) -> torch.Tensor:
+    def _threshold_local_contrast(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Локальный контрастный порог.
         Порог вычисляется на основе локального контраста:
         T = μ + k * (σ - σ_min), где σ_min - минимальный локальный контраст.
         """
         gray = self._to_grayscale(tensor).squeeze()
-        if gray.dim() == 3 and gray.shape[0] == 1:
-            gray = gray.squeeze(0)
 
         start_time = time.time()
+
+        window_size = self.params.get("window_size", 15)
+        contrast_factor = self.params.get("contrast_factor", 0.1)
 
         if window_size % 2 == 0:
             window_size += 1
@@ -2106,23 +2096,33 @@ class TorchSegmenter(BaseSegmenter):
             .squeeze(0)
         )
 
-        # Локальная дисперсия: E[X^2] - E[X]^2
-        local_mean_sq = (
-            F.conv2d((gray**2).unsqueeze(0).unsqueeze(0), kernel, padding=pad)
-            .squeeze(0)
-            .squeeze(0)
+        # # Локальная дисперсия: E[X^2] - E[X]^2
+        # local_mean_sq = (
+        #     F.conv2d((gray**2).unsqueeze(0).unsqueeze(0), kernel, padding=pad)
+        #     .squeeze(0)
+        #     .squeeze(0)
+        # )
+        # local_var = torch.clamp(local_mean_sq - local_mean**2, min=1e-8)
+        # local_std = torch.sqrt(local_var)
+
+        # # Минимальный локальный контраст (10-й перцентиль)
+        # sigma_min = torch.quantile(local_std, 0.1)
+
+        # # Порог
+        # threshold = local_mean + contrast_factor * (local_std - sigma_min)
+
+        # # Бинаризация
+        # mask = (gray > threshold).float()
+        # Локальный контраст (как в OpenCV/Sklearn)
+        local_contrast = torch.abs(gray - local_mean)
+
+        # 🔥 Глобальный порог через квантиль (как в других реализациях)
+        global_contrast_threshold = torch.quantile(
+            local_contrast, 1.0 - contrast_factor
         )
-        local_var = torch.clamp(local_mean_sq - local_mean**2, min=1e-8)
-        local_std = torch.sqrt(local_var)
-
-        # Минимальный локальный контраст (10-й перцентиль)
-        sigma_min = torch.quantile(local_std, 0.1)
-
-        # Порог
-        threshold = local_mean + k * (local_std - sigma_min)
 
         # Бинаризация
-        mask = (gray > threshold).float()
+        mask = (local_contrast > global_contrast_threshold).float()
 
         exec_time = time.time() - start_time
         info = {
@@ -2644,9 +2644,7 @@ class TorchSegmenter(BaseSegmenter):
 
         return mask
 
-    def _log_edge(
-        self, tensor: torch.Tensor, sigma: float = 1.0, threshold: float = 0.1, **kwargs
-    ) -> torch.Tensor:
+    def _log_edge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Детектор границ Laplacian of Gaussian.
         Применяет гауссово размытие, затем лапласиан, ищет пересечения нуля.
@@ -2654,6 +2652,9 @@ class TorchSegmenter(BaseSegmenter):
         gray = self._to_grayscale(tensor)
 
         start_time = time.time()
+
+        sigma = self.params.get("sigma", 1.0)
+        threshold = self.params.get("threshold", 0.1)
 
         # 1. Gaussian blur
         if sigma > 0:
@@ -2707,9 +2708,6 @@ class TorchSegmenter(BaseSegmenter):
     def _dog_edge(
         self,
         tensor: torch.Tensor,
-        sigma1: float = 1.0,
-        sigma2: float = 2.0,
-        threshold: float = 0.1,
         **kwargs,
     ) -> torch.Tensor:
         """
@@ -2719,6 +2717,10 @@ class TorchSegmenter(BaseSegmenter):
         gray = self._to_grayscale(tensor)
 
         start_time = time.time()
+
+        sigma1 = self.params.get("sigma1", 1.0)
+        sigma2 = self.params.get("sigma2", 2.0)
+        threshold = self.params.get("threshold", 0.1)
 
         # Убеждаемся, что ядра нечётные
         kernel_size1 = int(2 * round(3 * sigma1) + 1)
@@ -2773,9 +2775,7 @@ class TorchSegmenter(BaseSegmenter):
 
         return mask
 
-    def _marr_hildreth_edge(
-        self, tensor: torch.Tensor, sigma: float = 1.5, threshold: float = 0.1, **kwargs
-    ) -> torch.Tensor:
+    def _marr_hildreth_edge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Детектор границ Марра-Хилдрета (LoG с нулевым пересечением).
         Улучшенная версия LoG с подавлением немаксимумов.
@@ -2783,6 +2783,9 @@ class TorchSegmenter(BaseSegmenter):
         gray = self._to_grayscale(tensor)
 
         start_time = time.time()
+
+        sigma = self.params.get("sigma", 1.5)
+        threshold = self.params.get("threshold", 0.1)
 
         # Gaussian blur
         if sigma > 0:
@@ -2847,7 +2850,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask
 
     def _gradient_magnitude_direction(
-        self, tensor: torch.Tensor, threshold: float = 0.1, **kwargs
+        self, tensor: torch.Tensor, **kwargs
     ) -> torch.Tensor:
         """
         Вычисление градиента с магнитудой и направлением.
@@ -2856,6 +2859,7 @@ class TorchSegmenter(BaseSegmenter):
         gray = self._to_grayscale(tensor)
 
         start_time = time.time()
+        threshold = self.params.get("threshold", 0.1)
 
         # Градиенты Собеля
         sobel_x = torch.tensor(
@@ -2951,84 +2955,157 @@ class TorchSegmenter(BaseSegmenter):
     def _phase_congruency_edge(
         self,
         tensor: torch.Tensor,
-        nscale: int = 3,
-        min_wavelength: int = 3,
-        mult: float = 2.0,
-        sigma_onf: float = 0.55,
-        threshold: float = 0.3,
         **kwargs,
     ) -> torch.Tensor:
         """
-        Детектор границ на основе фазовой конгруэнтности.
-        Упрощённая реализация в частотной области.
+        Детектор границ на основе фазовой конгруэнтности (полная реализация Ковези).
+
+        Инвариантна к изменению контраста и яркости. Обнаруживает края через
+        выравнивание фаз Фурье-компонент в пространстве изображений.
+
+        Алгоритм:
+        1. FFT изображения
+        2. Банк фильтров Log-Gabor в частотной области
+        3. Вычисление even/odd откликов для каждого масштаба и ориентации
+        4. Локальная энергия и компенсация шума
+        5. Нормализация и бинаризация
+
+        Args:
+            tensor: Входное изображение (B, C, H, W) или (C, H, W)
+            nscales: Количество масштабов (по умолчанию 4)
+            norientations: Количество ориентаций (по умолчанию 4)
+            min_wavelength: Минимальная длина волны (по умолчанию 3)
+            mult: Мультипликатор длины волны между масштабами (по умолчанию 2.0)
+            sigma_onf: Стандартное отклонение в частотной области (по умолчанию 0.55)
+            k_noise: Коэффициент шумоподавления (по умолчанию 2.0)
+            threshold: Порог для бинаризации (по умолчанию 0.3)
+
+        Returns:
+            torch.Tensor: Бинарная маска границ (1, 1, H, W)
         """
-        gray = self._to_grayscale(tensor).squeeze()
-        if gray.dim() == 3 and gray.shape[0] == 1:
-            gray = gray.squeeze(0)
+        try:
+            gray = self._to_grayscale(tensor).squeeze()
+            if gray.dim() == 3 and gray.shape[0] == 1:
+                gray = gray.squeeze(0)
 
-        start_time = time.time()
+            start_time = time.time()
 
-        h, w = gray.shape
+            # === ПАРАМЕТРЫ (унифицированные имена) ===
+            nscales = self.params.get("nscales", 4)  # 🔥 Единое имя (не nscale)
+            norientations = self.params.get("norientations", 4)
+            min_wavelength = self.params.get("min_wavelength", 3)
+            mult = self.params.get("mult", 2.0)
+            sigma_onf = self.params.get("sigma_onf", 0.55)
+            k_noise = self.params.get("k_noise", 2.0)
+            threshold = self.params.get(
+                "threshold", 0.3
+            )  # 🔥 Единое имя (не cutoff_pc)
+            epsilon = 1e-6
 
-        # FFT изображения
-        fft_img = torch.fft.fft2(gray)
-        fft_shifted = torch.fft.fftshift(fft_img)
+            h, w = gray.shape
+            device = gray.device
 
-        # Создаём частотную сетку
-        y_freq = torch.fft.fftshift(torch.fft.fftfreq(h, device=self.device))
-        x_freq = torch.fft.fftshift(torch.fft.fftfreq(w, device=self.device))
-        Y, X = torch.meshgrid(y_freq, x_freq, indexing="ij")
-        radius = torch.sqrt(X**2 + Y**2)
+            # Нормализация к [0, 1]
+            if gray.max() > 1.0:
+                gray = gray / 255.0
 
-        # Фазовая конгруэнтность через банк фильтров Габора
-        pc_map = torch.zeros_like(gray)
+            # === FFT ИЗОБРАЖЕНИЯ ===
+            img_fft = torch.fft.fft2(gray)
+            fft_shifted = torch.fft.fftshift(img_fft)
 
-        for scale in range(nscale):
-            # Параметры фильтра для текущей шкалы
-            wavelength = min_wavelength * (mult**scale)
-            sigma_f = 1.0 / (wavelength * sigma_onf)
+            # === ЧАСТОТНАЯ СЕТКА ===
+            y_freq = torch.fft.fftshift(torch.fft.fftfreq(h, device=device))
+            x_freq = torch.fft.fftshift(torch.fft.fftfreq(w, device=device))
+            Y, X = torch.meshgrid(y_freq, x_freq, indexing="ij")
+            R = torch.sqrt(X**2 + Y**2 + 1e-10)  # Защита от деления на 0
+            Theta = torch.arctan2(-Y, X)  # Угол в радианах
 
-            # Радиальный фильтр Габора
-            filter_response = torch.exp(
-                -((radius - 1 / wavelength) ** 2) / (2 * sigma_f**2)
+            # === АККУМУЛЯТОРЫ ===
+            sum_even = torch.zeros((h, w), device=device, dtype=torch.float32)
+            sum_odd = torch.zeros((h, w), device=device, dtype=torch.float32)
+            sum_amp = torch.zeros((h, w), device=device, dtype=torch.float32)
+            noise_energy = torch.zeros((h, w), device=device, dtype=torch.float32)
+
+            orientations = torch.linspace(
+                0, torch.pi, norientations, device=device, endpoint=False
             )
 
-            # Применяем фильтр в частотной области
-            filtered_fft = fft_shifted * filter_response
-            filtered = torch.fft.ifft2(torch.fft.ifftshift(filtered_fft))
+            for scale in range(nscales):
+                wavelength = min_wavelength * (mult**scale)
+                fo = 1.0 / wavelength
 
-            # Амплитуда и фаза
-            amplitude = torch.abs(filtered)
-            # phase = torch.angle(filtered)
+                # === Log-Gabor фильтр (радиальная часть) ===
+                # Избегаем log(0) и деления на 0
+                log_ratio = torch.log(R / fo + 1e-10) / torch.log(
+                    torch.tensor(sigma_onf, device=device) + 1e-10
+                )
+                log_gabor = torch.exp(-0.5 * log_ratio**2)
+                log_gabor[0, 0] = 0.0  # DC компонента = 0
 
-            # Вклад в фазовую конгруэнтность
-            # Упрощённая метрика: нормализованная амплитуда
-            if amplitude.max() > 0:
-                pc_map += amplitude / amplitude.max()
+                for angle in orientations:
+                    # === Угловая часть (Гауссов разброс) ===
+                    angular_spread = torch.pi / 2 / norientations
+                    d_theta = torch.abs(Theta - angle)
+                    d_theta = torch.minimum(d_theta, 2 * torch.pi - d_theta)
+                    angular = torch.exp(-0.5 * (d_theta / angular_spread) ** 2)
 
-        # Нормализация
-        if pc_map.max() > 0:
-            pc_map = pc_map / pc_map.max()
+                    # === Полный фильтр в частотной области ===
+                    filter_f = log_gabor * angular
+                    filter_f = torch.fft.ifftshift(filter_f)  # Готовим к умножению
 
-        # Пороговая обработка
-        mask = (pc_map > threshold).float()
+                    # === Свёртка в частотной области ===
+                    response = torch.fft.ifft2(fft_shifted * filter_f)
+                    even_resp = torch.real(response)
+                    odd_resp = torch.imag(response)
 
-        exec_time = time.time() - start_time
-        info = {
-            "method": "phase_congruency_torch",
-            "parameters": {
-                "nscale": nscale,
-                "min_wavelength": min_wavelength,
-                "mult": mult,
-                "sigma_onf": sigma_onf,
-                "threshold": threshold,
-                **kwargs,
-            },
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_phase_congruency_edge: {info}")
+                    # === Амплитуда отклика ===
+                    amp = torch.sqrt(even_resp**2 + odd_resp**2 + epsilon)
 
-        return mask.unsqueeze(0).unsqueeze(0)
+                    # === Оценка шума (MAD) для текущего фильтра ===
+                    med = torch.median(amp)
+                    noise_est = 2.0 * (med / 0.6745)
+
+                    # === Накопление ===
+                    sum_even += even_resp
+                    sum_odd += odd_resp
+                    sum_amp += amp
+                    noise_energy += noise_est**2
+
+            # === ВЫЧИСЛЕНИЕ PHASE CONGRUENCY ===
+            local_energy = torch.sqrt(sum_even**2 + sum_odd**2 + epsilon)
+
+            # Компенсация шума (Ковези)
+            T = noise_energy * k_noise
+            pc_map = torch.clamp(local_energy - T, min=0) / (sum_amp + epsilon)
+
+            # Ограничение [0, 1]
+            pc_map = torch.clamp(pc_map, 0, 1)
+
+            # === БИНАРИЗАЦИЯ ===
+            mask = (pc_map > threshold).float()
+
+            exec_time = time.time() - start_time
+            info = {
+                "method": "phase_congruency_torch",
+                "parameters": {
+                    "nscales": nscales,
+                    "norientations": norientations,
+                    "min_wavelength": min_wavelength,
+                    "mult": mult,
+                    "sigma_onf": sigma_onf,
+                    "k_noise": k_noise,
+                    "threshold": threshold,
+                    **kwargs,
+                },
+                "execution_time": exec_time,
+            }
+
+            return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+
+        except Exception as e:
+            warnings.warn(f"Phase congruency failed: {e}. Using fallback.")
+            # Fallback на простой детектор границ
+            return self._sobel_edge(tensor, **kwargs)
 
     # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============
 

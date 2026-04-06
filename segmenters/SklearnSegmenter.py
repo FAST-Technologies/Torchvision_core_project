@@ -1199,10 +1199,9 @@ class SklearnSegmenter(BaseSegmenter):
         """
         start_time = time.time()
         percentile = self.params.get("percentile", 90)
-        threshold = self.params.get("threshold", 0.1)
+        threshold = np.percentile(img, percentile)
 
         mask = img > threshold
-
         exec_time = time.time() - start_time
         mask = (mask * 255).astype(np.uint8)
         info = {

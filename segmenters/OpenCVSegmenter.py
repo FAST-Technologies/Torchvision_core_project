@@ -73,7 +73,14 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Конвертация значений (0.0-1.0 -> 0-255) ---
         # Параметры, которые точно являются порогами яркости
-        intensity_params = ["threshold", "low", "high", "t1", "t2"]
+        intensity_params = [
+            "threshold",
+            "low",
+            "high",
+            "t1",
+            "t2",
+            "contrast_threshold",
+        ]
         for key in intensity_params:
             if key in adapted:
                 val = adapted[key]
@@ -927,13 +934,13 @@ class OpenCVSegmenter(BaseSegmenter):
         threshold = np.percentile(gray.astype(np.float32), percentile)
 
         # Бинаризация
-        _, mask = cv2.threshold(gray, int(threshold), 255.0, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(gray, threshold, 255.0, cv2.THRESH_BINARY)
 
         exec_time: float = time.time() - start_time
         self._log_info(
             "percentile_thresholding_opencv",
             exec_time,
-            {"percentile": percentile, "threshold": int(threshold), **kwargs},
+            {"percentile": percentile, "threshold": threshold, **kwargs},
         )
 
         return mask
@@ -1291,6 +1298,9 @@ class OpenCVSegmenter(BaseSegmenter):
         # )
 
         # Векторизованное zero-crossing: соседние пиксели имеют противоположные знаки
+        magnitude = np.abs(laplacian)
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
         sign = np.sign(laplacian)
         zc_h = sign[:, :-1] * sign[:, 1:] < 0  # горизонтальное пересечение
         zc_v = sign[:-1, :] * sign[1:, :] < 0  # вертикальное пересечение
@@ -1298,8 +1308,7 @@ class OpenCVSegmenter(BaseSegmenter):
         zero_crossing_bool[:, :-1] |= zc_h
         zero_crossing_bool[:-1, :] |= zc_v
         # Фильтр по амплитуде (отсекаем слабые пересечения)
-        abs_lap = np.abs(laplacian)
-        zero_crossing = (zero_crossing_bool & (abs_lap > threshold)).astype(
+        zero_crossing = (zero_crossing_bool & (magnitude > threshold)).astype(
             np.uint8
         ) * 255
 
@@ -1365,14 +1374,16 @@ class OpenCVSegmenter(BaseSegmenter):
         #                 zero_crossing[i, j] = 255
 
         # Векторизованное zero-crossing
+        magnitude = np.abs(dog)
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
         sign = np.sign(dog)
         zc_h = sign[:, :-1] * sign[:, 1:] < 0
         zc_v = sign[:-1, :] * sign[1:, :] < 0
         zero_crossing_bool = np.zeros_like(dog, dtype=bool)
         zero_crossing_bool[:, :-1] |= zc_h
         zero_crossing_bool[:-1, :] |= zc_v
-        abs_dog = np.abs(dog)
-        zero_crossing = (zero_crossing_bool & (abs_dog > threshold)).astype(
+        zero_crossing = (zero_crossing_bool & (magnitude > threshold)).astype(
             np.uint8
         ) * 255
 
@@ -1413,6 +1424,9 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Лапласиан Гауссиана через OpenCV
         laplacian = cv2.Laplacian(cv2.GaussianBlur(gray, (0, 0), sigma), cv2.CV_64F)
+        magnitude = np.abs(laplacian)
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
 
         # # Zero-crossing detection
         # zero_crossing = np.zeros_like(laplacian, dtype=np.uint8)
@@ -1432,8 +1446,7 @@ class OpenCVSegmenter(BaseSegmenter):
         zero_crossing_bool = np.zeros_like(laplacian, dtype=bool)
         zero_crossing_bool[:, :-1] |= zc_h
         zero_crossing_bool[:-1, :] |= zc_v
-        abs_lap = np.abs(laplacian)
-        zero_crossing = (zero_crossing_bool & (abs_lap > threshold)).astype(
+        zero_crossing = (zero_crossing_bool & (magnitude > threshold)).astype(
             np.uint8
         ) * 255
 
@@ -1480,6 +1493,8 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Магнитуда и направление
         magnitude = np.sqrt(grad_x**2 + grad_y**2)
+        if magnitude.max() > 0:
+            magnitude = magnitude / magnitude.max()
         direction = np.arctan2(grad_y, grad_x) * 180 / np.pi  # В градусах
         # Фильтрация по магнитуде
         mask = (magnitude > threshold).astype(np.uint8) * 255
@@ -1505,18 +1520,27 @@ class OpenCVSegmenter(BaseSegmenter):
 
     def _opencv_phase_congruency_edge(self, img: np.ndarray, **kwargs) -> np.ndarray:
         """
-        Обнаружение границ через фазовую конгруэнтность (упрощённая реализация).
+        Обнаружение границ через фазовую конгруэнтность (полная реализация Ковези).
 
-        Метод, инвариантный к изменению контраста и яркости.
-        Основан на согласованности фаз Фурье-компонент.
+        Инвариантна к изменению контраста и яркости. Обнаруживает края через
+        выравнивание фаз Фурье-компонент в пространстве изображений.
 
-        Примечание: Полная реализация требует pyphase или аналогичной библиотеки.
-        Здесь используется аппроксимация через много-масштабные градиенты.
+        Алгоритм:
+        1. FFT изображения
+        2. Банк фильтров Log-Gabor в частотной области
+        3. Вычисление even/odd откликов для каждого масштаба и ориентации
+        4. Локальная энергия и компенсация шума
+        5. Нормализация и бинаризация
 
         Args:
             img: Входное изображение (grayscale)
             nscales: Количество масштабов (по умолчанию 4)
-            threshold: Порог для бинаризации (по умолчанию 0.2)
+            norientations: Количество ориентаций (по умолчанию 4)
+            min_wavelength: Минимальная длина волны (по умолчанию 3)
+            mult: Мультипликатор длины волны между масштабами (по умолчанию 2.0)
+            sigma_onf: Стандартное отклонение в частотной области (по умолчанию 0.55)
+            k_noise: Коэффициент шумоподавления (по умолчанию 2.0)
+            threshold: Порог для бинаризации (по умолчанию 0.3)
 
         Returns:
             np.ndarray: Бинарная маска границ (0/255)
@@ -1528,41 +1552,108 @@ class OpenCVSegmenter(BaseSegmenter):
 
         start_time: float = time.time()
 
-        nscales: int = self.params.get("nscales", 4)
-        threshold: float = self.params.get("threshold", 0.2)
-
-        # Аппроксимация фазовой конгруэнтности через много-масштабные градиенты
-        pc_map = np.zeros_like(gray, dtype=np.float32)
-
-        for scale in range(nscales):
-            sigma = 2**scale
-            # Гауссово размытие на текущем масштабе
-            blurred = gaussian_filter(gray.astype(np.float32), sigma=sigma)
-            # Градиенты
-            grad_x = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
-            grad_y = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
-
-            # Магнитуда
-            mag = np.sqrt(grad_x**2 + grad_y**2)
-
-            # Нормализация и добавление к карте
-            mag_norm = mag / (np.max(mag) + 1e-8)
-            pc_map += mag_norm
-
-        # Усреднение по масштабам
-        pc_map /= nscales
+        # === ПАРАМЕТРЫ (унифицированные имена) ===
+        nscales = self.params.get("nscales", 4)
+        norientations = self.params.get("norientations", 4)
+        min_wavelength = self.params.get("min_wavelength", 3)
+        mult = self.params.get("mult", 2.0)
+        sigma_onf = self.params.get("sigma_onf", 0.55)
+        k_noise = self.params.get("k_noise", 2.0)
+        threshold = self.params.get("threshold", 0.3)
+        epsilon = 1e-6
 
         # Нормализация к [0, 1]
-        pc_map = (pc_map - np.min(pc_map)) / (np.max(pc_map) - np.min(pc_map) + 1e-8)
+        gray = gray.astype(np.float32)
+        if gray.max() > 1.0:
+            gray = gray / 255.0
 
-        # Бинаризация
+        rows, cols = gray.shape
+
+        # === FFT ИЗОБРАЖЕНИЯ ===
+        img_fft = np.fft.fft2(gray)
+        img_fft_shifted = np.fft.fftshift(img_fft)
+
+        # === ЧАСТОТНАЯ СЕТКА ===
+        x = np.linspace(-0.5, 0.5, cols)
+        y = np.linspace(-0.5, 0.5, rows)
+        X, Y = np.meshgrid(x, y)
+        R = np.sqrt(X**2 + Y**2 + 1e-10)  # Защита от деления на 0
+        Theta = np.arctan2(-Y, X)  # Угол в радианах
+
+        # === АККУМУЛЯТОРЫ ===
+        sum_even = np.zeros((rows, cols), dtype=np.float32)
+        sum_odd = np.zeros((rows, cols), dtype=np.float32)
+        sum_amp = np.zeros((rows, cols), dtype=np.float32)
+        noise_energy = np.zeros((rows, cols), dtype=np.float32)
+
+        orientations = np.linspace(0, np.pi, norientations, endpoint=False)
+
+        for scale in range(nscales):
+            wavelength = min_wavelength * (mult**scale)
+            fo = 1.0 / wavelength
+
+            # === Log-Gabor фильтр (радиальная часть) ===
+            # Избегаем log(0) и деления на 0
+            log_ratio = np.log(R / fo + 1e-10) / np.log(sigma_onf + 1e-10)
+            log_gabor = np.exp(-0.5 * log_ratio**2)
+            log_gabor[0, 0] = 0.0  # DC компонента = 0
+
+            for angle in orientations:
+                # === Угловая часть (Гауссов разброс) ===
+                angular_spread = np.pi / 2 / norientations
+                d_theta = np.abs(Theta - angle)
+                d_theta = np.minimum(d_theta, 2 * np.pi - d_theta)
+                angular = np.exp(-0.5 * (d_theta / angular_spread) ** 2)
+
+                # === Полный фильтр в частотной области ===
+                filter_f = log_gabor * angular
+                filter_f = np.fft.ifftshift(filter_f)  # Готовим к умножению
+
+                # === Свёртка в частотной области ===
+                response = np.fft.ifft2(img_fft_shifted * filter_f)
+                even_resp = np.real(response)
+                odd_resp = np.imag(response)
+
+                # === Амплитуда отклика ===
+                amp = np.sqrt(even_resp**2 + odd_resp**2 + epsilon)
+
+                # === Оценка шума (MAD) для текущего фильтра ===
+                med = np.median(np.abs(amp))
+                noise_est = 2.0 * (med / 0.6745)
+
+                # === Накопление ===
+                sum_even += even_resp
+                sum_odd += odd_resp
+                sum_amp += amp
+                noise_energy += noise_est**2
+
+        # === ВЫЧИСЛЕНИЕ PHASE CONGRUENCY ===
+        local_energy = np.sqrt(sum_even**2 + sum_odd**2 + epsilon)
+
+        # Компенсация шума (Ковези)
+        T = noise_energy * k_noise
+        pc_map = np.maximum(local_energy - T, 0) / (sum_amp + epsilon)
+
+        # Ограничение [0, 1]
+        pc_map = np.clip(pc_map, 0, 1)
+
+        # === БИНАРИЗАЦИЯ ===
         mask = (pc_map > threshold).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
         self._log_info(
             "phase_congruency_edge_opencv",
             exec_time,
-            {"nscales": nscales, "threshold": threshold, **kwargs},
+            {
+                "nscales": nscales,
+                "norientations": norientations,
+                "min_wavelength": min_wavelength,
+                "mult": mult,
+                "sigma_onf": sigma_onf,
+                "k_noise": k_noise,
+                "threshold": threshold,
+                **kwargs,
+            },
         )
 
         return mask
