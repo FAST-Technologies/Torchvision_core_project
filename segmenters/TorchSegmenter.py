@@ -2127,7 +2127,7 @@ class TorchSegmenter(BaseSegmenter):
         exec_time = time.time() - start_time
         info = {
             "method": "local_contrast_torch",
-            "parameters": {"window_size": window_size, "k": k, **kwargs},
+            "parameters": {"window_size": window_size, "contrast_factor": contrast_factor, **kwargs},
             "execution_time": exec_time,
         }
         print(f"Info after Torch_thresholding_local_contrast: {info}")
@@ -3027,7 +3027,7 @@ class TorchSegmenter(BaseSegmenter):
             noise_energy = torch.zeros((h, w), device=device, dtype=torch.float32)
 
             orientations = torch.linspace(
-                0, torch.pi, norientations, device=device, endpoint=False
+                0, torch.pi, norientations, device=device
             )
 
             for scale in range(nscales):

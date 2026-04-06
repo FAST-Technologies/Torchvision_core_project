@@ -934,7 +934,7 @@ class OpenCVSegmenter(BaseSegmenter):
         threshold = np.percentile(gray.astype(np.float32), percentile)
 
         # Бинаризация
-        _, mask = cv2.threshold(gray, threshold, 255.0, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(gray, float(threshold), 255.0, cv2.THRESH_BINARY)
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -1565,7 +1565,7 @@ class OpenCVSegmenter(BaseSegmenter):
         # Нормализация к [0, 1]
         gray = gray.astype(np.float32)
         if gray.max() > 1.0:
-            gray = gray / 255.0
+            gray = (gray / 255.0).astype(np.float32)
 
         rows, cols = gray.shape
 
