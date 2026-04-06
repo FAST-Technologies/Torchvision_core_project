@@ -1968,9 +1968,9 @@ class TorchSegmenter(BaseSegmenter):
         t_range = torch.arange(
             start_idx, end_idx + 1, device=self.device, dtype=torch.float32
         )
-        line_vals = peak_val + (end_val - peak_val) * (
-            t_range - peak_idx  # ✅ int автоматически приведётся к float32
-        ) / (end_idx - peak_idx + 1e-10)
+        line_vals = peak_val + (end_val - peak_val) * (t_range - peak_idx) / (
+            end_idx - peak_idx + 1e-10
+        )
         distances = torch.abs(hist_norm[start_idx : end_idx + 1] - line_vals)
         best_local = int(distances.argmax().item())
         best_threshold = start_idx + best_local

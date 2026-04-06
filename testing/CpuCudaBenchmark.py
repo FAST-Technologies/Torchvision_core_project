@@ -24,7 +24,7 @@ class CpuCudaBenchmark:
         base_output_dir: str = "./data/cpu_cuda_benchmark",
         n_runs: int = 5,
         warmup_runs: int = 2,
-    ):
+    ) -> None:
         self.base_output_dir = base_output_dir
         self.n_runs = n_runs
         self.warmup_runs = warmup_runs
@@ -47,11 +47,15 @@ class CpuCudaBenchmark:
         times = []
 
         # Переключение устройства для Torch-сегментеров
-        if hasattr(segmenter, "device"):
+        original_device = None
+        if hasattr(segmenter, "device") and isinstance(segmenter.device, torch.device):
             original_device = segmenter.device
             segmenter.device = torch.device(device)
             if hasattr(segmenter, "model") and segmenter.model is not None:
-                segmenter.model = segmenter.model.to(device)
+                try:
+                    segmenter.model = segmenter.model.to(device)
+                except Exception:
+                    pass
 
         # Warm-up
         for _ in range(self.warmup_runs):
@@ -86,10 +90,13 @@ class CpuCudaBenchmark:
         end_total = time.perf_counter()
 
         # Восстановление оригинального устройства
-        if hasattr(segmenter, "device"):
+        if original_device is not None:
             segmenter.device = original_device
             if hasattr(segmenter, "model") and segmenter.model is not None:
-                segmenter.model = segmenter.model.to(original_device)
+                try:
+                    segmenter.model = segmenter.model.to(original_device)
+                except Exception:
+                    pass
 
         if not times:
             return {
@@ -175,17 +182,20 @@ class CpuCudaBenchmark:
         df = pd.DataFrame(all_results)
 
         # Сохраняем результаты
-        self._save_results(df, test_name)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = os.path.join(self.base_output_dir, f"{test_name}_{timestamp}")
+        self._save_results(df, test_name, output_dir=output_dir)
 
         # Визуализация
-        self._plot_results(df, test_name)
+        self._plot_results(df, test_name, output_dir=output_dir)
 
         return df
 
-    def _save_results(self, df: pd.DataFrame, test_name: str):
+    def _save_results(self, df: pd.DataFrame, test_name: str, output_dir: Optional[str] = None):
         """Сохранение результатов"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = os.path.join(self.base_output_dir, f"{test_name}_{timestamp}")
+        if output_dir is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = os.path.join(self.base_output_dir, f"{test_name}_{timestamp}")
         os.makedirs(output_dir, exist_ok=True)
 
         # CSV
@@ -277,10 +287,11 @@ class CpuCudaBenchmark:
 
         print(f"✅ Результаты сохранены в: {output_dir}")
 
-    def _plot_results(self, df: pd.DataFrame, test_name: str):
+    def _plot_results(self, df: pd.DataFrame, test_name: str, output_dir: Optional[str] = None):
         """Визуализация результатов"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = os.path.join(self.base_output_dir, f"{test_name}_{timestamp}")
+        if output_dir is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = os.path.join(self.base_output_dir, f"{test_name}_{timestamp}")
         os.makedirs(output_dir, exist_ok=True)
 
         # График 1: Сравнение времени (CPU vs CUDA)

@@ -291,11 +291,8 @@ def main():
                 tester.add_method(config["name"], segmenter)
                 print(f"   ✅ {config['name']}")
                 segmenter.get_class_info()
-                print("   ✅ Neural_SegFormer")
             except Exception as e:
-                print(f"  ⚠️ Нейросетевая сегментация недоступна: {e}")
-                print(f"   ❌ Neural_SegFormer - ошибка: {e}")
-                print(f"   ❌ {config['name']} - {e}")
+                print(f"   ❌ {config['name']}: {e}")
                 print(traceback.format_exc())
 
         print(f"\nВсего методов загружено: {len(tester.methods)}")
@@ -1689,12 +1686,12 @@ def load_test_images(
 
         # Примеры изображений с возможными ground truth
         image_urls = {
-            "countryside": "https://i.pinimg.com/736x/17/e7/fc/17e7fc299466b2afd989e709fe7c9815.jpg",
+            "countryside": "https://i.pinimg.com/736x/17/e7/fc/1D7oZ9cqSef531ErnBAai8ZivwSPyqMCcs.jpg",
             "nature": "https://i.pinimg.com/736x/f7/5a/f2/f75af26820b50c24600f50f3998eb02f.jpg",
             "architecture": "https://i.pinimg.com/736x/86/f6/07/86f60748d5d9ae4cb9092018d1321648.jpg",
             "trucks": "https://www.shutterstock.com/shutterstock/videos/1106252821/thumb/1.jpg?ip=x480",
             "traffic": "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg",
-            "mountain": "https://i.pinimg.com/736x/17/66/c4/1766c4f667af39f91172ef8eb21ab18a.jpg",
+            "mountain": "https://i.pinimg.com/736x/17/66/c4/1D7oZ9cqSef531ErnBAai8ZivwSPyqMCcs.jpg",
         }
 
         image_paths = {
@@ -1750,9 +1747,7 @@ def test_neural_segmentation_variants():
     print("=" * 60)
 
     # Загрузка тестового изображения
-    img_url = (
-        "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg",
-    )
+    img_url = "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg"
 
     try:
         response = requests.get(img_url)

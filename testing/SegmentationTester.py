@@ -492,11 +492,12 @@ class SegmentationTester:
         start_time = time.time()
 
         if gt_mask is not None:
-            metrics, pred_mask = segmenter.segment_and_evaluate(
-                image, gt_mask, threshold
-            )
-            result_img, _ = segmenter.segment_with_mask(image)
+            # Одна операция сегментации: визуализация + маска
+            result_img, pred_mask = segmenter.segment_with_mask(image)
             execution_time = time.time() - start_time
+            # Вычисляем метрики отдельно (без повторной сегментации)
+            from metrics.SegmentationMetrics import SegmentationMetrics as _SM
+            metrics = _SM.calculate_all_metrics(pred_mask, gt_mask, threshold=threshold)
 
             result_data = {
                 "method": method_name,
@@ -553,8 +554,6 @@ class SegmentationTester:
         else:
             original_img = Image.fromarray(image.astype(np.uint8))
             image_path = None
-        print(image_path)
-
         orig_save_path: str = os.path.join(test_dir, "images", "original.jpg")
         original_img.save(orig_save_path)
         print(f"📸 Оригинальное изображение сохранено: {orig_save_path}")
@@ -1680,6 +1679,93 @@ class SegmentationTester:
         preview_path: str = os.path.join(comp_dir, "methods_preview.jpg")
         plt.savefig(preview_path, dpi=150, bbox_inches="tight")
         plt.close()
+
+
+    def benchmark_all_methods(
+        self,
+        image,
+        method_names=None,
+        n_runs: int = 3,
+        test_name: str = "benchmark",
+        ground_truth=None,
+    ) -> "pd.DataFrame":
+        """
+        Бенчмарк всех зарегистрированных методов: время + метрики качества.
+
+        Args:
+            image: Входное изображение
+            method_names: Список методов (None = все)
+            n_runs: Количество прогонов для стабильного измерения времени
+            test_name: Имя теста для сохранения
+            ground_truth: Ground truth маска (опционально)
+
+        Returns:
+            pd.DataFrame со сводными результатами
+        """
+        if method_names is None:
+            method_names = list(self.methods.keys())
+
+        records = []
+        for method_name in method_names:
+            if method_name not in self.methods:
+                print(f"⚠️ Метод {method_name} не найден, пропускаем")
+                continue
+            segmenter = self.methods[method_name]
+            self._ensure_warmup(method_name, segmenter, np.array(image) if not isinstance(image, np.ndarray) else image)
+
+            times = []
+            last_result = None
+            for _ in range(n_runs):
+                t0 = time.time()
+                try:
+                    result_img, mask = segmenter.segment_with_mask(image)
+                    times.append(time.time() - t0)
+                    last_result = (result_img, mask)
+                except Exception as e:
+                    print(f"⚠️ {method_name}: {e}")
+                    break
+
+            if not times or last_result is None:
+                records.append({"method": method_name, "error": "failed"})
+                continue
+
+            result_img, mask = last_result
+            mask_area = int(np.sum(mask > 0))
+            total_px = mask.shape[0] * mask.shape[1]
+
+            record = {
+                "method": method_name,
+                "mean_time_s": float(np.mean(times)),
+                "std_time_s": float(np.std(times)),
+                "min_time_s": float(np.min(times)),
+                "mask_area_px": mask_area,
+                "mask_pct": 100.0 * mask_area / total_px,
+            }
+
+            if ground_truth is not None:
+                try:
+                    from metrics.SegmentationMetrics import SegmentationMetrics as _SM
+                    m = _SM.calculate_all_metrics(mask, ground_truth, threshold=0.5)
+                    record.update({
+                        "iou": m.get("iou", float("nan")),
+                        "dice": m.get("dice", float("nan")),
+                        "pixel_accuracy": m.get("pixel_accuracy", float("nan")),
+                        "precision": m.get("precision", float("nan")),
+                        "recall": m.get("recall", float("nan")),
+                    })
+                except Exception as e:
+                    print(f"⚠️ Метрики для {method_name}: {e}")
+
+            records.append(record)
+            print(
+                f"  ✅ {method_name}: {record['mean_time_s']*1000:.1f}ms "
+                f"(±{record['std_time_s']*1000:.1f}ms), mask={record['mask_pct']:.1f}%"
+            )
+
+        df = pd.DataFrame(records)
+        if not df.empty and "mean_time_s" in df.columns:
+            df = df.sort_values("mean_time_s")
+        return df
 
     def visualize_comparison(
         self,
