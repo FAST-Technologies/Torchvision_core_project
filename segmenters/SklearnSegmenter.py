@@ -828,6 +828,13 @@ class SklearnSegmenter(BaseSegmenter):
         window_size = self.params.get("window_size", 15)
         contrast_threshold = self.params.get("contrast_threshold", 0.1)
 
+        img_range = img.max() - img.min()
+        is_normalized = img_range <= 1.0
+
+        if not is_normalized and contrast_threshold <= 1.0:
+            # Если изображение [0-255], а порог [0-1], масштабируем
+            contrast_threshold = contrast_threshold * 255
+
         # h, w = img.shape
         # pad = window_size // 2
         # img_padded = np.pad(img, pad, mode='reflect')

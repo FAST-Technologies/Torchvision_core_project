@@ -12,6 +12,8 @@ from testing.SegmentationComparator import SegmentationComparator
 from testing.SegmentationBenchmark import SegmentationBenchmark, export_comparison_table
 from testing.TorchImplementationValidator import TorchImplementationValidator
 from metrics.SegmentationMetrics import SegmentationMetrics
+from utils.warmup import SegmentationWarmUp
+from utils.threshold_warmup import ThresholdWarmUp
 
 from transformers import MaskFormerImageProcessor, MaskFormerForInstanceSegmentation
 from utils.strategies import _create_overlay_standalone, segment_image_unified
@@ -93,19 +95,32 @@ def main():
 
     print("\n1. Загрузка методов OpenCV...")
     cv2_methods = {
+        # --- Пороговые методы (Threshold) ---
         "Global_Threshold_CV2": OpenCVSegmenter("global_thresholding", threshold=0.5),
-        "Adaptive_Threshold_CV2": OpenCVSegmenter(
-            "adaptive_thresholding", block_size=11, C=2
-        ),
         "Otsu_Thresholding_CV2": OpenCVSegmenter("otsu_thresholding"),
-        "Niblack_Thresholding_CV2": OpenCVSegmenter(
-            "threshold_niblack", window_size=15, k=-0.2
-        ),
-        "Sauvola_Thresholding_CV2": OpenCVSegmenter(
-            "threshold_sauvola", window_size=15, k=0.2, r=128
-        ),
+        "Adaptive_Threshold_CV2": OpenCVSegmenter("adaptive_thresholding", block_size=11, C=2),
+        "Niblack_Thresholding_CV2": OpenCVSegmenter("threshold_niblack", window_size=15, k=-0.2),
+        "Sauvola_Thresholding_CV2": OpenCVSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
+        "Bernsen_Thresholding_CV2": OpenCVSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
+        "Phansalkar_Thresholding_CV2": OpenCVSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
+        "Kittler_Illingworth_CV2": OpenCVSegmenter("threshold_kittler_illingworth", num_bins=256),
+        "Kapur_Entropy_CV2": OpenCVSegmenter("threshold_entropy_kapur", num_bins=256),
+        "Triangle_Threshold_CV2": OpenCVSegmenter("threshold_triangle", num_bins=256),
+        "Multi_Otsu_CV2": OpenCVSegmenter("threshold_multi_otsu", n_thresholds=2),
+        "Percentile_Threshold_CV2": OpenCVSegmenter("threshold_percentile", percentile=90),
+        "Local_Contrast_CV2": OpenCVSegmenter("threshold_local_contrast", window_size=15, contrast_factor=0.1),
+
+        # --- Граничные методы (Edge) ---
         "Sobel_CV2": OpenCVSegmenter("sobel_edge", threshold=0.1),
-        "Canny_CV2": OpenCVSegmenter("canny_edge", low=0.1, high=0.3),
+        "Canny_CV2": OpenCVSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
+        "Prewitt_CV2": OpenCVSegmenter("prewitt_edge", threshold=0.1),
+        "Scharr_CV2": OpenCVSegmenter("scharr_edge", threshold=0.1),
+        "Roberts_Cross_CV2": OpenCVSegmenter("roberts_cross_edge", threshold=0.1),
+        "LoG_CV2": OpenCVSegmenter("log_edge", sigma=1.0, threshold=0.01),
+        "DoG_CV2": OpenCVSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
+        "Marr_Hildreth_CV2": OpenCVSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
+        "Gradient_Mag_Dir_CV2": OpenCVSegmenter("gradient_magnitude_direction", threshold=0.1),
+        "Phase_Congruency_CV2": OpenCVSegmenter("phase_congruency_edge", nscales=4, norientations=4, min_wavelength=3, mult=2.0, sigma_onf=0.55, k_noise=2.0, threshold=0.5),
         # "Region_Growing_CV2": OpenCVSegmenter("region_growing", seed=(100, 100), tolerance=0.1),
         # "Split_And_Merge_CV2": OpenCVSegmenter("split_and_merge", min_size=50, threshold=0.1),
         # "Floodfill_CV2": OpenCVSegmenter("floodfill", seed=(100, 100), tolerance=0.15),
@@ -126,23 +141,32 @@ def main():
 
     print("\n2. Загрузка методов SKlearn...")
     sklearn_methods = {
-        "Global_Threshold_Sklearn": SklearnSegmenter(
-            "global_thresholding", threshold=0.5
-        ),
-        "Adaptive_Threshold_Sklearn": SklearnSegmenter(
-            "adaptive_thresholding", block_size=11, C=2
-        ),
+        # --- Пороговые методы (Threshold) ---
+        "Global_Threshold_Sklearn": SklearnSegmenter("global_thresholding", threshold=0.5),
         "Otsu_Thresholding_Sklearn": SklearnSegmenter("otsu_thresholding"),
-        "Niblack_Thresholding_Sklearn": SklearnSegmenter(
-            "threshold_niblack", window_size=15, k=-0.2
-        ),
-        "Sauvola_Thresholding_Sklearn": SklearnSegmenter(
-            "threshold_sauvola", window_size=15, k=0.2, r=128
-        ),
+        "Adaptive_Threshold_Sklearn": SklearnSegmenter("adaptive_thresholding", block_size=11, C=2),
+        "Niblack_Thresholding_Sklearn": SklearnSegmenter("threshold_niblack", window_size=15, k=-0.2),
+        "Sauvola_Thresholding_Sklearn": SklearnSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
+        "Bernsen_Thresholding_Sklearn": SklearnSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
+        "Phansalkar_Thresholding_Sklearn": SklearnSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
+        "Kittler_Illingworth_Sklearn": SklearnSegmenter("threshold_kittler_illingworth", num_bins=256),
+        "Kapur_Entropy_Sklearn": SklearnSegmenter("threshold_entropy_kapur", num_bins=256),
+        "Triangle_Threshold_Sklearn": SklearnSegmenter("threshold_triangle", num_bins=256),
+        "Multi_Otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2),
+        "Percentile_Threshold_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90),
+        "Local_Contrast_Sklearn": SklearnSegmenter("threshold_local_contrast", window_size=15, contrast_factor=0.1),
+
+        # --- Граничные методы (Edge) ---
         "Sobel_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1),
-        "Canny_Sklearn": SklearnSegmenter(
-            "canny_edge", low=0.1, high=0.3, sigma=1.0, use_quantiles=False
-        ),
+        "Canny_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
+        "Prewitt_Sklearn": SklearnSegmenter("prewitt_edge", threshold=0.1),
+        "Scharr_Sklearn": SklearnSegmenter("scharr_edge", threshold=0.1),
+        "Roberts_Cross_Sklearn": SklearnSegmenter("roberts_cross_edge", threshold=0.1),
+        "LoG_Sklearn": SklearnSegmenter("log_edge", sigma=1.0, threshold=0.01),
+        "DoG_Sklearn": SklearnSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
+        "Marr_Hildreth_Sklearn": SklearnSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
+        "Gradient_Mag_Dir_Sklearn": SklearnSegmenter("gradient_magnitude_direction", threshold=0.1),
+        "Phase_Congruency_Sklearn": SklearnSegmenter("phase_congruency_edge", nscales=4, norientations=4, min_wavelength=3, mult=2.0, sigma_onf=0.55, k_noise=2.0, threshold=0.5),
         # "Region_Growing_Sklearn": SklearnSegmenter("region_growing", seed=(100, 100), tolerance=0.1),
         # "Split_And_Merge_Sklearn": SklearnSegmenter("split_and_merge", min_size=50, threshold=0.1),
         # "Floodfill_Sklearn": SklearnSegmenter("floodfill", seed=(100, 100), tolerance=0.15),
@@ -163,19 +187,32 @@ def main():
 
     print("\n3. Загрузка методов PyTorch...")
     torch_methods = {
+        # --- Пороговые методы (Threshold) ---
         "Global_Threshold_Torch": TorchSegmenter("global_thresholding", threshold=0.5),
-        "Adaptive_Threshold_Torch": TorchSegmenter(
-            "adaptive_thresholding", block_size=11, C=2
-        ),
         "Otsu_Thresholding_Torch": TorchSegmenter("otsu_thresholding"),
-        "Niblack_Thresholding_Torch": TorchSegmenter(
-            "threshold_niblack", window_size=15, k=-0.2
-        ),
-        "Sauvola_Thresholding_Torch": TorchSegmenter(
-            "threshold_sauvola", window_size=15, k=0.2, r=128
-        ),
+        "Adaptive_Threshold_Torch": TorchSegmenter("adaptive_thresholding", block_size=11, C=2),
+        "Niblack_Thresholding_Torch": TorchSegmenter("threshold_niblack", window_size=15, k=-0.2),
+        "Sauvola_Thresholding_Torch": TorchSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
+        "Bernsen_Thresholding_Torch": TorchSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
+        "Phansalkar_Thresholding_Torch": TorchSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
+        "Kittler_Illingworth_Torch": TorchSegmenter("threshold_kittler_illingworth", num_bins=256),
+        "Kapur_Entropy_Torch": TorchSegmenter("threshold_entropy_kapur", num_bins=256),
+        "Triangle_Threshold_Torch": TorchSegmenter("threshold_triangle", num_bins=256),
+        "Multi_Otsu_Torch": TorchSegmenter("threshold_multi_otsu", n_thresholds=2),
+        "Percentile_Threshold_Torch": TorchSegmenter("threshold_percentile", percentile=90),
+        "Local_Contrast_Torch": TorchSegmenter("threshold_local_contrast", window_size=15, contrast_factor=0.1),
+
+        # --- Граничные методы (Edge) ---
         "Sobel_Torch": TorchSegmenter("sobel_edge", threshold=0.1),
-        "Canny_Torch": TorchSegmenter("canny_edge", low=0.1, high=0.3),
+        "Canny_Torch": TorchSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
+        "Prewitt_Torch": TorchSegmenter("prewitt_edge", threshold=0.1),
+        "Scharr_Torch": TorchSegmenter("scharr_edge", threshold=0.1),
+        "Roberts_Cross_Torch": TorchSegmenter("roberts_cross_edge", threshold=0.1),
+        "LoG_Torch": TorchSegmenter("log_edge", sigma=1.0, threshold=0.01),
+        "DoG_Torch": TorchSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
+        "Marr_Hildreth_Torch": TorchSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
+        "Gradient_Mag_Dir_Torch": TorchSegmenter("gradient_magnitude_direction", threshold=0.1),
+        "Phase_Congruency_Torch": TorchSegmenter("phase_congruency_edge", nscales=4, norientations=4, min_wavelength=3, mult=2.0, sigma_onf=0.55, k_noise=2.0, threshold=0.5),
         # "Region_Growing_Torch": TorchSegmenter("region_growing", seed=(100, 100), tolerance=0.1),
         # "Split_And_Merge_Torch": TorchSegmenter("split_and_merge", min_size=50, threshold=20),
         # "Floodfill_Torch": TorchSegmenter("floodfill", seed=(100, 100), tolerance=0.15),
@@ -397,7 +434,7 @@ def main():
     #     )
     #     print(f"   ✅ Бенчмарк для {img_name} завершён")
 
-    # # ============ 🔥 ЗАПУСК WARM-UP ============
+    # # # ============ 🔥 ЗАПУСК WARM-UP ============
     # print("\n" + "="*60)
     # print("ЗАПУСК WARM-UP ПЕРЕД БЕНЧМАРКОМ")
     # print("="*60)
@@ -435,7 +472,7 @@ def main():
     #         torch.cuda.synchronize()  # Дождаться завершения всех ядер
     #         # torch.cuda.empty_cache()  # Очистить кэш (опционально)
 
-    # # ============ БЕНЧМАРК ПОСЛЕ WARM-UP ============
+    # # # ============ БЕНЧМАРК ПОСЛЕ WARM-UP ============
     # print("\n3.1. Бенчмарк производительности после warm up...")
     # for img_name, (img_path, img_pil, gt_mask) in test_images.items():
     #     print(f"\n--- Обработка изображения: {img_name} ---")
@@ -779,9 +816,20 @@ def main():
         all_results = {}
         # test_images['ade20k_sample'][0]
         # test_images['countryside'][0]
-        all_results = validator.validate_all_methods(test_images["architecture"][0])
+        all_results = validator.validate_all_methods(test_images["mountain"][0])
         validator.generate_validation_report(all_results)
         print(f"\n✅ Все результаты сохранены в: {validator.output_dir}")
+
+        # ============ 4.1. БЕНЧМАРК НА ОСНОВЕ ВАЛИДАЦИИ ============
+        print("\n4.1. Генерация бенчмарк-отчета...")
+        benchmark_df = validator.generate_benchmark_report_from_validation(
+            all_results,
+            output_dir="./data/validation_benchmark"
+        )
+        print(benchmark_df)
+        
+        print(f"\n✅ Все результаты сохранены в: {validator.output_dir}")
+        print(f"📊 Бенчмарк-графики в: ./data/validation_benchmark/charts/")
 
         # ============ 5. МАТРИЧНОЕ СРАВНЕНИЕ ============
         print("\n5. Матричное сравнение методов...")
@@ -851,170 +899,170 @@ def main():
             except Exception as e:
                 print(f"   ❌ Ошибка попарного сравнения: {e}")
 
-    # ============ 6. СРАВНЕНИЕ С GROUND TRUTH (если есть) ============
-    if test_classic_logic is True:
-        print("\n6. Сравнение с Ground Truth и оценка качества...")
-        has_gt_images = False
-        for img_name, (img_path, img, gt_mask) in test_images.items():
-            if gt_mask is None:
-                print(f"⚠️ Пропуск {img_name}: Ground Truth не найден.")
-                continue
+    # # ============ 6. СРАВНЕНИЕ С GROUND TRUTH (если есть) ============
+    # if test_classic_logic is True:
+    #     print("\n6. Сравнение с Ground Truth и оценка качества...")
+    #     has_gt_images = False
+    #     for img_name, (img_path, img, gt_mask) in test_images.items():
+    #         if gt_mask is None:
+    #             print(f"⚠️ Пропуск {img_name}: Ground Truth не найден.")
+    #             continue
 
-            has_gt_images = True
-            print(f"\n🎯 Обработка изображения: {img_name} (GT available)")
-            print(f"🎯 Ground Truth найден ({gt_mask.shape}). Запуск оценки метрик...")
-            metrics_all = {}
+    #         has_gt_images = True
+    #         print(f"\n🎯 Обработка изображения: {img_name} (GT available)")
+    #         print(f"🎯 Ground Truth найден ({gt_mask.shape}). Запуск оценки метрик...")
+    #         metrics_all = {}
 
-            if gt_mask.max() <= 1.0:
-                gt_binary = (gt_mask * 255).astype(np.uint8)
-            else:
-                gt_binary = gt_mask.astype(np.uint8)
+    #         if gt_mask.max() <= 1.0:
+    #             gt_binary = (gt_mask * 255).astype(np.uint8)
+    #         else:
+    #             gt_binary = gt_mask.astype(np.uint8)
 
-            # Запускаем бенчмарк вручную по каждому методу, чтобы сразу собрать метрики
-            all_segmenters = {**cv2_methods, **sklearn_methods, **torch_methods}
+    #         # Запускаем бенчмарк вручную по каждому методу, чтобы сразу собрать метрики
+    #         all_segmenters = {**cv2_methods, **sklearn_methods, **torch_methods}
 
-            for name, segmenter in all_segmenters.items():
-                try:
-                    start_time = time.time()
-                    pred_mask = segmenter.segment(img_path)
-                    exec_time = time.time() - start_time
+    #         for name, segmenter in all_segmenters.items():
+    #             try:
+    #                 start_time = time.time()
+    #                 pred_mask = segmenter.segment(img_path)
+    #                 exec_time = time.time() - start_time
 
-                    if pred_mask.shape != gt_binary.shape:
-                        from skimage.transform import resize
+    #                 if pred_mask.shape != gt_binary.shape:
+    #                     from skimage.transform import resize
 
-                        # order=0 для бинарных масок (ближайший сосед)
-                        pred_mask_resized = resize(
-                            pred_mask, gt_binary.shape, order=0, preserve_range=True
-                        ).astype(np.uint8)
-                    else:
-                        pred_mask_resized = pred_mask
+    #                     # order=0 для бинарных масок (ближайший сосед)
+    #                     pred_mask_resized = resize(
+    #                         pred_mask, gt_binary.shape, order=0, preserve_range=True
+    #                     ).astype(np.uint8)
+    #                 else:
+    #                     pred_mask_resized = pred_mask
 
-                    metrics = SegmentationMetrics.calculate_all_metrics(
-                        pred_mask, gt_binary, threshold=0.5, include_hausdorff=True
-                    )
-                    metrics["execution_time"] = exec_time  # Добавляем время в метрики
-                    metrics_all[name] = metrics
-                    status = (
-                        "✅"
-                        if metrics["iou"] > 0.5
-                        else "⚠️" if metrics["iou"] > 0.2 else "❌"
-                    )
-                    print(
-                        f"   {status} {name}: IoU={metrics['iou']:.4f}, Dice={metrics['dice']:.4f}, Time={exec_time:.3f}s"
-                    )
-                    print(f"Mask after {name} segment: {pred_mask_resized[:3, :3]}")
+    #                 metrics = SegmentationMetrics.calculate_all_metrics(
+    #                     pred_mask, gt_binary, threshold=0.5, include_hausdorff=True
+    #                 )
+    #                 metrics["execution_time"] = exec_time  # Добавляем время в метрики
+    #                 metrics_all[name] = metrics
+    #                 status = (
+    #                     "✅"
+    #                     if metrics["iou"] > 0.5
+    #                     else "⚠️" if metrics["iou"] > 0.2 else "❌"
+    #                 )
+    #                 print(
+    #                     f"   {status} {name}: IoU={metrics['iou']:.4f}, Dice={metrics['dice']:.4f}, Time={exec_time:.3f}s"
+    #                 )
+    #                 print(f"Mask after {name} segment: {pred_mask_resized[:3, :3]}")
 
-                except Exception as e:
-                    print(f"   💥 Критическая ошибка в методе {name}: {e}")
-                    traceback.print_exc()
-                    metrics_all[name] = {"error": str(e)}
-                    # traceback.print_exc()
+    #             except Exception as e:
+    #                 print(f"   💥 Критическая ошибка в методе {name}: {e}")
+    #                 traceback.print_exc()
+    #                 metrics_all[name] = {"error": str(e)}
+    #                 # traceback.print_exc()
 
-            gt_results_summary[img_name] = metrics_all
-            save_metrics_report(metrics_all, f"./data/gt_metrics_{img_name}.json")
-            print(
-                f"   💾 Детальные метрики сохранены в ./data/gt_metrics_{img_name}.json"
-            )
+    #         gt_results_summary[img_name] = metrics_all
+    #         save_metrics_report(metrics_all, f"./data/gt_metrics_{img_name}.json")
+    #         print(
+    #             f"   💾 Детальные метрики сохранены в ./data/gt_metrics_{img_name}.json"
+    #         )
 
-        if not has_gt_images:
-            print(
-                "⚠️ Ground Truth маски не найдены ни для одного изображения. Пропускаем этап оценки качества."
-            )
-        else:
-            # Запуск визуализации по всем изображениям с GT
-            print("\n📈 Построение сводных графиков по результатам Ground Truth...")
-            visualize_gt_results(
-                gt_results_summary, output_dir="./data/gt_visualization"
-            )
+    #     if not has_gt_images:
+    #         print(
+    #             "⚠️ Ground Truth маски не найдены ни для одного изображения. Пропускаем этап оценки качества."
+    #         )
+    #     else:
+    #         # Запуск визуализации по всем изображениям с GT
+    #         print("\n📈 Построение сводных графиков по результатам Ground Truth...")
+    #         visualize_gt_results(
+    #             gt_results_summary, output_dir="./data/gt_visualization"
+    #         )
 
-            # Вывод топ-5 методов в консоль
-            print("\n🏆 ТОП-5 методов по среднему IoU:")
-            # Плоский список всех результатов
-            flat_results = []
-            for img, methods in gt_results_summary.items():
-                for method, metrics in methods.items():
-                    if "iou" in metrics and "error" not in metrics:
-                        flat_results.append(
-                            {"Method": method, "IoU": metrics["iou"], "Image": img}
-                        )
+    #         # Вывод топ-5 методов в консоль
+    #         print("\n🏆 ТОП-5 методов по среднему IoU:")
+    #         # Плоский список всех результатов
+    #         flat_results = []
+    #         for img, methods in gt_results_summary.items():
+    #             for method, metrics in methods.items():
+    #                 if "iou" in metrics and "error" not in metrics:
+    #                     flat_results.append(
+    #                         {"Method": method, "IoU": metrics["iou"], "Image": img}
+    #                     )
 
-            if flat_results:
-                df_flat = pd.DataFrame(flat_results)
-                top_methods = (
-                    df_flat.groupby("Method")["IoU"]
-                    .mean()
-                    .sort_values(ascending=False)
-                    .head(5)
-                )
-                for i, (method, iou) in enumerate(top_methods.items(), 1):
-                    print(f"   {i}. {method}: IoU = {iou:.4f}")
-            else:
-                print("   Нет успешных результатов для ранжирования.")
+    #         if flat_results:
+    #             df_flat = pd.DataFrame(flat_results)
+    #             top_methods = (
+    #                 df_flat.groupby("Method")["IoU"]
+    #                 .mean()
+    #                 .sort_values(ascending=False)
+    #                 .head(5)
+    #             )
+    #             for i, (method, iou) in enumerate(top_methods.items(), 1):
+    #                 print(f"   {i}. {method}: IoU = {iou:.4f}")
+    #         else:
+    #             print("   Нет успешных результатов для ранжирования.")
 
-            print("\n" + "=" * 60)
-            print("СВОДНЫЙ ОТЧЕТ ПО GROUND TRUTH")
-            print("=" * 60)
+    #         print("\n" + "=" * 60)
+    #         print("СВОДНЫЙ ОТЧЕТ ПО GROUND TRUTH")
+    #         print("=" * 60)
 
-            rows = []
-            for img_name, methods_data in gt_results_summary.items():
-                for method_name, metrics in methods_data.items():
-                    if "error" not in metrics and "iou" in metrics:
-                        rows.append(
-                            {
-                                "Image": img_name,
-                                "Method": method_name,
-                                "IoU": metrics["iou"],
-                                "Dice": metrics["dice"],
-                                "Precision": metrics["precision"],
-                                "Recall": metrics["recall"],
-                                "F1_Score": metrics["f1_score"],
-                                "Time_s": metrics.get("execution_time", 0),
-                            }
-                        )
+    #         rows = []
+    #         for img_name, methods_data in gt_results_summary.items():
+    #             for method_name, metrics in methods_data.items():
+    #                 if "error" not in metrics and "iou" in metrics:
+    #                     rows.append(
+    #                         {
+    #                             "Image": img_name,
+    #                             "Method": method_name,
+    #                             "IoU": metrics["iou"],
+    #                             "Dice": metrics["dice"],
+    #                             "Precision": metrics["precision"],
+    #                             "Recall": metrics["recall"],
+    #                             "F1_Score": metrics["f1_score"],
+    #                             "Time_s": metrics.get("execution_time", 0),
+    #                         }
+    #                     )
 
-            if rows:
-                df_gt = pd.DataFrame(rows)
-                df_gt_sorted = df_gt.sort_values(
-                    by=["Image", "IoU"], ascending=[True, False]
-                )
-                print("\nТоп методов по IoU:")
-                print(
-                    df_gt_sorted[
-                        ["Method", "Image", "IoU", "Dice", "Time_s"]
-                    ].to_string(index=False)
-                )
-                df_gt_sorted.to_csv("./data/gt_summary_report.csv", index=False)
-                print("\n💾 Общая сводка сохранена в ./data/gt_summary_report.csv")
-                plt.figure(figsize=(12, 6))
-                first_img = list(gt_results_summary.keys())[0]
-                df_plot = (
-                    df_gt[df_gt["Image"] == first_img]
-                    .sort_values("IoU", ascending=False)
-                    .head(10)
-                )
-                if not df_plot.empty:
-                    plt.barh(df_plot["Method"], df_plot["IoU"])
-                    plt.xlabel("IoU Score")
-                    plt.title(f"Top 10 Methods by IoU ({first_img})")
-                    plt.xlim(0, 1)
-                    plt.gca().invert_yaxis()
-                    plt.tight_layout()
-                    plt.savefig("./data/gt_iu_comparison_chart.png")
-                    print("📊 График сохранен в ./data/gt_iu_comparison_chart.png")
-                else:
-                    print(
-                        "⚠️ Не удалось построить график: нет данных для первого изображения."
-                    )
-                plt.close()
-            else:
-                print("Нет успешных метрик для отображения.")
+    #         if rows:
+    #             df_gt = pd.DataFrame(rows)
+    #             df_gt_sorted = df_gt.sort_values(
+    #                 by=["Image", "IoU"], ascending=[True, False]
+    #             )
+    #             print("\nТоп методов по IoU:")
+    #             print(
+    #                 df_gt_sorted[
+    #                     ["Method", "Image", "IoU", "Dice", "Time_s"]
+    #                 ].to_string(index=False)
+    #             )
+    #             df_gt_sorted.to_csv("./data/gt_summary_report.csv", index=False)
+    #             print("\n💾 Общая сводка сохранена в ./data/gt_summary_report.csv")
+    #             plt.figure(figsize=(12, 6))
+    #             first_img = list(gt_results_summary.keys())[0]
+    #             df_plot = (
+    #                 df_gt[df_gt["Image"] == first_img]
+    #                 .sort_values("IoU", ascending=False)
+    #                 .head(10)
+    #             )
+    #             if not df_plot.empty:
+    #                 plt.barh(df_plot["Method"], df_plot["IoU"])
+    #                 plt.xlabel("IoU Score")
+    #                 plt.title(f"Top 10 Methods by IoU ({first_img})")
+    #                 plt.xlim(0, 1)
+    #                 plt.gca().invert_yaxis()
+    #                 plt.tight_layout()
+    #                 plt.savefig("./data/gt_iu_comparison_chart.png")
+    #                 print("📊 График сохранен в ./data/gt_iu_comparison_chart.png")
+    #             else:
+    #                 print(
+    #                     "⚠️ Не удалось построить график: нет данных для первого изображения."
+    #                 )
+    #             plt.close()
+    #         else:
+    #             print("Нет успешных метрик для отображения.")
 
-    print("\n" + "=" * 60)
-    print("ТЕСТИРОВАНИЕ ЗАВЕРШЕНО")
-    print("=" * 60)
-    print(f"✓ Методов протестировано: {len(tester.methods)}")
-    print(f"✓ Изображений обработано: {len(test_images)}")
-    print("✓ Результаты в: ./data/")
+    # print("\n" + "=" * 60)
+    # print("ТЕСТИРОВАНИЕ ЗАВЕРШЕНО")
+    # print("=" * 60)
+    # print(f"✓ Методов протестировано: {len(tester.methods)}")
+    # print(f"✓ Изображений обработано: {len(test_images)}")
+    # print("✓ Результаты в: ./data/")
 
     if test_neural_logic is True:
         # ====================================================================

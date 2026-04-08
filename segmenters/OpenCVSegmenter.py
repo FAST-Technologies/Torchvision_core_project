@@ -1506,7 +1506,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         start_time: float = time.time()
 
-        threshold: int = self.params.get("threshold", 50)
+        threshold: float = float(self.params.get("threshold", 50))
         if threshold > 1.0:  # Если порог в [0,255]
             threshold = threshold / 255.0
         angle_range: Optional[Tuple[float, float]] = self.params.get(
@@ -1623,9 +1623,8 @@ class OpenCVSegmenter(BaseSegmenter):
             sigma_f = sigma_onf * fo  # sigma_f пропорциональна fo
             log_gabor = np.zeros_like(R)
             mask = R > 0
-            log_gabor[mask] = np.exp(
-                -0.5 * (np.log(R[mask] / fo) / np.log(sigma_f[mask] + 1e-10)) ** 2
-            )
+            log_ratio = np.log(R[mask] / fo) / np.log(sigma_onf)
+            log_gabor[mask] = np.exp(-0.5 * log_ratio**2)
             log_gabor[0, 0] = 0.0  # DC компонента = 0
 
             for angle in orientations:
