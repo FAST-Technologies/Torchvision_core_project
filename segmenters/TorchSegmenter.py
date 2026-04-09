@@ -1581,21 +1581,27 @@ class TorchSegmenter(BaseSegmenter):
         kernel = torch.ones(1, 1, window_size, window_size, device=self.device)
         print(kernel)
         # Локальный максимум и минимум через pooling
-        local_max = (F.max_pool2d(
-            gray_padded,
-            kernel_size=window_size,
-            stride=1,
-            padding=0,
-        ).squeeze(0)
-        .squeeze(0))  # (1, 1, H, W) -> (H, W)
+        local_max = (
+            F.max_pool2d(
+                gray_padded,
+                kernel_size=window_size,
+                stride=1,
+                padding=0,
+            )
+            .squeeze(0)
+            .squeeze(0)
+        )  # (1, 1, H, W) -> (H, W)
 
-        local_min = -(F.max_pool2d(
-            -gray_padded,
-            kernel_size=window_size,
-            stride=1,
-            padding=0,
-        ).squeeze(0)
-        .squeeze(0))
+        local_min = -(
+            F.max_pool2d(
+                -gray_padded,
+                kernel_size=window_size,
+                stride=1,
+                padding=0,
+            )
+            .squeeze(0)
+            .squeeze(0)
+        )
 
         # Контраст в окне
         contrast = local_max - local_min
