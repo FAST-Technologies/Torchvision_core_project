@@ -87,6 +87,8 @@ function App() {
   const [selectedLibrary, setSelectedLibrary] = useState<string>("opencv");
   const [selectedMethod, setSelectedMethod] = useState<string>("");
   const [availableMethods, setAvailableMethods] = useState<Record<string, any>>({});
+  const [methodSchema, setMethodSchema] = useState<Record<string, any>>({});
+  const [customParams, setCustomParams] = useState<Record<string, any>>({});
 
   const fmt = (n: number, decimals = 3) => n.toFixed(decimals)
   const pct = (n: number) => `${(n * 100).toFixed(1)}%`
@@ -103,6 +105,19 @@ function App() {
         });
     }
   }, [autoSelect, selectedLibrary]);
+
+  const handleMethodChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    const methodName = e.target.value;
+    setSelectedMethod(methodName);
+    
+    // Получаем схему и дефолты из загруженных методов
+    const methodInfo = availableMethods[methodName];
+    if (methodInfo) {
+        setMethodSchema(methodInfo.schema || {});
+        // Инициализируем стейт дефолтными значениями
+        setCustomParams(methodInfo.defaults || {});
+    }
+  };
 
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
@@ -126,6 +141,7 @@ function App() {
     fd.append('file', file)
     fd.append('goal', goal)
     fd.append('auto_select', String(autoSelect));
+    fd.append('custom_params', JSON.stringify(customParams));
 
     if (!autoSelect) {
       fd.append('library', selectedLibrary);
@@ -222,7 +238,7 @@ function App() {
             <label>⚙️ Метод:</label>
             <select 
               value={selectedMethod}
-              onChange={(e) => setSelectedMethod(e.target.value)}
+              onChange={handleMethodChange}
               className="method-select"
               disabled={Object.keys(availableMethods).length === 0}
             >
@@ -244,6 +260,57 @@ function App() {
                 <p>{availableMethods[selectedMethod].description}</p>
               </div>
             )}
+          </div>
+        )}
+
+        {!autoSelect && methodSchema && Object.keys(methodSchema).length > 0 && (
+          <div className="params-editor" style={{marginTop: '1rem', padding: '1rem', background: '#f0f4f8', borderRadius: '8px'}}>
+            <h4>⚙️ Настройка параметров</h4>
+            <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem'}}>
+              {Object.keys(methodSchema).map((paramKey) => {
+                const config = methodSchema[paramKey];
+                const isInt = config.type === 'int';
+                
+                return (
+                  <div key={paramKey} style={{display: 'flex', flexDirection: 'column'}}>
+                    <label style={{fontSize: '0.8rem', fontWeight: 'bold'}}>
+                      {config.label || paramKey}
+                    </label>
+                    
+                    {/* Слайдер для удобства или обычный инпут */}
+                    {config.min !== undefined ? (
+                      <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                        <input
+                          type="range"
+                          min={config.min}
+                          max={config.max}
+                          step={config.step || 1}
+                          value={customParams[paramKey] || config.default}
+                          onChange={(e) => setCustomParams({
+                            ...customParams, 
+                            [paramKey]: isInt ? parseInt(e.target.value) : parseFloat(e.target.value)
+                          })}
+                          style={{flex: 1}}
+                        />
+                        <span style={{fontSize: '0.8rem', minWidth: '40px'}}>
+                          {customParams[paramKey]}
+                        </span>
+                      </div>
+                    ) : (
+                      <input
+                        type={isInt ? "number" : "number"}
+                        step={config.step || "any"}
+                        value={customParams[paramKey] || ""}
+                        onChange={(e) => setCustomParams({
+                          ...customParams, 
+                          [paramKey]: isInt ? parseInt(e.target.value) : parseFloat(e.target.value)
+                        })}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 

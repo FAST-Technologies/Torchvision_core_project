@@ -60,6 +60,7 @@ class MethodProfile:
     parameter_sensitivity: float  # Чувствительность к параметрам
     description: str = ""
     params: Dict[str, Any] = field(default_factory=dict)
+    schema: Dict[str, Any] = field(default_factory=dict)
 
 
 MethodConfig = Tuple[str, Dict[str, Any]]
@@ -76,6 +77,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.4,
             parameter_sensitivity=0.9,
             description="Простое глобальное пороговое значение (OpenCV)",
+            params={"threshold": 0.5},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог яркости (0-1)",
+                }
+            },
         ),
         "otsu_thresholding": MethodProfile(
             name="otsu_thresholding",
@@ -88,6 +99,7 @@ METHODS_BY_LIBRARY = {
             parameter_sensitivity=0.2,
             description="Автоматический порог Оцу (максимизация межклассовой дисперсии) (OpenCV)",
             params={},
+            schema={},
         ),
         "adaptive_thresholding": MethodProfile(
             name="adaptive_thresholding",
@@ -99,6 +111,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.9,
             parameter_sensitivity=0.4,
             description="Адаптивный порог с локальным усреднением (OpenCV)",
+            params={"block_size": 11, "C": 2},
+            schema={
+                "block_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер блока (нечетный)",
+                },
+                "C": {
+                    "type": "int",
+                    "min": -20,
+                    "max": 20,
+                    "step": 1,
+                    "label": "Константа C (смещение)",
+                },
+            },
         ),
         "threshold_niblack": MethodProfile(
             name="threshold_niblack",
@@ -110,6 +139,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.6,
             parameter_sensitivity=0.7,
             description="Метод Ниблэка для локального порогования (OpenCV)",
+            params={"window_size": 15, "k": -0.2},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "k": {
+                    "type": "float",
+                    "min": -1.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Константа k",
+                },
+            },
         ),
         "threshold_sauvola": MethodProfile(
             name="threshold_sauvola",
@@ -121,6 +167,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.92,
             parameter_sensitivity=0.3,
             description="Метод Саволы (улучшенный Ниблэк для текста) (OpenCV)",
+            params={"window_size": 15, "k": 0.5, "r": 128},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "k": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Константа k",
+                },
+                "r": {
+                    "type": "float",
+                    "min": 50.0,
+                    "max": 255.0,
+                    "step": 1.0,
+                    "label": "Динамический диапазон R",
+                },
+            },
         ),
         "threshold_bernsen": MethodProfile(
             name="threshold_bernsen",
@@ -132,6 +202,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.7,
             parameter_sensitivity=0.5,
             description="Метод Бернсена на основе локального контраста (OpenCV)",
+            params={"window_size": 15, "contrast_threshold": 0.15},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "contrast_threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог контраста",
+                },
+            },
         ),
         "threshold_phansalkar": MethodProfile(
             name="threshold_phansalkar",
@@ -143,6 +230,37 @@ METHODS_BY_LIBRARY = {
             robustness=0.88,
             parameter_sensitivity=0.4,
             description="Метод Фансалкара для низкоконтрастных изображений (OpenCV)",
+            params={"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "k": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Чувствительность k",
+                },
+                "r": {
+                    "type": "float",
+                    "min": 50.0,
+                    "max": 255.0,
+                    "step": 1.0,
+                    "label": "Диапазон R",
+                },
+                "m": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 2.0,
+                    "step": 0.01,
+                    "label": "Смещение m",
+                },
+            },
         ),
         "threshold_kittler_illingworth": MethodProfile(
             name="threshold_kittler_illingworth",
@@ -154,6 +272,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.75,
             parameter_sensitivity=0.3,
             description="Минимизация ошибки классификации (Киттлер-Иллингуорт) (OpenCV)",
+            params={"num_bins": 256},
+            schema={
+                "num_bins": {
+                    "type": "int",
+                    "min": 32,
+                    "max": 512,
+                    "step": 16,
+                    "label": "Кол-во бинов гистограммы",
+                }
+            },
         ),
         "threshold_entropy_kapur": MethodProfile(
             name="threshold_entropy_kapur",
@@ -165,6 +293,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.7,
             parameter_sensitivity=0.4,
             description="Максимизация энтропии (Капур) (OpenCV)",
+            params={"num_bins": 256},
+            schema={
+                "num_bins": {
+                    "type": "int",
+                    "min": 32,
+                    "max": 512,
+                    "step": 16,
+                    "label": "Кол-во бинов гистограммы",
+                }
+            },
         ),
         "threshold_triangle": MethodProfile(
             name="threshold_triangle",
@@ -176,6 +314,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.65,
             parameter_sensitivity=0.3,
             description="Треугольный метод для унимодальных гистограмм (OpenCV)",
+            params={"num_bins": 256},
+            schema={
+                "num_bins": {
+                    "type": "int",
+                    "min": 32,
+                    "max": 512,
+                    "step": 16,
+                    "label": "Кол-во бинов гистограммы",
+                }
+            },
         ),
         "threshold_multi_otsu": MethodProfile(
             name="threshold_multi_otsu",
@@ -187,6 +335,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.8,
             parameter_sensitivity=0.5,
             description="Многопороговый Оцу для многоклассовой сегментации (OpenCV)",
+            params={"n_thresholds": 2},
+            schema={
+                "n_thresholds": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 5,
+                    "step": 1,
+                    "label": "Кол-во порогов",
+                }
+            },
         ),
         "threshold_percentile": MethodProfile(
             name="threshold_percentile",
@@ -198,6 +356,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.5,
             parameter_sensitivity=0.8,
             description="Порог по перцентилю интенсивности (OpenCV)",
+            params={"percentile": 90},
+            schema={
+                "percentile": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 99,
+                    "step": 1,
+                    "label": "Процентиль (%)",
+                }
+            },
         ),
         "threshold_local_contrast": MethodProfile(
             name="threshold_local_contrast",
@@ -209,6 +377,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.82,
             parameter_sensitivity=0.5,
             description="Порог на основе локального контраста (OpenCV)",
+            params={"window_size": 15, "contrast_factor": 0.1},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "contrast_factor": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Фактор контраста",
+                },
+            },
         ),
         # ===== EDGE DETECTION =====
         "canny_edge": MethodProfile(
@@ -221,6 +406,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.7,
             parameter_sensitivity=0.6,
             description="Детектор границ Кэнни (оптимальный по Кэнни) (OpenCV)",
+            params={"low": 0.1, "high": 0.3, "sigma": 1.0},
+            schema={
+                "low": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Нижний порог",
+                },
+                "high": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Верхний порог",
+                },
+                "sigma": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Сигма (размытие)",
+                },
+            },
         ),
         "sobel_edge": MethodProfile(
             name="sobel_edge",
@@ -232,6 +441,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.5,
             parameter_sensitivity=0.7,
             description="Градиенты Собеля с порогом (OpenCV)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог градиента",
+                }
+            },
         ),
         "prewitt_edge": MethodProfile(
             name="prewitt_edge",
@@ -243,6 +462,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.48,
             parameter_sensitivity=0.72,
             description="Градиенты Превитта с порогом (OpenCV)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог градиента",
+                }
+            },
         ),
         "scharr_edge": MethodProfile(
             name="scharr_edge",
@@ -254,6 +483,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.55,
             parameter_sensitivity=0.65,
             description="Градиенты Шарра (OpenCV)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог градиента",
+                }
+            },
         ),
         "roberts_cross_edge": MethodProfile(
             name="roberts_cross_edge",
@@ -265,6 +504,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.4,
             parameter_sensitivity=0.8,
             description="Оператор Робертса для диагональных границ (OpenCV)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог градиента",
+                }
+            },
         ),
         "log_edge": MethodProfile(
             name="log_edge",
@@ -276,6 +525,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.6,
             parameter_sensitivity=0.5,
             description="Laplacian of Gaussian детектор границ (OpenCV)",
+            params={"sigma": 1.0, "threshold": 0.01},
+            schema={
+                "sigma": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Сигма размытия",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог детекции",
+                },
+            },
         ),
         "dog_edge": MethodProfile(
             name="dog_edge",
@@ -287,6 +553,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.68,
             parameter_sensitivity=0.55,
             description="Difference of Gaussians для мультимасштабных границ (OpenCV)",
+            params={"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01},
+            schema={
+                "sigma1": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Сигма 1",
+                },
+                "sigma2": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 20.0,
+                    "step": 0.1,
+                    "label": "Сигма 2",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог детекции",
+                },
+            },
         ),
         "marr_hildreth_edge": MethodProfile(
             name="marr_hildreth_edge",
@@ -298,6 +588,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.62,
             parameter_sensitivity=0.58,
             description="Метод Марра-Хилдрета (нулевые пересечения LoG) (OpenCV)",
+            params={"sigma": 1.5, "threshold": 0.01},
+            schema={
+                "sigma": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Сигма размытия",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог нулевых пересечений",
+                },
+            },
         ),
         "gradient_magnitude_direction": MethodProfile(
             name="gradient_magnitude_direction",
@@ -309,6 +616,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.52,
             parameter_sensitivity=0.68,
             description="Сегментация по величине и направлению градиента (OpenCV)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог магнитуды",
+                }
+            },
         ),
         "phase_congruency_edge": MethodProfile(
             name="phase_congruency_edge",
@@ -324,6 +641,66 @@ METHODS_BY_LIBRARY = {
             robustness=0.95,
             parameter_sensitivity=0.3,
             description="Фазовая конгруэнтность (инвариантна к освещению) (OpenCV)",
+            params={
+                "nscales": 4,
+                "norientations": 4,
+                "min_wavelength": 3,
+                "mult": 2.0,
+                "sigma_onf": 0.55,
+                "k_noise": 2.0,
+                "threshold": 0.5,
+            },
+            schema={
+                "nscales": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 8,
+                    "step": 1,
+                    "label": "Кол-во масштабов",
+                },
+                "norientations": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 12,
+                    "step": 1,
+                    "label": "Кол-во ориентаций",
+                },
+                "min_wavelength": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 10,
+                    "step": 1,
+                    "label": "Мин. длина волны",
+                },
+                "mult": {
+                    "type": "float",
+                    "min": 1.0,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Множитель масштаба",
+                },
+                "sigma_onf": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 2.0,
+                    "step": 0.05,
+                    "label": "Сигма частотной области",
+                },
+                "k_noise": {
+                    "type": "float",
+                    "min": 0.5,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Коэф. шумоподавления",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог энергии",
+                },
+            },
         ),
         # ===== REGION-BASED =====
         "region_growing": MethodProfile(
@@ -336,6 +713,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.75,
             parameter_sensitivity=0.6,
             description="Рост региона от семян по схожести (OpenCV)",
+            params={"tolerance": 0.1},
+            schema={
+                "tolerance": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Допуск схожести",
+                }
+            },
         ),
         "split_and_merge": MethodProfile(
             name="split_and_merge",
@@ -347,6 +734,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.7,
             parameter_sensitivity=0.5,
             description="Разделение и слияние регионов (OpenCV)",
+            params={"min_size": 50, "threshold": 20},
+            schema={
+                "min_size": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Мин. размер региона",
+                },
+                "threshold": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 100,
+                    "step": 1,
+                    "label": "Порог слияния",
+                },
+            },
         ),
         "floodfill": MethodProfile(
             name="floodfill",
@@ -358,6 +762,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.6,
             parameter_sensitivity=0.7,
             description="Заливка области от точки (OpenCV)",
+            params={"tolerance": 0.15},
+            schema={
+                "tolerance": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Допуск заливки",
+                }
+            },
         ),
         # ===== CLUSTERING =====
         "kmeans_segmentation": MethodProfile(
@@ -370,6 +784,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.65,
             parameter_sensitivity=0.7,
             description="K-means кластеризация в пространстве признаков (OpenCV)",
+            params={"k": 3},
+            schema={
+                "k": {
+                    "type": "int",
+                    "min": 2,
+                    "max": 20,
+                    "step": 1,
+                    "label": "Кол-во кластеров",
+                }
+            },
         ),
         "dbscan_segmentation": MethodProfile(
             name="dbscan_segmentation",
@@ -381,6 +805,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.8,
             parameter_sensitivity=0.6,
             description="DBSCAN для сегментации произвольной формы (OpenCV)",
+            params={"eps": 0.1, "min_samples": 10},
+            schema={
+                "eps": {
+                    "type": "float",
+                    "min": 0.01,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Радиус окрестности (eps)",
+                },
+                "min_samples": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 50,
+                    "step": 1,
+                    "label": "Мин. точек в кластере",
+                },
+            },
         ),
         "meanshift": MethodProfile(
             name="meanshift",
@@ -392,6 +833,42 @@ METHODS_BY_LIBRARY = {
             robustness=0.85,
             parameter_sensitivity=0.4,
             description="MeanShift с пространственно-цветовым ядром (OpenCV)",
+            params={
+                "bandwidth": 0.5,
+                "spatial_radius": 35,
+                "color_radius": 60,
+                "max_level": 1,
+            },
+            schema={
+                "bandwidth": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Полоса пропускания",
+                },
+                "spatial_radius": {
+                    "type": "int",
+                    "min": 5,
+                    "max": 100,
+                    "step": 1,
+                    "label": "Пространственный радиус",
+                },
+                "color_radius": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 200,
+                    "step": 1,
+                    "label": "Цветовой радиус",
+                },
+                "max_level": {
+                    "type": "int",
+                    "min": 0,
+                    "max": 5,
+                    "step": 1,
+                    "label": "Макс. уровень пирамиды",
+                },
+            },
         ),
         # ===== ACTIVE CONTOURS =====
         "active_contour": MethodProfile(
@@ -404,6 +881,58 @@ METHODS_BY_LIBRARY = {
             robustness=0.78,
             parameter_sensitivity=0.75,
             description="Змеи (snakes) с энергией границ и линий (OpenCV)",
+            params={
+                "alpha": 0.015,
+                "beta": 10,
+                "gamma": 0.001,
+                "max_iterations": 2000,
+                "w_edge": 1,
+                "w_line": 0,
+            },
+            schema={
+                "alpha": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.001,
+                    "label": "Плавность контура",
+                },
+                "beta": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 50.0,
+                    "step": 0.1,
+                    "label": "Жесткость контура",
+                },
+                "gamma": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.001,
+                    "label": "Вязкость (шаг)",
+                },
+                "max_iterations": {
+                    "type": "int",
+                    "min": 100,
+                    "max": 5000,
+                    "step": 100,
+                    "label": "Итерации",
+                },
+                "w_edge": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Вес границ",
+                },
+                "w_line": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Вес линий",
+                },
+            },
         ),
         "gvf_contour": MethodProfile(
             name="gvf_contour",
@@ -415,6 +944,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.88,
             parameter_sensitivity=0.5,
             description="Контуры с градиентным векторным потоком (GVF) (OpenCV)",
+            params={"mu": 0.1, "iterations": 50},
+            schema={
+                "mu": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Коэф. диффузии (mu)",
+                },
+                "iterations": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Итерации GVF",
+                },
+            },
         ),
         "morphological_snakes": MethodProfile(
             name="morphological_snakes",
@@ -426,6 +972,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.92,
             parameter_sensitivity=0.35,
             description="Морфологические змеи (устойчивы к шуму) (OpenCV)",
+            params={"iterations": 100, "smoothing": 1, "threshold": 0.5},
+            schema={
+                "iterations": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Итерации",
+                },
+                "smoothing": {
+                    "type": "int",
+                    "min": 0,
+                    "max": 5,
+                    "step": 1,
+                    "label": "Степень сглаживания",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог инициализации",
+                },
+            },
         ),
         "chan_vese": MethodProfile(
             name="chan_vese",
@@ -437,6 +1007,67 @@ METHODS_BY_LIBRARY = {
             robustness=0.94,
             parameter_sensitivity=0.3,
             description="Модель Чан-Везе (регион-базированные активные контуры) (OpenCV)",
+            params={
+                "mu": 0.25,
+                "lambda1": 1.0,
+                "lambda2": 1.0,
+                "tol": 1e-3,
+                "max_iter": 100,
+                "dt": 0.5,
+                "eps": 1.0,
+                "init_level_set": "checkerboard",
+            },
+            schema={
+                "mu": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 5.0,
+                    "step": 0.01,
+                    "label": "Длина контура (mu)",
+                },
+                "lambda1": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Внешняя область (lambda1)",
+                },
+                "lambda2": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Внутренняя область (lambda2)",
+                },
+                "tol": {
+                    "type": "float",
+                    "min": 0.0001,
+                    "max": 0.01,
+                    "step": 0.0001,
+                    "label": "Точность сходимости",
+                },
+                "max_iter": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 1000,
+                    "step": 10,
+                    "label": "Макс. итераций",
+                },
+                "dt": {
+                    "type": "float",
+                    "min": 0.01,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Шаг времени (dt)",
+                },
+                "eps": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Параметр фазового поля",
+                },
+            },
         ),
         # ===== WATERSHED =====
         "watershed": MethodProfile(
@@ -453,6 +1084,8 @@ METHODS_BY_LIBRARY = {
             robustness=0.65,
             parameter_sensitivity=0.8,
             description="Классический watershed по градиенту (OpenCV)",
+            params={},
+            schema={},
         ),
         "random_walker": MethodProfile(
             name="random_walker",
@@ -464,6 +1097,42 @@ METHODS_BY_LIBRARY = {
             robustness=0.9,
             parameter_sensitivity=0.4,
             description="Random walker с вероятностной диффузией (OpenCV)",
+            params={
+                "beta": 130,
+                "tol": 1e-3,
+                "max_iter": 300,
+                "target_label": 2,
+            },
+            schema={
+                "beta": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Коэф. диффузии (beta)",
+                },
+                "tol": {
+                    "type": "float",
+                    "min": 0.0001,
+                    "max": 0.01,
+                    "step": 0.0001,
+                    "label": "Точность",
+                },
+                "max_iter": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 1000,
+                    "step": 10,
+                    "label": "Итерации",
+                },
+                "target_label": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 10,
+                    "step": 1,
+                    "label": "Целевая метка объекта",
+                },
+            },
         ),
         # ===== SUPER-PIXELS =====
         "slic": MethodProfile(
@@ -480,6 +1149,75 @@ METHODS_BY_LIBRARY = {
             robustness=0.8,
             parameter_sensitivity=0.4,
             description="SLIC super-pixels в Lab-пространстве (OpenCV)",
+            params={
+                "n_segments": 100,
+                "compactness": 10.0,
+                "max_iter": 10,
+                "sigma": 0.0,
+                "enforce_connectivity": True,
+                "min_size_factor": 0.5,
+                "max_size_factor": 3.0,
+                "ruler": 10.0,
+                "region_size": 20,
+            },
+            schema={
+                "n_segments": {
+                    "type": "int",
+                    "min": 50,
+                    "max": 1000,
+                    "step": 50,
+                    "label": "Кол-во сегментов",
+                },
+                "compactness": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 50.0,
+                    "step": 0.1,
+                    "label": "Компактность",
+                },
+                "max_iter": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 50,
+                    "step": 1,
+                    "label": "Итерации",
+                },
+                "sigma": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Сглаживание Гаусса",
+                },
+                "min_size_factor": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 2.0,
+                    "step": 0.1,
+                    "label": "Мин. фактор размера",
+                },
+                "max_size_factor": {
+                    "type": "float",
+                    "min": 1.0,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Макс. фактор размера",
+                },
+                "ruler": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 50.0,
+                    "step": 0.1,
+                    "label": "Масштабная линейка",
+                },
+                "region_size": {
+                    "type": "int",
+                    "min": 5,
+                    "max": 100,
+                    "step": 1,
+                    "label": "Базовый размер региона",
+                },
+            },
         ),
         "felzenszwalb": MethodProfile(
             name="felzenszwalb",
@@ -491,6 +1229,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.78,
             parameter_sensitivity=0.5,
             description="Граф-базированная сегментация Фельценцвальба (OpenCV)",
+            params={"scale": 100, "sigma": 0.5, "min_size": 50},
+            schema={
+                "scale": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 1000,
+                    "step": 10,
+                    "label": "Масштаб сегментации",
+                },
+                "sigma": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Сглаживание Гаусса",
+                },
+                "min_size": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Мин. размер сегмента",
+                },
+            },
         ),
         # ===== INTERACTIVE =====
         "grabcut": MethodProfile(
@@ -503,6 +1265,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.88,
             parameter_sensitivity=0.5,
             description="GrabCut с итеративной оптимизацией GMM (OpenCV)",
+            params={"num_iterations": 5},
+            schema={
+                "num_iterations": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 20,
+                    "step": 1,
+                    "label": "Итерации оптимизации",
+                }
+            },
         ),
     },
     "sklearn": {
@@ -516,6 +1288,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.4,
             parameter_sensitivity=0.9,
             description="Простое глобальное пороговое значение (Sklearn)",
+            params={"threshold": 0.5},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог яркости (0-1)",
+                }
+            },
         ),
         "otsu_thresholding": MethodProfile(
             name="otsu_thresholding",
@@ -528,6 +1310,7 @@ METHODS_BY_LIBRARY = {
             parameter_sensitivity=0.2,
             description="Автоматический порог Оцу (максимизация межклассовой дисперсии) (sklearn)",
             params={},
+            schema={},
         ),
         "adaptive_thresholding": MethodProfile(
             name="adaptive_thresholding",
@@ -539,6 +1322,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.9,
             parameter_sensitivity=0.4,
             description="Адаптивный порог с локальным усреднением (sklearn)",
+            params={"block_size": 11, "C": 2},
+            schema={
+                "block_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер блока (нечетный)",
+                },
+                "C": {
+                    "type": "int",
+                    "min": -20,
+                    "max": 20,
+                    "step": 1,
+                    "label": "Константа C (смещение)",
+                },
+            },
         ),
         "threshold_niblack": MethodProfile(
             name="threshold_niblack",
@@ -550,6 +1350,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.6,
             parameter_sensitivity=0.7,
             description="Метод Ниблэка для локального порогования (sklearn)",
+            params={"window_size": 15, "k": -0.2},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "k": {
+                    "type": "float",
+                    "min": -1.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Константа k",
+                },
+            },
         ),
         "threshold_sauvola": MethodProfile(
             name="threshold_sauvola",
@@ -561,6 +1378,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.92,
             parameter_sensitivity=0.3,
             description="Метод Саволы (улучшенный Ниблэк для текста) (sklearn)",
+            params={"window_size": 15, "k": 0.5, "r": 128},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "k": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Константа k",
+                },
+                "r": {
+                    "type": "float",
+                    "min": 50.0,
+                    "max": 255.0,
+                    "step": 1.0,
+                    "label": "Динамический диапазон R",
+                },
+            },
         ),
         "threshold_bernsen": MethodProfile(
             name="threshold_bernsen",
@@ -572,6 +1413,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.7,
             parameter_sensitivity=0.5,
             description="Метод Бернсена на основе локального контраста (sklearn)",
+            params={"window_size": 15, "contrast_threshold": 0.15},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "contrast_threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог контраста",
+                },
+            },
         ),
         "threshold_phansalkar": MethodProfile(
             name="threshold_phansalkar",
@@ -583,6 +1441,37 @@ METHODS_BY_LIBRARY = {
             robustness=0.88,
             parameter_sensitivity=0.4,
             description="Метод Фансалкара для низкоконтрастных изображений (sklearn)",
+            params={"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "k": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Чувствительность k",
+                },
+                "r": {
+                    "type": "float",
+                    "min": 50.0,
+                    "max": 255.0,
+                    "step": 1.0,
+                    "label": "Диапазон R",
+                },
+                "m": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 2.0,
+                    "step": 0.01,
+                    "label": "Смещение m",
+                },
+            },
         ),
         "threshold_kittler_illingworth": MethodProfile(
             name="threshold_kittler_illingworth",
@@ -594,6 +1483,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.75,
             parameter_sensitivity=0.3,
             description="Минимизация ошибки классификации (Киттлер-Иллингуорт) (sklearn)",
+            params={"num_bins": 256},
+            schema={
+                "num_bins": {
+                    "type": "int",
+                    "min": 32,
+                    "max": 512,
+                    "step": 16,
+                    "label": "Кол-во бинов гистограммы",
+                }
+            },
         ),
         "threshold_entropy_kapur": MethodProfile(
             name="threshold_entropy_kapur",
@@ -605,6 +1504,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.7,
             parameter_sensitivity=0.4,
             description="Максимизация энтропии (Капур) (sklearn)",
+            params={"num_bins": 256},
+            schema={
+                "num_bins": {
+                    "type": "int",
+                    "min": 32,
+                    "max": 512,
+                    "step": 16,
+                    "label": "Кол-во бинов гистограммы",
+                }
+            },
         ),
         "threshold_triangle": MethodProfile(
             name="threshold_triangle",
@@ -616,6 +1525,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.65,
             parameter_sensitivity=0.3,
             description="Треугольный метод для унимодальных гистограмм (sklearn)",
+            params={"num_bins": 256},
+            schema={
+                "num_bins": {
+                    "type": "int",
+                    "min": 32,
+                    "max": 512,
+                    "step": 16,
+                    "label": "Кол-во бинов гистограммы",
+                }
+            },
         ),
         "threshold_multi_otsu": MethodProfile(
             name="threshold_multi_otsu",
@@ -627,6 +1546,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.8,
             parameter_sensitivity=0.5,
             description="Многопороговый Оцу для многоклассовой сегментации (sklearn)",
+            params={"n_thresholds": 2},
+            schema={
+                "n_thresholds": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 5,
+                    "step": 1,
+                    "label": "Кол-во порогов",
+                }
+            },
         ),
         "threshold_percentile": MethodProfile(
             name="threshold_percentile",
@@ -638,6 +1567,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.5,
             parameter_sensitivity=0.8,
             description="Порог по перцентилю интенсивности (sklearn)",
+            params={"percentile": 90},
+            schema={
+                "percentile": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 99,
+                    "step": 1,
+                    "label": "Процентиль (%)",
+                }
+            },
         ),
         "threshold_local_contrast": MethodProfile(
             name="threshold_local_contrast",
@@ -649,6 +1588,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.82,
             parameter_sensitivity=0.5,
             description="Порог на основе локального контраста (sklearn)",
+            params={"window_size": 15, "contrast_factor": 0.1},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "contrast_factor": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Фактор контраста",
+                },
+            },
         ),
         # ===== EDGE DETECTION =====
         "canny_edge": MethodProfile(
@@ -661,6 +1617,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.7,
             parameter_sensitivity=0.6,
             description="Детектор границ Кэнни (оптимальный по Кэнни) (sklearn)",
+            params={"low": 0.1, "high": 0.3, "sigma": 1.0},
+            schema={
+                "low": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Нижний порог",
+                },
+                "high": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Верхний порог",
+                },
+                "sigma": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Сигма (размытие)",
+                },
+            },
         ),
         "sobel_edge": MethodProfile(
             name="sobel_edge",
@@ -672,6 +1652,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.5,
             parameter_sensitivity=0.7,
             description="Градиенты Собеля с порогом (sklearn)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог градиента",
+                }
+            },
         ),
         "prewitt_edge": MethodProfile(
             name="prewitt_edge",
@@ -683,6 +1673,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.48,
             parameter_sensitivity=0.72,
             description="Градиенты Превитта с порогом (sklearn)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог градиента",
+                }
+            },
         ),
         "scharr_edge": MethodProfile(
             name="scharr_edge",
@@ -694,6 +1694,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.55,
             parameter_sensitivity=0.65,
             description="Градиенты Шарра (sklearn)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог градиента",
+                }
+            },
         ),
         "roberts_cross_edge": MethodProfile(
             name="roberts_cross_edge",
@@ -705,6 +1715,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.4,
             parameter_sensitivity=0.8,
             description="Оператор Робертса для диагональных границ (sklearn)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог градиента",
+                }
+            },
         ),
         "log_edge": MethodProfile(
             name="log_edge",
@@ -716,6 +1736,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.6,
             parameter_sensitivity=0.5,
             description="Laplacian of Gaussian детектор границ (sklearn)",
+            params={"sigma": 1.0, "threshold": 0.01},
+            schema={
+                "sigma": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Сигма размытия",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог детекции",
+                },
+            },
         ),
         "dog_edge": MethodProfile(
             name="dog_edge",
@@ -727,6 +1764,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.68,
             parameter_sensitivity=0.55,
             description="Difference of Gaussians для мультимасштабных границ (sklearn)",
+            params={"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01},
+            schema={
+                "sigma1": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Сигма 1",
+                },
+                "sigma2": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 20.0,
+                    "step": 0.1,
+                    "label": "Сигма 2",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог детекции",
+                },
+            },
         ),
         "marr_hildreth_edge": MethodProfile(
             name="marr_hildreth_edge",
@@ -738,6 +1799,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.62,
             parameter_sensitivity=0.58,
             description="Метод Марра-Хилдрета (нулевые пересечения LoG) (sklearn)",
+            params={"sigma": 1.5, "threshold": 0.01},
+            schema={
+                "sigma": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Сигма размытия",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог нулевых пересечений",
+                },
+            },
         ),
         "gradient_magnitude_direction": MethodProfile(
             name="gradient_magnitude_direction",
@@ -749,6 +1827,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.52,
             parameter_sensitivity=0.68,
             description="Сегментация по величине и направлению градиента (sklearn)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог магнитуды",
+                }
+            },
         ),
         "phase_congruency_edge": MethodProfile(
             name="phase_congruency_edge",
@@ -764,6 +1852,66 @@ METHODS_BY_LIBRARY = {
             robustness=0.95,
             parameter_sensitivity=0.3,
             description="Фазовая конгруэнтность (инвариантна к освещению) (sklearn)",
+            params={
+                "nscales": 4,
+                "norientations": 4,
+                "min_wavelength": 3,
+                "mult": 2.0,
+                "sigma_onf": 0.55,
+                "k_noise": 2.0,
+                "threshold": 0.5,
+            },
+            schema={
+                "nscales": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 8,
+                    "step": 1,
+                    "label": "Кол-во масштабов",
+                },
+                "norientations": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 12,
+                    "step": 1,
+                    "label": "Кол-во ориентаций",
+                },
+                "min_wavelength": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 10,
+                    "step": 1,
+                    "label": "Мин. длина волны",
+                },
+                "mult": {
+                    "type": "float",
+                    "min": 1.0,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Множитель масштаба",
+                },
+                "sigma_onf": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 2.0,
+                    "step": 0.05,
+                    "label": "Сигма частотной области",
+                },
+                "k_noise": {
+                    "type": "float",
+                    "min": 0.5,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Коэф. шумоподавления",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог энергии",
+                },
+            },
         ),
         # ===== REGION-BASED =====
         "region_growing": MethodProfile(
@@ -776,6 +1924,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.75,
             parameter_sensitivity=0.6,
             description="Рост региона от семян по схожести (sklearn)",
+            params={"tolerance": 0.1},
+            schema={
+                "tolerance": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Допуск схожести",
+                }
+            },
         ),
         "split_and_merge": MethodProfile(
             name="split_and_merge",
@@ -787,6 +1945,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.7,
             parameter_sensitivity=0.5,
             description="Разделение и слияние регионов (sklearn)",
+            params={"min_size": 50, "threshold": 20},
+            schema={
+                "min_size": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Мин. размер региона",
+                },
+                "threshold": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 100,
+                    "step": 1,
+                    "label": "Порог слияния",
+                },
+            },
         ),
         "floodfill": MethodProfile(
             name="floodfill",
@@ -798,6 +1973,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.6,
             parameter_sensitivity=0.7,
             description="Заливка области от точки (sklearn)",
+            params={"tolerance": 0.15},
+            schema={
+                "tolerance": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Допуск заливки",
+                }
+            },
         ),
         # ===== CLUSTERING =====
         "kmeans_segmentation": MethodProfile(
@@ -810,6 +1995,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.65,
             parameter_sensitivity=0.7,
             description="K-means кластеризация в пространстве признаков (sklearn)",
+            params={"k": 3},
+            schema={
+                "k": {
+                    "type": "int",
+                    "min": 2,
+                    "max": 20,
+                    "step": 1,
+                    "label": "Кол-во кластеров",
+                }
+            },
         ),
         "dbscan_segmentation": MethodProfile(
             name="dbscan_segmentation",
@@ -821,6 +2016,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.8,
             parameter_sensitivity=0.6,
             description="DBSCAN для сегментации произвольной формы (sklearn)",
+            params={"eps": 0.1, "min_samples": 10},
+            schema={
+                "eps": {
+                    "type": "float",
+                    "min": 0.01,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Радиус окрестности (eps)",
+                },
+                "min_samples": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 50,
+                    "step": 1,
+                    "label": "Мин. точек в кластере",
+                },
+            },
         ),
         "meanshift": MethodProfile(
             name="meanshift",
@@ -832,6 +2044,42 @@ METHODS_BY_LIBRARY = {
             robustness=0.85,
             parameter_sensitivity=0.4,
             description="MeanShift с пространственно-цветовым ядром (sklearn)",
+            params={
+                "bandwidth": 0.5,
+                "spatial_radius": 35,
+                "color_radius": 60,
+                "max_level": 1,
+            },
+            schema={
+                "bandwidth": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Полоса пропускания",
+                },
+                "spatial_radius": {
+                    "type": "int",
+                    "min": 5,
+                    "max": 100,
+                    "step": 1,
+                    "label": "Пространственный радиус",
+                },
+                "color_radius": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 200,
+                    "step": 1,
+                    "label": "Цветовой радиус",
+                },
+                "max_level": {
+                    "type": "int",
+                    "min": 0,
+                    "max": 5,
+                    "step": 1,
+                    "label": "Макс. уровень пирамиды",
+                },
+            },
         ),
         # ===== ACTIVE CONTOURS =====
         "active_contour": MethodProfile(
@@ -844,6 +2092,58 @@ METHODS_BY_LIBRARY = {
             robustness=0.78,
             parameter_sensitivity=0.75,
             description="Змеи (snakes) с энергией границ и линий (sklearn)",
+            params={
+                "alpha": 0.015,
+                "beta": 10,
+                "gamma": 0.001,
+                "max_iterations": 2000,
+                "w_edge": 1,
+                "w_line": 0,
+            },
+            schema={
+                "alpha": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.001,
+                    "label": "Плавность контура",
+                },
+                "beta": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 50.0,
+                    "step": 0.1,
+                    "label": "Жесткость контура",
+                },
+                "gamma": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.001,
+                    "label": "Вязкость (шаг)",
+                },
+                "max_iterations": {
+                    "type": "int",
+                    "min": 100,
+                    "max": 5000,
+                    "step": 100,
+                    "label": "Итерации",
+                },
+                "w_edge": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Вес границ",
+                },
+                "w_line": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Вес линий",
+                },
+            },
         ),
         "gvf_contour": MethodProfile(
             name="gvf_contour",
@@ -855,6 +2155,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.88,
             parameter_sensitivity=0.5,
             description="Контуры с градиентным векторным потоком (GVF) (sklearn)",
+            params={"mu": 0.1, "iterations": 50},
+            schema={
+                "mu": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Коэф. диффузии (mu)",
+                },
+                "iterations": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Итерации GVF",
+                },
+            },
         ),
         "morphological_snakes": MethodProfile(
             name="morphological_snakes",
@@ -866,6 +2183,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.92,
             parameter_sensitivity=0.35,
             description="Морфологические змеи (устойчивы к шуму) (sklearn)",
+            params={"iterations": 100, "smoothing": 1, "threshold": 0.5},
+            schema={
+                "iterations": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Итерации",
+                },
+                "smoothing": {
+                    "type": "int",
+                    "min": 0,
+                    "max": 5,
+                    "step": 1,
+                    "label": "Степень сглаживания",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог инициализации",
+                },
+            },
         ),
         "chan_vese": MethodProfile(
             name="chan_vese",
@@ -877,6 +2218,67 @@ METHODS_BY_LIBRARY = {
             robustness=0.94,
             parameter_sensitivity=0.3,
             description="Модель Чан-Везе (регион-базированные активные контуры) (sklearn)",
+            params={
+                "mu": 0.25,
+                "lambda1": 1.0,
+                "lambda2": 1.0,
+                "tol": 1e-3,
+                "max_iter": 100,
+                "dt": 0.5,
+                "eps": 1.0,
+                "init_level_set": "checkerboard",
+            },
+            schema={
+                "mu": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 5.0,
+                    "step": 0.01,
+                    "label": "Длина контура (mu)",
+                },
+                "lambda1": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Внешняя область (lambda1)",
+                },
+                "lambda2": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Внутренняя область (lambda2)",
+                },
+                "tol": {
+                    "type": "float",
+                    "min": 0.0001,
+                    "max": 0.01,
+                    "step": 0.0001,
+                    "label": "Точность сходимости",
+                },
+                "max_iter": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 1000,
+                    "step": 10,
+                    "label": "Макс. итераций",
+                },
+                "dt": {
+                    "type": "float",
+                    "min": 0.01,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Шаг времени (dt)",
+                },
+                "eps": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Параметр фазового поля",
+                },
+            },
         ),
         # ===== WATERSHED =====
         "watershed": MethodProfile(
@@ -893,6 +2295,8 @@ METHODS_BY_LIBRARY = {
             robustness=0.65,
             parameter_sensitivity=0.8,
             description="Классический watershed по градиенту (sklearn)",
+            params={},
+            schema={},
         ),
         "random_walker": MethodProfile(
             name="random_walker",
@@ -904,6 +2308,42 @@ METHODS_BY_LIBRARY = {
             robustness=0.9,
             parameter_sensitivity=0.4,
             description="Random walker с вероятностной диффузией (sklearn)",
+            params={
+                "beta": 130,
+                "tol": 1e-3,
+                "max_iter": 300,
+                "target_label": 2,
+            },
+            schema={
+                "beta": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Коэф. диффузии (beta)",
+                },
+                "tol": {
+                    "type": "float",
+                    "min": 0.0001,
+                    "max": 0.01,
+                    "step": 0.0001,
+                    "label": "Точность",
+                },
+                "max_iter": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 1000,
+                    "step": 10,
+                    "label": "Итерации",
+                },
+                "target_label": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 10,
+                    "step": 1,
+                    "label": "Целевая метка объекта",
+                },
+            },
         ),
         # ===== SUPER-PIXELS =====
         "slic": MethodProfile(
@@ -920,6 +2360,75 @@ METHODS_BY_LIBRARY = {
             robustness=0.8,
             parameter_sensitivity=0.4,
             description="SLIC super-pixels в Lab-пространстве (sklearn)",
+            params={
+                "n_segments": 100,
+                "compactness": 10.0,
+                "max_iter": 10,
+                "sigma": 0.0,
+                "enforce_connectivity": True,
+                "min_size_factor": 0.5,
+                "max_size_factor": 3.0,
+                "ruler": 10.0,
+                "region_size": 20,
+            },
+            schema={
+                "n_segments": {
+                    "type": "int",
+                    "min": 50,
+                    "max": 1000,
+                    "step": 50,
+                    "label": "Кол-во сегментов",
+                },
+                "compactness": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 50.0,
+                    "step": 0.1,
+                    "label": "Компактность",
+                },
+                "max_iter": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 50,
+                    "step": 1,
+                    "label": "Итерации",
+                },
+                "sigma": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Сглаживание Гаусса",
+                },
+                "min_size_factor": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 2.0,
+                    "step": 0.1,
+                    "label": "Мин. фактор размера",
+                },
+                "max_size_factor": {
+                    "type": "float",
+                    "min": 1.0,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Макс. фактор размера",
+                },
+                "ruler": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 50.0,
+                    "step": 0.1,
+                    "label": "Масштабная линейка",
+                },
+                "region_size": {
+                    "type": "int",
+                    "min": 5,
+                    "max": 100,
+                    "step": 1,
+                    "label": "Базовый размер региона",
+                },
+            },
         ),
         "felzenszwalb": MethodProfile(
             name="felzenszwalb",
@@ -931,6 +2440,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.78,
             parameter_sensitivity=0.5,
             description="Граф-базированная сегментация Фельценцвальба (sklearn)",
+            params={"scale": 100, "sigma": 0.5, "min_size": 50},
+            schema={
+                "scale": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 1000,
+                    "step": 10,
+                    "label": "Масштаб сегментации",
+                },
+                "sigma": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Сглаживание Гаусса",
+                },
+                "min_size": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Мин. размер сегмента",
+                },
+            },
         ),
         # ===== INTERACTIVE =====
         "grabcut": MethodProfile(
@@ -943,6 +2476,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.88,
             parameter_sensitivity=0.5,
             description="GrabCut с итеративной оптимизацией GMM (sklearn)",
+            params={"num_iterations": 5},
+            schema={
+                "num_iterations": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 20,
+                    "step": 1,
+                    "label": "Итерации оптимизации",
+                }
+            },
         ),
     },
     "torch": {
@@ -956,6 +2499,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.4,
             parameter_sensitivity=0.9,
             description="Простое глобальное пороговое значение (torch)",
+            params={"threshold": 0.5},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог яркости (0-1)",
+                }
+            },
         ),
         "otsu_thresholding": MethodProfile(
             name="otsu_thresholding",
@@ -968,6 +2521,7 @@ METHODS_BY_LIBRARY = {
             parameter_sensitivity=0.2,
             description="Автоматический порог Оцу (максимизация межклассовой дисперсии) (torch)",
             params={},
+            schema={},
         ),
         "adaptive_thresholding": MethodProfile(
             name="adaptive_thresholding",
@@ -979,6 +2533,22 @@ METHODS_BY_LIBRARY = {
             robustness=0.9,
             parameter_sensitivity=0.4,
             description="Адаптивный порог с локальным усреднением (torch)",
+            schema={
+                "block_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер блока (нечетный)",
+                },
+                "C": {
+                    "type": "int",
+                    "min": -20,
+                    "max": 20,
+                    "step": 1,
+                    "label": "Константа C (смещение)",
+                },
+            },
         ),
         "threshold_niblack": MethodProfile(
             name="threshold_niblack",
@@ -990,6 +2560,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.6,
             parameter_sensitivity=0.7,
             description="Метод Ниблэка для локального порогования (torch)",
+            params={"window_size": 15, "k": -0.2},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "k": {
+                    "type": "float",
+                    "min": -1.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Константа k",
+                },
+            },
         ),
         "threshold_sauvola": MethodProfile(
             name="threshold_sauvola",
@@ -1001,6 +2588,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.92,
             parameter_sensitivity=0.3,
             description="Метод Саволы (улучшенный Ниблэк для текста) (torch)",
+            params={"window_size": 15, "k": 0.5, "r": 128},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "k": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Константа k",
+                },
+                "r": {
+                    "type": "float",
+                    "min": 50.0,
+                    "max": 255.0,
+                    "step": 1.0,
+                    "label": "Динамический диапазон R",
+                },
+            },
         ),
         "threshold_bernsen": MethodProfile(
             name="threshold_bernsen",
@@ -1012,6 +2623,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.7,
             parameter_sensitivity=0.5,
             description="Метод Бернсена на основе локального контраста (torch)",
+            params={"window_size": 15, "contrast_threshold": 0.15},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "contrast_threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог контраста",
+                },
+            },
         ),
         "threshold_phansalkar": MethodProfile(
             name="threshold_phansalkar",
@@ -1023,6 +2651,37 @@ METHODS_BY_LIBRARY = {
             robustness=0.88,
             parameter_sensitivity=0.4,
             description="Метод Фансалкара для низкоконтрастных изображений (torch)",
+            params={"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "k": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Чувствительность k",
+                },
+                "r": {
+                    "type": "float",
+                    "min": 50.0,
+                    "max": 255.0,
+                    "step": 1.0,
+                    "label": "Диапазон R",
+                },
+                "m": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 2.0,
+                    "step": 0.01,
+                    "label": "Смещение m",
+                },
+            },
         ),
         "threshold_kittler_illingworth": MethodProfile(
             name="threshold_kittler_illingworth",
@@ -1034,6 +2693,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.75,
             parameter_sensitivity=0.3,
             description="Минимизация ошибки классификации (Киттлер-Иллингуорт) (torch)",
+            params={"num_bins": 256},
+            schema={
+                "num_bins": {
+                    "type": "int",
+                    "min": 32,
+                    "max": 512,
+                    "step": 16,
+                    "label": "Кол-во бинов гистограммы",
+                }
+            },
         ),
         "threshold_entropy_kapur": MethodProfile(
             name="threshold_entropy_kapur",
@@ -1045,6 +2714,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.7,
             parameter_sensitivity=0.4,
             description="Максимизация энтропии (Капур) (torch)",
+            params={"num_bins": 256},
+            schema={
+                "num_bins": {
+                    "type": "int",
+                    "min": 32,
+                    "max": 512,
+                    "step": 16,
+                    "label": "Кол-во бинов гистограммы",
+                }
+            },
         ),
         "threshold_triangle": MethodProfile(
             name="threshold_triangle",
@@ -1056,6 +2735,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.65,
             parameter_sensitivity=0.3,
             description="Треугольный метод для унимодальных гистограмм (torch)",
+            params={"num_bins": 256},
+            schema={
+                "num_bins": {
+                    "type": "int",
+                    "min": 32,
+                    "max": 512,
+                    "step": 16,
+                    "label": "Кол-во бинов гистограммы",
+                }
+            },
         ),
         "threshold_multi_otsu": MethodProfile(
             name="threshold_multi_otsu",
@@ -1067,6 +2756,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.8,
             parameter_sensitivity=0.5,
             description="Многопороговый Оцу для многоклассовой сегментации (torch)",
+            params={"n_thresholds": 2},
+            schema={
+                "n_thresholds": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 5,
+                    "step": 1,
+                    "label": "Кол-во порогов",
+                }
+            },
         ),
         "threshold_percentile": MethodProfile(
             name="threshold_percentile",
@@ -1078,6 +2777,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.5,
             parameter_sensitivity=0.8,
             description="Порог по перцентилю интенсивности (torch)",
+            params={"percentile": 90},
+            schema={
+                "percentile": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 99,
+                    "step": 1,
+                    "label": "Процентиль (%)",
+                }
+            },
         ),
         "threshold_local_contrast": MethodProfile(
             name="threshold_local_contrast",
@@ -1089,6 +2798,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.82,
             parameter_sensitivity=0.5,
             description="Порог на основе локального контраста (torch)",
+            params={"window_size": 15, "contrast_factor": 0.1},
+            schema={
+                "window_size": {
+                    "type": "int",
+                    "min": 3,
+                    "max": 99,
+                    "step": 2,
+                    "label": "Размер окна",
+                },
+                "contrast_factor": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Фактор контраста",
+                },
+            },
         ),
         # ===== EDGE DETECTION =====
         "canny_edge": MethodProfile(
@@ -1101,6 +2827,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.7,
             parameter_sensitivity=0.6,
             description="Детектор границ Кэнни (оптимальный по Кэнни) (torch)",
+            params={"low": 0.1, "high": 0.3, "sigma": 1.0},  # ← дефолтные значения
+            schema={  # ← ДОБАВЬТЕ СХЕМУ
+                "low": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Нижний порог",
+                },
+                "high": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Верхний порог",
+                },
+                "sigma": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Сигма (размытие)",
+                },
+            },
         ),
         "sobel_edge": MethodProfile(
             name="sobel_edge",
@@ -1112,6 +2862,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.5,
             parameter_sensitivity=0.7,
             description="Градиенты Собеля с порогом (torch)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог градиента",
+                }
+            },
         ),
         "prewitt_edge": MethodProfile(
             name="prewitt_edge",
@@ -1123,6 +2883,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.48,
             parameter_sensitivity=0.72,
             description="Градиенты Превитта с порогом (torch)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог градиента",
+                }
+            },
         ),
         "scharr_edge": MethodProfile(
             name="scharr_edge",
@@ -1134,6 +2904,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.55,
             parameter_sensitivity=0.65,
             description="Градиенты Шарра (torch)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог градиента",
+                }
+            },
         ),
         "roberts_cross_edge": MethodProfile(
             name="roberts_cross_edge",
@@ -1145,6 +2925,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.4,
             parameter_sensitivity=0.8,
             description="Оператор Робертса для диагональных границ (torch)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог градиента",
+                }
+            },
         ),
         "log_edge": MethodProfile(
             name="log_edge",
@@ -1156,6 +2946,22 @@ METHODS_BY_LIBRARY = {
             robustness=0.6,
             parameter_sensitivity=0.5,
             description="Laplacian of Gaussian детектор границ (torch)",
+            schema={
+                "sigma": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Сигма размытия",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог детекции",
+                },
+            },
         ),
         "dog_edge": MethodProfile(
             name="dog_edge",
@@ -1167,6 +2973,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.68,
             parameter_sensitivity=0.55,
             description="Difference of Gaussians для мультимасштабных границ (torch)",
+            params={"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01},
+            schema={
+                "sigma1": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Сигма 1",
+                },
+                "sigma2": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 20.0,
+                    "step": 0.1,
+                    "label": "Сигма 2",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог детекции",
+                },
+            },
         ),
         "marr_hildreth_edge": MethodProfile(
             name="marr_hildreth_edge",
@@ -1178,6 +3008,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.62,
             parameter_sensitivity=0.58,
             description="Метод Марра-Хилдрета (нулевые пересечения LoG) (torch)",
+            params={"sigma": 1.5, "threshold": 0.01},
+            schema={
+                "sigma": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Сигма размытия",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог нулевых пересечений",
+                },
+            },
         ),
         "gradient_magnitude_direction": MethodProfile(
             name="gradient_magnitude_direction",
@@ -1189,6 +3036,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.52,
             parameter_sensitivity=0.68,
             description="Сегментация по величине и направлению градиента (torch)",
+            params={"threshold": 0.1},
+            schema={
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог магнитуды",
+                }
+            },
         ),
         "phase_congruency_edge": MethodProfile(
             name="phase_congruency_edge",
@@ -1204,6 +3061,66 @@ METHODS_BY_LIBRARY = {
             robustness=0.95,
             parameter_sensitivity=0.3,
             description="Фазовая конгруэнтность (инвариантна к освещению) (torch)",
+            params={
+                "nscales": 4,
+                "norientations": 4,
+                "min_wavelength": 3,
+                "mult": 2.0,
+                "sigma_onf": 0.55,
+                "k_noise": 2.0,
+                "threshold": 0.5,
+            },
+            schema={
+                "nscales": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 8,
+                    "step": 1,
+                    "label": "Кол-во масштабов",
+                },
+                "norientations": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 12,
+                    "step": 1,
+                    "label": "Кол-во ориентаций",
+                },
+                "min_wavelength": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 10,
+                    "step": 1,
+                    "label": "Мин. длина волны",
+                },
+                "mult": {
+                    "type": "float",
+                    "min": 1.0,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Множитель масштаба",
+                },
+                "sigma_onf": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 2.0,
+                    "step": 0.05,
+                    "label": "Сигма частотной области",
+                },
+                "k_noise": {
+                    "type": "float",
+                    "min": 0.5,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Коэф. шумоподавления",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог энергии",
+                },
+            },
         ),
         # ===== REGION-BASED =====
         "region_growing": MethodProfile(
@@ -1216,6 +3133,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.75,
             parameter_sensitivity=0.6,
             description="Рост региона от семян по схожести (torch)",
+            params={"tolerance": 0.1},
+            schema={
+                "tolerance": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Допуск схожести",
+                }
+            },
         ),
         "split_and_merge": MethodProfile(
             name="split_and_merge",
@@ -1227,6 +3154,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.7,
             parameter_sensitivity=0.5,
             description="Разделение и слияние регионов (torch)",
+            params={"min_size": 50, "threshold": 20},
+            schema={
+                "min_size": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Мин. размер региона",
+                },
+                "threshold": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 100,
+                    "step": 1,
+                    "label": "Порог слияния",
+                },
+            },
         ),
         "floodfill": MethodProfile(
             name="floodfill",
@@ -1238,6 +3182,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.6,
             parameter_sensitivity=0.7,
             description="Заливка области от точки (torch)",
+            params={"tolerance": 0.15},
+            schema={
+                "tolerance": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Допуск заливки",
+                }
+            },
         ),
         # ===== CLUSTERING =====
         "kmeans_segmentation": MethodProfile(
@@ -1250,6 +3204,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.65,
             parameter_sensitivity=0.7,
             description="K-means кластеризация в пространстве признаков (torch)",
+            params={"k": 3},
+            schema={
+                "k": {
+                    "type": "int",
+                    "min": 2,
+                    "max": 20,
+                    "step": 1,
+                    "label": "Кол-во кластеров",
+                }
+            },
         ),
         "dbscan_segmentation": MethodProfile(
             name="dbscan_segmentation",
@@ -1261,6 +3225,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.8,
             parameter_sensitivity=0.6,
             description="DBSCAN для сегментации произвольной формы (torch)",
+            params={"eps": 0.1, "min_samples": 10},
+            schema={
+                "eps": {
+                    "type": "float",
+                    "min": 0.01,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Радиус окрестности (eps)",
+                },
+                "min_samples": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 50,
+                    "step": 1,
+                    "label": "Мин. точек в кластере",
+                },
+            },
         ),
         "meanshift": MethodProfile(
             name="meanshift",
@@ -1272,6 +3253,42 @@ METHODS_BY_LIBRARY = {
             robustness=0.85,
             parameter_sensitivity=0.4,
             description="MeanShift с пространственно-цветовым ядром (torch)",
+            params={
+                "bandwidth": 0.5,
+                "spatial_radius": 35,
+                "color_radius": 60,
+                "max_level": 1,
+            },
+            schema={
+                "bandwidth": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Полоса пропускания",
+                },
+                "spatial_radius": {
+                    "type": "int",
+                    "min": 5,
+                    "max": 100,
+                    "step": 1,
+                    "label": "Пространственный радиус",
+                },
+                "color_radius": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 200,
+                    "step": 1,
+                    "label": "Цветовой радиус",
+                },
+                "max_level": {
+                    "type": "int",
+                    "min": 0,
+                    "max": 5,
+                    "step": 1,
+                    "label": "Макс. уровень пирамиды",
+                },
+            },
         ),
         # ===== ACTIVE CONTOURS =====
         "active_contour": MethodProfile(
@@ -1284,6 +3301,58 @@ METHODS_BY_LIBRARY = {
             robustness=0.78,
             parameter_sensitivity=0.75,
             description="Змеи (snakes) с энергией границ и линий (torch)",
+            params={
+                "alpha": 0.015,
+                "beta": 10,
+                "gamma": 0.001,
+                "max_iterations": 2000,
+                "w_edge": 1,
+                "w_line": 0,
+            },
+            schema={
+                "alpha": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.001,
+                    "label": "Плавность контура",
+                },
+                "beta": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 50.0,
+                    "step": 0.1,
+                    "label": "Жесткость контура",
+                },
+                "gamma": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.001,
+                    "label": "Вязкость (шаг)",
+                },
+                "max_iterations": {
+                    "type": "int",
+                    "min": 100,
+                    "max": 5000,
+                    "step": 100,
+                    "label": "Итерации",
+                },
+                "w_edge": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Вес границ",
+                },
+                "w_line": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Вес линий",
+                },
+            },
         ),
         "gvf_contour": MethodProfile(
             name="gvf_contour",
@@ -1295,6 +3364,23 @@ METHODS_BY_LIBRARY = {
             robustness=0.88,
             parameter_sensitivity=0.5,
             description="Контуры с градиентным векторным потоком (GVF) (torch)",
+            params={"mu": 0.1, "iterations": 50},
+            schema={
+                "mu": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Коэф. диффузии (mu)",
+                },
+                "iterations": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Итерации GVF",
+                },
+            },
         ),
         "morphological_snakes": MethodProfile(
             name="morphological_snakes",
@@ -1306,6 +3392,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.92,
             parameter_sensitivity=0.35,
             description="Морфологические змеи (устойчивы к шуму) (torch)",
+            params={"iterations": 100, "smoothing": 1, "threshold": 0.5},
+            schema={
+                "iterations": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Итерации",
+                },
+                "smoothing": {
+                    "type": "int",
+                    "min": 0,
+                    "max": 5,
+                    "step": 1,
+                    "label": "Степень сглаживания",
+                },
+                "threshold": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Порог инициализации",
+                },
+            },
         ),
         "chan_vese": MethodProfile(
             name="chan_vese",
@@ -1317,6 +3427,67 @@ METHODS_BY_LIBRARY = {
             robustness=0.94,
             parameter_sensitivity=0.3,
             description="Модель Чан-Везе (регион-базированные активные контуры) (torch)",
+            params={
+                "mu": 0.25,
+                "lambda1": 1.0,
+                "lambda2": 1.0,
+                "tol": 1e-3,
+                "max_iter": 100,
+                "dt": 0.5,
+                "eps": 1.0,
+                "init_level_set": "checkerboard",
+            },
+            schema={
+                "mu": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 5.0,
+                    "step": 0.01,
+                    "label": "Длина контура (mu)",
+                },
+                "lambda1": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Внешняя область (lambda1)",
+                },
+                "lambda2": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Внутренняя область (lambda2)",
+                },
+                "tol": {
+                    "type": "float",
+                    "min": 0.0001,
+                    "max": 0.01,
+                    "step": 0.0001,
+                    "label": "Точность сходимости",
+                },
+                "max_iter": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 1000,
+                    "step": 10,
+                    "label": "Макс. итераций",
+                },
+                "dt": {
+                    "type": "float",
+                    "min": 0.01,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "label": "Шаг времени (dt)",
+                },
+                "eps": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Параметр фазового поля",
+                },
+            },
         ),
         # ===== WATERSHED =====
         "watershed": MethodProfile(
@@ -1333,6 +3504,8 @@ METHODS_BY_LIBRARY = {
             robustness=0.65,
             parameter_sensitivity=0.8,
             description="Классический watershed по градиенту (torch)",
+            params={},
+            schema={},
         ),
         "random_walker": MethodProfile(
             name="random_walker",
@@ -1344,6 +3517,42 @@ METHODS_BY_LIBRARY = {
             robustness=0.9,
             parameter_sensitivity=0.4,
             description="Random walker с вероятностной диффузией (torch)",
+            params={
+                "beta": 130,
+                "tol": 1e-3,
+                "max_iter": 300,
+                "target_label": 2,
+            },
+            schema={
+                "beta": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Коэф. диффузии (beta)",
+                },
+                "tol": {
+                    "type": "float",
+                    "min": 0.0001,
+                    "max": 0.01,
+                    "step": 0.0001,
+                    "label": "Точность",
+                },
+                "max_iter": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 1000,
+                    "step": 10,
+                    "label": "Итерации",
+                },
+                "target_label": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 10,
+                    "step": 1,
+                    "label": "Целевая метка объекта",
+                },
+            },
         ),
         # ===== SUPER-PIXELS =====
         "slic": MethodProfile(
@@ -1360,6 +3569,75 @@ METHODS_BY_LIBRARY = {
             robustness=0.8,
             parameter_sensitivity=0.4,
             description="SLIC super-pixels в Lab-пространстве (torch)",
+            params={
+                "n_segments": 100,
+                "compactness": 10.0,
+                "max_iter": 10,
+                "sigma": 0.0,
+                "enforce_connectivity": True,
+                "min_size_factor": 0.5,
+                "max_size_factor": 3.0,
+                "ruler": 10.0,
+                "region_size": 20,
+            },
+            schema={
+                "n_segments": {
+                    "type": "int",
+                    "min": 50,
+                    "max": 1000,
+                    "step": 50,
+                    "label": "Кол-во сегментов",
+                },
+                "compactness": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 50.0,
+                    "step": 0.1,
+                    "label": "Компактность",
+                },
+                "max_iter": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 50,
+                    "step": 1,
+                    "label": "Итерации",
+                },
+                "sigma": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Сглаживание Гаусса",
+                },
+                "min_size_factor": {
+                    "type": "float",
+                    "min": 0.1,
+                    "max": 2.0,
+                    "step": 0.1,
+                    "label": "Мин. фактор размера",
+                },
+                "max_size_factor": {
+                    "type": "float",
+                    "min": 1.0,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "label": "Макс. фактор размера",
+                },
+                "ruler": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 50.0,
+                    "step": 0.1,
+                    "label": "Масштабная линейка",
+                },
+                "region_size": {
+                    "type": "int",
+                    "min": 5,
+                    "max": 100,
+                    "step": 1,
+                    "label": "Базовый размер региона",
+                },
+            },
         ),
         "felzenszwalb": MethodProfile(
             name="felzenszwalb",
@@ -1371,6 +3649,30 @@ METHODS_BY_LIBRARY = {
             robustness=0.78,
             parameter_sensitivity=0.5,
             description="Граф-базированная сегментация Фельценцвальба (torch)",
+            params={"scale": 100, "sigma": 0.5, "min_size": 50},
+            schema={
+                "scale": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 1000,
+                    "step": 10,
+                    "label": "Масштаб сегментации",
+                },
+                "sigma": {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "label": "Сглаживание Гаусса",
+                },
+                "min_size": {
+                    "type": "int",
+                    "min": 10,
+                    "max": 500,
+                    "step": 10,
+                    "label": "Мин. размер сегмента",
+                },
+            },
         ),
         # ===== INTERACTIVE =====
         "grabcut": MethodProfile(
@@ -1383,6 +3685,16 @@ METHODS_BY_LIBRARY = {
             robustness=0.88,
             parameter_sensitivity=0.5,
             description="GrabCut с итеративной оптимизацией GMM (torch)",
+            params={"num_iterations": 5},
+            schema={
+                "num_iterations": {
+                    "type": "int",
+                    "min": 1,
+                    "max": 20,
+                    "step": 1,
+                    "label": "Итерации оптимизации",
+                }
+            },
         ),
     },
 }
@@ -1429,118 +3741,413 @@ class AutoSegmenter:
                 self.available_methods[name]["params"].update(profile.params)
 
     def _register_methods(self) -> Dict[str, Any]:
-        """Регистрация всех доступных методов сегментации с параметрами по умолчанию"""
+        """Регистрация всех доступных методов сегментации с параметрами по умолчанию и UI-схемами"""
         return {
             # ========== ПОРОГОВЫЕ МЕТОДЫ ==========
             "global_thresholding": {
                 "class": "threshold",
                 "params": {"threshold": 0.5},
+                "schema": {
+                    "threshold": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Порог яркости (0-1)",
+                    }
+                },
                 "description": "Простое глобальное пороговое значение",
             },
             "otsu_thresholding": {
                 "class": "threshold",
                 "params": {},
+                "schema": {},
                 "description": "Автоматический порог Оцу (максимизация межклассовой дисперсии)",
             },
             "adaptive_thresholding": {
                 "class": "threshold",
                 "params": {"block_size": 11, "C": 2},
+                "schema": {
+                    "block_size": {
+                        "type": "int",
+                        "min": 3,
+                        "max": 99,
+                        "step": 2,
+                        "label": "Размер блока (нечетный)",
+                    },
+                    "C": {
+                        "type": "int",
+                        "min": -20,
+                        "max": 20,
+                        "step": 1,
+                        "label": "Константа C (смещение)",
+                    },
+                },
                 "description": "Адаптивный порог с локальным усреднением",
             },
             "threshold_niblack": {
                 "class": "threshold",
                 "params": {"window_size": 15, "k": -0.2},
+                "schema": {
+                    "window_size": {
+                        "type": "int",
+                        "min": 3,
+                        "max": 99,
+                        "step": 2,
+                        "label": "Размер окна",
+                    },
+                    "k": {
+                        "type": "float",
+                        "min": -1.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Константа k",
+                    },
+                },
                 "description": "Метод Ниблэка для локального порогования",
             },
             "threshold_sauvola": {
                 "class": "threshold",
                 "params": {"window_size": 15, "k": 0.5, "r": 128},
+                "schema": {
+                    "window_size": {
+                        "type": "int",
+                        "min": 3,
+                        "max": 99,
+                        "step": 2,
+                        "label": "Размер окна",
+                    },
+                    "k": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Константа k",
+                    },
+                    "r": {
+                        "type": "float",
+                        "min": 50.0,
+                        "max": 255.0,
+                        "step": 1.0,
+                        "label": "Динамический диапазон R",
+                    },
+                },
                 "description": "Метод Саволы (улучшенный Ниблэк для текста)",
             },
             "threshold_bernsen": {
                 "class": "threshold",
                 "params": {"window_size": 15, "contrast_threshold": 0.15},
+                "schema": {
+                    "window_size": {
+                        "type": "int",
+                        "min": 3,
+                        "max": 99,
+                        "step": 2,
+                        "label": "Размер окна",
+                    },
+                    "contrast_threshold": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Порог контраста",
+                    },
+                },
                 "description": "Метод Бернсена на основе локального контраста",
             },
             "threshold_phansalkar": {
                 "class": "threshold",
                 "params": {"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
+                "schema": {
+                    "window_size": {
+                        "type": "int",
+                        "min": 3,
+                        "max": 99,
+                        "step": 2,
+                        "label": "Размер окна",
+                    },
+                    "k": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Чувствительность k",
+                    },
+                    "r": {
+                        "type": "float",
+                        "min": 50.0,
+                        "max": 255.0,
+                        "step": 1.0,
+                        "label": "Диапазон R",
+                    },
+                    "m": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 2.0,
+                        "step": 0.01,
+                        "label": "Смещение m",
+                    },
+                },
                 "description": "Метод Фансалкара для низкоконтрастных изображений",
             },
             "threshold_kittler_illingworth": {
                 "class": "threshold",
                 "params": {"num_bins": 256},
+                "schema": {
+                    "num_bins": {
+                        "type": "int",
+                        "min": 32,
+                        "max": 512,
+                        "step": 16,
+                        "label": "Кол-во бинов гистограммы",
+                    }
+                },
                 "description": "Минимизация ошибки классификации (Киттлер-Иллингуорт)",
             },
             "threshold_entropy_kapur": {
                 "class": "threshold",
                 "params": {"num_bins": 256},
+                "schema": {
+                    "num_bins": {
+                        "type": "int",
+                        "min": 32,
+                        "max": 512,
+                        "step": 16,
+                        "label": "Кол-во бинов гистограммы",
+                    }
+                },
                 "description": "Максимизация энтропии (Капур)",
             },
             "threshold_triangle": {
                 "class": "threshold",
                 "params": {"num_bins": 256},
+                "schema": {
+                    "num_bins": {
+                        "type": "int",
+                        "min": 32,
+                        "max": 512,
+                        "step": 16,
+                        "label": "Кол-во бинов гистограммы",
+                    }
+                },
                 "description": "Треугольный метод для унимодальных гистограмм",
             },
             "threshold_multi_otsu": {
                 "class": "threshold",
                 "params": {"n_thresholds": 2},
+                "schema": {
+                    "n_thresholds": {
+                        "type": "int",
+                        "min": 1,
+                        "max": 5,
+                        "step": 1,
+                        "label": "Кол-во порогов",
+                    }
+                },
                 "description": "Многопороговый Оцу для многоклассовой сегментации",
             },
             "threshold_percentile": {
                 "class": "threshold",
                 "params": {"percentile": 90},
+                "schema": {
+                    "percentile": {
+                        "type": "int",
+                        "min": 1,
+                        "max": 99,
+                        "step": 1,
+                        "label": "Процентиль (%)",
+                    }
+                },
                 "description": "Порог по перцентилю интенсивности",
             },
             "threshold_local_contrast": {
                 "class": "threshold",
                 "params": {"window_size": 15, "contrast_factor": 0.1},
+                "schema": {
+                    "window_size": {
+                        "type": "int",
+                        "min": 3,
+                        "max": 99,
+                        "step": 2,
+                        "label": "Размер окна",
+                    },
+                    "contrast_factor": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Фактор контраста",
+                    },
+                },
                 "description": "Порог на основе локального контраста",
             },
             # ========== ГРАНИЧНЫЕ МЕТОДЫ ==========
             "canny_edge": {
                 "class": "edge",
                 "params": {"low": 0.1, "high": 0.3, "sigma": 1.0},
+                "schema": {
+                    "low": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Нижний порог",
+                    },
+                    "high": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Верхний порог",
+                    },
+                    "sigma": {
+                        "type": "float",
+                        "min": 0.1,
+                        "max": 10.0,
+                        "step": 0.1,
+                        "label": "Сигма (размытие)",
+                    },
+                },
                 "description": "Детектор границ Кэнни (оптимальный по Кэнни)",
             },
             "sobel_edge": {
                 "class": "edge",
                 "params": {"threshold": 0.1},
+                "schema": {
+                    "threshold": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Порог градиента",
+                    }
+                },
                 "description": "Градиенты Собеля с порогом",
             },
             "prewitt_edge": {
                 "class": "edge",
                 "params": {"threshold": 0.1},
+                "schema": {
+                    "threshold": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Порог градиента",
+                    }
+                },
                 "description": "Градиенты Превитта с порогом",
             },
             "scharr_edge": {
                 "class": "edge",
                 "params": {"threshold": 0.1},
+                "schema": {
+                    "threshold": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Порог градиента",
+                    }
+                },
                 "description": "Градиенты Шарра (более точные, чем Собель)",
             },
             "roberts_cross_edge": {
                 "class": "edge",
                 "params": {"threshold": 0.1},
+                "schema": {
+                    "threshold": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Порог градиента",
+                    }
+                },
                 "description": "Оператор Робертса для диагональных границ",
             },
             "log_edge": {
                 "class": "edge",
                 "params": {"sigma": 1.0, "threshold": 0.01},
+                "schema": {
+                    "sigma": {
+                        "type": "float",
+                        "min": 0.1,
+                        "max": 10.0,
+                        "step": 0.1,
+                        "label": "Сигма размытия",
+                    },
+                    "threshold": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Порог детекции",
+                    },
+                },
                 "description": "Laplacian of Gaussian детектор границ",
             },
             "dog_edge": {
                 "class": "edge",
                 "params": {"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01},
+                "schema": {
+                    "sigma1": {
+                        "type": "float",
+                        "min": 0.1,
+                        "max": 10.0,
+                        "step": 0.1,
+                        "label": "Сигма 1",
+                    },
+                    "sigma2": {
+                        "type": "float",
+                        "min": 0.1,
+                        "max": 20.0,
+                        "step": 0.1,
+                        "label": "Сигма 2",
+                    },
+                    "threshold": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Порог детекции",
+                    },
+                },
                 "description": "Difference of Gaussians для мультимасштабных границ",
             },
             "marr_hildreth_edge": {
                 "class": "edge",
                 "params": {"sigma": 1.5, "threshold": 0.01},
+                "schema": {
+                    "sigma": {
+                        "type": "float",
+                        "min": 0.1,
+                        "max": 10.0,
+                        "step": 0.1,
+                        "label": "Сигма размытия",
+                    },
+                    "threshold": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Порог нулевых пересечений",
+                    },
+                },
                 "description": "Метод Марра-Хилдрета (нулевые пересечения LoG)",
             },
             "gradient_magnitude_direction": {
                 "class": "edge",
                 "params": {"threshold": 0.1},
+                "schema": {
+                    "threshold": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Порог магнитуды",
+                    }
+                },
                 "description": "Сегментация по величине и направлению градиента",
             },
             "phase_congruency_edge": {
@@ -1554,33 +4161,143 @@ class AutoSegmenter:
                     "k_noise": 2.0,
                     "threshold": 0.5,
                 },
+                "schema": {
+                    "nscales": {
+                        "type": "int",
+                        "min": 1,
+                        "max": 8,
+                        "step": 1,
+                        "label": "Кол-во масштабов",
+                    },
+                    "norientations": {
+                        "type": "int",
+                        "min": 1,
+                        "max": 12,
+                        "step": 1,
+                        "label": "Кол-во ориентаций",
+                    },
+                    "min_wavelength": {
+                        "type": "int",
+                        "min": 1,
+                        "max": 10,
+                        "step": 1,
+                        "label": "Мин. длина волны",
+                    },
+                    "mult": {
+                        "type": "float",
+                        "min": 1.0,
+                        "max": 5.0,
+                        "step": 0.1,
+                        "label": "Множитель масштаба",
+                    },
+                    "sigma_onf": {
+                        "type": "float",
+                        "min": 0.1,
+                        "max": 2.0,
+                        "step": 0.05,
+                        "label": "Сигма частотной области",
+                    },
+                    "k_noise": {
+                        "type": "float",
+                        "min": 0.5,
+                        "max": 5.0,
+                        "step": 0.1,
+                        "label": "Коэф. шумоподавления",
+                    },
+                    "threshold": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Порог энергии",
+                    },
+                },
                 "description": "Фазовая конгруэнтность (инвариантна к освещению)",
             },
             # ========== РЕГИОНАЛЬНЫЕ МЕТОДЫ ==========
             "region_growing": {
                 "class": "region",
                 "params": {"tolerance": 0.1},
+                "schema": {
+                    "tolerance": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Допуск схожести",
+                    }
+                },
                 "description": "Рост региона от семян по схожести",
             },
             "split_and_merge": {
                 "class": "region",
                 "params": {"min_size": 50, "threshold": 20},
+                "schema": {
+                    "min_size": {
+                        "type": "int",
+                        "min": 10,
+                        "max": 500,
+                        "step": 10,
+                        "label": "Мин. размер региона",
+                    },
+                    "threshold": {
+                        "type": "int",
+                        "min": 1,
+                        "max": 100,
+                        "step": 1,
+                        "label": "Порог слияния",
+                    },
+                },
                 "description": "Разделение и слияние регионов",
             },
             "floodfill": {
                 "class": "region",
                 "params": {"tolerance": 0.15},
+                "schema": {
+                    "tolerance": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Допуск заливки",
+                    }
+                },
                 "description": "Заливка области от точки",
             },
             # ========== КЛАСТЕРИЗАЦИЯ ==========
             "kmeans_segmentation": {
                 "class": "clustering",
                 "params": {"k": 3},
+                "schema": {
+                    "k": {
+                        "type": "int",
+                        "min": 2,
+                        "max": 20,
+                        "step": 1,
+                        "label": "Кол-во кластеров",
+                    }
+                },
                 "description": "K-means кластеризация в пространстве признаков",
             },
             "dbscan_segmentation": {
                 "class": "clustering",
                 "params": {"eps": 0.1, "min_samples": 10},
+                "schema": {
+                    "eps": {
+                        "type": "float",
+                        "min": 0.01,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Радиус окрестности (eps)",
+                    },
+                    "min_samples": {
+                        "type": "int",
+                        "min": 1,
+                        "max": 50,
+                        "step": 1,
+                        "label": "Мин. точек в кластере",
+                    },
+                },
                 "description": "DBSCAN для сегментации произвольной формы",
             },
             "meanshift": {
@@ -1590,6 +4307,36 @@ class AutoSegmenter:
                     "spatial_radius": 35,
                     "color_radius": 60,
                     "max_level": 1,
+                },
+                "schema": {
+                    "bandwidth": {
+                        "type": "float",
+                        "min": 0.1,
+                        "max": 5.0,
+                        "step": 0.1,
+                        "label": "Полоса пропускания",
+                    },
+                    "spatial_radius": {
+                        "type": "int",
+                        "min": 5,
+                        "max": 100,
+                        "step": 1,
+                        "label": "Пространственный радиус",
+                    },
+                    "color_radius": {
+                        "type": "int",
+                        "min": 10,
+                        "max": 200,
+                        "step": 1,
+                        "label": "Цветовой радиус",
+                    },
+                    "max_level": {
+                        "type": "int",
+                        "min": 0,
+                        "max": 5,
+                        "step": 1,
+                        "label": "Макс. уровень пирамиды",
+                    },
                 },
                 "description": "MeanShift с пространственно-цветовым ядром",
             },
@@ -1604,16 +4351,99 @@ class AutoSegmenter:
                     "w_edge": 1,
                     "w_line": 0,
                 },
+                "schema": {
+                    "alpha": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.001,
+                        "label": "Плавность контура",
+                    },
+                    "beta": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 50.0,
+                        "step": 0.1,
+                        "label": "Жесткость контура",
+                    },
+                    "gamma": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.001,
+                        "label": "Вязкость (шаг)",
+                    },
+                    "max_iterations": {
+                        "type": "int",
+                        "min": 100,
+                        "max": 5000,
+                        "step": 100,
+                        "label": "Итерации",
+                    },
+                    "w_edge": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 10.0,
+                        "step": 0.1,
+                        "label": "Вес границ",
+                    },
+                    "w_line": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 10.0,
+                        "step": 0.1,
+                        "label": "Вес линий",
+                    },
+                },
                 "description": "Змеи (snakes) с энергией границ и линий",
             },
             "gvf_contour": {
                 "class": "active_contour",
                 "params": {"mu": 0.1, "iterations": 50},
+                "schema": {
+                    "mu": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Коэф. диффузии (mu)",
+                    },
+                    "iterations": {
+                        "type": "int",
+                        "min": 10,
+                        "max": 500,
+                        "step": 10,
+                        "label": "Итерации GVF",
+                    },
+                },
                 "description": "Контуры с градиентным векторным потоком (GVF)",
             },
             "morphological_snakes": {
                 "class": "active_contour",
                 "params": {"iterations": 100, "smoothing": 1, "threshold": 0.5},
+                "schema": {
+                    "iterations": {
+                        "type": "int",
+                        "min": 10,
+                        "max": 500,
+                        "step": 10,
+                        "label": "Итерации",
+                    },
+                    "smoothing": {
+                        "type": "int",
+                        "min": 0,
+                        "max": 5,
+                        "step": 1,
+                        "label": "Степень сглаживания",
+                    },
+                    "threshold": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Порог инициализации",
+                    },
+                },
                 "description": "Морфологические змеи (устойчивы к шуму)",
             },
             "chan_vese": {
@@ -1628,12 +4458,64 @@ class AutoSegmenter:
                     "eps": 1.0,
                     "init_level_set": "checkerboard",
                 },
+                "schema": {
+                    "mu": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 5.0,
+                        "step": 0.01,
+                        "label": "Длина контура (mu)",
+                    },
+                    "lambda1": {
+                        "type": "float",
+                        "min": 0.1,
+                        "max": 10.0,
+                        "step": 0.1,
+                        "label": "Внешняя область (lambda1)",
+                    },
+                    "lambda2": {
+                        "type": "float",
+                        "min": 0.1,
+                        "max": 10.0,
+                        "step": 0.1,
+                        "label": "Внутренняя область (lambda2)",
+                    },
+                    "tol": {
+                        "type": "float",
+                        "min": 0.0001,
+                        "max": 0.01,
+                        "step": 0.0001,
+                        "label": "Точность сходимости",
+                    },
+                    "max_iter": {
+                        "type": "int",
+                        "min": 10,
+                        "max": 1000,
+                        "step": 10,
+                        "label": "Макс. итераций",
+                    },
+                    "dt": {
+                        "type": "float",
+                        "min": 0.01,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "label": "Шаг времени (dt)",
+                    },
+                    "eps": {
+                        "type": "float",
+                        "min": 0.1,
+                        "max": 5.0,
+                        "step": 0.1,
+                        "label": "Параметр фазового поля",
+                    },
+                },
                 "description": "Модель Чан-Везе (регион-базированные активные контуры)",
             },
             # ========== WATERSHED ==========
             "watershed": {
                 "class": "watershed",
                 "params": {},
+                "schema": {},
                 "description": "Классический watershed по градиенту",
             },
             "random_walker": {
@@ -1643,6 +4525,36 @@ class AutoSegmenter:
                     "tol": 1e-3,
                     "max_iter": 300,
                     "target_label": 2,
+                },
+                "schema": {
+                    "beta": {
+                        "type": "int",
+                        "min": 10,
+                        "max": 500,
+                        "step": 10,
+                        "label": "Коэф. диффузии (beta)",
+                    },
+                    "tol": {
+                        "type": "float",
+                        "min": 0.0001,
+                        "max": 0.01,
+                        "step": 0.0001,
+                        "label": "Точность",
+                    },
+                    "max_iter": {
+                        "type": "int",
+                        "min": 10,
+                        "max": 1000,
+                        "step": 10,
+                        "label": "Итерации",
+                    },
+                    "target_label": {
+                        "type": "int",
+                        "min": 1,
+                        "max": 10,
+                        "step": 1,
+                        "label": "Целевая метка объекта",
+                    },
                 },
                 "description": "Random walker с вероятностной диффузией",
             },
@@ -1660,17 +4572,107 @@ class AutoSegmenter:
                     "ruler": 10.0,
                     "region_size": 20,
                 },
+                "schema": {
+                    "n_segments": {
+                        "type": "int",
+                        "min": 50,
+                        "max": 1000,
+                        "step": 50,
+                        "label": "Кол-во сегментов",
+                    },
+                    "compactness": {
+                        "type": "float",
+                        "min": 0.1,
+                        "max": 50.0,
+                        "step": 0.1,
+                        "label": "Компактность",
+                    },
+                    "max_iter": {
+                        "type": "int",
+                        "min": 1,
+                        "max": 50,
+                        "step": 1,
+                        "label": "Итерации",
+                    },
+                    "sigma": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 5.0,
+                        "step": 0.1,
+                        "label": "Сглаживание Гаусса",
+                    },
+                    "min_size_factor": {
+                        "type": "float",
+                        "min": 0.1,
+                        "max": 2.0,
+                        "step": 0.1,
+                        "label": "Мин. фактор размера",
+                    },
+                    "max_size_factor": {
+                        "type": "float",
+                        "min": 1.0,
+                        "max": 10.0,
+                        "step": 0.1,
+                        "label": "Макс. фактор размера",
+                    },
+                    "ruler": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 50.0,
+                        "step": 0.1,
+                        "label": "Масштабная линейка",
+                    },
+                    "region_size": {
+                        "type": "int",
+                        "min": 5,
+                        "max": 100,
+                        "step": 1,
+                        "label": "Базовый размер региона",
+                    },
+                },
                 "description": "SLIC super-pixels в Lab-пространстве",
             },
             "felzenszwalb": {
                 "class": "superpixel",
                 "params": {"scale": 100, "sigma": 0.5, "min_size": 50},
+                "schema": {
+                    "scale": {
+                        "type": "int",
+                        "min": 10,
+                        "max": 1000,
+                        "step": 10,
+                        "label": "Масштаб сегментации",
+                    },
+                    "sigma": {
+                        "type": "float",
+                        "min": 0.0,
+                        "max": 5.0,
+                        "step": 0.1,
+                        "label": "Сглаживание Гаусса",
+                    },
+                    "min_size": {
+                        "type": "int",
+                        "min": 10,
+                        "max": 500,
+                        "step": 10,
+                        "label": "Мин. размер сегмента",
+                    },
+                },
                 "description": "Граф-базированная сегментация Фельценцвальба",
             },
             # ========== ИНТЕРАКТИВНЫЕ МЕТОДЫ ==========
             "grabcut": {
                 "class": "interactive",
                 "params": {"num_iterations": 5},
+                "schema": {
+                    "num_iterations": {
+                        "type": "int",
+                        "min": 1,
+                        "max": 20,
+                        "step": 1,
+                        "label": "Итерации оптимизации",
+                    }
+                },
                 "description": "GrabCut с итеративной оптимизацией GMM",
             },
         }

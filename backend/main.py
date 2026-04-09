@@ -1,5 +1,5 @@
 # backend/app.py
-from typing import Optional
+from typing import Optional, Dict, Any
 import json
 import os, sys, base64, io
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
@@ -16,6 +16,7 @@ from segmenters.AutoSegmenter import (
     METHODS_BY_LIBRARY,
     ALL_METHODS,
     ImageType,
+    MethodProfile,
 )
 from metrics.SegmentationMetrics import SegmentationMetrics
 
@@ -85,6 +86,7 @@ async def segment(
     auto_select: bool = Form(True),
     method: Optional[str] = Form(None),
     library: Optional[str] = Form("opencv"),
+    custom_params: str = Form("{}"),
     gt_mask: Optional[UploadFile] = File(default=None),
 ):
     try:
@@ -98,6 +100,11 @@ async def segment(
             if goal in ["speed", "accuracy", "balanced", "low_memory"]
             else SegmentationGoal.BALANCED
         )
+
+        try:
+            user_params = json.loads(custom_params)
+        except:
+            user_params = {}
 
         # Сегментация
         if auto_select:
@@ -123,16 +130,32 @@ async def segment(
 
             # Получаем параметры из профиля
             profile = METHODS_BY_LIBRARY[library][method]
-            params = auto_seg.available_methods.get(method, {}).get("params", {})
+            default_params = auto_seg.available_methods.get(method, {}).get(
+                "params", {}
+            )
+            final_params = {**default_params, **user_params}
+            print(f"🛠 Using params for {method}: {final_params}")
+
+            segmenter_class = auto_seg._get_segmenter_class(method, library)
+            segmenter = segmenter_class(method=method, **final_params)
 
             # Запускаем сегментацию с указанным методом
-            mask, metadata = auto_seg.segment(
-                img_array,
-                auto_select=False,
-                method_name=method,
-                library=library,
-                return_metadata=True,
-            )
+            # mask, metadata = auto_seg.segment(
+            #     img_array,
+            #     auto_select=False,
+            #     method_name=method,
+            #     library=library,
+            #     return_metadata=True,
+            # )
+            result_img, mask = segmenter.segment_with_mask(img_array)
+
+            metadata = {
+                "method": method,
+                "library": library,
+                "parameters": final_params,  # Возвращаем в UI, чтобы юзер видел, чем считали
+                "confidence": 1.0,
+                "image_characteristics": auto_seg.analyze_image(img_array),
+            }
             # Добавляем информацию о библиотеке в метаданные
             metadata["library"] = profile.library
 
@@ -225,6 +248,102 @@ async def segment(
         print(f"❌ Ошибка в /api/segment: {e}")
         traceback.print_exc()
         raise HTTPException(500, str(e))
+
+
+def params_to_schema(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Авто-генерация простой схемы из параметров"""
+    schema = {}
+    for key, value in params.items():
+        if isinstance(value, bool):
+            schema[key] = {"type": "boolean", "default": value}
+        elif isinstance(value, int):
+            # Эвристика: если имя содержит "size"/"bin"/"iter" — большой диапазон
+            if any(k in key for k in ["size", "bin", "iter", "scale", "radius"]):
+                schema[key] = {
+                    "type": "int",
+                    "min": 1,
+                    "max": 500,
+                    "step": 1,
+                    "default": value,
+                }
+            else:
+                schema[key] = {
+                    "type": "int",
+                    "min": 0,
+                    "max": 100,
+                    "step": 1,
+                    "default": value,
+                }
+        elif isinstance(value, float):
+            # Эвристика: если значение < 2 — вероятно, нормализованный параметр [0,1]
+            if abs(value) <= 1.0 or "threshold" in key or "k" in key:
+                schema[key] = {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "default": value,
+                }
+            else:
+                schema[key] = {
+                    "type": "float",
+                    "min": 0.0,
+                    "max": 100.0,
+                    "step": 0.1,
+                    "default": value,
+                }
+        else:
+            schema[key] = {"type": "string", "default": str(value)}
+    return schema
+
+
+@app.get("/api/methods")
+async def get_methods_by_library(library: Optional[str] = None):
+    if library and library in METHODS_BY_LIBRARY:
+        source_dict = METHODS_BY_LIBRARY.get(library, {})
+    else:
+        # Если библиотека не выбрана, берем дефолтные конфиги (где лежат schema)
+        # В вашем коде это auto_seg.available_methods
+        source_dict = {
+            name: profile
+            for lib_methods in METHODS_BY_LIBRARY.values()
+            for name, profile in lib_methods.items()
+        }
+
+    result = {}
+    for name, profile in source_dict.items():
+        # MethodProfile — это dataclass, обращаемся к атрибутам напрямую
+        if isinstance(profile, MethodProfile):
+            result[name] = {
+                "name": profile.name,
+                "library": profile.library,
+                "avg_iou": profile.avg_iou,
+                "avg_time_ms": profile.avg_time_ms,
+                "memory_mb": profile.memory_mb,
+                "robustness": profile.robustness,
+                "description": profile.description,
+                "best_for": [t.value for t in profile.best_for_type],
+                # params — это Dict[str, Any] в dataclass
+                "defaults": profile.params if profile.params else {},
+                # schema можно сформировать динамически или задать в profile.params
+                # "schema": profile.params.get("schema", {}) if profile.params else {},
+                "schema": (
+                    profile.schema
+                    if profile.schema
+                    else params_to_schema(profile.params)
+                ),
+            }
+        else:
+            # Fallback для словарей (если вдруг source_dict содержит dict)
+            result[name] = {
+                "name": profile.get("name", name),
+                "avg_iou": profile.get("avg_iou", 0.0),
+                "description": profile.get("description", ""),
+                "defaults": profile.get("params", {}),
+                "schema": profile.get("schema", {}),
+            }
+
+    return {"methods": result}
 
 
 @app.get("/api/methods")
