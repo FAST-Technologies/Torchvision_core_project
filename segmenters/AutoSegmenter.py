@@ -6,6 +6,7 @@ from PIL import Image
 import cv2
 from dataclasses import dataclass
 from enum import Enum
+from dataclasses import field
 
 
 class SegmentationGoal(Enum):
@@ -50,15 +51,1348 @@ class MethodProfile:
     """Профиль метода (из бенчмарков)"""
 
     name: str
+    library: str  # "opencv" | "sklearn" | "torch"
     avg_time_ms: float
     avg_iou: float
     memory_mb: float
     best_for_type: List[ImageType]
     robustness: float  # Устойчивость к шуму
     parameter_sensitivity: float  # Чувствительность к параметрам
+    description: str = ""
+    params: Dict[str, Any] = field(default_factory=dict)
 
 
 MethodConfig = Tuple[str, Dict[str, Any]]
+
+METHODS_BY_LIBRARY = {
+    "opencv": {
+        "global_thresholding": MethodProfile(
+            name="global_thresholding",
+            library="opencv",
+            avg_time_ms=2.0,
+            avg_iou=0.62,
+            memory_mb=15,
+            best_for_type=[ImageType.DOCUMENT, ImageType.INDUSTRIAL],
+            robustness=0.4,
+            parameter_sensitivity=0.9,
+            description="Простое глобальное пороговое значение (OpenCV)",
+        ),
+        "otsu_thresholding": MethodProfile(
+            name="otsu_thresholding",
+            library="opencv",
+            avg_time_ms=15.0,
+            avg_iou=0.75,
+            memory_mb=50,
+            best_for_type=[ImageType.DOCUMENT, ImageType.NATURAL],
+            robustness=0.8,
+            parameter_sensitivity=0.2,
+            description="Автоматический порог Оцу (максимизация межклассовой дисперсии) (OpenCV)",
+            params={},
+        ),
+        "adaptive_thresholding": MethodProfile(
+            name="adaptive_thresholding",
+            library="opencv",
+            avg_time_ms=45.0,
+            avg_iou=0.82,
+            memory_mb=80,
+            best_for_type=[ImageType.DOCUMENT, ImageType.INDUSTRIAL],
+            robustness=0.9,
+            parameter_sensitivity=0.4,
+            description="Адаптивный порог с локальным усреднением (OpenCV)",
+        ),
+        "threshold_niblack": MethodProfile(
+            name="threshold_niblack",
+            library="opencv",
+            avg_time_ms=38.0,
+            avg_iou=0.71,
+            memory_mb=65,
+            best_for_type=[ImageType.DOCUMENT, ImageType.MICROSCOPY],
+            robustness=0.6,
+            parameter_sensitivity=0.7,
+            description="Метод Ниблэка для локального порогования (OpenCV)",
+        ),
+        "threshold_sauvola": MethodProfile(
+            name="threshold_sauvola",
+            library="opencv",
+            avg_time_ms=42.0,
+            avg_iou=0.88,
+            memory_mb=70,
+            best_for_type=[ImageType.DOCUMENT, ImageType.MICROSCOPY],
+            robustness=0.92,
+            parameter_sensitivity=0.3,
+            description="Метод Саволы (улучшенный Ниблэк для текста) (OpenCV)",
+        ),
+        "threshold_bernsen": MethodProfile(
+            name="threshold_bernsen",
+            library="opencv",
+            avg_time_ms=35.0,
+            avg_iou=0.73,
+            memory_mb=60,
+            best_for_type=[ImageType.DOCUMENT, ImageType.INDUSTRIAL],
+            robustness=0.7,
+            parameter_sensitivity=0.5,
+            description="Метод Бернсена на основе локального контраста (OpenCV)",
+        ),
+        "threshold_phansalkar": MethodProfile(
+            name="threshold_phansalkar",
+            library="opencv",
+            avg_time_ms=48.0,
+            avg_iou=0.85,
+            memory_mb=75,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.88,
+            parameter_sensitivity=0.4,
+            description="Метод Фансалкара для низкоконтрастных изображений (OpenCV)",
+        ),
+        "threshold_kittler_illingworth": MethodProfile(
+            name="threshold_kittler_illingworth",
+            library="opencv",
+            avg_time_ms=25.0,
+            avg_iou=0.76,
+            memory_mb=55,
+            best_for_type=[ImageType.DOCUMENT, ImageType.NATURAL],
+            robustness=0.75,
+            parameter_sensitivity=0.3,
+            description="Минимизация ошибки классификации (Киттлер-Иллингуорт) (OpenCV)",
+        ),
+        "threshold_entropy_kapur": MethodProfile(
+            name="threshold_entropy_kapur",
+            library="opencv",
+            avg_time_ms=30.0,
+            avg_iou=0.74,
+            memory_mb=60,
+            best_for_type=[ImageType.NATURAL, ImageType.SATELLITE],
+            robustness=0.7,
+            parameter_sensitivity=0.4,
+            description="Максимизация энтропии (Капур) (OpenCV)",
+        ),
+        "threshold_triangle": MethodProfile(
+            name="threshold_triangle",
+            library="opencv",
+            avg_time_ms=20.0,
+            avg_iou=0.69,
+            memory_mb=45,
+            best_for_type=[ImageType.DOCUMENT, ImageType.MEDICAL],
+            robustness=0.65,
+            parameter_sensitivity=0.3,
+            description="Треугольный метод для унимодальных гистограмм (OpenCV)",
+        ),
+        "threshold_multi_otsu": MethodProfile(
+            name="threshold_multi_otsu",
+            library="opencv",
+            avg_time_ms=35.0,
+            avg_iou=0.78,
+            memory_mb=70,
+            best_for_type=[ImageType.MEDICAL, ImageType.SATELLITE],
+            robustness=0.8,
+            parameter_sensitivity=0.5,
+            description="Многопороговый Оцу для многоклассовой сегментации (OpenCV)",
+        ),
+        "threshold_percentile": MethodProfile(
+            name="threshold_percentile",
+            library="opencv",
+            avg_time_ms=8.0,
+            avg_iou=0.65,
+            memory_mb=25,
+            best_for_type=[ImageType.INDUSTRIAL, ImageType.DOCUMENT],
+            robustness=0.5,
+            parameter_sensitivity=0.8,
+            description="Порог по перцентилю интенсивности (OpenCV)",
+        ),
+        "threshold_local_contrast": MethodProfile(
+            name="threshold_local_contrast",
+            library="opencv",
+            avg_time_ms=40.0,
+            avg_iou=0.77,
+            memory_mb=68,
+            best_for_type=[ImageType.MICROSCOPY, ImageType.MEDICAL],
+            robustness=0.82,
+            parameter_sensitivity=0.5,
+            description="Порог на основе локального контраста (OpenCV)",
+        ),
+        # ===== EDGE DETECTION =====
+        "canny_edge": MethodProfile(
+            name="canny_edge",
+            library="opencv",
+            avg_time_ms=25.0,
+            avg_iou=0.68,
+            memory_mb=60,
+            best_for_type=[ImageType.NATURAL, ImageType.INDUSTRIAL],
+            robustness=0.7,
+            parameter_sensitivity=0.6,
+            description="Детектор границ Кэнни (оптимальный по Кэнни) (OpenCV)",
+        ),
+        "sobel_edge": MethodProfile(
+            name="sobel_edge",
+            library="opencv",
+            avg_time_ms=12.0,
+            avg_iou=0.58,
+            memory_mb=35,
+            best_for_type=[ImageType.NATURAL, ImageType.DOCUMENT],
+            robustness=0.5,
+            parameter_sensitivity=0.7,
+            description="Градиенты Собеля с порогом (OpenCV)",
+        ),
+        "prewitt_edge": MethodProfile(
+            name="prewitt_edge",
+            library="opencv",
+            avg_time_ms=11.0,
+            avg_iou=0.56,
+            memory_mb=33,
+            best_for_type=[ImageType.NATURAL, ImageType.DOCUMENT],
+            robustness=0.48,
+            parameter_sensitivity=0.72,
+            description="Градиенты Превитта с порогом (OpenCV)",
+        ),
+        "scharr_edge": MethodProfile(
+            name="scharr_edge",
+            library="opencv",
+            avg_time_ms=14.0,
+            avg_iou=0.61,
+            memory_mb=38,
+            best_for_type=[ImageType.NATURAL, ImageType.INDUSTRIAL],
+            robustness=0.55,
+            parameter_sensitivity=0.65,
+            description="Градиенты Шарра (OpenCV)",
+        ),
+        "roberts_cross_edge": MethodProfile(
+            name="roberts_cross_edge",
+            library="opencv",
+            avg_time_ms=8.0,
+            avg_iou=0.52,
+            memory_mb=28,
+            best_for_type=[ImageType.DOCUMENT, ImageType.INDUSTRIAL],
+            robustness=0.4,
+            parameter_sensitivity=0.8,
+            description="Оператор Робертса для диагональных границ (OpenCV)",
+        ),
+        "log_edge": MethodProfile(
+            name="log_edge",
+            library="opencv",
+            avg_time_ms=22.0,
+            avg_iou=0.64,
+            memory_mb=55,
+            best_for_type=[ImageType.NATURAL, ImageType.MEDICAL],
+            robustness=0.6,
+            parameter_sensitivity=0.5,
+            description="Laplacian of Gaussian детектор границ (OpenCV)",
+        ),
+        "dog_edge": MethodProfile(
+            name="dog_edge",
+            library="opencv",
+            avg_time_ms=28.0,
+            avg_iou=0.66,
+            memory_mb=62,
+            best_for_type=[ImageType.NATURAL, ImageType.SATELLITE],
+            robustness=0.68,
+            parameter_sensitivity=0.55,
+            description="Difference of Gaussians для мультимасштабных границ (OpenCV)",
+        ),
+        "marr_hildreth_edge": MethodProfile(
+            name="marr_hildreth_edge",
+            library="opencv",
+            avg_time_ms=26.0,
+            avg_iou=0.63,
+            memory_mb=58,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.62,
+            parameter_sensitivity=0.58,
+            description="Метод Марра-Хилдрета (нулевые пересечения LoG) (OpenCV)",
+        ),
+        "gradient_magnitude_direction": MethodProfile(
+            name="gradient_magnitude_direction",
+            library="opencv",
+            avg_time_ms=18.0,
+            avg_iou=0.59,
+            memory_mb=45,
+            best_for_type=[ImageType.INDUSTRIAL, ImageType.NATURAL],
+            robustness=0.52,
+            parameter_sensitivity=0.68,
+            description="Сегментация по величине и направлению градиента (OpenCV)",
+        ),
+        "phase_congruency_edge": MethodProfile(
+            name="phase_congruency_edge",
+            library="opencv",
+            avg_time_ms=85.0,
+            avg_iou=0.79,
+            memory_mb=120,
+            best_for_type=[
+                ImageType.MEDICAL,
+                ImageType.SATELLITE,
+                ImageType.MICROSCOPY,
+            ],
+            robustness=0.95,
+            parameter_sensitivity=0.3,
+            description="Фазовая конгруэнтность (инвариантна к освещению) (OpenCV)",
+        ),
+        # ===== REGION-BASED =====
+        "region_growing": MethodProfile(
+            name="region_growing",
+            library="opencv",
+            avg_time_ms=55.0,
+            avg_iou=0.81,
+            memory_mb=90,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.75,
+            parameter_sensitivity=0.6,
+            description="Рост региона от семян по схожести (OpenCV)",
+        ),
+        "split_and_merge": MethodProfile(
+            name="split_and_merge",
+            library="opencv",
+            avg_time_ms=70.0,
+            avg_iou=0.76,
+            memory_mb=100,
+            best_for_type=[ImageType.SATELLITE, ImageType.INDUSTRIAL],
+            robustness=0.7,
+            parameter_sensitivity=0.5,
+            description="Разделение и слияние регионов (OpenCV)",
+        ),
+        "floodfill": MethodProfile(
+            name="floodfill",
+            library="opencv",
+            avg_time_ms=15.0,
+            avg_iou=0.72,
+            memory_mb=40,
+            best_for_type=[ImageType.DOCUMENT, ImageType.MEDICAL],
+            robustness=0.6,
+            parameter_sensitivity=0.7,
+            description="Заливка области от точки (OpenCV)",
+        ),
+        # ===== CLUSTERING =====
+        "kmeans_segmentation": MethodProfile(
+            name="kmeans_segmentation",
+            library="opencv",
+            avg_time_ms=120.0,
+            avg_iou=0.77,
+            memory_mb=150,
+            best_for_type=[ImageType.NATURAL, ImageType.SATELLITE],
+            robustness=0.65,
+            parameter_sensitivity=0.7,
+            description="K-means кластеризация в пространстве признаков (OpenCV)",
+        ),
+        "dbscan_segmentation": MethodProfile(
+            name="dbscan_segmentation",
+            library="opencv",
+            avg_time_ms=180.0,
+            avg_iou=0.74,
+            memory_mb=200,
+            best_for_type=[ImageType.MICROSCOPY, ImageType.INDUSTRIAL],
+            robustness=0.8,
+            parameter_sensitivity=0.6,
+            description="DBSCAN для сегментации произвольной формы (OpenCV)",
+        ),
+        "meanshift": MethodProfile(
+            name="meanshift",
+            library="opencv",
+            avg_time_ms=250.0,
+            avg_iou=0.83,
+            memory_mb=280,
+            best_for_type=[ImageType.NATURAL, ImageType.MEDICAL],
+            robustness=0.85,
+            parameter_sensitivity=0.4,
+            description="MeanShift с пространственно-цветовым ядром (OpenCV)",
+        ),
+        # ===== ACTIVE CONTOURS =====
+        "active_contour": MethodProfile(
+            name="active_contour",
+            library="opencv",
+            avg_time_ms=450.0,
+            avg_iou=0.84,
+            memory_mb=180,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.78,
+            parameter_sensitivity=0.75,
+            description="Змеи (snakes) с энергией границ и линий (OpenCV)",
+        ),
+        "gvf_contour": MethodProfile(
+            name="gvf_contour",
+            library="opencv",
+            avg_time_ms=380.0,
+            avg_iou=0.86,
+            memory_mb=160,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.88,
+            parameter_sensitivity=0.5,
+            description="Контуры с градиентным векторным потоком (GVF) (OpenCV)",
+        ),
+        "morphological_snakes": MethodProfile(
+            name="morphological_snakes",
+            library="opencv",
+            avg_time_ms=320.0,
+            avg_iou=0.87,
+            memory_mb=140,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.92,
+            parameter_sensitivity=0.35,
+            description="Морфологические змеи (устойчивы к шуму) (OpenCV)",
+        ),
+        "chan_vese": MethodProfile(
+            name="chan_vese",
+            library="opencv",
+            avg_time_ms=400.0,
+            avg_iou=0.89,
+            memory_mb=170,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.94,
+            parameter_sensitivity=0.3,
+            description="Модель Чан-Везе (регион-базированные активные контуры) (OpenCV)",
+        ),
+        # ===== WATERSHED =====
+        "watershed": MethodProfile(
+            name="watershed",
+            library="opencv",
+            avg_time_ms=35.0,
+            avg_iou=0.73,
+            memory_mb=75,
+            best_for_type=[
+                ImageType.MEDICAL,
+                ImageType.MICROSCOPY,
+                ImageType.SATELLITE,
+            ],
+            robustness=0.65,
+            parameter_sensitivity=0.8,
+            description="Классический watershed по градиенту (OpenCV)",
+        ),
+        "random_walker": MethodProfile(
+            name="random_walker",
+            library="opencv",
+            avg_time_ms=95.0,
+            avg_iou=0.85,
+            memory_mb=130,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.9,
+            parameter_sensitivity=0.4,
+            description="Random walker с вероятностной диффузией (OpenCV)",
+        ),
+        # ===== SUPER-PIXELS =====
+        "slic": MethodProfile(
+            name="slic",
+            library="opencv",
+            avg_time_ms=65.0,
+            avg_iou=0.79,
+            memory_mb=95,
+            best_for_type=[
+                ImageType.NATURAL,
+                ImageType.SATELLITE,
+                ImageType.MEDICAL,
+            ],
+            robustness=0.8,
+            parameter_sensitivity=0.4,
+            description="SLIC super-pixels в Lab-пространстве (OpenCV)",
+        ),
+        "felzenszwalb": MethodProfile(
+            name="felzenszwalb",
+            library="opencv",
+            avg_time_ms=85.0,
+            avg_iou=0.81,
+            memory_mb=110,
+            best_for_type=[ImageType.NATURAL, ImageType.INDUSTRIAL],
+            robustness=0.78,
+            parameter_sensitivity=0.5,
+            description="Граф-базированная сегментация Фельценцвальба (OpenCV)",
+        ),
+        # ===== INTERACTIVE =====
+        "grabcut": MethodProfile(
+            name="grabcut",
+            library="opencv",
+            avg_time_ms=150.0,
+            avg_iou=0.91,
+            memory_mb=180,
+            best_for_type=[ImageType.NATURAL, ImageType.MEDICAL],
+            robustness=0.88,
+            parameter_sensitivity=0.5,
+            description="GrabCut с итеративной оптимизацией GMM (OpenCV)",
+        ),
+    },
+    "sklearn": {
+        "global_thresholding": MethodProfile(
+            name="global_thresholding",
+            library="sklearn",
+            avg_time_ms=2.0,
+            avg_iou=0.62,
+            memory_mb=15,
+            best_for_type=[ImageType.DOCUMENT, ImageType.INDUSTRIAL],
+            robustness=0.4,
+            parameter_sensitivity=0.9,
+            description="Простое глобальное пороговое значение (Sklearn)",
+        ),
+        "otsu_thresholding": MethodProfile(
+            name="otsu_thresholding",
+            library="sklearn",
+            avg_time_ms=15.0,
+            avg_iou=0.75,
+            memory_mb=50,
+            best_for_type=[ImageType.DOCUMENT, ImageType.NATURAL],
+            robustness=0.8,
+            parameter_sensitivity=0.2,
+            description="Автоматический порог Оцу (максимизация межклассовой дисперсии) (sklearn)",
+            params={},
+        ),
+        "adaptive_thresholding": MethodProfile(
+            name="adaptive_thresholding",
+            library="sklearn",
+            avg_time_ms=45.0,
+            avg_iou=0.82,
+            memory_mb=80,
+            best_for_type=[ImageType.DOCUMENT, ImageType.INDUSTRIAL],
+            robustness=0.9,
+            parameter_sensitivity=0.4,
+            description="Адаптивный порог с локальным усреднением (sklearn)",
+        ),
+        "threshold_niblack": MethodProfile(
+            name="threshold_niblack",
+            library="sklearn",
+            avg_time_ms=38.0,
+            avg_iou=0.71,
+            memory_mb=65,
+            best_for_type=[ImageType.DOCUMENT, ImageType.MICROSCOPY],
+            robustness=0.6,
+            parameter_sensitivity=0.7,
+            description="Метод Ниблэка для локального порогования (sklearn)",
+        ),
+        "threshold_sauvola": MethodProfile(
+            name="threshold_sauvola",
+            library="sklearn",
+            avg_time_ms=42.0,
+            avg_iou=0.88,
+            memory_mb=70,
+            best_for_type=[ImageType.DOCUMENT, ImageType.MICROSCOPY],
+            robustness=0.92,
+            parameter_sensitivity=0.3,
+            description="Метод Саволы (улучшенный Ниблэк для текста) (sklearn)",
+        ),
+        "threshold_bernsen": MethodProfile(
+            name="threshold_bernsen",
+            library="sklearn",
+            avg_time_ms=35.0,
+            avg_iou=0.73,
+            memory_mb=60,
+            best_for_type=[ImageType.DOCUMENT, ImageType.INDUSTRIAL],
+            robustness=0.7,
+            parameter_sensitivity=0.5,
+            description="Метод Бернсена на основе локального контраста (sklearn)",
+        ),
+        "threshold_phansalkar": MethodProfile(
+            name="threshold_phansalkar",
+            library="sklearn",
+            avg_time_ms=48.0,
+            avg_iou=0.85,
+            memory_mb=75,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.88,
+            parameter_sensitivity=0.4,
+            description="Метод Фансалкара для низкоконтрастных изображений (sklearn)",
+        ),
+        "threshold_kittler_illingworth": MethodProfile(
+            name="threshold_kittler_illingworth",
+            library="sklearn",
+            avg_time_ms=25.0,
+            avg_iou=0.76,
+            memory_mb=55,
+            best_for_type=[ImageType.DOCUMENT, ImageType.NATURAL],
+            robustness=0.75,
+            parameter_sensitivity=0.3,
+            description="Минимизация ошибки классификации (Киттлер-Иллингуорт) (sklearn)",
+        ),
+        "threshold_entropy_kapur": MethodProfile(
+            name="threshold_entropy_kapur",
+            library="sklearn",
+            avg_time_ms=30.0,
+            avg_iou=0.74,
+            memory_mb=60,
+            best_for_type=[ImageType.NATURAL, ImageType.SATELLITE],
+            robustness=0.7,
+            parameter_sensitivity=0.4,
+            description="Максимизация энтропии (Капур) (sklearn)",
+        ),
+        "threshold_triangle": MethodProfile(
+            name="threshold_triangle",
+            library="sklearn",
+            avg_time_ms=20.0,
+            avg_iou=0.69,
+            memory_mb=45,
+            best_for_type=[ImageType.DOCUMENT, ImageType.MEDICAL],
+            robustness=0.65,
+            parameter_sensitivity=0.3,
+            description="Треугольный метод для унимодальных гистограмм (sklearn)",
+        ),
+        "threshold_multi_otsu": MethodProfile(
+            name="threshold_multi_otsu",
+            library="sklearn",
+            avg_time_ms=35.0,
+            avg_iou=0.78,
+            memory_mb=70,
+            best_for_type=[ImageType.MEDICAL, ImageType.SATELLITE],
+            robustness=0.8,
+            parameter_sensitivity=0.5,
+            description="Многопороговый Оцу для многоклассовой сегментации (sklearn)",
+        ),
+        "threshold_percentile": MethodProfile(
+            name="threshold_percentile",
+            library="sklearn",
+            avg_time_ms=8.0,
+            avg_iou=0.65,
+            memory_mb=25,
+            best_for_type=[ImageType.INDUSTRIAL, ImageType.DOCUMENT],
+            robustness=0.5,
+            parameter_sensitivity=0.8,
+            description="Порог по перцентилю интенсивности (sklearn)",
+        ),
+        "threshold_local_contrast": MethodProfile(
+            name="threshold_local_contrast",
+            library="sklearn",
+            avg_time_ms=40.0,
+            avg_iou=0.77,
+            memory_mb=68,
+            best_for_type=[ImageType.MICROSCOPY, ImageType.MEDICAL],
+            robustness=0.82,
+            parameter_sensitivity=0.5,
+            description="Порог на основе локального контраста (sklearn)",
+        ),
+        # ===== EDGE DETECTION =====
+        "canny_edge": MethodProfile(
+            name="canny_edge",
+            library="sklearn",
+            avg_time_ms=25.0,
+            avg_iou=0.68,
+            memory_mb=60,
+            best_for_type=[ImageType.NATURAL, ImageType.INDUSTRIAL],
+            robustness=0.7,
+            parameter_sensitivity=0.6,
+            description="Детектор границ Кэнни (оптимальный по Кэнни) (sklearn)",
+        ),
+        "sobel_edge": MethodProfile(
+            name="sobel_edge",
+            library="sklearn",
+            avg_time_ms=12.0,
+            avg_iou=0.58,
+            memory_mb=35,
+            best_for_type=[ImageType.NATURAL, ImageType.DOCUMENT],
+            robustness=0.5,
+            parameter_sensitivity=0.7,
+            description="Градиенты Собеля с порогом (sklearn)",
+        ),
+        "prewitt_edge": MethodProfile(
+            name="prewitt_edge",
+            library="sklearn",
+            avg_time_ms=11.0,
+            avg_iou=0.56,
+            memory_mb=33,
+            best_for_type=[ImageType.NATURAL, ImageType.DOCUMENT],
+            robustness=0.48,
+            parameter_sensitivity=0.72,
+            description="Градиенты Превитта с порогом (sklearn)",
+        ),
+        "scharr_edge": MethodProfile(
+            name="scharr_edge",
+            library="sklearn",
+            avg_time_ms=14.0,
+            avg_iou=0.61,
+            memory_mb=38,
+            best_for_type=[ImageType.NATURAL, ImageType.INDUSTRIAL],
+            robustness=0.55,
+            parameter_sensitivity=0.65,
+            description="Градиенты Шарра (sklearn)",
+        ),
+        "roberts_cross_edge": MethodProfile(
+            name="roberts_cross_edge",
+            library="sklearn",
+            avg_time_ms=8.0,
+            avg_iou=0.52,
+            memory_mb=28,
+            best_for_type=[ImageType.DOCUMENT, ImageType.INDUSTRIAL],
+            robustness=0.4,
+            parameter_sensitivity=0.8,
+            description="Оператор Робертса для диагональных границ (sklearn)",
+        ),
+        "log_edge": MethodProfile(
+            name="log_edge",
+            library="sklearn",
+            avg_time_ms=22.0,
+            avg_iou=0.64,
+            memory_mb=55,
+            best_for_type=[ImageType.NATURAL, ImageType.MEDICAL],
+            robustness=0.6,
+            parameter_sensitivity=0.5,
+            description="Laplacian of Gaussian детектор границ (sklearn)",
+        ),
+        "dog_edge": MethodProfile(
+            name="dog_edge",
+            library="sklearn",
+            avg_time_ms=28.0,
+            avg_iou=0.66,
+            memory_mb=62,
+            best_for_type=[ImageType.NATURAL, ImageType.SATELLITE],
+            robustness=0.68,
+            parameter_sensitivity=0.55,
+            description="Difference of Gaussians для мультимасштабных границ (sklearn)",
+        ),
+        "marr_hildreth_edge": MethodProfile(
+            name="marr_hildreth_edge",
+            library="sklearn",
+            avg_time_ms=26.0,
+            avg_iou=0.63,
+            memory_mb=58,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.62,
+            parameter_sensitivity=0.58,
+            description="Метод Марра-Хилдрета (нулевые пересечения LoG) (sklearn)",
+        ),
+        "gradient_magnitude_direction": MethodProfile(
+            name="gradient_magnitude_direction",
+            library="sklearn",
+            avg_time_ms=18.0,
+            avg_iou=0.59,
+            memory_mb=45,
+            best_for_type=[ImageType.INDUSTRIAL, ImageType.NATURAL],
+            robustness=0.52,
+            parameter_sensitivity=0.68,
+            description="Сегментация по величине и направлению градиента (sklearn)",
+        ),
+        "phase_congruency_edge": MethodProfile(
+            name="phase_congruency_edge",
+            library="sklearn",
+            avg_time_ms=85.0,
+            avg_iou=0.79,
+            memory_mb=120,
+            best_for_type=[
+                ImageType.MEDICAL,
+                ImageType.SATELLITE,
+                ImageType.MICROSCOPY,
+            ],
+            robustness=0.95,
+            parameter_sensitivity=0.3,
+            description="Фазовая конгруэнтность (инвариантна к освещению) (sklearn)",
+        ),
+        # ===== REGION-BASED =====
+        "region_growing": MethodProfile(
+            name="region_growing",
+            library="sklearn",
+            avg_time_ms=55.0,
+            avg_iou=0.81,
+            memory_mb=90,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.75,
+            parameter_sensitivity=0.6,
+            description="Рост региона от семян по схожести (sklearn)",
+        ),
+        "split_and_merge": MethodProfile(
+            name="split_and_merge",
+            library="sklearn",
+            avg_time_ms=70.0,
+            avg_iou=0.76,
+            memory_mb=100,
+            best_for_type=[ImageType.SATELLITE, ImageType.INDUSTRIAL],
+            robustness=0.7,
+            parameter_sensitivity=0.5,
+            description="Разделение и слияние регионов (sklearn)",
+        ),
+        "floodfill": MethodProfile(
+            name="floodfill",
+            library="sklearn",
+            avg_time_ms=15.0,
+            avg_iou=0.72,
+            memory_mb=40,
+            best_for_type=[ImageType.DOCUMENT, ImageType.MEDICAL],
+            robustness=0.6,
+            parameter_sensitivity=0.7,
+            description="Заливка области от точки (sklearn)",
+        ),
+        # ===== CLUSTERING =====
+        "kmeans_segmentation": MethodProfile(
+            name="kmeans_segmentation",
+            library="sklearn",
+            avg_time_ms=120.0,
+            avg_iou=0.77,
+            memory_mb=150,
+            best_for_type=[ImageType.NATURAL, ImageType.SATELLITE],
+            robustness=0.65,
+            parameter_sensitivity=0.7,
+            description="K-means кластеризация в пространстве признаков (sklearn)",
+        ),
+        "dbscan_segmentation": MethodProfile(
+            name="dbscan_segmentation",
+            library="sklearn",
+            avg_time_ms=180.0,
+            avg_iou=0.74,
+            memory_mb=200,
+            best_for_type=[ImageType.MICROSCOPY, ImageType.INDUSTRIAL],
+            robustness=0.8,
+            parameter_sensitivity=0.6,
+            description="DBSCAN для сегментации произвольной формы (sklearn)",
+        ),
+        "meanshift": MethodProfile(
+            name="meanshift",
+            library="sklearn",
+            avg_time_ms=250.0,
+            avg_iou=0.83,
+            memory_mb=280,
+            best_for_type=[ImageType.NATURAL, ImageType.MEDICAL],
+            robustness=0.85,
+            parameter_sensitivity=0.4,
+            description="MeanShift с пространственно-цветовым ядром (sklearn)",
+        ),
+        # ===== ACTIVE CONTOURS =====
+        "active_contour": MethodProfile(
+            name="active_contour",
+            library="sklearn",
+            avg_time_ms=450.0,
+            avg_iou=0.84,
+            memory_mb=180,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.78,
+            parameter_sensitivity=0.75,
+            description="Змеи (snakes) с энергией границ и линий (sklearn)",
+        ),
+        "gvf_contour": MethodProfile(
+            name="gvf_contour",
+            library="sklearn",
+            avg_time_ms=380.0,
+            avg_iou=0.86,
+            memory_mb=160,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.88,
+            parameter_sensitivity=0.5,
+            description="Контуры с градиентным векторным потоком (GVF) (sklearn)",
+        ),
+        "morphological_snakes": MethodProfile(
+            name="morphological_snakes",
+            library="sklearn",
+            avg_time_ms=320.0,
+            avg_iou=0.87,
+            memory_mb=140,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.92,
+            parameter_sensitivity=0.35,
+            description="Морфологические змеи (устойчивы к шуму) (sklearn)",
+        ),
+        "chan_vese": MethodProfile(
+            name="chan_vese",
+            library="sklearn",
+            avg_time_ms=400.0,
+            avg_iou=0.89,
+            memory_mb=170,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.94,
+            parameter_sensitivity=0.3,
+            description="Модель Чан-Везе (регион-базированные активные контуры) (sklearn)",
+        ),
+        # ===== WATERSHED =====
+        "watershed": MethodProfile(
+            name="watershed",
+            library="sklearn",
+            avg_time_ms=35.0,
+            avg_iou=0.73,
+            memory_mb=75,
+            best_for_type=[
+                ImageType.MEDICAL,
+                ImageType.MICROSCOPY,
+                ImageType.SATELLITE,
+            ],
+            robustness=0.65,
+            parameter_sensitivity=0.8,
+            description="Классический watershed по градиенту (sklearn)",
+        ),
+        "random_walker": MethodProfile(
+            name="random_walker",
+            library="sklearn",
+            avg_time_ms=95.0,
+            avg_iou=0.85,
+            memory_mb=130,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.9,
+            parameter_sensitivity=0.4,
+            description="Random walker с вероятностной диффузией (sklearn)",
+        ),
+        # ===== SUPER-PIXELS =====
+        "slic": MethodProfile(
+            name="slic",
+            library="sklearn",
+            avg_time_ms=65.0,
+            avg_iou=0.79,
+            memory_mb=95,
+            best_for_type=[
+                ImageType.NATURAL,
+                ImageType.SATELLITE,
+                ImageType.MEDICAL,
+            ],
+            robustness=0.8,
+            parameter_sensitivity=0.4,
+            description="SLIC super-pixels в Lab-пространстве (sklearn)",
+        ),
+        "felzenszwalb": MethodProfile(
+            name="felzenszwalb",
+            library="sklearn",
+            avg_time_ms=85.0,
+            avg_iou=0.81,
+            memory_mb=110,
+            best_for_type=[ImageType.NATURAL, ImageType.INDUSTRIAL],
+            robustness=0.78,
+            parameter_sensitivity=0.5,
+            description="Граф-базированная сегментация Фельценцвальба (sklearn)",
+        ),
+        # ===== INTERACTIVE =====
+        "grabcut": MethodProfile(
+            name="grabcut",
+            library="sklearn",
+            avg_time_ms=150.0,
+            avg_iou=0.91,
+            memory_mb=180,
+            best_for_type=[ImageType.NATURAL, ImageType.MEDICAL],
+            robustness=0.88,
+            parameter_sensitivity=0.5,
+            description="GrabCut с итеративной оптимизацией GMM (sklearn)",
+        ),
+    },
+    "torch": {
+        "global_thresholding": MethodProfile(
+            name="global_thresholding",
+            library="torch",
+            avg_time_ms=2.0,
+            avg_iou=0.62,
+            memory_mb=15,
+            best_for_type=[ImageType.DOCUMENT, ImageType.INDUSTRIAL],
+            robustness=0.4,
+            parameter_sensitivity=0.9,
+            description="Простое глобальное пороговое значение (torch)",
+        ),
+        "otsu_thresholding": MethodProfile(
+            name="otsu_thresholding",
+            library="torch",
+            avg_time_ms=15.0,
+            avg_iou=0.75,
+            memory_mb=50,
+            best_for_type=[ImageType.DOCUMENT, ImageType.NATURAL],
+            robustness=0.8,
+            parameter_sensitivity=0.2,
+            description="Автоматический порог Оцу (максимизация межклассовой дисперсии) (torch)",
+            params={},
+        ),
+        "adaptive_thresholding": MethodProfile(
+            name="adaptive_thresholding",
+            library="torch",
+            avg_time_ms=45.0,
+            avg_iou=0.82,
+            memory_mb=80,
+            best_for_type=[ImageType.DOCUMENT, ImageType.INDUSTRIAL],
+            robustness=0.9,
+            parameter_sensitivity=0.4,
+            description="Адаптивный порог с локальным усреднением (torch)",
+        ),
+        "threshold_niblack": MethodProfile(
+            name="threshold_niblack",
+            library="torch",
+            avg_time_ms=38.0,
+            avg_iou=0.71,
+            memory_mb=65,
+            best_for_type=[ImageType.DOCUMENT, ImageType.MICROSCOPY],
+            robustness=0.6,
+            parameter_sensitivity=0.7,
+            description="Метод Ниблэка для локального порогования (torch)",
+        ),
+        "threshold_sauvola": MethodProfile(
+            name="threshold_sauvola",
+            library="torch",
+            avg_time_ms=42.0,
+            avg_iou=0.88,
+            memory_mb=70,
+            best_for_type=[ImageType.DOCUMENT, ImageType.MICROSCOPY],
+            robustness=0.92,
+            parameter_sensitivity=0.3,
+            description="Метод Саволы (улучшенный Ниблэк для текста) (torch)",
+        ),
+        "threshold_bernsen": MethodProfile(
+            name="threshold_bernsen",
+            library="torch",
+            avg_time_ms=35.0,
+            avg_iou=0.73,
+            memory_mb=60,
+            best_for_type=[ImageType.DOCUMENT, ImageType.INDUSTRIAL],
+            robustness=0.7,
+            parameter_sensitivity=0.5,
+            description="Метод Бернсена на основе локального контраста (torch)",
+        ),
+        "threshold_phansalkar": MethodProfile(
+            name="threshold_phansalkar",
+            library="torch",
+            avg_time_ms=48.0,
+            avg_iou=0.85,
+            memory_mb=75,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.88,
+            parameter_sensitivity=0.4,
+            description="Метод Фансалкара для низкоконтрастных изображений (torch)",
+        ),
+        "threshold_kittler_illingworth": MethodProfile(
+            name="threshold_kittler_illingworth",
+            library="torch",
+            avg_time_ms=25.0,
+            avg_iou=0.76,
+            memory_mb=55,
+            best_for_type=[ImageType.DOCUMENT, ImageType.NATURAL],
+            robustness=0.75,
+            parameter_sensitivity=0.3,
+            description="Минимизация ошибки классификации (Киттлер-Иллингуорт) (torch)",
+        ),
+        "threshold_entropy_kapur": MethodProfile(
+            name="threshold_entropy_kapur",
+            library="torch",
+            avg_time_ms=30.0,
+            avg_iou=0.74,
+            memory_mb=60,
+            best_for_type=[ImageType.NATURAL, ImageType.SATELLITE],
+            robustness=0.7,
+            parameter_sensitivity=0.4,
+            description="Максимизация энтропии (Капур) (torch)",
+        ),
+        "threshold_triangle": MethodProfile(
+            name="threshold_triangle",
+            library="torch",
+            avg_time_ms=20.0,
+            avg_iou=0.69,
+            memory_mb=45,
+            best_for_type=[ImageType.DOCUMENT, ImageType.MEDICAL],
+            robustness=0.65,
+            parameter_sensitivity=0.3,
+            description="Треугольный метод для унимодальных гистограмм (torch)",
+        ),
+        "threshold_multi_otsu": MethodProfile(
+            name="threshold_multi_otsu",
+            library="torch",
+            avg_time_ms=35.0,
+            avg_iou=0.78,
+            memory_mb=70,
+            best_for_type=[ImageType.MEDICAL, ImageType.SATELLITE],
+            robustness=0.8,
+            parameter_sensitivity=0.5,
+            description="Многопороговый Оцу для многоклассовой сегментации (torch)",
+        ),
+        "threshold_percentile": MethodProfile(
+            name="threshold_percentile",
+            library="torch",
+            avg_time_ms=8.0,
+            avg_iou=0.65,
+            memory_mb=25,
+            best_for_type=[ImageType.INDUSTRIAL, ImageType.DOCUMENT],
+            robustness=0.5,
+            parameter_sensitivity=0.8,
+            description="Порог по перцентилю интенсивности (torch)",
+        ),
+        "threshold_local_contrast": MethodProfile(
+            name="threshold_local_contrast",
+            library="torch",
+            avg_time_ms=40.0,
+            avg_iou=0.77,
+            memory_mb=68,
+            best_for_type=[ImageType.MICROSCOPY, ImageType.MEDICAL],
+            robustness=0.82,
+            parameter_sensitivity=0.5,
+            description="Порог на основе локального контраста (torch)",
+        ),
+        # ===== EDGE DETECTION =====
+        "canny_edge": MethodProfile(
+            name="canny_edge",
+            library="torch",
+            avg_time_ms=25.0,
+            avg_iou=0.68,
+            memory_mb=60,
+            best_for_type=[ImageType.NATURAL, ImageType.INDUSTRIAL],
+            robustness=0.7,
+            parameter_sensitivity=0.6,
+            description="Детектор границ Кэнни (оптимальный по Кэнни) (torch)",
+        ),
+        "sobel_edge": MethodProfile(
+            name="sobel_edge",
+            library="torch",
+            avg_time_ms=12.0,
+            avg_iou=0.58,
+            memory_mb=35,
+            best_for_type=[ImageType.NATURAL, ImageType.DOCUMENT],
+            robustness=0.5,
+            parameter_sensitivity=0.7,
+            description="Градиенты Собеля с порогом (torch)",
+        ),
+        "prewitt_edge": MethodProfile(
+            name="prewitt_edge",
+            library="torch",
+            avg_time_ms=11.0,
+            avg_iou=0.56,
+            memory_mb=33,
+            best_for_type=[ImageType.NATURAL, ImageType.DOCUMENT],
+            robustness=0.48,
+            parameter_sensitivity=0.72,
+            description="Градиенты Превитта с порогом (torch)",
+        ),
+        "scharr_edge": MethodProfile(
+            name="scharr_edge",
+            library="torch",
+            avg_time_ms=14.0,
+            avg_iou=0.61,
+            memory_mb=38,
+            best_for_type=[ImageType.NATURAL, ImageType.INDUSTRIAL],
+            robustness=0.55,
+            parameter_sensitivity=0.65,
+            description="Градиенты Шарра (torch)",
+        ),
+        "roberts_cross_edge": MethodProfile(
+            name="roberts_cross_edge",
+            library="torch",
+            avg_time_ms=8.0,
+            avg_iou=0.52,
+            memory_mb=28,
+            best_for_type=[ImageType.DOCUMENT, ImageType.INDUSTRIAL],
+            robustness=0.4,
+            parameter_sensitivity=0.8,
+            description="Оператор Робертса для диагональных границ (torch)",
+        ),
+        "log_edge": MethodProfile(
+            name="log_edge",
+            library="torch",
+            avg_time_ms=22.0,
+            avg_iou=0.64,
+            memory_mb=55,
+            best_for_type=[ImageType.NATURAL, ImageType.MEDICAL],
+            robustness=0.6,
+            parameter_sensitivity=0.5,
+            description="Laplacian of Gaussian детектор границ (torch)",
+        ),
+        "dog_edge": MethodProfile(
+            name="dog_edge",
+            library="torch",
+            avg_time_ms=28.0,
+            avg_iou=0.66,
+            memory_mb=62,
+            best_for_type=[ImageType.NATURAL, ImageType.SATELLITE],
+            robustness=0.68,
+            parameter_sensitivity=0.55,
+            description="Difference of Gaussians для мультимасштабных границ (torch)",
+        ),
+        "marr_hildreth_edge": MethodProfile(
+            name="marr_hildreth_edge",
+            library="torch",
+            avg_time_ms=26.0,
+            avg_iou=0.63,
+            memory_mb=58,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.62,
+            parameter_sensitivity=0.58,
+            description="Метод Марра-Хилдрета (нулевые пересечения LoG) (torch)",
+        ),
+        "gradient_magnitude_direction": MethodProfile(
+            name="gradient_magnitude_direction",
+            library="torch",
+            avg_time_ms=18.0,
+            avg_iou=0.59,
+            memory_mb=45,
+            best_for_type=[ImageType.INDUSTRIAL, ImageType.NATURAL],
+            robustness=0.52,
+            parameter_sensitivity=0.68,
+            description="Сегментация по величине и направлению градиента (torch)",
+        ),
+        "phase_congruency_edge": MethodProfile(
+            name="phase_congruency_edge",
+            library="torch",
+            avg_time_ms=85.0,
+            avg_iou=0.79,
+            memory_mb=120,
+            best_for_type=[
+                ImageType.MEDICAL,
+                ImageType.SATELLITE,
+                ImageType.MICROSCOPY,
+            ],
+            robustness=0.95,
+            parameter_sensitivity=0.3,
+            description="Фазовая конгруэнтность (инвариантна к освещению) (torch)",
+        ),
+        # ===== REGION-BASED =====
+        "region_growing": MethodProfile(
+            name="region_growing",
+            library="torch",
+            avg_time_ms=55.0,
+            avg_iou=0.81,
+            memory_mb=90,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.75,
+            parameter_sensitivity=0.6,
+            description="Рост региона от семян по схожести (torch)",
+        ),
+        "split_and_merge": MethodProfile(
+            name="split_and_merge",
+            library="torch",
+            avg_time_ms=70.0,
+            avg_iou=0.76,
+            memory_mb=100,
+            best_for_type=[ImageType.SATELLITE, ImageType.INDUSTRIAL],
+            robustness=0.7,
+            parameter_sensitivity=0.5,
+            description="Разделение и слияние регионов (torch)",
+        ),
+        "floodfill": MethodProfile(
+            name="floodfill",
+            library="torch",
+            avg_time_ms=15.0,
+            avg_iou=0.72,
+            memory_mb=40,
+            best_for_type=[ImageType.DOCUMENT, ImageType.MEDICAL],
+            robustness=0.6,
+            parameter_sensitivity=0.7,
+            description="Заливка области от точки (torch)",
+        ),
+        # ===== CLUSTERING =====
+        "kmeans_segmentation": MethodProfile(
+            name="kmeans_segmentation",
+            library="torch",
+            avg_time_ms=120.0,
+            avg_iou=0.77,
+            memory_mb=150,
+            best_for_type=[ImageType.NATURAL, ImageType.SATELLITE],
+            robustness=0.65,
+            parameter_sensitivity=0.7,
+            description="K-means кластеризация в пространстве признаков (torch)",
+        ),
+        "dbscan_segmentation": MethodProfile(
+            name="dbscan_segmentation",
+            library="torch",
+            avg_time_ms=180.0,
+            avg_iou=0.74,
+            memory_mb=200,
+            best_for_type=[ImageType.MICROSCOPY, ImageType.INDUSTRIAL],
+            robustness=0.8,
+            parameter_sensitivity=0.6,
+            description="DBSCAN для сегментации произвольной формы (torch)",
+        ),
+        "meanshift": MethodProfile(
+            name="meanshift",
+            library="torch",
+            avg_time_ms=250.0,
+            avg_iou=0.83,
+            memory_mb=280,
+            best_for_type=[ImageType.NATURAL, ImageType.MEDICAL],
+            robustness=0.85,
+            parameter_sensitivity=0.4,
+            description="MeanShift с пространственно-цветовым ядром (torch)",
+        ),
+        # ===== ACTIVE CONTOURS =====
+        "active_contour": MethodProfile(
+            name="active_contour",
+            library="torch",
+            avg_time_ms=450.0,
+            avg_iou=0.84,
+            memory_mb=180,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.78,
+            parameter_sensitivity=0.75,
+            description="Змеи (snakes) с энергией границ и линий (torch)",
+        ),
+        "gvf_contour": MethodProfile(
+            name="gvf_contour",
+            library="torch",
+            avg_time_ms=380.0,
+            avg_iou=0.86,
+            memory_mb=160,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.88,
+            parameter_sensitivity=0.5,
+            description="Контуры с градиентным векторным потоком (GVF) (torch)",
+        ),
+        "morphological_snakes": MethodProfile(
+            name="morphological_snakes",
+            library="torch",
+            avg_time_ms=320.0,
+            avg_iou=0.87,
+            memory_mb=140,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.92,
+            parameter_sensitivity=0.35,
+            description="Морфологические змеи (устойчивы к шуму) (torch)",
+        ),
+        "chan_vese": MethodProfile(
+            name="chan_vese",
+            library="torch",
+            avg_time_ms=400.0,
+            avg_iou=0.89,
+            memory_mb=170,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.94,
+            parameter_sensitivity=0.3,
+            description="Модель Чан-Везе (регион-базированные активные контуры) (torch)",
+        ),
+        # ===== WATERSHED =====
+        "watershed": MethodProfile(
+            name="watershed",
+            library="torch",
+            avg_time_ms=35.0,
+            avg_iou=0.73,
+            memory_mb=75,
+            best_for_type=[
+                ImageType.MEDICAL,
+                ImageType.MICROSCOPY,
+                ImageType.SATELLITE,
+            ],
+            robustness=0.65,
+            parameter_sensitivity=0.8,
+            description="Классический watershed по градиенту (torch)",
+        ),
+        "random_walker": MethodProfile(
+            name="random_walker",
+            library="torch",
+            avg_time_ms=95.0,
+            avg_iou=0.85,
+            memory_mb=130,
+            best_for_type=[ImageType.MEDICAL, ImageType.MICROSCOPY],
+            robustness=0.9,
+            parameter_sensitivity=0.4,
+            description="Random walker с вероятностной диффузией (torch)",
+        ),
+        # ===== SUPER-PIXELS =====
+        "slic": MethodProfile(
+            name="slic",
+            library="torch",
+            avg_time_ms=65.0,
+            avg_iou=0.79,
+            memory_mb=95,
+            best_for_type=[
+                ImageType.NATURAL,
+                ImageType.SATELLITE,
+                ImageType.MEDICAL,
+            ],
+            robustness=0.8,
+            parameter_sensitivity=0.4,
+            description="SLIC super-pixels в Lab-пространстве (torch)",
+        ),
+        "felzenszwalb": MethodProfile(
+            name="felzenszwalb",
+            library="torch",
+            avg_time_ms=85.0,
+            avg_iou=0.81,
+            memory_mb=110,
+            best_for_type=[ImageType.NATURAL, ImageType.INDUSTRIAL],
+            robustness=0.78,
+            parameter_sensitivity=0.5,
+            description="Граф-базированная сегментация Фельценцвальба (torch)",
+        ),
+        # ===== INTERACTIVE =====
+        "grabcut": MethodProfile(
+            name="grabcut",
+            library="torch",
+            avg_time_ms=150.0,
+            avg_iou=0.91,
+            memory_mb=180,
+            best_for_type=[ImageType.NATURAL, ImageType.MEDICAL],
+            robustness=0.88,
+            parameter_sensitivity=0.5,
+            description="GrabCut с итеративной оптимизацией GMM (torch)",
+        ),
+    },
+}
+
+# Flat dict для быстрого доступа (как было)
+ALL_METHODS = {
+    name: profile
+    for lib_methods in METHODS_BY_LIBRARY.values()
+    for name, profile in lib_methods.items()
+}
 
 
 class AutoSegmenter:
@@ -89,6 +1423,10 @@ class AutoSegmenter:
         self.custom_weights = custom_weights or {}
         self.benchmark_data = self._load_benchmark_data(benchmark_data_path)
         self.available_methods = self._register_methods()
+
+        for name, profile in self.benchmark_data.items():
+            if name in self.available_methods and profile.params:
+                self.available_methods[name]["params"].update(profile.params)
 
     def _register_methods(self) -> Dict[str, Any]:
         """Регистрация всех доступных методов сегментации с параметрами по умолчанию"""
@@ -346,6 +1684,7 @@ class AutoSegmenter:
             # ===== THRESHOLDING =====
             "global_thresholding": MethodProfile(
                 name="global_thresholding",
+                library="opencv",
                 avg_time_ms=2.0,
                 avg_iou=0.62,
                 memory_mb=15,
@@ -355,6 +1694,7 @@ class AutoSegmenter:
             ),
             "otsu_thresholding": MethodProfile(
                 name="otsu_thresholding",
+                library="opencv",
                 avg_time_ms=15.0,
                 avg_iou=0.75,
                 memory_mb=50,
@@ -364,6 +1704,7 @@ class AutoSegmenter:
             ),
             "adaptive_thresholding": MethodProfile(
                 name="adaptive_thresholding",
+                library="opencv",
                 avg_time_ms=45.0,
                 avg_iou=0.82,
                 memory_mb=80,
@@ -373,6 +1714,7 @@ class AutoSegmenter:
             ),
             "threshold_niblack": MethodProfile(
                 name="threshold_niblack",
+                library="opencv",
                 avg_time_ms=38.0,
                 avg_iou=0.71,
                 memory_mb=65,
@@ -382,6 +1724,7 @@ class AutoSegmenter:
             ),
             "threshold_sauvola": MethodProfile(
                 name="threshold_sauvola",
+                library="opencv",
                 avg_time_ms=42.0,
                 avg_iou=0.88,
                 memory_mb=70,
@@ -391,6 +1734,7 @@ class AutoSegmenter:
             ),
             "threshold_bernsen": MethodProfile(
                 name="threshold_bernsen",
+                library="opencv",
                 avg_time_ms=35.0,
                 avg_iou=0.73,
                 memory_mb=60,
@@ -400,6 +1744,7 @@ class AutoSegmenter:
             ),
             "threshold_phansalkar": MethodProfile(
                 name="threshold_phansalkar",
+                library="opencv",
                 avg_time_ms=48.0,
                 avg_iou=0.85,
                 memory_mb=75,
@@ -409,6 +1754,7 @@ class AutoSegmenter:
             ),
             "threshold_kittler_illingworth": MethodProfile(
                 name="threshold_kittler_illingworth",
+                library="opencv",
                 avg_time_ms=25.0,
                 avg_iou=0.76,
                 memory_mb=55,
@@ -418,6 +1764,7 @@ class AutoSegmenter:
             ),
             "threshold_entropy_kapur": MethodProfile(
                 name="threshold_entropy_kapur",
+                library="opencv",
                 avg_time_ms=30.0,
                 avg_iou=0.74,
                 memory_mb=60,
@@ -427,6 +1774,7 @@ class AutoSegmenter:
             ),
             "threshold_triangle": MethodProfile(
                 name="threshold_triangle",
+                library="opencv",
                 avg_time_ms=20.0,
                 avg_iou=0.69,
                 memory_mb=45,
@@ -436,6 +1784,7 @@ class AutoSegmenter:
             ),
             "threshold_multi_otsu": MethodProfile(
                 name="threshold_multi_otsu",
+                library="opencv",
                 avg_time_ms=35.0,
                 avg_iou=0.78,
                 memory_mb=70,
@@ -445,6 +1794,7 @@ class AutoSegmenter:
             ),
             "threshold_percentile": MethodProfile(
                 name="threshold_percentile",
+                library="opencv",
                 avg_time_ms=8.0,
                 avg_iou=0.65,
                 memory_mb=25,
@@ -454,6 +1804,7 @@ class AutoSegmenter:
             ),
             "threshold_local_contrast": MethodProfile(
                 name="threshold_local_contrast",
+                library="opencv",
                 avg_time_ms=40.0,
                 avg_iou=0.77,
                 memory_mb=68,
@@ -464,6 +1815,7 @@ class AutoSegmenter:
             # ===== EDGE DETECTION =====
             "canny_edge": MethodProfile(
                 name="canny_edge",
+                library="opencv",
                 avg_time_ms=25.0,
                 avg_iou=0.68,
                 memory_mb=60,
@@ -473,6 +1825,7 @@ class AutoSegmenter:
             ),
             "sobel_edge": MethodProfile(
                 name="sobel_edge",
+                library="opencv",
                 avg_time_ms=12.0,
                 avg_iou=0.58,
                 memory_mb=35,
@@ -482,6 +1835,7 @@ class AutoSegmenter:
             ),
             "prewitt_edge": MethodProfile(
                 name="prewitt_edge",
+                library="opencv",
                 avg_time_ms=11.0,
                 avg_iou=0.56,
                 memory_mb=33,
@@ -491,6 +1845,7 @@ class AutoSegmenter:
             ),
             "scharr_edge": MethodProfile(
                 name="scharr_edge",
+                library="opencv",
                 avg_time_ms=14.0,
                 avg_iou=0.61,
                 memory_mb=38,
@@ -500,6 +1855,7 @@ class AutoSegmenter:
             ),
             "roberts_cross_edge": MethodProfile(
                 name="roberts_cross_edge",
+                library="opencv",
                 avg_time_ms=8.0,
                 avg_iou=0.52,
                 memory_mb=28,
@@ -509,6 +1865,7 @@ class AutoSegmenter:
             ),
             "log_edge": MethodProfile(
                 name="log_edge",
+                library="opencv",
                 avg_time_ms=22.0,
                 avg_iou=0.64,
                 memory_mb=55,
@@ -518,6 +1875,7 @@ class AutoSegmenter:
             ),
             "dog_edge": MethodProfile(
                 name="dog_edge",
+                library="opencv",
                 avg_time_ms=28.0,
                 avg_iou=0.66,
                 memory_mb=62,
@@ -527,6 +1885,7 @@ class AutoSegmenter:
             ),
             "marr_hildreth_edge": MethodProfile(
                 name="marr_hildreth_edge",
+                library="opencv",
                 avg_time_ms=26.0,
                 avg_iou=0.63,
                 memory_mb=58,
@@ -536,6 +1895,7 @@ class AutoSegmenter:
             ),
             "gradient_magnitude_direction": MethodProfile(
                 name="gradient_magnitude_direction",
+                library="opencv",
                 avg_time_ms=18.0,
                 avg_iou=0.59,
                 memory_mb=45,
@@ -545,6 +1905,7 @@ class AutoSegmenter:
             ),
             "phase_congruency_edge": MethodProfile(
                 name="phase_congruency_edge",
+                library="opencv",
                 avg_time_ms=85.0,
                 avg_iou=0.79,
                 memory_mb=120,
@@ -559,6 +1920,7 @@ class AutoSegmenter:
             # ===== REGION-BASED =====
             "region_growing": MethodProfile(
                 name="region_growing",
+                library="opencv",
                 avg_time_ms=55.0,
                 avg_iou=0.81,
                 memory_mb=90,
@@ -568,6 +1930,7 @@ class AutoSegmenter:
             ),
             "split_and_merge": MethodProfile(
                 name="split_and_merge",
+                library="opencv",
                 avg_time_ms=70.0,
                 avg_iou=0.76,
                 memory_mb=100,
@@ -577,6 +1940,7 @@ class AutoSegmenter:
             ),
             "floodfill": MethodProfile(
                 name="floodfill",
+                library="opencv",
                 avg_time_ms=15.0,
                 avg_iou=0.72,
                 memory_mb=40,
@@ -587,6 +1951,7 @@ class AutoSegmenter:
             # ===== CLUSTERING =====
             "kmeans_segmentation": MethodProfile(
                 name="kmeans_segmentation",
+                library="opencv",
                 avg_time_ms=120.0,
                 avg_iou=0.77,
                 memory_mb=150,
@@ -596,6 +1961,7 @@ class AutoSegmenter:
             ),
             "dbscan_segmentation": MethodProfile(
                 name="dbscan_segmentation",
+                library="opencv",
                 avg_time_ms=180.0,
                 avg_iou=0.74,
                 memory_mb=200,
@@ -605,6 +1971,7 @@ class AutoSegmenter:
             ),
             "meanshift": MethodProfile(
                 name="meanshift",
+                library="opencv",
                 avg_time_ms=250.0,
                 avg_iou=0.83,
                 memory_mb=280,
@@ -615,6 +1982,7 @@ class AutoSegmenter:
             # ===== ACTIVE CONTOURS =====
             "active_contour": MethodProfile(
                 name="active_contour",
+                library="opencv",
                 avg_time_ms=450.0,
                 avg_iou=0.84,
                 memory_mb=180,
@@ -624,6 +1992,7 @@ class AutoSegmenter:
             ),
             "gvf_contour": MethodProfile(
                 name="gvf_contour",
+                library="opencv",
                 avg_time_ms=380.0,
                 avg_iou=0.86,
                 memory_mb=160,
@@ -633,6 +2002,7 @@ class AutoSegmenter:
             ),
             "morphological_snakes": MethodProfile(
                 name="morphological_snakes",
+                library="opencv",
                 avg_time_ms=320.0,
                 avg_iou=0.87,
                 memory_mb=140,
@@ -642,6 +2012,7 @@ class AutoSegmenter:
             ),
             "chan_vese": MethodProfile(
                 name="chan_vese",
+                library="opencv",
                 avg_time_ms=400.0,
                 avg_iou=0.89,
                 memory_mb=170,
@@ -652,6 +2023,7 @@ class AutoSegmenter:
             # ===== WATERSHED =====
             "watershed": MethodProfile(
                 name="watershed",
+                library="opencv",
                 avg_time_ms=35.0,
                 avg_iou=0.73,
                 memory_mb=75,
@@ -665,6 +2037,7 @@ class AutoSegmenter:
             ),
             "random_walker": MethodProfile(
                 name="random_walker",
+                library="opencv",
                 avg_time_ms=95.0,
                 avg_iou=0.85,
                 memory_mb=130,
@@ -675,6 +2048,7 @@ class AutoSegmenter:
             # ===== SUPER-PIXELS =====
             "slic": MethodProfile(
                 name="slic",
+                library="opencv",
                 avg_time_ms=65.0,
                 avg_iou=0.79,
                 memory_mb=95,
@@ -688,6 +2062,7 @@ class AutoSegmenter:
             ),
             "felzenszwalb": MethodProfile(
                 name="felzenszwalb",
+                library="opencv",
                 avg_time_ms=85.0,
                 avg_iou=0.81,
                 memory_mb=110,
@@ -698,6 +2073,7 @@ class AutoSegmenter:
             # ===== INTERACTIVE =====
             "grabcut": MethodProfile(
                 name="grabcut",
+                library="opencv",
                 avg_time_ms=150.0,
                 avg_iou=0.91,
                 memory_mb=180,
@@ -706,6 +2082,14 @@ class AutoSegmenter:
                 parameter_sensitivity=0.5,
             ),
         }
+
+    def get_available_methods(
+        self, library: Optional[str] = None
+    ) -> Dict[str, MethodProfile]:
+        """Возвращает доступные методы, опционально отфильтрованные по библиотеке"""
+        if library:
+            return METHODS_BY_LIBRARY.get(library, {})
+        return self.benchmark_data
 
     def analyze_image(self, image: np.ndarray) -> ImageCharacteristics:
         """Анализ характеристик изображения"""
@@ -785,37 +2169,52 @@ class AutoSegmenter:
         return ImageType.NATURAL
 
     def select_best_method(
-        self, image: np.ndarray, characteristics: Optional[ImageCharacteristics] = None
-    ) -> Tuple[str, Dict[str, Any], float]:
+        self,
+        image: np.ndarray,
+        characteristics: Optional[ImageCharacteristics] = None,
+        library: Optional[str] = None,
+    ) -> Tuple[str, str, Dict[str, Any], float]:
         """
         Выбор оптимального метода.
 
         Returns:
             method_name: Название метода
+            library_name: Библиотека метода (opencv/sklearn/torch)
             params: Параметры для метода
             confidence: Уверенность выбора (0-1)
         """
         if characteristics is None:
             characteristics = self.analyze_image(image)
 
+        if library:
+            candidates = METHODS_BY_LIBRARY.get(library, {})
+        else:
+            candidates = self.benchmark_data
+
         scores = {}
 
-        for method_name, profile in self.benchmark_data.items():
+        for method_name, profile in candidates.items():
+            if library and profile.library != library:
+                continue
             score = self._calculate_method_score(method_name, profile, characteristics)
-            scores[method_name] = score
+            scores[method_name] = (score, profile)
 
         # Выбор лучшего метода
-        best_method = max(scores, key=scores.get)
-        best_score = scores[best_method]
+        if not scores:
+            raise ValueError(f"No methods found for library='{library}'")
+
+        best_method, (best_score, best_profile) = max(
+            scores.items(), key=lambda x: x[1][0]
+        )
 
         # Нормализация уверенности
-        all_scores = list(scores.values())
+        all_scores = [s for s, _ in scores.values()]
         confidence = (best_score - np.mean(all_scores)) / (np.std(all_scores) + 1e-6)
         confidence = 1 / (1 + np.exp(-confidence))  # Sigmoid
 
-        params = self.available_methods[best_method]["params"]
+        params = self.available_methods.get(best_method, {}).get("params", {})
 
-        return best_method, params, confidence
+        return best_method, best_profile.library, params, confidence
 
     def _calculate_method_score(
         self,
@@ -873,6 +2272,7 @@ class AutoSegmenter:
         image: np.ndarray,
         auto_select: bool = True,
         method_name: Optional[str] = None,
+        library: Optional[str] = None,
         return_metadata: bool = False,
     ):
         """
@@ -891,22 +2291,38 @@ class AutoSegmenter:
         from segmenters.OpenCVSegmenter import OpenCVSegmenter
         from segmenters.SklearnSegmenter import SklearnSegmenter
 
+        selected_method = ""
+        selected_lib = ""
+        params = {}
+        confidence = 0.0
+
         if auto_select:
             # Автоматический выбор
-            selected_method, params, confidence = self.select_best_method(image)
+            selected_method, selected_lib, params, confidence = self.select_best_method(
+                image, library=library
+            )
             print(
                 f"🤖 Auto-selected: {selected_method.upper()} "
                 f"(confidence: {confidence:.2f})"
             )
         else:
-            if method_name is None:
-                raise ValueError("method_name required when auto_select=False")
+            if not method_name or not library:
+                raise ValueError(
+                    "method_name and library required when auto_select=False"
+                )
+            if method_name not in METHODS_BY_LIBRARY.get(library, {}):
+                available = list(METHODS_BY_LIBRARY[library].keys())
+                raise ValueError(
+                    f"Method '{method_name}' not in library '{library}'. Available: {available}"
+                )
             selected_method = method_name
-            params = self.available_methods[method_name]["params"]
+            selected_lib = library
+            profile = METHODS_BY_LIBRARY[library][method_name]
+            params = profile.params or {}
             confidence = 1.0
 
         # Определение библиотеки (можно расширить логику)
-        segmenter_class = self._get_segmenter_class(selected_method)
+        segmenter_class = self._get_segmenter_class(selected_method, selected_lib)
 
         # Создание сегментера
         segmenter = segmenter_class(method=selected_method, **params)
@@ -918,26 +2334,26 @@ class AutoSegmenter:
             characteristics = self.analyze_image(image)
             metadata = {
                 "method": selected_method,
+                "library": selected_lib,
                 "parameters": params,
                 "confidence": confidence,
                 "image_characteristics": characteristics,
-                "library": segmenter_class.__name__,
             }
             return mask, metadata
 
         return mask
 
-    def _get_segmenter_class(self, method_name: str):
-        """Определение класса сегментера для метода"""
-        # Простая эвристика: большинство методов есть в OpenCV
-        # Можно расширить для методов, которые есть только в sklearn
-        sklearn_only_methods = ["quickshift", "felzenszwalb", "slic"]
-
-        if method_name in sklearn_only_methods:
+    def _get_segmenter_class(self, method_name: str, library: str):
+        """Явный выбор сегментера по библиотеке"""
+        if library == "sklearn":
             from segmenters.SklearnSegmenter import SklearnSegmenter
 
             return SklearnSegmenter
-        else:
+        elif library == "torch":
+            from segmenters.TorchSegmenter import TorchSegmenter  # если есть
+
+            return TorchSegmenter
+        else:  # opencv или по умолчанию
             from segmenters.OpenCVSegmenter import OpenCVSegmenter
 
             return OpenCVSegmenter
@@ -1016,3 +2432,6 @@ class AutoSegmenter:
             candidates.sort(key=lambda x: -score(x[1]))
 
         return [name for name, _ in candidates[:5]]
+
+
+__all__ = ["AutoSegmenter", "SegmentationGoal", "ImageType", "METHODS_BY_LIBRARY"]
