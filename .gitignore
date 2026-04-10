@@ -75,3 +75,4 @@ ISIC2018/
 mobile_sam.pt
 sam2_t.pt
 .gradio/
+backend/*.pt

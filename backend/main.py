@@ -2,6 +2,7 @@
 from typing import Optional, Dict, Any
 import json
 import os, sys, base64, io
+import torch
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +20,7 @@ from segmenters.AutoSegmenter import (
     MethodProfile,
 )
 from metrics.SegmentationMetrics import SegmentationMetrics
+from segmenters.NeuralModelFactory import NeuralModelFactory
 
 app = FastAPI(title="AutoSegmenter API")
 
@@ -31,6 +33,43 @@ app.add_middleware(
 )
 
 auto_seg = AutoSegmenter()
+
+
+def build_neural_configs() -> Dict[str, Dict[str, Dict]]:
+    """Авто-генерация NEURAL_CONFIGS из конфига фабрики"""
+    config = NeuralModelFactory.load_config()
+    result = {"semantic": {}, "instance": {}, "panoptic": {}}
+
+    # SegFormer
+    for variant, name in config["models"]["segformer"]["variants"].items():
+        result["semantic"][f"segformer_{variant}"] = {
+            "model_type": "segformer",
+            "model_name": name,
+        }
+
+    # Mask2Former
+    for variant, name in config["models"]["mask2former"]["variants"].items():
+        result["semantic"][f"mask2former_{variant}"] = {
+            "model_type": "mask2former",
+            "model_name": name,
+        }
+        result["instance"][f"mask2former_{variant}_instance"] = {
+            "model_type": "mask2former",
+            "model_name": name.replace("-semantic", "-coco-instance"),
+        }
+        result["panoptic"][f"mask2former_{variant}_panoptic"] = {
+            "model_type": "mask2former",
+            "model_name": name.replace("-semantic", "-coco-panoptic"),
+        }
+
+    # SMP модели
+    for encoder in config["models"]["unet"]["encoders"]:
+        result["semantic"][f"unet_{encoder}"] = {
+            "model_type": "unet_smp",
+            "encoder_name": encoder,
+        }
+
+    return result
 
 
 def to_base64(arr: np.ndarray) -> str:
@@ -82,6 +121,9 @@ def sanitize_metrics(metrics: dict) -> dict:
 @app.post("/api/segment")
 async def segment(
     file: UploadFile = File(...),
+    mode: str = Form("classical"),  # "classical" | "neural"
+    task: str = Form("semantic"),
+    model: str = Form("segformer_b2"),
     goal: str = Form("balanced"),
     auto_select: bool = Form(True),
     method: Optional[str] = Form(None),
@@ -95,69 +137,297 @@ async def segment(
         image = Image.open(io.BytesIO(contents)).convert("RGB")
         img_array = np.array(image)
 
-        auto_seg.goal = (
-            SegmentationGoal(goal)
-            if goal in ["speed", "accuracy", "balanced", "low_memory"]
-            else SegmentationGoal.BALANCED
-        )
+        if mode == "neural":
+            from segmenters.NeuralSegmenter import NeuralSegmenter
+            from utils.strategies import segment_image_unified
+            from utils.palettes import ade_palette, coco_palette, cityscapes_palette
 
-        try:
-            user_params = json.loads(custom_params)
-        except:
-            user_params = {}
+            PALETTES = {
+                "semantic": ade_palette,  # ADE20K: 150 классов
+                "instance": coco_palette,  # COCO: 80 классов
+                "panoptic": cityscapes_palette,  # Cityscapes: 19 классов
+            }
 
-        # Сегментация
-        if auto_select:
-            # Автовыбор
-            mask, metadata = auto_seg.segment(
-                img_array, auto_select=True, library=library, return_metadata=True
+            # Выбор имён классов
+            CLASS_NAMES = {
+                "semantic": NeuralSegmenter.get_ade_class_names,
+                "instance": NeuralSegmenter.get_coco_class_names,
+                "panoptic": NeuralSegmenter.get_cityscapes_class_names,
+            }
+
+            # NEURAL_CONFIGS = build_neural_configs()
+            NEURAL_CONFIGS = {
+                "semantic": {
+                    # === SegFormer variants ===
+                    "segformer_b0": {
+                        "model_type": "segformer",
+                        "model_name": "nvidia/segformer-b0-finetuned-ade-512-512",
+                    },
+                    "segformer_b1": {
+                        "model_type": "segformer",
+                        "model_name": "nvidia/segformer-b1-finetuned-ade-512-512",
+                    },
+                    "segformer_b2": {
+                        "model_type": "segformer",
+                        "model_name": "nvidia/segformer-b2-finetuned-ade-512-512",
+                    },
+                    "segformer_b3": {
+                        "model_type": "segformer",
+                        "model_name": "nvidia/segformer-b3-finetuned-ade-640-640",
+                    },
+                    "segformer_b4": {
+                        "model_type": "segformer",
+                        "model_name": "nvidia/segformer-b4-finetuned-ade-640-640",
+                    },
+                    "segformer_b5": {
+                        "model_type": "segformer",
+                        "model_name": "nvidia/segformer-b5-finetuned-ade-640-640",
+                    },
+                    # === Mask2Former semantic ===
+                    "mask2former_swin_base": {
+                        "model_type": "mask2former",
+                        "model_name": "facebook/mask2former-swin-base-ade-semantic",
+                    },
+                    "mask2former_swin_large": {
+                        "model_type": "mask2former",
+                        "model_name": "facebook/mask2former-swin-large-ade-semantic",
+                    },
+                    # === OneFormer ===
+                    "oneformer_swin_large": {
+                        "model_type": "oneformer",
+                        "model_name": "shi-labs/oneformer_ade20k_swin_large",
+                    },
+                    # === DPT ===
+                    "dpt_large": {
+                        "model_type": "dpt",
+                        "model_name": "Intel/dpt-large-ade",
+                    },
+                    # === UPerNet ===
+                    "upernet_convnext_small": {
+                        "model_type": "upernet",
+                        "model_name": "openmmlab/upernet-convnext-small",
+                    },
+                    # === SMP U-Net ===
+                    "unet_resnet34": {
+                        "model_type": "unet_smp",
+                        "encoder_name": "resnet34",
+                    },
+                    "unet_resnet50": {
+                        "model_type": "unet_smp",
+                        "encoder_name": "resnet50",
+                    },
+                    "unet_efficientnet_b0": {
+                        "model_type": "unet_smp",
+                        "encoder_name": "efficientnet-b0",
+                    },
+                    "unet_mit_b5": {"model_type": "unet_smp", "encoder_name": "mit_b5"},
+                    # === SMP FPN ===
+                    "fpn_mit_b5": {"model_type": "fpn_smp", "encoder_name": "mit_b5"},
+                    "fpn_efficientnet": {
+                        "model_type": "fpn_smp",
+                        "encoder_name": "efficientnet-b5",
+                    },
+                    # === SMP PSPNet ===
+                    "psp_mit_b5": {
+                        "model_type": "pspnet_smp",
+                        "encoder_name": "mit_b5",
+                    },
+                    "psp_resnet50": {
+                        "model_type": "pspnet_smp",
+                        "encoder_name": "resnet50",
+                    },
+                    # === DeepLabV3+ ===
+                    "deeplab_resnet101": {
+                        "model_type": "deeplab_tv",
+                        "encoder_name": "resnet101",
+                    },
+                    # === Torchvision FCN ===
+                    "fcn_resnet50": {"model_type": "fcn_tv", "variant": "fcn_resnet50"},
+                    "fcn_resnet101": {
+                        "model_type": "fcn_tv",
+                        "variant": "fcn_resnet101",
+                    },
+                    # === SegNet ===
+                    "segnet_resnet34": {
+                        "model_type": "segnet",
+                        "encoder_name": "resnet34",
+                        "checkpoint_path": None,  # Можно указать путь к чекпоинту
+                    },
+                    "segnet_resnet50": {
+                        "model_type": "segnet",
+                        "encoder_name": "resnet50",
+                        "checkpoint_path": None,
+                    },
+                    # === SAM (семантическая через instance→semantic конверсию) ===
+                    "mobile_sam": {
+                        "model_type": "sam",
+                        "model_name": "mobile_sam.pt",  # Путь к локальному файлу
+                    },
+                    "sam2_tiny": {"model_type": "sam", "model_name": "sam2_t.pt"},
+                },
+                "instance": {
+                    # === Mask2Former instance ===
+                    "mask2former_coco_instance": {
+                        "model_type": "mask2former",
+                        "model_name": "facebook/mask2former-swin-base-coco-instance",
+                    },
+                    # === MaskFormer ===
+                    "maskformer_resnet50": {
+                        "model_type": "maskformer",
+                        "model_name": "facebook/maskformer-resnet50-ade20k-full",
+                    },
+                    # === YOLOv8 segmentation ===
+                    "yolov8n_seg": {
+                        "model_type": "yolov8",
+                        "model_name": "yolov8n-seg.pt",
+                    },
+                    "yolov8s_seg": {
+                        "model_type": "yolov8",
+                        "model_name": "yolov8s-seg.pt",
+                    },
+                    "yolov8m_seg": {
+                        "model_type": "yolov8",
+                        "model_name": "yolov8m-seg.pt",
+                    },
+                    # === Mask R-CNN ===
+                    "maskrcnn_resnet50": {
+                        "model_type": "maskrcnn_tv",
+                        "variant": "maskrcnn_resnet50_fpn",
+                    },
+                    "maskrcnn_resnet50_v2": {
+                        "model_type": "maskrcnn_tv",
+                        "variant": "maskrcnn_resnet50_fpn_v2",
+                    },
+                    # === SAM для инстанс-сегментации ===
+                    "mobile_sam": {"model_type": "sam", "model_name": "mobile_sam.pt"},
+                    "sam2_tiny": {"model_type": "sam", "model_name": "sam2_t.pt"},
+                },
+                "panoptic": {
+                    # === Mask2Former panoptic ===
+                    "mask2former_ade_panoptic": {
+                        "model_type": "mask2former",
+                        "model_name": "facebook/mask2former-swin-base-ade-panoptic",
+                    },
+                    "mask2former_coco_panoptic": {
+                        "model_type": "mask2former",
+                        "model_name": "facebook/mask2former-swin-base-coco-panoptic",
+                    },
+                    # === OneFormer panoptic ===
+                    "oneformer_coco_panoptic": {
+                        "model_type": "oneformer",
+                        "model_name": "shi-labs/oneformer_coco_swin_large",
+                    },
+                },
+            }
+
+            config = NEURAL_CONFIGS.get(task, {}).get(model)
+            if not config:
+                raise HTTPException(400, f"Unknown neural config: {task}/{model}")
+
+            # Инициализация нейросегментера
+            neural_seg = NeuralSegmenter(
+                **config, device="cuda" if torch.cuda.is_available() else "cpu"
             )
-        else:
-            # Ручной выбор — валидация
-            if not method:
-                raise HTTPException(400, "method_name required when auto_select=False")
 
-            # Проверка существования метода в выбранной библиотеке
-            if library not in METHODS_BY_LIBRARY:
-                raise HTTPException(400, f"Unknown library: {library}")
-
-            if method not in METHODS_BY_LIBRARY[library]:
-                available = list(METHODS_BY_LIBRARY[library].keys())
-                raise HTTPException(
-                    400,
-                    f"Method '{method}' not found in library '{library}'. Available: {available}",
-                )
-
-            # Получаем параметры из профиля
-            profile = METHODS_BY_LIBRARY[library][method]
-            default_params = auto_seg.available_methods.get(method, {}).get(
-                "params", {}
+            # Инференс
+            overlay_pil, result_info = segment_image_unified(
+                model=neural_seg.model,
+                processor=neural_seg.processor,
+                image_input=image,  # PIL.Image
+                model_type=config["model_type"],
+                alpha=0.6,  # Прозрачность наложения
+                palette=PALETTES[task],
+                device="cuda" if torch.cuda.is_available() else "cpu",
+                verbose=False,
+                num_classes=neural_seg.num_classes,
+                class_names=CLASS_NAMES[task](),
+                gt_mask=None,  # GT передаётся отдельно ниже
             )
-            final_params = {**default_params, **user_params}
-            print(f"🛠 Using params for {method}: {final_params}")
 
-            segmenter_class = auto_seg._get_segmenter_class(method, library)
-            segmenter = segmenter_class(method=method, **final_params)
+            mask = result_info.get("mask")
+            if mask is None:
+                # Fallback: если маска не вернулась, создаём из overlay
+                overlay_np = np.array(overlay_pil)
+                mask = (overlay_np[:, :, 0] > 0).astype(np.uint8) * 255
 
-            # Запускаем сегментацию с указанным методом
-            # mask, metadata = auto_seg.segment(
-            #     img_array,
-            #     auto_select=False,
-            #     method_name=method,
-            #     library=library,
-            #     return_metadata=True,
-            # )
-            result_img, mask = segmenter.segment_with_mask(img_array)
+            overlay_np = np.array(overlay_pil)
 
             metadata = {
-                "method": method,
-                "library": library,
-                "parameters": final_params,  # Возвращаем в UI, чтобы юзер видел, чем считали
+                "method": model,
+                "library": "neural",
+                "task": task,
+                "parameters": config,
                 "confidence": 1.0,
                 "image_characteristics": auto_seg.analyze_image(img_array),
+                "inference_time_ms": result_info.get("inference_time_ms", 0),
+                "unique_classes": result_info.get("unique_classes", 0),
             }
-            # Добавляем информацию о библиотеке в метаданные
-            metadata["library"] = profile.library
+        else:
+            auto_seg.goal = (
+                SegmentationGoal(goal)
+                if goal in ["speed", "accuracy", "balanced", "low_memory"]
+                else SegmentationGoal.BALANCED
+            )
+
+            try:
+                user_params = json.loads(custom_params)
+            except:
+                user_params = {}
+
+            # Сегментация
+            if auto_select:
+                # Автовыбор
+                mask, metadata = auto_seg.segment(
+                    img_array, auto_select=True, library=library, return_metadata=True
+                )
+            else:
+                # Ручной выбор — валидация
+                if not method:
+                    raise HTTPException(
+                        400, "method_name required when auto_select=False"
+                    )
+
+                # Проверка существования метода в выбранной библиотеке
+                if library not in METHODS_BY_LIBRARY:
+                    raise HTTPException(400, f"Unknown library: {library}")
+
+                if method not in METHODS_BY_LIBRARY[library]:
+                    available = list(METHODS_BY_LIBRARY[library].keys())
+                    raise HTTPException(
+                        400,
+                        f"Method '{method}' not found in library '{library}'. Available: {available}",
+                    )
+
+                # Получаем параметры из профиля
+                profile = METHODS_BY_LIBRARY[library][method]
+                default_params = auto_seg.available_methods.get(method, {}).get(
+                    "params", {}
+                )
+                final_params = {**default_params, **user_params}
+                print(f"🛠 Using params for {method}: {final_params}")
+
+                segmenter_class = auto_seg._get_segmenter_class(method, library)
+                segmenter = segmenter_class(method=method, **final_params)
+
+                # Запускаем сегментацию с указанным методом
+                # mask, metadata = auto_seg.segment(
+                #     img_array,
+                #     auto_select=False,
+                #     method_name=method,
+                #     library=library,
+                #     return_metadata=True,
+                # )
+                result_img, mask = segmenter.segment_with_mask(img_array)
+
+                metadata = {
+                    "method": method,
+                    "library": library,
+                    "parameters": final_params,  # Возвращаем в UI, чтобы юзер видел, чем считали
+                    "confidence": 1.0,
+                    "image_characteristics": auto_seg.analyze_image(img_array),
+                }
+                # Добавляем информацию о библиотеке в метаданные
+                metadata["library"] = profile.library
 
         metrics = {}
         if gt_mask:
@@ -176,14 +446,19 @@ async def segment(
         # Сохранение результата
         analysis_data = analyze_image_data(img_array)
 
-        if len(img_array.shape) == 2:
-            img_rgb = np.stack([img_array] * 3, axis=-1)
+        if mode == "neural":
+            # Для нейронных моделей используем цветной оверлей из segment_image_unified
+            # overlay_np уже создан выше: overlay_np = np.array(overlay_pil)
+            pass
         else:
-            img_rgb = img_array.copy()
+            if len(img_array.shape) == 2:
+                img_rgb = np.stack([img_array] * 3, axis=-1)
+            else:
+                img_rgb = img_array.copy()
 
-        mask_colored = np.zeros_like(img_rgb)
-        mask_colored[mask > 0] = [255, 0, 0]  # Красный для объекта
-        overlay = (img_rgb * 0.6 + mask_colored * 0.4).astype(np.uint8)
+            mask_colored = np.zeros_like(img_rgb)
+            mask_colored[mask > 0] = [255, 0, 0]  # Красный для объекта
+            overlay_np = (img_rgb * 0.6 + mask_colored * 0.4).astype(np.uint8)
 
         # 🔹 Конвертация в base64 (универсальная функция)
         def arr_to_b64(arr: np.ndarray) -> str:
@@ -206,7 +481,7 @@ async def segment(
             "method": metadata["method"],
             "confidence": float(metadata["confidence"]),
             "mask_b64": f"data:image/png;base64,{arr_to_b64(mask)}",
-            "overlay_b64": f"data:image/png;base64,{arr_to_b64(overlay)}",
+            "overlay_b64": f"data:image/png;base64,{arr_to_b64(overlay_np)}",
             "chars": {
                 "type": metadata["image_characteristics"].estimated_type.value,
                 "size": f"{metadata['image_characteristics'].width}×{metadata['image_characteristics'].height}",

@@ -63,6 +63,7 @@ class ModelType(Enum):
     SEGNET = "segnet"
     MASKRCNN_TV = "maskrcnn_tv"
     MASKFORMER = "maskformer"
+    YOLOV8 = "yolov8"
 
 
 num_classes: int = 150
@@ -273,6 +274,8 @@ class NeuralModelFactory:
             return cls._load_sam(model_name, device)
         elif model_type == ModelType.MASKRCNN_TV:
             return cls._load_maskrcnn_tv(device, **kwargs)
+        elif model_type == ModelType.YOLOV8:
+            return cls._load_yolov8(model_name, device)
         else:
             raise ValueError(f"Неподдерживаемый тип модели: {model_type}")
 
@@ -965,6 +968,23 @@ class NeuralModelFactory:
         print(model)
         print("✅ Mask R-CNN загружена!")
         print(f"   Устройство: {device}")
+
+    @classmethod
+    def _load_yolov8(
+        cls, model_name: str, device: str = "cuda"
+    ) -> Tuple[Any, Any, str]:
+        """Загрузка YOLOv8 для сегментации"""
+        try:
+            from ultralytics import YOLO
+        except ImportError:
+            raise ImportError(
+                "ultralytics library required for YOLOv8. Install with: pip install ultralytics"
+            )
+
+        # model_name может быть путём к .pt файлу или именем пресета
+        model = YOLO(model_name)
+        # YOLO не использует processor в классическом смысле
+        return model, None, "yolov8"
 
     # ========== УНИВЕРСАЛЬНЫЙ ЗАГРУЗЧИК SMP ==========
     @classmethod

@@ -1167,7 +1167,7 @@ def main():
 
         # Конфигурации для сравнения
         augmentation_configs = [
-            {"level": "none", "epochs": 200, "lr": 1e-4, "subset_fraction": 0.05},
+            # {"level": "none", "epochs": 200, "lr": 1e-4, "subset_fraction": 0.05},
             {"level": "basic", "epochs": 200, "lr": 1e-4, "subset_fraction": 0.05},
             {"level": "medium", "epochs": 200, "lr": 1e-4, "subset_fraction": 0.05},
             # {'level': 'aggressive', 'epochs': 50, 'lr': 5e-5},

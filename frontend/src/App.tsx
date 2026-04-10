@@ -69,6 +69,60 @@ interface SegmentationResponse {
 
 type GoalType = 'balanced' | 'speed' | 'accuracy' | 'low_memory'
 
+const NEURAL_TASKS = [
+  { value: 'semantic', label: '🎨 Семантическая' },
+  { value: 'instance', label: '🎭 Инстанс' },
+  { value: 'panoptic', label: '🌐 Паноптическая' }
+] as const;
+
+const NEURAL_MODELS = {
+  semantic: [
+    // SegFormer
+    'segformer_b0', 'segformer_b1', 'segformer_b2', 
+    'segformer_b3', 'segformer_b4', 'segformer_b5',
+    // Mask2Former
+    'mask2former_swin_base', 'mask2former_swin_large',
+    // OneFormer
+    'oneformer_swin_large',
+    // DPT
+    'dpt_large',
+    // UPerNet
+    'upernet_convnext_small',
+    // SMP U-Net
+    'unet_resnet34', 'unet_resnet50', 'unet_efficientnet_b0', 'unet_mit_b5',
+    // SMP FPN
+    'fpn_mit_b5', 'fpn_efficientnet',
+    // SMP PSPNet
+    'psp_mit_b5', 'psp_resnet50',
+    // DeepLab
+    'deeplab_resnet101',
+    // FCN
+    'fcn_resnet50', 'fcn_resnet101',
+    // SegNet
+    'segnet_resnet34', 'segnet_resnet50',
+    // SAM (конвертирует instance → semantic)
+    'mobile_sam', 'sam2_tiny',
+  ],
+  instance: [
+    // Mask2Former
+    'mask2former_coco_instance',
+    // MaskFormer
+    'maskformer_resnet50',
+    // YOLOv8
+    'yolov8n_seg', 'yolov8s_seg', 'yolov8m_seg',
+    // Mask R-CNN
+    'maskrcnn_resnet50', 'maskrcnn_resnet50_v2',
+    // SAM для инстанс-сегментации
+    'mobile_sam', 'sam2_tiny',
+  ],
+  panoptic: [
+    // Mask2Former
+    'mask2former_ade_panoptic', 'mask2former_coco_panoptic',
+    // OneFormer
+    'oneformer_coco_panoptic',
+  ]
+} as const;
+
 function App() {
   const LIBRARIES: LibraryOption[] = [
     { value: "opencv", label: "OpenCV", icon: "🟢" },
@@ -89,9 +143,18 @@ function App() {
   const [availableMethods, setAvailableMethods] = useState<Record<string, any>>({});
   const [methodSchema, setMethodSchema] = useState<Record<string, any>>({});
   const [customParams, setCustomParams] = useState<Record<string, any>>({});
+  const [mode, setMode] = useState<'classical' | 'neural'>('classical');
+  const [neuralTask, setNeuralTask] = useState<'semantic' | 'instance' | 'panoptic'>('semantic');
+  const [neuralModel, setNeuralModel] = useState('segformer_b2');
 
   const fmt = (n: number, decimals = 3) => n.toFixed(decimals)
   const pct = (n: number) => `${(n * 100).toFixed(1)}%`
+
+  useEffect(() => {
+    if (mode === 'neural') {
+      setNeuralModel(NEURAL_MODELS[neuralTask][0]);
+    }
+  }, [mode, neuralTask]);
 
   useEffect(() => {
     if (!autoSelect && selectedLibrary) {
@@ -139,13 +202,17 @@ function App() {
     
     const fd = new FormData()
     fd.append('file', file)
+    fd.append('mode', mode);
     fd.append('goal', goal)
     fd.append('auto_select', String(autoSelect));
     fd.append('custom_params', JSON.stringify(customParams));
 
-    if (!autoSelect) {
+    if (mode === 'classical') {
       fd.append('library', selectedLibrary);
-      fd.append('method', selectedMethod);
+      if (!autoSelect) fd.append('method', selectedMethod);
+    } else {
+      fd.append('task', neuralTask);
+      if (!autoSelect) fd.append('model', neuralModel);
     }
 
     if (gtFile) {
@@ -191,6 +258,16 @@ function App() {
             <label>🎯 Ground Truth (опционально, для метрик):</label>
             <input type="file" accept="image/*" onChange={(e) => setGtFile(e.target.files?.[0] || null)} />
           </div>
+          <div className="mode-toggle" style={{ margin: '1rem 0' }}>
+            <label>
+              <input
+                type="checkbox"
+                checked={mode === 'neural'}
+                onChange={(e) => setMode(e.target.checked ? 'neural' : 'classical')}
+              />
+              🧠 Нейронный режим
+            </label>
+          </div>
           <div className="mode-toggle">
             <label>
               <input
@@ -217,41 +294,79 @@ function App() {
 
         {err && <div className="err">{err}</div>}
 
-        {!autoSelect && (
-          <div className="method-select-group">
-            <label>📚 Библиотека:</label>
-            <select 
-              value={selectedLibrary}
-              onChange={(e) => {
-                setSelectedLibrary(e.target.value);
-                setSelectedMethod(""); // Сброс метода при смене библиотеки
-              }}
-              className="library-select"
-            >
-              {LIBRARIES.map(lib => (
-                <option key={lib.value} value={lib.value}>
-                  {lib.icon} {lib.label}
-                </option>
-              ))}
-            </select>
+        {mode === 'neural' ? (
+          // 🧠 Нейронный режим
+          <div className="neural-selects" style={{ display: 'flex', gap: '1rem', margin: '1rem 0', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <label style={{ fontSize: '0.85rem', fontWeight: 500 }}>🎯 Задача:</label>
+              <select 
+                value={neuralTask} 
+                onChange={(e) => setNeuralTask(e.target.value as 'semantic' | 'instance' | 'panoptic')}
+                style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }}
+              >
+                {NEURAL_TASKS.map(t => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
             
-            <label>⚙️ Метод:</label>
-            <select 
-              value={selectedMethod}
-              onChange={handleMethodChange}
-              className="method-select"
-              disabled={Object.keys(availableMethods).length === 0}
-            >
-              {Object.entries(availableMethods).map(([key, method]: [string, any]) => (
-                <option key={key} value={key}>
-                  {method.name} {method.avg_iou > 0.8 && '⭐'}
-                </option>
-              ))}
-            </select>
+            {!autoSelect && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 500 }}>🤖 Модель:</label>
+                <select 
+                  value={neuralModel} 
+                  onChange={(e) => setNeuralModel(e.target.value)}
+                  style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }}
+                >
+                  {NEURAL_MODELS[neuralTask].map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        ) : (
+          !autoSelect && (
+          <div className="method-select-group" style={{ display: 'flex', gap: '1rem', margin: '1rem 0', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <label>📚 Библиотека:</label>
+              <select 
+                value={selectedLibrary}
+                onChange={(e) => {
+                  setSelectedLibrary(e.target.value);
+                  setSelectedMethod("");
+                }}
+                className="library-select"
+                style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }}
+              >
+                {LIBRARIES.map(lib => (
+                  <option key={lib.value} value={lib.value}>
+                    {lib.icon} {lib.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <label>⚙️ Метод:</label>
+              <select 
+                value={selectedMethod}
+                onChange={handleMethodChange}
+                className="method-select"
+                disabled={Object.keys(availableMethods).length === 0}
+                style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }}
+              >
+                {Object.entries(availableMethods).map(([key, method]: [string, any]) => (
+                  <option key={key} value={key}>
+                    {method.name} {method.avg_iou > 0.8 && '⭐'}
+                  </option>
+                ))}
+              </select>
+            </div>
             
             {/* Подсказка по выбранному методу */}
             {availableMethods[selectedMethod] && (
-              <div className="method-hint">
+              <div className="method-hint" style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.5rem' }}>
                 <small>
                   ⏱️ {availableMethods[selectedMethod].avg_time_ms}мс | 
                   🎯 IoU: {(availableMethods[selectedMethod].avg_iou * 100).toFixed(1)}% | 
@@ -261,7 +376,8 @@ function App() {
               </div>
             )}
           </div>
-        )}
+        )
+      )}
 
         {!autoSelect && methodSchema && Object.keys(methodSchema).length > 0 && (
           <div className="params-editor" style={{marginTop: '1rem', padding: '1rem', background: '#f0f4f8', borderRadius: '8px'}}>

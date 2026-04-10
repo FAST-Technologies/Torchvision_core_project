@@ -531,6 +531,48 @@ def infer_mask_rcnn(
     return semantic_map, image
 
 
+def infer_yolov8(
+    model: Any,
+    processor: Any,
+    image: Image.Image,
+    device: str = "cuda",
+    confidence: float = 0.25,
+    iou_threshold: float = 0.45,
+) -> Tuple[np.ndarray, Image.Image]:
+    """
+    Инференс для YOLOv8 segmentation.
+    Конвертирует instance masks → semantic map.
+    """
+    img_h, img_w = image.size[1], image.size[0]
+
+    # YOLO принимает numpy array или путь
+    results = model.predict(
+        source=np.array(image),
+        conf=confidence,
+        iou=iou_threshold,
+        device=device if device == "cuda" else "cpu",
+        verbose=False,
+    )
+
+    # Создаём семантическую карту из инстанс-масок
+    semantic_map = np.zeros((img_h, img_w), dtype=np.uint8)
+
+    if results[0].masks is not None:
+        masks = results[0].masks.data.cpu().numpy()  # [N, H, W]
+        for i, mask in enumerate(masks, start=1):
+            mask_bin = (mask > 0.5).astype(np.uint8)
+            # Ресайз если нужно
+            if mask_bin.shape != (img_h, img_w):
+                mask_pil = Image.fromarray(mask_bin)
+                mask_bin = np.array(
+                    mask_pil.resize((img_w, img_h), Image.Resampling.NEAREST)
+                )
+            # Назначаем уникальный ID для каждого инстанса
+            semantic_map[mask_bin > 0] = i
+
+    return semantic_map, image
+
+
 class SegNet(torch.nn.Module):
     """
     Простая реализация SegNet для бенчмарка.
@@ -952,8 +994,13 @@ INFERENCE_STRATEGIES = {
     "segnet_custom": lambda model, processor, image, device: infer_unet_smp(
         model, processor, image, device=device, output_stride=1
     ),
-    # SAM семейство
+    # === SAM_Models ===
     "sam": infer_sam,
     "mobile_sam": infer_sam,
     "sam2": infer_sam,
+    # === YOLOv8 ===
+    "yolov8": infer_yolov8,
+    "yolov8n_seg": infer_yolov8,
+    "yolov8s_seg": infer_yolov8,
+    "yolov8m_seg": infer_yolov8,
 }
