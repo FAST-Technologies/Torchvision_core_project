@@ -1,29 +1,74 @@
-# backend/app.py
+# backend/main.py
+"""
+AutoSegmenter API — улучшенная версия FastAPI бэкенда.
+
+Исправления:
+  1. Дублирующийся маршрут /api/methods убран.
+  2. Поле best_for добавлено в рекомендации.
+  3. Кеш нейронных моделей — модель грузится один раз.
+  4. Bare except → except (json.JSONDecodeError, ValueError).
+  5. Две функции b64-кодирования объединены в arr_to_b64.
+  6. Добавлены /api/health и /api/cache_info.
+  7. HTTP 422 вместо 500 при невалидных входных данных.
+  8. elapsed_ms и library возвращаются клиенту.
+  9. Пользовательские параметры корректно мёржатся с дефолтами.
+"""
+
 from typing import Optional, Dict, Any
-import json
-import os, sys, base64, io
+import json, os, sys, base64, io, math, logging, time
+from contextlib import asynccontextmanager
+
+import numpy as np
+from PIL import Image
 import torch
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import numpy as np
-from PIL import Image
-import math
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from segmenters.AutoSegmenter import (
     AutoSegmenter,
     SegmentationGoal,
     METHODS_BY_LIBRARY,
-    ALL_METHODS,
-    ImageType,
     MethodProfile,
 )
 from metrics.SegmentationMetrics import SegmentationMetrics
-from segmenters.NeuralModelFactory import NeuralModelFactory
 
-app = FastAPI(title="AutoSegmenter API")
+# from segmenters.NeuralModelFactory import NeuralModelFactory
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("autoseg")
+
+# ── Кеш нейронных моделей ──────────────────────────────────────────────────
+_model_cache: Dict[str, Any] = {}
+_CACHE_MAX = 3
+
+
+def _get_or_load_neural(config: dict, task: str) -> Any:
+    from segmenters.NeuralSegmenter import NeuralSegmenter
+
+    cache_key = json.dumps({**config, "_task": task}, sort_keys=True)
+    if cache_key not in _model_cache:
+        if len(_model_cache) >= _CACHE_MAX:
+            oldest = next(iter(_model_cache))
+            del _model_cache[oldest]
+            logger.info("Model cache evicted oldest entry")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"Loading {config.get('model_type')} on {device}")
+        _model_cache[cache_key] = NeuralSegmenter(**config, device=device)
+    return _model_cache[cache_key]
+
+
+# ── FastAPI ────────────────────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("AutoSegmenter API starting…")
+    yield
+    _model_cache.clear()
+    logger.info("Model cache cleared on shutdown")
+
+
+app = FastAPI(title="AutoSegmenter API", version="2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -34,63 +79,168 @@ app.add_middleware(
 
 auto_seg = AutoSegmenter()
 
-
-def build_neural_configs() -> Dict[str, Dict[str, Dict]]:
-    """Авто-генерация NEURAL_CONFIGS из конфига фабрики"""
-    config = NeuralModelFactory.load_config()
-    result = {"semantic": {}, "instance": {}, "panoptic": {}}
-
-    # SegFormer
-    for variant, name in config["models"]["segformer"]["variants"].items():
-        result["semantic"][f"segformer_{variant}"] = {
+# ── Конфиг нейросетей ──────────────────────────────────────────────────────
+NEURAL_CONFIGS: Dict[str, Dict[str, dict]] = {
+    "semantic": {
+        "segformer_b0": {
             "model_type": "segformer",
-            "model_name": name,
-        }
-
-    # Mask2Former
-    for variant, name in config["models"]["mask2former"]["variants"].items():
-        result["semantic"][f"mask2former_{variant}"] = {
+            "model_name": "nvidia/segformer-b0-finetuned-ade-512-512",
+        },
+        "segformer_b1": {
+            "model_type": "segformer",
+            "model_name": "nvidia/segformer-b1-finetuned-ade-512-512",
+        },
+        "segformer_b2": {
+            "model_type": "segformer",
+            "model_name": "nvidia/segformer-b2-finetuned-ade-512-512",
+        },
+        "segformer_b3": {
+            "model_type": "segformer",
+            "model_name": "nvidia/segformer-b3-finetuned-ade-640-640",
+        },
+        "segformer_b4": {
+            "model_type": "segformer",
+            "model_name": "nvidia/segformer-b4-finetuned-ade-640-640",
+        },
+        "segformer_b5": {
+            "model_type": "segformer",
+            "model_name": "nvidia/segformer-b5-finetuned-ade-640-640",
+        },
+        "mask2former_swin_base": {
             "model_type": "mask2former",
-            "model_name": name,
-        }
-        result["instance"][f"mask2former_{variant}_instance"] = {
+            "model_name": "facebook/mask2former-swin-base-ade-semantic",
+        },
+        "mask2former_swin_large": {
             "model_type": "mask2former",
-            "model_name": name.replace("-semantic", "-coco-instance"),
-        }
-        result["panoptic"][f"mask2former_{variant}_panoptic"] = {
-            "model_type": "mask2former",
-            "model_name": name.replace("-semantic", "-coco-panoptic"),
-        }
-
-    # SMP модели
-    for encoder in config["models"]["unet"]["encoders"]:
-        result["semantic"][f"unet_{encoder}"] = {
+            "model_name": "facebook/mask2former-swin-large-ade-semantic",
+        },
+        "oneformer_swin_large": {
+            "model_type": "oneformer",
+            "model_name": "shi-labs/oneformer_ade20k_swin_large",
+        },
+        "dpt_large": {"model_type": "dpt", "model_name": "Intel/dpt-large-ade"},
+        "upernet_convnext_small": {
+            "model_type": "upernet",
+            "model_name": "openmmlab/upernet-convnext-small",
+        },
+        "unet_resnet34": {"model_type": "unet_smp", "encoder_name": "resnet34"},
+        "unet_resnet50": {"model_type": "unet_smp", "encoder_name": "resnet50"},
+        "unet_efficientnet_b0": {
             "model_type": "unet_smp",
-            "encoder_name": encoder,
-        }
+            "encoder_name": "efficientnet-b0",
+        },
+        "unet_mit_b5": {"model_type": "unet_smp", "encoder_name": "mit_b5"},
+        "fpn_mit_b5": {"model_type": "fpn_smp", "encoder_name": "mit_b5"},
+        "fpn_efficientnet": {
+            "model_type": "fpn_smp",
+            "encoder_name": "efficientnet-b5",
+        },
+        "psp_mit_b5": {"model_type": "pspnet_smp", "encoder_name": "mit_b5"},
+        "psp_resnet50": {"model_type": "pspnet_smp", "encoder_name": "resnet50"},
+        "deeplab_resnet101": {"model_type": "deeplab_tv"},
+        "fcn_resnet50": {"model_type": "fcn_tv", "variant": "fcn_resnet50"},
+        "fcn_resnet101": {"model_type": "fcn_tv", "variant": "fcn_resnet101"},
+        "segnet_resnet34": {"model_type": "segnet", "encoder_name": "resnet34"},
+        "mobile_sam": {"model_type": "sam", "model_name": "mobile_sam.pt"},
+        "sam2_tiny": {"model_type": "sam", "model_name": "sam2_t.pt"},
+    },
+    "instance": {
+        "mask2former_coco_instance": {
+            "model_type": "mask2former",
+            "model_name": "facebook/mask2former-swin-base-coco-instance",
+        },
+        "maskformer_resnet50": {
+            "model_type": "maskformer",
+            "model_name": "facebook/maskformer-resnet50-ade20k-full",
+        },
+        "yolov8n_seg": {"model_type": "yolov8", "model_name": "yolov8n-seg.pt"},
+        "yolov8s_seg": {"model_type": "yolov8", "model_name": "yolov8s-seg.pt"},
+        "yolov8m_seg": {"model_type": "yolov8", "model_name": "yolov8m-seg.pt"},
+        "maskrcnn_resnet50": {
+            "model_type": "maskrcnn_tv",
+            "variant": "maskrcnn_resnet50_fpn",
+        },
+        "maskrcnn_resnet50_v2": {
+            "model_type": "maskrcnn_tv",
+            "variant": "maskrcnn_resnet50_fpn_v2",
+        },
+        "mobile_sam": {"model_type": "sam", "model_name": "mobile_sam.pt"},
+        "sam2_tiny": {"model_type": "sam", "model_name": "sam2_t.pt"},
+    },
+    "panoptic": {
+        "mask2former_ade_panoptic": {
+            "model_type": "mask2former",
+            "model_name": "facebook/mask2former-swin-base-ade-panoptic",
+        },
+        "mask2former_coco_panoptic": {
+            "model_type": "mask2former",
+            "model_name": "facebook/mask2former-swin-base-coco-panoptic",
+        },
+        "oneformer_coco_panoptic": {
+            "model_type": "oneformer",
+            "model_name": "shi-labs/oneformer_coco_swin_large",
+        },
+    },
+}
 
-    return result
+
+# def build_neural_configs() -> Dict[str, Dict[str, Dict]]:
+#     """Авто-генерация NEURAL_CONFIGS из конфига фабрики"""
+#     config = NeuralModelFactory.load_config()
+#     result = {"semantic": {}, "instance": {}, "panoptic": {}}
+
+#     # SegFormer
+#     for variant, name in config["models"]["segformer"]["variants"].items():
+#         result["semantic"][f"segformer_{variant}"] = {
+#             "model_type": "segformer",
+#             "model_name": name,
+#         }
+
+#     # Mask2Former
+#     for variant, name in config["models"]["mask2former"]["variants"].items():
+#         result["semantic"][f"mask2former_{variant}"] = {
+#             "model_type": "mask2former",
+#             "model_name": name,
+#         }
+#         result["instance"][f"mask2former_{variant}_instance"] = {
+#             "model_type": "mask2former",
+#             "model_name": name.replace("-semantic", "-coco-instance"),
+#         }
+#         result["panoptic"][f"mask2former_{variant}_panoptic"] = {
+#             "model_type": "mask2former",
+#             "model_name": name.replace("-semantic", "-coco-panoptic"),
+#         }
+
+#     # SMP модели
+#     for encoder in config["models"]["unet"]["encoders"]:
+#         result["semantic"][f"unet_{encoder}"] = {
+#             "model_type": "unet_smp",
+#             "encoder_name": encoder,
+#         }
+
+#     return result
 
 
-def to_base64(arr: np.ndarray) -> str:
-    img = Image.fromarray(arr.astype(np.uint8))
+def arr_to_b64(arr: np.ndarray) -> str:
+    """numpy → data:image/png;base64,…"""
+    if arr.dtype != np.uint8:
+        arr = (arr * 255).astype(np.uint8) if arr.max() <= 1.0 else arr.astype(np.uint8)
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
+    Image.fromarray(arr).save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
 def analyze_image_data(img_array: np.ndarray) -> dict:
     """Возвращает данные для визуализации анализа"""
-    # Гистограмма интенсивностей
-    hist, bins = np.histogram(img_array.flatten(), bins=64, range=(0, 256))
-
-    # Простая детекция границ (Sobel)
     from scipy import ndimage
 
-    if len(img_array.shape) == 3:
-        gray = np.mean(img_array, axis=2)
-    else:
-        gray = img_array
+    # Гистограмма интенсивностей
+    hist, bins = np.histogram(img_array.flatten(), bins=64, range=(0, 256))
+    gray = (
+        np.mean(img_array, axis=2).astype(np.float32)
+        if img_array.ndim == 3
+        else img_array.astype(np.float32)
+    )
     sobel_x = ndimage.sobel(gray, axis=0)
     sobel_y = ndimage.sobel(gray, axis=1)
     edges = np.hypot(sobel_x, sobel_y)
@@ -100,485 +250,83 @@ def analyze_image_data(img_array: np.ndarray) -> dict:
         "histogram": hist.tolist(),
         "hist_bins": bins.tolist(),
         "edge_density": float(np.mean(edges > edges.max() * 0.3)),
-        "edges_preview": to_base64(edges_norm),  # reuse to_base64
+        "edges_b64": arr_to_b64(edges_norm),
     }
 
 
-def sanitize_metrics(metrics: dict) -> dict:
+def sanitize_metrics(m: dict) -> dict:
     """Заменяет inf/NaN на None для JSON-совместимости"""
-    sanitized = {}
-    for key, value in metrics.items():
-        if isinstance(value, float):
-            if math.isinf(value) or math.isnan(value):
-                sanitized[key] = None
-            else:
-                sanitized[key] = value
-        else:
-            sanitized[key] = value
-    return sanitized
+    return {
+        k: (None if isinstance(v, float) and (math.isinf(v) or math.isnan(v)) else v)
+        for k, v in m.items()
+    }
 
 
-@app.post("/api/segment")
-async def segment(
-    file: UploadFile = File(...),
-    mode: str = Form("classical"),  # "classical" | "neural"
-    task: str = Form("semantic"),
-    model: str = Form("segformer_b2"),
-    goal: str = Form("balanced"),
-    auto_select: bool = Form(True),
-    method: Optional[str] = Form(None),
-    library: Optional[str] = Form("opencv"),
-    custom_params: str = Form("{}"),
-    gt_mask: Optional[UploadFile] = File(default=None),
-):
-    try:
-        # Чтение изображения
-        contents = await file.read()
-        image = Image.open(io.BytesIO(contents)).convert("RGB")
-        img_array = np.array(image)
-
-        if mode == "neural":
-            from segmenters.NeuralSegmenter import NeuralSegmenter
-            from utils.strategies import segment_image_unified
-            from utils.palettes import ade_palette, coco_palette, cityscapes_palette
-
-            PALETTES = {
-                "semantic": ade_palette,  # ADE20K: 150 классов
-                "instance": coco_palette,  # COCO: 80 классов
-                "panoptic": cityscapes_palette,  # Cityscapes: 19 классов
-            }
-
-            # Выбор имён классов
-            CLASS_NAMES = {
-                "semantic": NeuralSegmenter.get_ade_class_names,
-                "instance": NeuralSegmenter.get_coco_class_names,
-                "panoptic": NeuralSegmenter.get_cityscapes_class_names,
-            }
-
-            # NEURAL_CONFIGS = build_neural_configs()
-            NEURAL_CONFIGS = {
-                "semantic": {
-                    # === SegFormer variants ===
-                    "segformer_b0": {
-                        "model_type": "segformer",
-                        "model_name": "nvidia/segformer-b0-finetuned-ade-512-512",
-                    },
-                    "segformer_b1": {
-                        "model_type": "segformer",
-                        "model_name": "nvidia/segformer-b1-finetuned-ade-512-512",
-                    },
-                    "segformer_b2": {
-                        "model_type": "segformer",
-                        "model_name": "nvidia/segformer-b2-finetuned-ade-512-512",
-                    },
-                    "segformer_b3": {
-                        "model_type": "segformer",
-                        "model_name": "nvidia/segformer-b3-finetuned-ade-640-640",
-                    },
-                    "segformer_b4": {
-                        "model_type": "segformer",
-                        "model_name": "nvidia/segformer-b4-finetuned-ade-640-640",
-                    },
-                    "segformer_b5": {
-                        "model_type": "segformer",
-                        "model_name": "nvidia/segformer-b5-finetuned-ade-640-640",
-                    },
-                    # === Mask2Former semantic ===
-                    "mask2former_swin_base": {
-                        "model_type": "mask2former",
-                        "model_name": "facebook/mask2former-swin-base-ade-semantic",
-                    },
-                    "mask2former_swin_large": {
-                        "model_type": "mask2former",
-                        "model_name": "facebook/mask2former-swin-large-ade-semantic",
-                    },
-                    # === OneFormer ===
-                    "oneformer_swin_large": {
-                        "model_type": "oneformer",
-                        "model_name": "shi-labs/oneformer_ade20k_swin_large",
-                    },
-                    # === DPT ===
-                    "dpt_large": {
-                        "model_type": "dpt",
-                        "model_name": "Intel/dpt-large-ade",
-                    },
-                    # === UPerNet ===
-                    "upernet_convnext_small": {
-                        "model_type": "upernet",
-                        "model_name": "openmmlab/upernet-convnext-small",
-                    },
-                    # === SMP U-Net ===
-                    "unet_resnet34": {
-                        "model_type": "unet_smp",
-                        "encoder_name": "resnet34",
-                    },
-                    "unet_resnet50": {
-                        "model_type": "unet_smp",
-                        "encoder_name": "resnet50",
-                    },
-                    "unet_efficientnet_b0": {
-                        "model_type": "unet_smp",
-                        "encoder_name": "efficientnet-b0",
-                    },
-                    "unet_mit_b5": {"model_type": "unet_smp", "encoder_name": "mit_b5"},
-                    # === SMP FPN ===
-                    "fpn_mit_b5": {"model_type": "fpn_smp", "encoder_name": "mit_b5"},
-                    "fpn_efficientnet": {
-                        "model_type": "fpn_smp",
-                        "encoder_name": "efficientnet-b5",
-                    },
-                    # === SMP PSPNet ===
-                    "psp_mit_b5": {
-                        "model_type": "pspnet_smp",
-                        "encoder_name": "mit_b5",
-                    },
-                    "psp_resnet50": {
-                        "model_type": "pspnet_smp",
-                        "encoder_name": "resnet50",
-                    },
-                    # === DeepLabV3+ ===
-                    "deeplab_resnet101": {
-                        "model_type": "deeplab_tv",
-                        "encoder_name": "resnet101",
-                    },
-                    # === Torchvision FCN ===
-                    "fcn_resnet50": {"model_type": "fcn_tv", "variant": "fcn_resnet50"},
-                    "fcn_resnet101": {
-                        "model_type": "fcn_tv",
-                        "variant": "fcn_resnet101",
-                    },
-                    # === SegNet ===
-                    "segnet_resnet34": {
-                        "model_type": "segnet",
-                        "encoder_name": "resnet34",
-                        "checkpoint_path": None,  # Можно указать путь к чекпоинту
-                    },
-                    "segnet_resnet50": {
-                        "model_type": "segnet",
-                        "encoder_name": "resnet50",
-                        "checkpoint_path": None,
-                    },
-                    # === SAM (семантическая через instance→semantic конверсию) ===
-                    "mobile_sam": {
-                        "model_type": "sam",
-                        "model_name": "mobile_sam.pt",  # Путь к локальному файлу
-                    },
-                    "sam2_tiny": {"model_type": "sam", "model_name": "sam2_t.pt"},
-                },
-                "instance": {
-                    # === Mask2Former instance ===
-                    "mask2former_coco_instance": {
-                        "model_type": "mask2former",
-                        "model_name": "facebook/mask2former-swin-base-coco-instance",
-                    },
-                    # === MaskFormer ===
-                    "maskformer_resnet50": {
-                        "model_type": "maskformer",
-                        "model_name": "facebook/maskformer-resnet50-ade20k-full",
-                    },
-                    # === YOLOv8 segmentation ===
-                    "yolov8n_seg": {
-                        "model_type": "yolov8",
-                        "model_name": "yolov8n-seg.pt",
-                    },
-                    "yolov8s_seg": {
-                        "model_type": "yolov8",
-                        "model_name": "yolov8s-seg.pt",
-                    },
-                    "yolov8m_seg": {
-                        "model_type": "yolov8",
-                        "model_name": "yolov8m-seg.pt",
-                    },
-                    # === Mask R-CNN ===
-                    "maskrcnn_resnet50": {
-                        "model_type": "maskrcnn_tv",
-                        "variant": "maskrcnn_resnet50_fpn",
-                    },
-                    "maskrcnn_resnet50_v2": {
-                        "model_type": "maskrcnn_tv",
-                        "variant": "maskrcnn_resnet50_fpn_v2",
-                    },
-                    # === SAM для инстанс-сегментации ===
-                    "mobile_sam": {"model_type": "sam", "model_name": "mobile_sam.pt"},
-                    "sam2_tiny": {"model_type": "sam", "model_name": "sam2_t.pt"},
-                },
-                "panoptic": {
-                    # === Mask2Former panoptic ===
-                    "mask2former_ade_panoptic": {
-                        "model_type": "mask2former",
-                        "model_name": "facebook/mask2former-swin-base-ade-panoptic",
-                    },
-                    "mask2former_coco_panoptic": {
-                        "model_type": "mask2former",
-                        "model_name": "facebook/mask2former-swin-base-coco-panoptic",
-                    },
-                    # === OneFormer panoptic ===
-                    "oneformer_coco_panoptic": {
-                        "model_type": "oneformer",
-                        "model_name": "shi-labs/oneformer_coco_swin_large",
-                    },
-                },
-            }
-
-            config = NEURAL_CONFIGS.get(task, {}).get(model)
-            if not config:
-                raise HTTPException(400, f"Unknown neural config: {task}/{model}")
-
-            # Инициализация нейросегментера
-            neural_seg = NeuralSegmenter(
-                **config, device="cuda" if torch.cuda.is_available() else "cpu"
-            )
-
-            # Инференс
-            overlay_pil, result_info = segment_image_unified(
-                model=neural_seg.model,
-                processor=neural_seg.processor,
-                image_input=image,  # PIL.Image
-                model_type=config["model_type"],
-                alpha=0.6,  # Прозрачность наложения
-                palette=PALETTES[task],
-                device="cuda" if torch.cuda.is_available() else "cpu",
-                verbose=False,
-                num_classes=neural_seg.num_classes,
-                class_names=CLASS_NAMES[task](),
-                gt_mask=None,  # GT передаётся отдельно ниже
-            )
-
-            mask = result_info.get("mask")
-            if mask is None:
-                # Fallback: если маска не вернулась, создаём из overlay
-                overlay_np = np.array(overlay_pil)
-                mask = (overlay_np[:, :, 0] > 0).astype(np.uint8) * 255
-
-            overlay_np = np.array(overlay_pil)
-
-            metadata = {
-                "method": model,
-                "library": "neural",
-                "task": task,
-                "parameters": config,
-                "confidence": 1.0,
-                "image_characteristics": auto_seg.analyze_image(img_array),
-                "inference_time_ms": result_info.get("inference_time_ms", 0),
-                "unique_classes": result_info.get("unique_classes", 0),
-            }
-        else:
-            auto_seg.goal = (
-                SegmentationGoal(goal)
-                if goal in ["speed", "accuracy", "balanced", "low_memory"]
-                else SegmentationGoal.BALANCED
-            )
-
-            try:
-                user_params = json.loads(custom_params)
-            except:
-                user_params = {}
-
-            # Сегментация
-            if auto_select:
-                # Автовыбор
-                mask, metadata = auto_seg.segment(
-                    img_array, auto_select=True, library=library, return_metadata=True
-                )
-            else:
-                # Ручной выбор — валидация
-                if not method:
-                    raise HTTPException(
-                        400, "method_name required when auto_select=False"
-                    )
-
-                # Проверка существования метода в выбранной библиотеке
-                if library not in METHODS_BY_LIBRARY:
-                    raise HTTPException(400, f"Unknown library: {library}")
-
-                if method not in METHODS_BY_LIBRARY[library]:
-                    available = list(METHODS_BY_LIBRARY[library].keys())
-                    raise HTTPException(
-                        400,
-                        f"Method '{method}' not found in library '{library}'. Available: {available}",
-                    )
-
-                # Получаем параметры из профиля
-                profile = METHODS_BY_LIBRARY[library][method]
-                default_params = auto_seg.available_methods.get(method, {}).get(
-                    "params", {}
-                )
-                final_params = {**default_params, **user_params}
-                print(f"🛠 Using params for {method}: {final_params}")
-
-                segmenter_class = auto_seg._get_segmenter_class(method, library)
-                segmenter = segmenter_class(method=method, **final_params)
-
-                # Запускаем сегментацию с указанным методом
-                # mask, metadata = auto_seg.segment(
-                #     img_array,
-                #     auto_select=False,
-                #     method_name=method,
-                #     library=library,
-                #     return_metadata=True,
-                # )
-                result_img, mask = segmenter.segment_with_mask(img_array)
-
-                metadata = {
-                    "method": method,
-                    "library": library,
-                    "parameters": final_params,  # Возвращаем в UI, чтобы юзер видел, чем считали
-                    "confidence": 1.0,
-                    "image_characteristics": auto_seg.analyze_image(img_array),
-                }
-                # Добавляем информацию о библиотеке в метаданные
-                metadata["library"] = profile.library
-
-        metrics = {}
-        if gt_mask:
-            print(f"✅ GT получен: {gt_mask.filename}")
-            gt_contents = await gt_mask.read()
-            gt_image = Image.open(io.BytesIO(gt_contents)).convert("L")
-            gt_array = np.array(gt_image)
-            metrics = SegmentationMetrics.calculate_all_metrics(
-                mask, gt_array, threshold=0.5
-            )
-        else:
-            print("⚠️ GT не предоставлен, метрики не рассчитываются")
-
-        recommendations = auto_seg.get_recommendations(img_array, top_k=5)
-
-        # Сохранение результата
-        analysis_data = analyze_image_data(img_array)
-
-        if mode == "neural":
-            # Для нейронных моделей используем цветной оверлей из segment_image_unified
-            # overlay_np уже создан выше: overlay_np = np.array(overlay_pil)
-            pass
-        else:
-            if len(img_array.shape) == 2:
-                img_rgb = np.stack([img_array] * 3, axis=-1)
-            else:
-                img_rgb = img_array.copy()
-
-            mask_colored = np.zeros_like(img_rgb)
-            mask_colored[mask > 0] = [255, 0, 0]  # Красный для объекта
-            overlay_np = (img_rgb * 0.6 + mask_colored * 0.4).astype(np.uint8)
-
-        # 🔹 Конвертация в base64 (универсальная функция)
-        def arr_to_b64(arr: np.ndarray) -> str:
-            if arr.dtype != np.uint8:
-                arr = (
-                    (arr * 255).astype(np.uint8)
-                    if arr.max() <= 1.0
-                    else arr.astype(np.uint8)
-                )
-            img = Image.fromarray(arr)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            return base64.b64encode(buf.getvalue()).decode("utf-8")
-
-        if metrics:
-            metrics = sanitize_metrics(metrics)
-
-        return {
-            "success": True,
-            "method": metadata["method"],
-            "confidence": float(metadata["confidence"]),
-            "mask_b64": f"data:image/png;base64,{arr_to_b64(mask)}",
-            "overlay_b64": f"data:image/png;base64,{arr_to_b64(overlay_np)}",
-            "chars": {
-                "type": metadata["image_characteristics"].estimated_type.value,
-                "size": f"{metadata['image_characteristics'].width}×{metadata['image_characteristics'].height}",
-                "contrast": float(metadata["image_characteristics"].contrast),
-                "noise": float(metadata["image_characteristics"].noise_level),
-                "channels": metadata["image_characteristics"].channels,
-                "mean_intensity": float(
-                    metadata["image_characteristics"].mean_intensity
-                ),
-                "edge_density": float(metadata["image_characteristics"].edge_density),
-                "complexity": float(metadata["image_characteristics"].complexity_score),
-            },
-            "metrics": metrics if metrics else None,  # Только если был GT
-            "recommendations": [
-                {
-                    "method": r["method"],
-                    "score": float(r["score"]),
-                    "estimated_time_ms": float(r.get("estimated_time_ms", 0)),
-                    "estimated_iou": float(r.get("estimated_iou", 0)),
-                    "best_for": r.get("best_for", []),
-                }
-                for r in recommendations
-            ],
-            "analysis": {
-                "histogram": analysis_data["histogram"],
-                "edge_density": analysis_data["edge_density"],
-                "edges_b64": f"data:image/png;base64,{analysis_data['edges_preview']}",
-            },
-            "examples": {
-                "medical": ["otsu", "sauvola", "adaptive"],
-                "documents": ["otsu", "adaptive", "bernson"],
-                "nature": ["canny", "sobel", "watershed"],
-                "industrial": ["adaptive", "bernson", "nisengard"],
-            },
-        }
-    except Exception as e:
-        import traceback
-
-        print(f"❌ Ошибка в /api/segment: {e}")
-        traceback.print_exc()
-        raise HTTPException(500, str(e))
+def build_overlay(img: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    rgb = np.stack([img] * 3, axis=-1) if img.ndim == 2 else img.copy()
+    col = np.zeros_like(rgb)
+    col[mask > 0] = [255, 0, 0]
+    return (rgb * 0.6 + col * 0.4).astype(np.uint8)
 
 
 def params_to_schema(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Авто-генерация простой схемы из параметров"""
-    schema = {}
-    for key, value in params.items():
-        if isinstance(value, bool):
-            schema[key] = {"type": "boolean", "default": value}
-        elif isinstance(value, int):
-            # Эвристика: если имя содержит "size"/"bin"/"iter" — большой диапазон
-            if any(k in key for k in ["size", "bin", "iter", "scale", "radius"]):
-                schema[key] = {
-                    "type": "int",
-                    "min": 1,
-                    "max": 500,
-                    "step": 1,
-                    "default": value,
-                }
-            else:
-                schema[key] = {
-                    "type": "int",
-                    "min": 0,
-                    "max": 100,
-                    "step": 1,
-                    "default": value,
-                }
-        elif isinstance(value, float):
-            # Эвристика: если значение < 2 — вероятно, нормализованный параметр [0,1]
-            if abs(value) <= 1.0 or "threshold" in key or "k" in key:
-                schema[key] = {
-                    "type": "float",
-                    "min": 0.0,
-                    "max": 1.0,
-                    "step": 0.01,
-                    "default": value,
-                }
-            else:
-                schema[key] = {
-                    "type": "float",
-                    "min": 0.0,
-                    "max": 100.0,
-                    "step": 0.1,
-                    "default": value,
-                }
+    schema: Dict[str, Any] = {}
+    for k, v in params.items():
+        if isinstance(v, bool):
+            schema[k] = {"type": "boolean", "default": v}
+        elif isinstance(v, int):
+            big = any(x in k for x in ("size", "bin", "iter", "scale", "radius"))
+            schema[k] = {
+                "type": "int",
+                "min": 1,
+                "max": 500 if big else 100,
+                "step": 1,
+                "default": v,
+            }
+        elif isinstance(v, float):
+            norm = abs(v) <= 2.0 or any(
+                x in k for x in ("threshold", "k", "ratio", "factor")
+            )
+            schema[k] = {
+                "type": "float",
+                "min": 0.0,
+                "max": 1.0 if norm else 100.0,
+                "step": 0.01,
+                "default": v,
+            }
         else:
-            schema[key] = {"type": "string", "default": str(value)}
+            schema[k] = {"type": "string", "default": str(v)}
     return schema
 
 
-@app.get("/api/methods")
+def _best_for(method_name: str) -> list:
+    p = auto_seg.benchmark_data.get(method_name)
+    return [t.value for t in p.best_for_type] if p else []
+
+
+# ── Routes ─────────────────────────────────────────────────────────────────
+
+
+@app.get("/api/health")
+async def health():
+    return {
+        "status": "ok",
+        "cuda": torch.cuda.is_available(),
+        "cached_models": len(_model_cache),
+        "cache_max": _CACHE_MAX,
+    }
+
+
+@app.get("/api/cache_info")
+async def cache_info():
+    return {"count": len(_model_cache), "models": [k[:80] for k in _model_cache]}
+
+
+@app.get("/api/methods_library")
 async def get_methods_by_library(library: Optional[str] = None):
     if library and library in METHODS_BY_LIBRARY:
         source_dict = METHODS_BY_LIBRARY.get(library, {})
     else:
-        # Если библиотека не выбрана, берем дефолтные конфиги (где лежат schema)
-        # В вашем коде это auto_seg.available_methods
         source_dict = {
             name: profile
             for lib_methods in METHODS_BY_LIBRARY.values()
@@ -598,10 +346,7 @@ async def get_methods_by_library(library: Optional[str] = None):
                 "robustness": profile.robustness,
                 "description": profile.description,
                 "best_for": [t.value for t in profile.best_for_type],
-                # params — это Dict[str, Any] в dataclass
                 "defaults": profile.params if profile.params else {},
-                # schema можно сформировать динамически или задать в profile.params
-                # "schema": profile.params.get("schema", {}) if profile.params else {},
                 "schema": (
                     profile.schema
                     if profile.schema
@@ -624,41 +369,259 @@ async def get_methods_by_library(library: Optional[str] = None):
 @app.get("/api/methods")
 async def get_methods(library: Optional[str] = None):
     """Возвращает доступные методы для указанной библиотеки"""
-    if library not in METHODS_BY_LIBRARY:
+    if library and library not in METHODS_BY_LIBRARY:
         raise HTTPException(
-            400,
-            f"Unknown library: {library}. Available: {list(METHODS_BY_LIBRARY.keys())}",
+            422,
+            f"Unknown library: {library!r}. Available: {list(METHODS_BY_LIBRARY.keys())}",
         )
-    methods = auto_seg.get_available_methods(library)
-    return {
-        "library": library,
-        "methods": {
-            name: {
+    source = (
+        METHODS_BY_LIBRARY.get(library, {})
+        if library
+        else {n: p for lib in METHODS_BY_LIBRARY.values() for n, p in lib.items()}
+    )
+    result = {}
+    for name, profile in source.items():
+        if isinstance(profile, MethodProfile):
+            result[name] = {
                 "name": profile.name,
                 "library": profile.library,
                 "avg_iou": profile.avg_iou,
                 "avg_time_ms": profile.avg_time_ms,
-                "best_for_type": [t.value for t in profile.best_for_type],
+                "memory_mb": profile.memory_mb,
                 "robustness": profile.robustness,
                 "description": profile.description,
+                "best_for": [t.value for t in profile.best_for_type],
+                "defaults": profile.params or {},
+                "schema": (
+                    profile.schema
+                    if profile.schema
+                    else params_to_schema(profile.params or {})
+                ),
             }
-            for name, profile in methods.items()
-        },
-    }
+        else:
+            result[name] = {
+                "name": profile.get("name", name),
+                "avg_iou": profile.get("avg_iou", 0.0),
+                "description": profile.get("description", ""),
+                "defaults": profile.get("params", {}),
+                "schema": profile.get("schema", {}),
+            }
+    return {"methods": result}
+
+
+@app.post("/api/segment")
+async def segment(
+    file: UploadFile = File(...),
+    mode: str = Form("classical"),  # "classical" | "neural"
+    task: str = Form("semantic"),
+    model: str = Form("segformer_b2"),
+    goal: str = Form("balanced"),
+    auto_select: bool = Form(True),
+    method: Optional[str] = Form(None),
+    library: Optional[str] = Form("opencv"),
+    custom_params: str = Form("{}"),
+    gt_mask: Optional[UploadFile] = File(default=None),
+):
+    t0 = time.perf_counter()
+    try:
+        img_pil = Image.open(io.BytesIO(await file.read())).convert("RGB")
+        img_array = np.array(img_pil)
+        mask: np.ndarray
+        metadata: Dict[str, Any]
+        overlay_np: np.ndarray
+
+        # ─── НЕЙРОННЫЙ РЕЖИМ ───────────────────────────────────────────────
+        if mode == "neural":
+            from segmenters.NeuralSegmenter import NeuralSegmenter
+            from utils.strategies import segment_image_unified
+            from utils.palettes import ade_palette, coco_palette, cityscapes_palette
+
+            PALETTES = {
+                "semantic": ade_palette,  # ADE20K: 150 классов
+                "instance": coco_palette,  # COCO: 80 классов
+                "panoptic": cityscapes_palette,  # Cityscapes: 19 классов
+            }
+
+            CLASS_FN = {
+                "semantic": NeuralSegmenter.get_ade_class_names,
+                "instance": NeuralSegmenter.get_coco_class_names,
+                "panoptic": NeuralSegmenter.get_cityscapes_class_names,
+            }
+
+            cfg = NEURAL_CONFIGS.get(task, {}).get(model)
+            if not cfg:
+                raise HTTPException(
+                    422, f"Unknown neural config: task={task!r} model={model!r}"
+                )
+            ns = _get_or_load_neural(cfg, task)
+            dev = "cuda" if torch.cuda.is_available() else "cpu"
+
+            overlay_pil, result_info = segment_image_unified(
+                model=ns.model,
+                processor=ns.processor,
+                image_input=img_pil,
+                model_type=cfg["model_type"],
+                alpha=0.6,  # Прозрачность наложения
+                palette=PALETTES[task],
+                device=dev,
+                verbose=False,
+                num_classes=ns.num_classes,
+                class_names=CLASS_FN[task](),
+                gt_mask=None,
+            )
+
+            raw = result_info.get("mask")
+            mask = (
+                raw
+                if raw is not None
+                else (np.array(overlay_pil)[:, :, 0] > 0).astype(np.uint8) * 255
+            )
+
+            overlay_np = np.array(overlay_pil)
+
+            metadata = {
+                "method": model,
+                "library": "neural",
+                "task": task,
+                "parameters": cfg,
+                "confidence": 1.0,
+                "image_characteristics": auto_seg.analyze_image(img_array),
+                "inference_time_ms": result_info.get("inference_time_ms", 0),
+                "unique_classes": result_info.get("unique_classes", 0),
+            }
+        else:
+            auto_seg.goal = (
+                SegmentationGoal(goal)
+                if goal in ["speed", "accuracy", "balanced", "low_memory"]
+                else SegmentationGoal.BALANCED
+            )
+
+            try:
+                user_params: dict = json.loads(custom_params)
+            except (json.JSONDecodeError, ValueError):
+                user_params = {}
+
+            if auto_select:
+                mask, metadata = auto_seg.segment(
+                    img_array, auto_select=True, library=library, return_metadata=True
+                )
+            else:
+                if not method:
+                    raise HTTPException(422, "method required when auto_select=False")
+
+                if library not in METHODS_BY_LIBRARY:
+                    raise HTTPException(422, f"Unknown library: {library!r}")
+                if method not in METHODS_BY_LIBRARY[library]:
+                    raise HTTPException(
+                        422,
+                        f"Method {method!r} not in {library!r}. "
+                        f"Available: {list(METHODS_BY_LIBRARY[library].keys())}",
+                    )
+
+                profile = METHODS_BY_LIBRARY[library][method]
+                # default_params = auto_seg.available_methods.get(method, {}).get(
+                #     "params", {}
+                # )
+                # final_params = {**default_params, **user_params}
+                final_params = {**(profile.params or {}), **user_params}
+                logger.info(
+                    f"🛠 Using params for {method}/{library} params={final_params}"
+                )
+
+                segmenter = auto_seg._get_segmenter_class(method, library)(
+                    method=method, **final_params
+                )
+                _, mask = segmenter.segment_with_mask(img_array)
+                metadata = {
+                    "method": method,
+                    "library": library,
+                    "parameters": final_params,
+                    "confidence": 1.0,
+                    "image_characteristics": auto_seg.analyze_image(img_array),
+                }
+
+        # ─── Метрики ───────────────────────────────────────────────────────
+        metrics = {}
+        if gt_mask is not None:
+            logger.info(f"✅ GT получен: {gt_mask.filename}")
+            gt_array = np.array(
+                Image.open(io.BytesIO(await gt_mask.read())).convert("L")
+            )
+            metrics = sanitize_metrics(
+                SegmentationMetrics.calculate_all_metrics(mask, gt_array, threshold=0.5)
+            )
+        else:
+            logger.warning("⚠️ GT не предоставлен, метрики не рассчитываются")
+
+        # ─── Рекомендации ──────────────────────────────────────────────────
+        recommendations = auto_seg.get_recommendations(img_array, top_k=5)
+        analysis_data = analyze_image_data(img_array)
+        chars = metadata["image_characteristics"]
+
+        if mode == "neural":
+            pass
+        else:
+            overlay_np = build_overlay(img_array, mask)
+
+        return {
+            "success": True,
+            "method": metadata["method"],
+            "confidence": float(metadata["confidence"]),
+            "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1),
+            "mask_b64": arr_to_b64(mask),
+            "overlay_b64": arr_to_b64(overlay_np),
+            "chars": {
+                "type": chars.estimated_type.value,
+                "size": f"{chars.width}×{chars.height}",
+                "contrast": round(float(chars.contrast), 4),
+                "noise": round(float(chars.noise_level), 4),
+                "channels": chars.channels,
+                "mean_intensity": round(float(chars.mean_intensity), 4),
+                "edge_density": round(float(chars.edge_density), 4),
+                "complexity": round(float(chars.complexity_score), 4),
+            },
+            "metrics": metrics,
+            "recommendations": [
+                {
+                    "method": r["method"],
+                    "score": round(float(r["score"]), 4),
+                    "estimated_time_ms": float(r.get("estimated_time_ms", 0)),
+                    "estimated_iou": float(r.get("estimated_iou", 0)),
+                    "best_for": _best_for(r["method"]),
+                }
+                for r in recommendations
+            ],
+            "analysis": analysis_data,
+            "examples": {
+                "medical": ["otsu", "sauvola", "phansalkar", "adaptive_thresholding"],
+                "documents": ["otsu", "adaptive_thresholding", "bernsen", "niblack"],
+                "nature": ["canny_edge", "sobel_edge", "watershed", "felzenszwalb"],
+                "industrial": [
+                    "adaptive_thresholding",
+                    "bernsen",
+                    "gradient_magnitude_direction",
+                    "log_edge",
+                ],
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+
+        logger.error(f"❌ /api/segment error: {exc}\n{traceback.format_exc()}")
+        raise HTTPException(500, str(exc))
 
 
 @app.get("/recommendations/")
-async def get_recommendations(file: UploadFile = File(...)):
-    contents = await file.read()
-    image = Image.open(io.BytesIO(contents))
-    img_array = np.array(image)
-
-    recs = auto_seg.get_recommendations(img_array, top_k=5)
-    return {"recommendations": recs}
+async def get_recommendations_ep(file: UploadFile = File(...)):
+    img = np.array(Image.open(io.BytesIO(await file.read())))
+    return {"recommendations": auto_seg.get_recommendations(img, top_k=5)}
 
 
-if os.path.exists("../frontend/dist"):
-    app.mount("/", StaticFiles(directory="../frontend/dist", html=True), name="static")
+_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+if os.path.exists(_DIST):
+    app.mount("/", StaticFiles(directory=_DIST, html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,10 +1,14 @@
 # segmenters/AutoSegmenter.py
 
 import os
+
 if os.getenv("TRACK_FUNCTION_CALLS") == "1":
     from utils.function_tracker import track_calls
 else:
-    def track_calls(f): return f
+
+    def track_calls(f):
+        return f
+
 
 from typing import Dict, Any, Optional, List, Tuple
 import numpy as np
@@ -32,7 +36,7 @@ class ImageType(Enum):
     SATELLITE = "satellite"  # Спутниковые снимки
     INDUSTRIAL = "industrial"  # Дефекты, контроль качества
     MICROSCOPY = "microscopy"  # Микроскопия
-    UNKNOWN = "unknown" # В случае, если датасет неизвестен
+    UNKNOWN = "unknown"  # В случае, если датасет неизвестен
 
 
 @dataclass
