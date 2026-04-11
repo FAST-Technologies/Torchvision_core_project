@@ -77,6 +77,16 @@ jobs:
         bandit -r segmenters/ testing/ metrics/ utils/ dataseters/ -ll -f screen -s B614,B615,B113
       continue-on-error: true
 
+    - name: Generate unused code report
+      run: |
+        pip install vulture
+        vulture segmenters/ testing/ metrics/ utils/ --min-confidence 50 --exclude=tests/ > unused_code_report.txt
+        echo "## 🗑️ Unused Code Report" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        cat unused_code_report.txt >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+      continue-on-error: true
+
     - name: Check dependencies for vulnerabilities
       run: |
         pip install safety

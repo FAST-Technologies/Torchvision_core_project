@@ -419,7 +419,7 @@ class NeuralSegmenter(BaseSegmenter):
         return Image.fromarray(overlay)
 
     def segment(  # type: ignore[override]
-        self, image: ImageInput, *args: Any, **kwargs: Any
+        self, image: ImageInput, **kwargs: Any
     ) -> np.ndarray:
         """
         Основной метод сегментации.
@@ -437,7 +437,7 @@ class NeuralSegmenter(BaseSegmenter):
         return mask
 
     def segment_with_mask(  # type: ignore[override]
-        self, image: ImageInput, *args: Any, **kwargs: Any
+        self, image: ImageInput, **kwargs: Any
     ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """
         Сегментация с возвратом визуализации и маски.

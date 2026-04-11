@@ -1,5 +1,11 @@
 # segmenters/AutoSegmenter.py
 
+import os
+if os.getenv("TRACK_FUNCTION_CALLS") == "1":
+    from utils.function_tracker import track_calls
+else:
+    def track_calls(f): return f
+
 from typing import Dict, Any, Optional, List, Tuple
 import numpy as np
 import cv2
@@ -5221,6 +5227,7 @@ class AutoSegmenter:
 
         return best_method, best_profile.library, params, confidence
 
+    @track_calls
     def _calculate_method_score(
         self,
         method_name: str,

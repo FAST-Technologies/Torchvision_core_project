@@ -917,7 +917,6 @@ class SegmentationBenchmark:
     def plot_all_metrics(
         self,
         figsize=(15, 5),
-        skip_empty: bool = True,
         path: str = "./data/ade20k_test_trained/plot_all_metrix.jpg",
     ) -> None:
         """

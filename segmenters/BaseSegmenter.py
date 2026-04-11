@@ -63,7 +63,7 @@ class BaseSegmenter(ABC):
         self.metrics_calculator: SegmentationMetricsProtocol = SegmentationMetrics
 
     @abstractmethod
-    def segment(self, image: ImageInput, *args: Any, **kwargs: Any) -> BinaryMask:
+    def segment(self, image: ImageInput, **kwargs: Any) -> BinaryMask:
         """
         Основной метод сегментации
 
@@ -83,7 +83,7 @@ class BaseSegmenter(ABC):
 
     @abstractmethod
     def segment_with_mask(
-        self, image: ImageInput, *args: Any, **kwargs: Any
+        self, image: ImageInput, **kwargs: Any
     ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
         """
         Сегментация с возвратом маски и вероятностей (если доступно)

@@ -330,7 +330,7 @@ class SklearnSegmenter(BaseSegmenter):
         return result
 
     def segment(  # type: ignore[override]
-        self, image: ImageInput, *args: Any, **kwargs: Any
+        self, image: ImageInput, **kwargs: Any
     ) -> np.ndarray:
         """
         Основной метод сегментации.

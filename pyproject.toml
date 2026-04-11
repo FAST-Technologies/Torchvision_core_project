@@ -34,6 +34,7 @@ filterwarnings = [
 
 [tool.coverage.run]
 source = ["segmenters", "metrics", "testing", "datasets", "utils"]
+branch = true
 omit = [
     "*/__pycache__/*",
     "*/tests/*",
@@ -49,3 +50,4 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
 ]
+show_missing = true
