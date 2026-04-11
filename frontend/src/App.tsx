@@ -1,4 +1,4 @@
-import { useState, ChangeEvent, FormEvent, useMemo, useCallback, useEffect } from 'react'
+import { Fragment, useState, ChangeEvent, FormEvent, useMemo, useCallback, useEffect, useRef } from 'react'
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend 
@@ -38,6 +38,10 @@ interface ValidationMethodResult {
   primary_time?: number;
   reference_time?: number;
   time_diff?: number;
+  original_b64?: string;
+  primary_mask_b64?: string;
+  reference_mask_b64?: string;
+  difference_b64?: string;
 }
 
 export interface SegmentationMetrics {
@@ -87,7 +91,16 @@ interface SegmentationResponse {
   examples: Record<string, string[]>
 }
 
-interface ValidationResponse {
+export interface ValidationProgress {
+  status: 'idle' | 'pending' | 'running' | 'completed' | 'failed';
+  progress: number;        // 0-100
+  processed: number;       // обработано методов
+  total: number;           // всего методов
+  elapsed_ms?: number;     // затраченное время
+  error?: string;          // ошибка, если статус 'failed'
+}
+
+export interface ValidationResponse {
   success: boolean;
   elapsed_ms: number;
   primary_library: string;
@@ -98,6 +111,8 @@ interface ValidationResponse {
   failed: number;
   results: ValidationMethodResult[];
   report_dir: string;
+  task_id?: string;
+  progress?: ValidationProgress;
 }
 
 interface MethodInfo {
@@ -148,22 +163,165 @@ function MetricCard({ label, value, color = 'blue' }: { label: string; value: st
   )
 }
 
-// После компонента MetricCard, добавьте:
 function ValidationStatusBadge({ status }: { status: ValidationMethodResult['validation_status'] }) {
   const config = {
-    PASS: { bg: 'bg-green-100', text: 'text-green-800', label: '✅ PASS' },
-    WARNING: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: '⚠️ WARNING' },
-    FAIL: { bg: 'bg-red-100', text: 'text-red-800', label: '❌ FAIL' },
+    PASS: { className: 'validation-status--pass', label: '✅ PASS' },
+    WARNING: { className: 'validation-status--warning', label: '⚠️ WARNING' },
+    FAIL: { className: 'validation-status--fail', label: '❌ FAIL' },
   }[status || 'FAIL'];
   
   return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium ${config.bg} ${config.text}`}>
+    <span className={`validation-status ${config.className}`}>
       {config.label}
     </span>
   );
 }
 
-function ValidationResultsTable({ results }: { results: ValidationMethodResult[] }) {
+function ValidationProgressBar({ progress }: { progress: ValidationProgress }) {
+    if (progress.status === 'idle') return null;
+    
+    return (
+      <div className="validation-progress">
+        <div className="validation-progress__header">
+          <span>
+            {(progress.status === 'pending' || progress.status === 'running') && progress.total > 0 && 
+              `🔄 Обработка: ${progress.processed}/${progress.total}`}
+            {progress.status === 'pending' && progress.total === 0 && '⏳ Инициализация…'}
+            {progress.status === 'completed' && '✅ Завершено'}
+            {progress.status === 'failed' && '❌ Ошибка'}
+          </span>
+          {progress.elapsed_ms && <span>⏱ {progress.elapsed_ms}мс</span>}
+        </div>
+        
+        {(progress.status === 'running' || progress.status === 'pending') && progress.total > 0 && (
+          <>
+            <div className="validation-progress__bar">
+              <div 
+                className="validation-progress__fill" 
+                style={{ width: `${Math.min(progress.progress, 100)}%` }} 
+              />
+            </div>
+            <div className="validation-progress__details">
+              <span>Прогресс: {progress.progress}%</span>
+              <span>Обработано: {progress.processed} из {progress.total}</span>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  function MaskComparisonGrid({ method, primaryLib, referenceLib }: { 
+  method: ValidationMethodResult & { 
+    original_b64?: string; 
+    primary_mask_b64?: string; 
+    reference_mask_b64?: string; 
+    difference_b64?: string;
+  };
+  primaryLib: string;
+  referenceLib: string;
+}) {
+  if (!method.original_b64) return null;
+  
+  // 🔹 Добавляем стейт для ошибок загрузки
+  const [imgErrors, setImgErrors] = useState({
+    original: false,
+    primary: false,
+    reference: false,
+    difference: false,
+  });
+
+  // 🔹 Функция-хелпер для обработки ошибки
+  const handleImgError = (key: keyof typeof imgErrors) => {
+    console.error(`❌ Failed to load ${key} image`);
+    setImgErrors(prev => ({ ...prev, [key]: true }));
+  };
+
+  return (
+    <div className="mask-comparison">
+      <div className="mask-comparison__grid">
+        {/* Оригинальное изображение */}
+        <div className="mask-comparison__item">
+          <h5>Оригинал</h5>
+          {imgErrors.original ? (
+            <div className="img-error-placeholder">❌ Ошибка загрузки</div>
+          ) : (
+            <img 
+              src={method.original_b64} 
+              alt="original" 
+              className="mask-img"
+              onError={() => handleImgError('original')}
+              onLoad={() => setImgErrors(prev => ({ ...prev, original: false }))}
+            />
+          )}
+        </div>
+        
+        {/* Primary маска */}
+        <div className="mask-comparison__item">
+          <h5>{primaryLib}</h5>
+          {imgErrors.primary ? (
+            <div className="img-error-placeholder">❌ Ошибка загрузки</div>
+          ) : (
+            <img 
+              src={method.primary_mask_b64} 
+              alt="primary" 
+              className="mask-img mask-img--grayscale"
+              onError={() => handleImgError('primary')}
+            />
+          )}
+        </div>
+        
+        {/* Reference маска */}
+        <div className="mask-comparison__item">
+          <h5>{referenceLib}</h5>
+          {imgErrors.reference ? (
+            <div className="img-error-placeholder">❌ Ошибка загрузки</div>
+          ) : (
+            <img 
+              src={method.reference_mask_b64} 
+              alt="reference" 
+              className="mask-img mask-img--grayscale"
+              onError={() => handleImgError('reference')}
+            />
+          )}
+        </div>
+        
+        {/* Разность */}
+        <div className="mask-comparison__item">
+          <h5>Разность</h5>
+          {imgErrors.difference ? (
+            <div className="img-error-placeholder">❌ Ошибка загрузки</div>
+          ) : (
+            <img 
+              src={method.difference_b64} 
+              alt="difference" 
+              className="mask-img mask-img--hot"
+              onError={() => handleImgError('difference')}
+            />
+          )}
+        </div>
+      </div>
+      
+      {/* 🔹 Глобальная ошибка, если все картинки не загрузились */}
+      {Object.values(imgErrors).every(v => v) && (
+        <div className="text-red-500 text-sm mt-2">
+          ⚠️ Не удалось загрузить изображения. Проверьте консоль для деталей.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ValidationResultsTable({ 
+  results, 
+  primaryLib, 
+  referenceLib 
+}: { 
+  results: ValidationMethodResult[];
+  primaryLib: string;
+  referenceLib: string;
+}) {
+  const [expanded, setExpanded] = useState<string | null>(null);
   return (
     <div className="overflow-x-auto">
       <table className="data-table">
@@ -180,22 +338,42 @@ function ValidationResultsTable({ results }: { results: ValidationMethodResult[]
         </thead>
         <tbody>
           {results.map((r) => (
-            <tr key={r.method} className={!r.success ? 'opacity-50' : ''}>
-              <td>
-                <b>{r.method}</b>
-                {!r.success && <span className="text-red-500 ml-2">❌ {r.error}</span>}
-              </td>
-              <td>{r.success && r.validation_status ? <ValidationStatusBadge status={r.validation_status} /> : '—'}</td>
-              <td>{r.iou != null ? pct(r.iou) : '—'}</td>
-              <td>{r.dice != null ? pct(r.dice) : '—'}</td>
-              <td>{r.f1_score != null ? pct(r.f1_score) : '—'}</td>
-              <td>{r.mae != null ? fmt3(r.mae) : '—'}</td>
-              <td>
-                {r.primary_time != null && r.reference_time != null 
-                  ? `${r.primary_time.toFixed(2)}s / ${r.reference_time.toFixed(2)}s`
-                  : '—'}
-              </td>
-            </tr>
+            <Fragment key={r.method}>
+              <tr className={!r.success ? 'opacity-50' : ''}>
+                <td><b>{r.method}</b>{!r.success && <span className="text-red-500 ml-2">❌ {r.error}</span>}</td>
+                <td>{r.success && r.validation_status ? <ValidationStatusBadge status={r.validation_status} /> : '—'}</td>
+                <td>{r.iou != null ? pct(r.iou) : '—'}</td>
+                <td>{r.dice != null ? pct(r.dice) : '—'}</td>
+                <td>{r.f1_score != null ? pct(r.f1_score) : '—'}</td>
+                <td>{r.mae != null ? fmt3(r.mae) : '—'}</td>
+                <td>
+                  {r.primary_time != null && r.reference_time != null 
+                    ? `${r.primary_time.toFixed(2)}s / ${r.reference_time.toFixed(2)}s`
+                    : '—'}
+                </td>
+                <td>
+                  {r.success && r.original_b64 && (
+                    <button 
+                      className="text-sm text-primary hover:underline"
+                      onClick={() => setExpanded(expanded === r.method ? null : r.method)}
+                    >
+                      {expanded === r.method ? 'Скрыть 🔍' : 'Показать 🔍'}
+                    </button>
+                  )}
+                </td>
+              </tr>
+              {expanded === r.method && r.success && (
+                <tr>
+                  <td colSpan={8}>
+                    <MaskComparisonGrid 
+                      method={r} 
+                      primaryLib={primaryLib} 
+                      referenceLib={referenceLib} 
+                    />
+                  </td>
+                </tr>
+              )}
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -208,16 +386,39 @@ function Badge({ text, variant = 'info' }: { text: string; variant?: 'info' | 's
 }
 
 function ImgCard({ title, src, grayscale = false }: { title: string; src: string; grayscale?: boolean }) {
+  const [error, setError] = useState(false);
   return (
     <div className="img-card">
       <h4 className="img-card__title">{title}</h4>
-      <img src={src} alt={title} className={grayscale ? 'img-card__image img-card__image--grayscale' : 'img-card__image'} />
+      {error ? (
+        <div className="img-card__error">
+          ❌ Ошибка загрузки изображения
+          <button 
+            className="text-sm text-primary hover:underline mt-1"
+            onClick={() => { setError(false); }} // Попытка перезагрузить
+          >
+            Повторить
+          </button>
+        </div>
+      ) : (
+        <img 
+          src={src} 
+          alt={title} 
+          className={grayscale ? 'img-card__image img-card__image--grayscale' : 'img-card__image'}
+          onError={() => {
+            console.error(`❌ Failed to load: ${title}`);
+            setError(true);
+          }}
+        />
+      )}
     </div>
   )
 }
 
 // ──────────────────────── Main App ─────────────────────────────────────────
 export default function App() {
+  type Timeout = ReturnType<typeof setTimeout>;
+  const pollIntervalRef = useRef<Timeout | null>(null);
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string>('')
   const [gtFile, setGtFile] = useState<File | null>(null)
@@ -246,6 +447,13 @@ export default function App() {
   const [validationPrimaryLib, setValidationPrimaryLib] = useState('torch');
   const [validationReferenceLib, setValidationReferenceLib] = useState('opencv');
   const [validationFilter, setValidationFilter] = useState('all');
+  const [validationTaskId, setValidationTaskId] = useState<string | null>(null);
+  const [validationProgress, setValidationProgress] = useState<ValidationProgress>({
+    status: 'idle',
+    progress: 0,
+    processed: 0,
+    total: 0,
+  });
 
   useEffect(() => {
     if (autoSelect || mode === 'neural') return
@@ -273,6 +481,12 @@ export default function App() {
       setValidationResult(null);
     }
   }, [mode, activeTab]);
+
+  useEffect(() => {
+    console.log('🔄 validationProgress updated:', validationProgress);
+    console.log('🔄 validationLoading:', validationLoading);
+    console.log('🔄 validationResult:', !!validationResult);
+  }, [validationProgress, validationLoading, validationResult]);
 
   const handleMethodChange = (e: ChangeEvent<HTMLSelectElement>) => {
     const methodName = e.target.value;
@@ -338,14 +552,12 @@ export default function App() {
   }
 
   const onValidate = async () => {
-    if (!file) {
-      setErr('Сначала загрузите изображение');
-      return;
-    }
+    if (!file) { setErr('Сначала загрузите изображение'); return; }
     
     setValidationLoading(true);
     setErr('');
     setValidationResult(null);
+    setValidationProgress({ status: 'pending', progress: 0, processed: 0, total: 0 });
     
     const fd = new FormData();
     fd.append('file', file);
@@ -354,22 +566,138 @@ export default function App() {
     fd.append('methods_filter', validationFilter);
     
     try {
-      const r = await fetch(`${API}/api/validate`, {
-        method: 'POST',
-        body: fd,
-      });
+      const startRes = await fetch(`${API}/api/validate`, { method: 'POST', body: fd });
+      if (!startRes.ok) throw new Error(`Ошибка запуска: ${startRes.status}`);
+      const { task_id } = await startRes.json();
+      console.log('🔹 Validation started, task_id:', task_id);
+      setValidationTaskId(task_id);
+      const startTime = Date.now();
+      const MAX_POLLING_TIME = 5 * 60 * 1000;
       
-      const raw = await r.text();
-      if (!r.ok) throw new Error(`Ошибка валидации: ${r.status}: ${raw}`);
-      
-      const data: ValidationResponse = JSON.parse(raw);
-      setValidationResult(data);
+      // 🔹 Polling: НЕ перезаписываем статус вручную!
+      await new Promise(resolve => setTimeout(resolve, 300));
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      pollIntervalRef.current = setInterval(async () => {
+        // if (Date.now() - startTime > MAX_POLLING_TIME) {
+        //   console.log('⏰ Polling timeout, stopping');
+        //   clearInterval(pollInterval);
+        //   setValidationTaskId(null);
+        //   setValidationLoading(false);
+        //   setValidationProgress(prev => ({ ...prev, status: 'failed', error: 'Timeout' }));
+        //   setErr('Превышено время ожидания валидации');
+        //   return;
+        // }
+        try {
+          const statusUrl = `${API}/api/validate/status/${task_id}`;
+          console.log('🔄 Polling:', statusUrl);
+          const statusRes = await fetch(statusUrl);
+          if (!statusRes.ok) throw new Error(`Status error: ${statusRes.status}`);
+          console.log('📊 statusRes:', statusRes);
+          const status = await statusRes.json();
+          console.log('📊 RAW server response:', status);
+          
+          setValidationProgress({
+            status: status.status,
+            progress: status.progress,
+            processed: status.processed,
+            total: status.total_methods,
+            elapsed_ms: status.elapsed_ms,
+          });
+          console.log('📊 Status update:', status.status);
+          console.log('📊 Progress update:', status.progress);
+          console.log('📊 processed update:', status.processed);
+          console.log('📊 total_methods update:', status.total_methods);
+          console.log('📊 elapsed_ms update:', status.elapsed_ms);
+          
+          if (status.status === 'completed' || status.status === 'failed') {
+            console.log('✅ Validation finished');
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;  // ← КРИТИЧНО!
+            }
+            setValidationTaskId(null);
+            if (status.status === 'completed') {
+              const summary = status.results?.map((r: any) => ({
+                method: r.method,
+                success: r.success,
+                validation_status: r.validation_status,
+                iou: r.iou,
+                dice: r.dice,
+                pixel_accuracy: r.pixel_accuracy,
+                precision: r.precision,
+                recall: r.recall,
+                f1_score: r.f1_score,
+                mae: r.mae,
+                hausdorff_distance: r.hausdorff_distance,
+                primary_time: r.primary_time,
+                reference_time: r.reference_time,
+                time_diff: r.time_diff,
+                original_b64: r.original_b64,
+                primary_mask_b64: r.primary_mask_b64,
+                reference_mask_b64: r.reference_mask_b64,
+                difference_b64: r.difference_b64,
+              })) || [];
+              
+              setValidationResult({
+                success: true,
+                elapsed_ms: status.elapsed_ms,
+                primary_library: validationPrimaryLib,
+                reference_library: validationReferenceLib,
+                methods_tested: status.total_methods,
+                passed: status.passed || 0,
+                warning: status.warning || 0,
+                failed: status.failed || 0,
+                results: summary,
+                report_dir: status.report_dir || './data/validation_web',
+              });
+            } else {
+              setErr(status.error || 'Ошибка валидации');
+            }
+            setValidationLoading(false);
+            return;
+          }
+        } catch (pollErr: any) {
+          console.error('❌ Polling error:', pollErr); 
+          if (pollErr.message?.includes('404') || pollErr.message?.includes('Not Found')) {
+            console.log('🔹 Task not found on server, stopping polling');
+            if (validationResult && validationResult.success) {
+              console.log('✅ Results already received, ignoring 404');
+              if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
+              }
+              setValidationTaskId(null);
+              setValidationLoading(false);
+              return;
+            }
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            setValidationTaskId(null);
+            setValidationLoading(false);
+            
+            if (validationProgress.processed === 0 && validationProgress.total === 0) {
+              setValidationProgress(prev => ({ ...prev, status: 'failed', error: 'Task expired' }));
+              setErr('Задача не найдена на сервере');
+            }
+            return;
+          }
+          setValidationLoading(false);
+          setValidationProgress(prev => ({ ...prev, status: 'failed', error: 'Connection error' }));
+          setErr(pollErr.message || 'Ошибка подключения');
+        }
+      }, 1000);
       
     } catch (e: any) {
       console.error('❌ Validation error:', e);
-      setErr(e.message || 'Неизвестная ошибка валидации');
-    } finally {
+      setErr(e.message || 'Неизвестная ошибка');
       setValidationLoading(false);
+      setValidationTaskId(null);
+      setValidationProgress(prev => ({ ...prev, status: 'failed', error: e.message }));
     }
   };
 
@@ -385,6 +713,16 @@ export default function App() {
       <span className="info-panel__item">Шум: <b>{fmt3(res.chars.noise)}</b></span>
     </div>
   )
+
+  useEffect(() => {
+    return () => {
+      // 🔹 Очищаем интервал при размонтировании
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <div className="app">
@@ -567,7 +905,7 @@ export default function App() {
               <h3 className="card__title">🔬 Кросс-библиотечная валидация</h3>
               <p className="text-sm text-gray-600 mb-4">
                 Сравните реализации методов сегментации между библиотеками. 
-                Результаты сохраняются в <code className="bg-gray-100 px-1 rounded">{validationResult?.report_dir}</code>
+                Результаты сохраняются в <code className="bg-gray-100 px-1 rounded">{validationResult?.report_dir || './data/validation_web'}</code>
               </p>
               
               {/* Настройки валидации */}
@@ -579,6 +917,7 @@ export default function App() {
                       value={validationPrimaryLib}
                       onChange={(e) => setValidationPrimaryLib(e.target.value)}
                       className="control-select"
+                      disabled={validationLoading || validationProgress.status === 'running'}
                     >
                       <option value="torch">🔴 PyTorch</option>
                       <option value="opencv">🟢 OpenCV</option>
@@ -592,6 +931,7 @@ export default function App() {
                       value={validationReferenceLib}
                       onChange={(e) => setValidationReferenceLib(e.target.value)}
                       className="control-select"
+                      disabled={validationLoading || validationProgress.status === 'running'}
                     >
                       <option value="opencv">🟢 OpenCV</option>
                       <option value="sklearn">🔵 Scikit-learn</option>
@@ -605,6 +945,7 @@ export default function App() {
                       value={validationFilter}
                       onChange={(e) => setValidationFilter(e.target.value)}
                       className="control-select"
+                      disabled={validationLoading || validationProgress.status === 'running'}
                     >
                       <option value="all">📦 Все методы</option>
                       <option value="threshold">🎚 Пороговые</option>
@@ -617,13 +958,22 @@ export default function App() {
                 
                 <button 
                   onClick={onValidate}
-                  disabled={!file || validationLoading}
+                  disabled={!file || validationLoading || validationProgress.status === 'running'}
                   className="submit-btn submit-btn--secondary mt-4"
                 >
-                  {validationLoading ? '⏳ Валидация…' : '▶ Запустить валидацию'}
+                  {validationLoading || validationProgress.status === 'running' 
+                    ? '⏳ Валидация…' 
+                    : '▶ Запустить валидацию'}
                 </button>
               </div>
             </div>
+            
+            {/* 🔹 Прогресс-бар — показываем по статусу, а не по loading */}
+            {(validationProgress.status === 'pending' || 
+              validationProgress.status === 'running' ||
+              (validationTaskId && validationProgress.status !== 'completed' && validationProgress.status !== 'failed')) && (
+              <ValidationProgressBar progress={validationProgress} />
+            )}
             
             {/* Результаты валидации */}
             {validationResult && (
@@ -641,13 +991,17 @@ export default function App() {
                 
                 {/* Сводная статистика */}
                 <div className="metrics-grid mb-4">
-                  <MetricCard label="Совпадение (IoU)" value={pct(validationResult.results.filter(r => r.iou != null && r.iou >= 0.8).length / validationResult.results.filter(r => r.iou != null).length || 0)} color="blue" />
-                  <MetricCard label="Среднее время" value={`${(validationResult.results.reduce((a, b) => a + (b.primary_time || 0), 0) / validationResult.results.length).toFixed(2)}s`} color="green" />
+                  <MetricCard label="Совпадение (IoU)" value={pct(validationResult.results.filter(r => r.iou != null && r.iou >= 0.8).length / (validationResult.results.filter(r => r.iou != null).length || 1))} color="blue" />
+                  <MetricCard label="Среднее время" value={`${(validationResult.results.reduce((a, b) => a + (b.primary_time || 0), 0) / (validationResult.results.length || 1)).toFixed(2)}s`} color="green" />
                   <MetricCard label="Успешных" value={`${validationResult.passed}/${validationResult.methods_tested}`} color="success" />
                 </div>
                 
                 {/* Таблица результатов */}
-                <ValidationResultsTable results={validationResult.results} />
+                <ValidationResultsTable 
+                  results={validationResult.results} 
+                  primaryLib={validationPrimaryLib}
+                  referenceLib={validationReferenceLib}
+                />
                 
                 {/* Ссылка на полный отчёт */}
                 <div className="mt-4 p-3 bg-gray-50 rounded text-sm">

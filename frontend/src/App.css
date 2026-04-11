@@ -572,6 +572,150 @@ body {
   gap: 0.25rem;
 }
 
+/* Статус валидации */
+.validation-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.validation-status--pass {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.validation-status--warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.validation-status--fail {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* Прогресс-бар валидации */
+.validation-progress {
+  background: #f8fafc;
+  padding: 1rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  margin-bottom: 1rem;
+}
+
+.validation-progress__header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 0.5rem;
+}
+
+.validation-progress__bar {
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.validation-progress__fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.validation-progress__details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+/* Сравнение масок */
+.mask-comparison {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #f8fafc;
+  border-radius: var(--radius-lg);
+}
+
+.mask-comparison__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.mask-comparison__item {
+  text-align: center;
+}
+
+.mask-comparison__item h5 {
+  font-size: 0.8rem;
+  margin: 0 0 0.5rem;
+  color: var(--color-text-muted);
+}
+
+.mask-img {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+.mask-img--grayscale {
+  filter: grayscale(1);
+}
+
+.mask-img--hot {
+  filter: contrast(1.2);
+}
+
+/* Кнопка раскрытия */
+.text-primary {
+  color: var(--color-primary);
+}
+
+.hover\:underline:hover {
+  text-decoration: underline;
+}
+
+.img-error-placeholder,
+.img-card__error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  background: #f8fafc;
+  border: 2px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 1rem;
+}
+
+.img-card__error {
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.mask-img--hot {
+  image-rendering: pixelated; /* Для лучшего отображения разности */
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .mask-comparison__grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 /* Адаптивность для валидации */
 @media (max-width: 768px) {
   .validation-controls .controls__grid {
