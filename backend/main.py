@@ -33,6 +33,7 @@ from segmenters.AutoSegmenter import (
     MethodProfile,
 )
 from metrics.SegmentationMetrics import SegmentationMetrics
+from testing.TorchImplementationValidator import TorchImplementationValidator
 
 # from segmenters.NeuralModelFactory import NeuralModelFactory
 
@@ -611,6 +612,127 @@ async def segment(
 
         logger.error(f"❌ /api/segment error: {exc}\n{traceback.format_exc()}")
         raise HTTPException(500, str(exc))
+    
+# ── Валидация методов ──────────────────────────────────────────────────────
+@app.post("/api/validate")
+async def validate_methods(
+    file: UploadFile = File(...),
+    primary_library: str = Form("torch"),      # "torch" | "opencv" | "sklearn"
+    reference_library: str = Form("opencv"),   # "torch" | "opencv" | "sklearn"
+    methods_filter: Optional[str] = Form(None), # "threshold" | "edge" | "region" | "all"
+):
+    """
+    Запускает кросс-библиотечную валидацию методов сегментации.
+    
+    Returns:
+        Сводные результаты валидации (без тяжёлых изображений)
+    """
+    t0 = time.perf_counter()
+    try:
+        # Загрузка изображения
+        img_array = np.array(Image.open(io.BytesIO(await file.read())).convert("RGB"))
+        
+        # Инициализация валидатора
+        validator = TorchImplementationValidator(output_dir="./data/validation_web")
+        
+        # Выбор методов для валидации
+        if methods_filter == "threshold":
+            methods_list = validator.threshold_methods
+        elif methods_filter == "edge":
+            methods_list = validator.edge_methods
+        elif methods_filter == "region":
+            methods_list = validator.region_methods
+        elif methods_filter == "clustering":
+            methods_list = validator.clastering_methods
+        else:
+            # Все методы (может быть долго!)
+            methods_list = (
+                validator.threshold_methods + 
+                validator.edge_methods + 
+                validator.region_methods +
+                validator.clastering_methods
+            )
+        # Маппинг библиотек к классам сегментеров
+        LIB_MAP = {
+            "torch": "TorchSegmenter",
+            "opencv": "OpenCVSegmenter", 
+            "sklearn": "SklearnSegmenter",
+        }
+        
+        from segmenters.TorchSegmenter import TorchSegmenter
+        from segmenters.OpenCVSegmenter import OpenCVSegmenter
+        from segmenters.SklearnSegmenter import SklearnSegmenter
+        
+        CLASS_MAP = {
+            "torch": TorchSegmenter,
+            "opencv": OpenCVSegmenter,
+            "sklearn": SklearnSegmenter,
+        }
+        
+        primary_class = CLASS_MAP.get(primary_library, TorchSegmenter)
+        reference_class = CLASS_MAP.get(reference_library, OpenCVSegmenter)
+        
+        # Запуск валидации
+        results = validator.validate_segmentation_methods(
+            image_path=img_array,
+            methods_list=methods_list,
+            torch_segmenter_class=primary_class,
+            reference_segmenter_class=reference_class,
+            reference=reference_library,
+            status_message=f"ВАЛИДАЦИЯ: {LIB_MAP[primary_library]} vs {LIB_MAP[reference_library]}",
+            prefix=f"web_validation_{primary_library}_{reference_library}",
+            validation_type=methods_filter or "all",
+            additional_method=LIB_MAP[primary_library],
+        )
+        # Подготовка лёгкого ответа для фронтенда
+        summary = []
+        for method, data in results.items():
+            if not data.get("success"):
+                summary.append({
+                    "method": method,
+                    "success": False,
+                    "error": data.get("error", "Unknown error"),
+                })
+                continue
+            
+            metrics = data.get("metrics", {})
+            summary.append({
+                "method": method,
+                "success": True,
+                "validation_status": data.get("validation_status"),
+                "iou": metrics.get("iou"),
+                "dice": metrics.get("dice"),
+                "pixel_accuracy": metrics.get("pixel_accuracy"),
+                "precision": metrics.get("precision"),
+                "recall": metrics.get("recall"),
+                "f1_score": metrics.get("f1_score"),
+                "mae": metrics.get("mae"),
+                "hausdorff_distance": metrics.get("hausdorff_distance"),
+                "primary_time": data.get("first_method_time"),
+                "reference_time": data.get("second_method_time"),
+                "time_diff": data.get("methods_time_difference"),
+            })
+        
+        elapsed = (time.perf_counter() - t0) * 1000
+        
+        return {
+            "success": True,
+            "elapsed_ms": round(elapsed, 1),
+            "primary_library": primary_library,
+            "reference_library": reference_library,
+            "methods_tested": len(summary),
+            "passed": sum(1 for s in summary if s.get("validation_status") == "PASS"),
+            "warning": sum(1 for s in summary if s.get("validation_status") == "WARNING"),
+            "failed": sum(1 for s in summary if s.get("validation_status") == "FAIL"),
+            "results": summary,
+            "report_dir": validator.output_dir,  # Для отладки
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        logger.error(f"❌ /api/validate error: {exc}\n{traceback.format_exc()}")
+        raise HTTPException(500, f"Validation failed: {str(exc)}")
 
 
 @app.get("/recommendations/")

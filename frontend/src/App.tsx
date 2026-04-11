@@ -22,6 +22,24 @@ export interface ImageCharacteristics {
   complexity: number
 }
 
+interface ValidationMethodResult {
+  method: string;
+  success: boolean;
+  error?: string;
+  validation_status?: 'PASS' | 'WARNING' | 'FAIL';
+  iou?: number | null;
+  dice?: number | null;
+  pixel_accuracy?: number | null;
+  precision?: number | null;
+  recall?: number | null;
+  f1_score?: number | null;
+  mae?: number | null;
+  hausdorff_distance?: number | null;
+  primary_time?: number;
+  reference_time?: number;
+  time_diff?: number;
+}
+
 export interface SegmentationMetrics {
   accuracy: number
   iou: number
@@ -69,6 +87,19 @@ interface SegmentationResponse {
   examples: Record<string, string[]>
 }
 
+interface ValidationResponse {
+  success: boolean;
+  elapsed_ms: number;
+  primary_library: string;
+  reference_library: string;
+  methods_tested: number;
+  passed: number;
+  warning: number;
+  failed: number;
+  results: ValidationMethodResult[];
+  report_dir: string;
+}
+
 interface MethodInfo {
   name: string; library: string; avg_iou: number; avg_time_ms: number
   memory_mb: number; robustness: number; description: string
@@ -77,7 +108,7 @@ interface MethodInfo {
 }
 
 type GoalType = 'balanced' | 'speed' | 'accuracy' | 'low_memory'
-type Tab  = 'results' | 'metrics' | 'recommendations' | 'analysis'
+type Tab  = 'results' | 'metrics' | 'recommendations' | 'analysis' | 'validation'
 type Mode = 'classical' | 'neural'
 type NeuralTask = 'semantic' | 'instance' | 'panoptic'
 
@@ -101,7 +132,6 @@ const LIBRARIES: LibraryOption[] = [
     { value: "sklearn", label: "Scikit-learn", icon: "🔵" },
     { value: "torch", label: "PyTorch", icon: "🔴" },
   ];
-const LIBRARIES_List = ['opencv','sklearn','torch'] as const
 const API = 'http://localhost:8000'
 
 // ──────────────────────── Helpers ──────────────────────────────────────────
@@ -109,20 +139,80 @@ const pct  = (n: number | null | undefined) => n == null ? '—' : `${(n * 100).
 const fmt2 = (n: number | null | undefined) => n == null ? '—' : n.toFixed(2)
 const fmt3 = (n: number | null | undefined) => n == null ? '—' : n.toFixed(3)
 
-function MetricCard({ label, value, color = '#3b82f6' }: { label: string; value: string; color?: string }) {
+function MetricCard({ label, value, color = 'blue' }: { label: string; value: string; color?: string }) {
   return (
-    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10,
-      padding: '0.75rem 1rem', textAlign: 'center', borderTop: `3px solid ${color}` }}>
-      <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: 2 }}>{label}</div>
-      <div style={{ fontSize: '1.35rem', fontWeight: 700, color: '#1e293b', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+    <div className={`metric-card metric-card--${color}`}>
+      <div className="metric-card__label">{label}</div>
+      <div className="metric-card__value">{value}</div>
     </div>
   )
 }
 
-function Badge({ text, color = '#e0f2fe', textColor = '#0369a1' }: { text: string; color?: string; textColor?: string }) {
+// После компонента MetricCard, добавьте:
+function ValidationStatusBadge({ status }: { status: ValidationMethodResult['validation_status'] }) {
+  const config = {
+    PASS: { bg: 'bg-green-100', text: 'text-green-800', label: '✅ PASS' },
+    WARNING: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: '⚠️ WARNING' },
+    FAIL: { bg: 'bg-red-100', text: 'text-red-800', label: '❌ FAIL' },
+  }[status || 'FAIL'];
+  
   return (
-    <span style={{ background: color, color: textColor, fontSize: '0.7rem', padding: '2px 7px',
-      borderRadius: 9999, fontWeight: 600, letterSpacing: '0.02em' }}>{text}</span>
+    <span className={`px-2 py-0.5 rounded text-xs font-medium ${config.bg} ${config.text}`}>
+      {config.label}
+    </span>
+  );
+}
+
+function ValidationResultsTable({ results }: { results: ValidationMethodResult[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Метод</th>
+            <th>Статус</th>
+            <th>IoU</th>
+            <th>Dice</th>
+            <th>F1</th>
+            <th>MAE</th>
+            <th>Время (перв./реф.)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {results.map((r) => (
+            <tr key={r.method} className={!r.success ? 'opacity-50' : ''}>
+              <td>
+                <b>{r.method}</b>
+                {!r.success && <span className="text-red-500 ml-2">❌ {r.error}</span>}
+              </td>
+              <td>{r.success && r.validation_status ? <ValidationStatusBadge status={r.validation_status} /> : '—'}</td>
+              <td>{r.iou != null ? pct(r.iou) : '—'}</td>
+              <td>{r.dice != null ? pct(r.dice) : '—'}</td>
+              <td>{r.f1_score != null ? pct(r.f1_score) : '—'}</td>
+              <td>{r.mae != null ? fmt3(r.mae) : '—'}</td>
+              <td>
+                {r.primary_time != null && r.reference_time != null 
+                  ? `${r.primary_time.toFixed(2)}s / ${r.reference_time.toFixed(2)}s`
+                  : '—'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Badge({ text, variant = 'info' }: { text: string; variant?: 'info' | 'success' | 'warning' | 'default' }) {
+  return <span className={`badge badge--${variant}`}>{text}</span>
+}
+
+function ImgCard({ title, src, grayscale = false }: { title: string; src: string; grayscale?: boolean }) {
+  return (
+    <div className="img-card">
+      <h4 className="img-card__title">{title}</h4>
+      <img src={src} alt={title} className={grayscale ? 'img-card__image img-card__image--grayscale' : 'img-card__image'} />
+    </div>
   )
 }
 
@@ -150,6 +240,13 @@ export default function App() {
   const [neuralTask, setNeuralTask]     = useState<NeuralTask>('semantic')
   const [neuralModel, setNeuralModel]   = useState('segformer_b2')
 
+  // Validation
+  const [validationLoading, setValidationLoading] = useState(false);
+  const [validationResult, setValidationResult] = useState<ValidationResponse | null>(null);
+  const [validationPrimaryLib, setValidationPrimaryLib] = useState('torch');
+  const [validationReferenceLib, setValidationReferenceLib] = useState('opencv');
+  const [validationFilter, setValidationFilter] = useState('all');
+
   useEffect(() => {
     if (autoSelect || mode === 'neural') return
     if (!autoSelect && selectedLibrary) {
@@ -169,6 +266,13 @@ export default function App() {
       setNeuralModel(NEURAL_MODELS[neuralTask][0]);
     }
   }, [neuralTask, mode]);
+
+  useEffect(() => {
+    if (mode === 'neural' && activeTab === 'validation') {
+      setActiveTab('results');
+      setValidationResult(null);
+    }
+  }, [mode, activeTab]);
 
   const handleMethodChange = (e: ChangeEvent<HTMLSelectElement>) => {
     const methodName = e.target.value;
@@ -233,411 +337,460 @@ export default function App() {
     }
   }
 
-const infoPanel = res && (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center',
-      background: '#f1f5f9', borderRadius: 10, padding: '0.6rem 1rem', marginBottom: '1rem', fontSize: '0.85rem' }}>
-      <Badge text={res.method.toUpperCase()} color="#dbeafe" textColor="#1d4ed8" />
-      <Badge text={res.library} color="#f3f4f6" textColor="#374151" />
-      {res.chars.type && <Badge text={res.chars.type} color="#fef3c7" textColor="#92400e" />}
-      <span style={{ color: '#64748b' }}>Уверенность: <b>{pct(res.confidence)}</b></span>
-      <span style={{ color: '#64748b' }}>Время: <b>{res.elapsed_ms}мс</b></span>
-      <span style={{ color: '#64748b' }}>Размер: <b>{res.chars.size}</b></span>
-      <span style={{ color: '#64748b' }}>Контраст: <b>{fmt3(res.chars.contrast)}</b></span>
-      <span style={{ color: '#64748b' }}>Шум: <b>{fmt3(res.chars.noise)}</b></span>
+  const onValidate = async () => {
+    if (!file) {
+      setErr('Сначала загрузите изображение');
+      return;
+    }
+    
+    setValidationLoading(true);
+    setErr('');
+    setValidationResult(null);
+    
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('primary_library', validationPrimaryLib);
+    fd.append('reference_library', validationReferenceLib);
+    fd.append('methods_filter', validationFilter);
+    
+    try {
+      const r = await fetch(`${API}/api/validate`, {
+        method: 'POST',
+        body: fd,
+      });
+      
+      const raw = await r.text();
+      if (!r.ok) throw new Error(`Ошибка валидации: ${r.status}: ${raw}`);
+      
+      const data: ValidationResponse = JSON.parse(raw);
+      setValidationResult(data);
+      
+    } catch (e: any) {
+      console.error('❌ Validation error:', e);
+      setErr(e.message || 'Неизвестная ошибка валидации');
+    } finally {
+      setValidationLoading(false);
+    }
+  };
+
+  const infoPanel = res && (
+    <div className="info-panel">
+      <Badge text={res.method.toUpperCase()} variant="info" />
+      <Badge text={res.library} variant="default" />
+      {res.chars.type && <Badge text={res.chars.type} variant="warning" />}
+      <span className="info-panel__item">Уверенность: <b>{pct(res.confidence)}</b></span>
+      <span className="info-panel__item">Время: <b>{res.elapsed_ms}мс</b></span>
+      <span className="info-panel__item">Размер: <b>{res.chars.size}</b></span>
+      <span className="info-panel__item">Контраст: <b>{fmt3(res.chars.contrast)}</b></span>
+      <span className="info-panel__item">Шум: <b>{fmt3(res.chars.noise)}</b></span>
     </div>
   )
 
   return (
-    <div style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace", background: '#f8fafc',
-      minHeight: '100vh', padding: '1.5rem 2rem', maxWidth: 1600, margin: '0 auto' }}>
-
+    <div className="app">
       {/* ── Header ── */}
-      <header style={{ marginBottom: '1.5rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '1rem' }}>
-        <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#0f172a' }}>
-          ⚡🧠 AutoSegmenter <span style={{ color: '#3b82f6' }}>Pro</span>
-        </h1>
-        <p style={{ margin: '0.25rem 0 0', color: '#64748b', fontSize: '0.8rem' }}>
-          Классические и нейросетевые методы сегментации
-        </p>
+      <header className="app-header">
+        <h1 className="app-header__title">⚡🧠 AutoSegmenter <span className="app-header__accent">Pro</span></h1>
+        <p className="app-header__subtitle">Классические и нейросетевые методы сегментации</p>
       </header>
-      <main>
-      {/* ── Controls ── */}
-      <form onSubmit={onSubmit}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: '0.75rem', marginBottom: '1rem' }}>
 
-          {/* Upload */}
-          <label style={labelStyle}>
-            <span style={labelText}>📷 Изображение</span>
-            <input type="file" accept="image/*" onChange={onFile} required style={inputStyle} />
-          </label>
-          <label style={labelStyle}>
-            <span style={labelText}>🎯 Ground Truth (опц.)</span>
-            <input type="file" accept="image/*"
-              onChange={e => setGtFile(e.target.files?.[0] || null)} style={inputStyle} />
-          </label>
+      <main className="app-main">
+        {/* ── Controls ── */}
+        <form onSubmit={onSubmit} className="controls">
+          <div className="controls__grid">
+            <label className="control-group">
+              <span className="control-group__label">📷 Изображение</span>
+              <input type="file" accept="image/*" onChange={onFile} required className="control-input" />
+            </label>
+            <label className="control-group">
+              <span className="control-group__label">🎯 Ground Truth (опц.)</span>
+              <input type="file" accept="image/*"
+                onChange={e => setGtFile(e.target.files?.[0] || null)} className="control-input" />
+            </label>
 
-          {/* Mode */}
-          <div style={labelStyle}>
-            <span style={labelText}>Режим</span>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {(['classical','neural'] as Mode[]).map(m => (
-                <button key={m} type="button" onClick={() => setMode(m)}
-                  style={{ ...modeBtn, background: mode === m ? '#1d4ed8' : '#f1f5f9',
-                    color: mode === m ? 'white' : '#374151' }}>
-                  {m === 'classical' ? '🔬 Классик' : '🧠 Нейро'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Goal */}
-          <div style={labelStyle}>
-            <span style={labelText}>🎯 Цель</span>
-            <select value={goal} onChange={e => setGoal(e.target.value as GoalType)} style={selectStyle}>
-              <option value="balanced">⚖️ Баланс</option>
-              <option value="speed">⚡ Скорость</option>
-              <option value="accuracy">🎯 Точность</option>
-              <option value="low_memory">💾 Память</option>
-            </select>
-          </div>
-
-          {/* Auto-select toggle */}
-          <div style={labelStyle}>
-            <span style={labelText}>Выбор метода</span>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {[true, false].map(v => (
-                <button key={String(v)} type="button" onClick={() => setAutoSelect(v)}
-                  style={{ ...modeBtn, background: autoSelect === v ? '#16a34a' : '#f1f5f9',
-                    color: autoSelect === v ? 'white' : '#374151' }}>
-                  {v ? '🤖 Авто' : '✍️ Ручной'}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {err && <div className="err">{err}</div>}
-
-        {/* Classical method selector */}
-        {mode === 'classical' && !autoSelect && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '0.75rem', background: '#f1f5f9', borderRadius: 10, padding: '1rem', marginBottom: '1rem' }}>
-            <div style={labelStyle}>
-              <span style={labelText}>📚 Библиотека</span>
-              <select value={selectedLibrary} onChange={e => { setSelectedLibrary(e.target.value); setSelectedMethod('') }} style={selectStyle}>
-                {LIBRARIES.map(lib => (
-                  <option key={lib.value} value={lib.value}>
-                    {lib.icon} {lib.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div style={labelStyle}>
-              <span style={labelText}>⚙️ Метод</span>
-              <select value={selectedMethod}
-                onChange={e => {
-                  setSelectedMethod(e.target.value)
-                  setCustomParams(availableMethods[e.target.value]?.defaults ?? {})
-                }} style={selectStyle}>
-                {Object.entries(availableMethods).map(([k, m]) => (
-                  <option key={k} value={k}>{m.name} {m.avg_iou > 0.8 ? '⭐' : ''}</option>
-                ))}
-              </select>
-            </div>
-            {selectedMethod && availableMethods[selectedMethod] && (
-              <div style={{ gridColumn: '1 / -1', fontSize: '0.78rem', color: '#475569',
-                background: '#e0f2fe', borderRadius: 8, padding: '0.5rem 0.75rem' }}>
-                ⏱ {availableMethods[selectedMethod].avg_time_ms}мс &nbsp;|&nbsp;
-                🎯 IoU {pct(availableMethods[selectedMethod].avg_iou)} &nbsp;|&nbsp;
-                💾 {availableMethods[selectedMethod].memory_mb}МБ &nbsp;|&nbsp;
-                🛡 Устойч. {pct(availableMethods[selectedMethod].robustness)}<br/>
-                {availableMethods[selectedMethod].description}
-              </div>
-            )}
-            {/* Param sliders */}
-            {selectedMethod && availableMethods[selectedMethod]?.schema && Object.keys(availableMethods[selectedMethod].schema).length > 0 && (
-              <div style={{ gridColumn: '1 / -1', display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.5rem' }}>
-                <h5 style={{ margin: '0 0 0.6rem', fontSize: '0.85rem', color: '#475569' }}>⚙️ Настройка параметров</h5>
-                {Object.entries(availableMethods[selectedMethod].schema).map(([pk, cfg]) => (
-                  <div key={pk} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#374151' }}>
-                      {cfg.label ?? pk}
-                    </label>
-                    {cfg.min !== undefined ? (
-                      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                        <input type="range" min={cfg.min} max={cfg.max} step={cfg.step ?? 1}
-                          value={customParams[pk] ?? cfg.default}
-                          onChange={e => setCustomParams(p => ({ ...p,
-                            [pk]: cfg.type === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value) }))}
-                          style={{ flex: 1 }} />
-                        <span style={{ fontSize: '0.72rem', minWidth: 36, textAlign: 'right', color: '#1d4ed8', fontWeight: 700 }}>
-                          {customParams[pk] ?? cfg.default}
-                        </span>
-                      </div>
-                    ) : (
-                      <input type="number" step={cfg.step ?? 'any'} value={customParams[pk] ?? ''}
-                        onChange={e => setCustomParams(p => ({ ...p,
-                          [pk]: cfg.type === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value) }))}
-                        style={{ ...inputStyle, padding: '0.3rem' }} />
-                    )}
-                  </div>
+            {/* Mode */}
+            <div className="control-group">
+              <span className="control-group__label">Режим</span>
+              <div className="toggle-group">
+                {(['classical','neural'] as Mode[]).map(m => (
+                  <button key={m} type="button" onClick={() => setMode(m)}
+                    className={`toggle-btn ${mode === m ? 'toggle-btn--active' : ''}`}>
+                    {m === 'classical' ? '🔬 Классик' : '🧠 Нейро'}
+                  </button>
                 ))}
               </div>
-            )}
-          </div>
-        )}
+            </div>
 
-        {/* Neural selectors */}
-        {mode === 'neural' && (
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap',
-            background: '#f1f5f9', borderRadius: 10, padding: '1rem', marginBottom: '1rem' }}>
-            <div style={labelStyle}>
-              <span style={labelText}>🎨 Задача</span>
-              <select value={neuralTask} onChange={e => setNeuralTask(e.target.value as NeuralTask)} style={selectStyle}>
-                <option value="semantic">🎨 Семантическая</option>
-                <option value="instance">🎭 Инстанс</option>
-                <option value="panoptic">🌐 Паноптическая</option>
+            {/* Goal */}
+            <div className="control-group">
+              <span className="control-group__label">🎯 Цель</span>
+              <select value={goal} onChange={e => setGoal(e.target.value as GoalType)} className="control-select">
+                <option value="balanced">⚖️ Баланс</option>
+                <option value="speed">⚡ Скорость</option>
+                <option value="accuracy">🎯 Точность</option>
+                <option value="low_memory">💾 Память</option>
               </select>
             </div>
-            {!autoSelect && (
-              <div style={labelStyle}>
-                <span style={labelText}>🤖 Модель</span>
-                <select value={neuralModel} onChange={e => setNeuralModel(e.target.value)} style={selectStyle}>
-                  {NEURAL_MODELS[neuralTask].map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
+
+            {/* Auto-select */}
+            <div className="control-group">
+              <span className="control-group__label">Выбор метода</span>
+              <div className="toggle-group">
+                {[true, false].map(v => (
+                  <button key={String(v)} type="button" onClick={() => setAutoSelect(v)}
+                    className={`toggle-btn ${autoSelect === v ? 'toggle-btn--active toggle-btn--success' : ''}`}>
+                    {v ? '🤖 Авто' : '✍️ Ручной'}
+                  </button>
+                ))}
               </div>
-            )}
+            </div>
           </div>
-        )}
 
-        <button type="submit" disabled={!file || loading}
-          style={{ background: loading ? '#93c5fd' : '#1d4ed8', color: 'white', border: 'none',
-            borderRadius: 8, padding: '0.65rem 2rem', fontSize: '0.9rem', fontWeight: 700,
-            cursor: !file || loading ? 'not-allowed' : 'pointer', letterSpacing: '0.02em' }}>
-          {loading ? '⏳ Обработка…' : '▶ Запустить сегментацию'}
-        </button>
-      </form>
-
-      {err && (
-        <div style={{ background: '#fee2e2', color: '#991b1b', borderRadius: 8,
-          padding: '0.75rem 1rem', margin: '0.75rem 0', fontSize: '0.85rem', fontWeight: 500 }}>
-          ❌ {err}
-        </div>
-      )}
-
-      {/* ── Info bar ── */}
-      {infoPanel}
-
-      {/* ── Tabs ── */}
-      {res && (
-        <div style={{ display: 'flex', gap: '0.4rem', borderBottom: '2px solid #e2e8f0',
-          paddingBottom: '0.5rem', marginBottom: '1rem' }}>
-          {([
-            ['results',       '🖼 Результат'],
-            ['metrics',       '📊 Метрики'],
-            ['recommendations','💡 Рекомендации'],
-            ['analysis',      '🔍 Анализ'],
-          ] as [Tab, string][]).map(([t, label]) => (
-            <button key={t} onClick={() => setActiveTab(t)} style={{
-              border: 'none', background: activeTab === t ? '#1d4ed8' : '#f1f5f9',
-              color: activeTab === t ? 'white' : '#374151', borderRadius: 7,
-              padding: '0.4rem 0.9rem', fontWeight: 600, cursor: 'pointer',
-              fontSize: '0.82rem', fontFamily: 'inherit' }}>
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ── Results ── */}
-      {activeTab === 'results' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: '1rem' }}>
-          {preview && <ImgCard title="📥 Оригинал" src={preview} />}
-          {gtFile && <ImgCard title="🎯 Ground Truth" src={URL.createObjectURL(gtFile)} />}
-          {res && <ImgCard title="🎨 Наложение" src={res.overlay_b64} />}
-          {res && <ImgCard title="🔲 Маска" src={res.mask_b64} grayscale />}
-          {res?.analysis.edges_b64 && <ImgCard title="📐 Границы" src={res.analysis.edges_b64} grayscale />}
-        </div>
-      )}
-
-      {/* ── Metrics ── */}
-      {activeTab === 'metrics' && res && (
-        <div>
-          {res.metrics ? (
-            <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.65rem', marginBottom: '1rem' }}>
-                <MetricCard label="IoU / Jaccard" value={pct(res.metrics.iou)} color="#3b82f6" />
-                <MetricCard label="Dice Coeff."   value={pct(res.metrics.dice)} color="#8b5cf6" />
-                <MetricCard label="Accuracy"      value={pct(res.metrics.accuracy)} color="#10b981" />
-                <MetricCard label="Precision"     value={pct(res.metrics.precision)} color="#f59e0b" />
-                <MetricCard label="Recall"        value={pct(res.metrics.recall)} color="#ef4444" />
-                <MetricCard label="F1 Score"      value={pct(res.metrics.f1_score)} color="#ec4899" />
-                <MetricCard label="Pixel Acc."    value={pct(res.metrics.pixel_accuracy)} color="#06b6d4" />
-                <MetricCard label="MAE"           value={fmt3(res.metrics.mae)} color="#64748b" />
-                {res.metrics.hausdorff_distance != null &&
-                  <MetricCard label="Hausdorff" value={fmt2(res.metrics.hausdorff_distance)} color="#7c3aed" />}
-              </div>
-              {/* Confusion matrix */}
-              <div style={{ background: 'white', borderRadius: 10, padding: '1rem', boxShadow: '0 1px 4px rgba(0,0,0,.08)' }}>
-                <h4 style={{ margin: '0 0 0.6rem', fontSize: '0.85rem', color: '#475569' }}>Матрица ошибок</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem', maxWidth: 280 }}>
-                  {[
-                    { l: `TP: ${res.metrics.true_positive}`,  bg: '#dcfce7', fg: '#166534' },
-                    { l: `FP: ${res.metrics.false_positive}`, bg: '#fee2e2', fg: '#991b1b' },
-                    { l: `FN: ${res.metrics.false_negative}`, bg: '#ffedd5', fg: '#9a3412' },
-                    { l: `TN: ${res.metrics.true_negative}`,  bg: '#e0e7ff', fg: '#3730a3' },
-                  ].map(c => (
-                    <div key={c.l} style={{ background: c.bg, color: c.fg, padding: '0.6rem',
-                      borderRadius: 6, textAlign: 'center', fontWeight: 700, fontSize: '0.85rem' }}>{c.l}</div>
-                  ))}
+          {/* Classical method selector */}
+          {mode === 'classical' && !autoSelect && (
+            <div className="method-selector">
+              <div className="controls__grid">
+                <div className="control-group">
+                  <span className="control-group__label">📚 Библиотека</span>
+                  <select value={selectedLibrary} 
+                    onChange={e => { setSelectedLibrary(e.target.value); setSelectedMethod('') }} 
+                    className="control-select">
+                    {LIBRARIES.map(lib => (
+                      <option key={lib.value} value={lib.value}>{lib.icon} {lib.label}</option>
+                    ))}
+                  </select>
                 </div>
+                <div className="control-group">
+                  <span className="control-group__label">⚙️ Метод</span>
+                  <select value={selectedMethod} onChange={handleMethodChange} className="control-select">
+                    {Object.entries(availableMethods).map(([k, m]) => (
+                      <option key={k} value={k}>{m.name} {m.avg_iou > 0.8 ? '⭐' : ''}</option>
+                    ))}
+                  </select>
+                </div>
+                {selectedMethod && availableMethods[selectedMethod] && (
+                  <div className="method-hint">
+                    ⏱ {availableMethods[selectedMethod].avg_time_ms}мс &nbsp;|&nbsp;
+                    🎯 IoU {pct(availableMethods[selectedMethod].avg_iou)} &nbsp;|&nbsp;
+                    💾 {availableMethods[selectedMethod].memory_mb}МБ &nbsp;|&nbsp;
+                    🛡 Устойч. {pct(availableMethods[selectedMethod].robustness)}<br/>
+                    {availableMethods[selectedMethod].description}
+                  </div>
+                )}
+                {/* Param sliders */}
+                {selectedMethod && availableMethods[selectedMethod]?.schema && Object.keys(availableMethods[selectedMethod].schema).length > 0 && (
+                  <div className="params-grid">
+                    <h5 className="params-grid__title">⚙️ Настройка параметров</h5>
+                    {Object.entries(availableMethods[selectedMethod].schema).map(([pk, cfg]) => (
+                      <div key={pk} className="param-item">
+                        <label className="param-item__label">{cfg.label ?? pk}</label>
+                        {cfg.min !== undefined ? (
+                          <div className="param-item__slider">
+                            <input type="range" min={cfg.min} max={cfg.max} step={cfg.step ?? 1}
+                              value={customParams[pk] ?? cfg.default}
+                              onChange={e => setCustomParams(p => ({ ...p,
+                                [pk]: cfg.type === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value) }))}
+                              className="range-input" />
+                            <span className="range-value">{customParams[pk] ?? cfg.default}</span>
+                          </div>
+                        ) : (
+                          <input type="number" step={cfg.step ?? 'any'} value={customParams[pk] ?? ''}
+                            onChange={e => setCustomParams(p => ({ ...p,
+                              [pk]: cfg.type === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value) }))}
+                            className="control-input control-input--small" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            </>
-          ) : (
-            <div style={{ background: '#fef9c3', color: '#92400e', borderRadius: 8,
-              padding: '1rem', fontSize: '0.85rem' }}>
-              ℹ️ Загрузите Ground Truth маску для вычисления метрик качества.
             </div>
           )}
-        </div>
-      )}
 
-      {/* ── Recommendations ── */}
-      {activeTab === 'recommendations' && res && (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-            <thead>
-              <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #e2e8f0' }}>
-                {['#','Метод','Score','Время (мс)','Est. IoU','Лучше всего для'].map(h => (
-                  <th key={h} style={{ padding: '0.6rem 0.8rem', textAlign: 'left',
-                    fontWeight: 700, color: '#374151' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {res.recommendations.map((r, i) => (
-                <tr key={r.method}
-                  style={{ background: r.method === res.method ? '#eff6ff' : i % 2 === 0 ? 'white' : '#f8fafc',
-                    borderLeft: r.method === res.method ? '3px solid #3b82f6' : '3px solid transparent' }}>
-                  <td style={tdStyle}>{i + 1}</td>
-                  <td style={tdStyle}>
-                    <b>{r.method}</b> {r.method === res.method && <span style={{ color: '#16a34a' }}>✓</span>}
-                  </td>
-                  <td style={tdStyle}>{pct(r.score)}</td>
-                  <td style={tdStyle}>{r.estimated_time_ms.toFixed(0)}</td>
-                  <td style={tdStyle}>{pct(r.estimated_iou)}</td>
-                  <td style={tdStyle}>
-                    <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
-                      {(r.best_for ?? []).map(b => (
-                        <Badge key={b} text={b} color="#f0fdf4" textColor="#166534" />
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* ── Analysis ── */}
-      {activeTab === 'analysis' && res && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: '1rem' }}>
-          <div style={cardStyle}>
-            <h4 style={cardTitle}>📈 Гистограмма интенсивностей</h4>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={res.analysis.histogram.map((v, i) => ({ bin: i * 4, count: v }))}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="bin" tick={{ fontSize: 10 }} label={{ value: 'Яркость', position: 'insideBottom', offset: -2, fontSize: 11 }} />
-                <YAxis label={{value: 'Частота', angle: -90, position: 'insideLeft', fontSize: 11}} tick={{ fontSize: 10 }} />
-                <Tooltip 
-                  formatter={(v: number | undefined) => [v ?? 0, 'Частота']} 
-                />
-                <Bar dataKey="count" fill="#3b82f6" radius={[2,2,0,0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div style={cardStyle}>
-            <h4 style={cardTitle}>🔍 Характеристики изображения</h4>
-            <div style={{ display: 'grid', gap: '0.4rem' }}>
-              {Object.entries(res.chars).map(([k, v]) => (
-                <div key={k} style={{ display: 'flex', justifyContent: 'space-between',
-                  borderBottom: '1px dashed #e2e8f0', paddingBottom: '0.25rem', fontSize: '0.82rem' }}>
-                  <span style={{ color: '#64748b' }}>{k}</span>
-                  <span style={{ fontWeight: 600, color: '#1e293b' }}>
-                    {typeof v === 'number' ? v.toFixed(4) : String(v)}
-                  </span>
+          {/* Neural selectors */}
+          {mode === 'neural' && (
+            <div className="method-selector">
+              <div className="controls__row">
+                <div className="control-group">
+                  <span className="control-group__label">🎨 Задача</span>
+                  <select value={neuralTask} onChange={e => setNeuralTask(e.target.value as NeuralTask)} className="control-select">
+                    {NEURAL_TASKS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
                 </div>
-              ))}
-            </div>
-          </div>
-          {/* Примеры */}
-          <div style={{ ...cardStyle, gridColumn: '1 / -1' }}>
-            <h4 style={cardTitle}>📚 Рекомендуемые методы по типу сцены</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
-              {Object.entries(res.examples).map(([type, ms]) => (
-                <div key={type} style={{ background: '#f8fafc', borderRadius: 8, padding: '0.75rem' }}>
-                  <div style={{ fontWeight: 700, fontSize: '0.8rem', marginBottom: '0.4rem', color: '#1e293b' }}>
-                    {{ medical: '🏥 Медицина', documents: '📄 Документы',
-                       nature: '🌿 Природа', industrial: '🏭 Индустрия' }[type] ?? type}
+                {!autoSelect && (
+                  <div className="control-group">
+                    <span className="control-group__label">🤖 Модель</span>
+                    <select value={neuralModel} onChange={e => setNeuralModel(e.target.value)} className="control-select">
+                      {NEURAL_MODELS[neuralTask].map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
                   </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
-                    {ms.map(m => (
-                      <Badge key={m} text={m}
-                        color={m === res.method ? '#1d4ed8' : '#e2e8f0'}
-                        textColor={m === res.method ? 'white' : '#374151'} />
+                )}
+              </div>
+            </div>
+          )}
+
+          <button type="submit" disabled={!file || loading} className="submit-btn">
+            {loading ? '⏳ Обработка…' : '▶ Запустить сегментацию'}
+          </button>
+        </form>
+
+        {err && <div className="error-banner">❌ {err}</div>}
+        {infoPanel}
+
+        {/* ── Tabs ── */}
+        {res && (
+          <div className="tabs">
+            {([
+              ['results', '🖼 Результат'],
+              ['metrics', '📊 Метрики'],
+              ['recommendations','💡 Рекомендации'],
+              ['analysis', '🔍 Анализ'],
+              ...(mode === 'classical' ? [['validation', '🔬 Валидация'] as [Tab, string]] : []),
+            ] as [Tab, string][]).map(([t, label]) => (
+              <button 
+                key={t} 
+                onClick={() => {
+                  setActiveTab(t); 
+                  setValidationResult(null);
+                  if (mode === 'neural' && t === 'validation') setActiveTab('results');
+                }} 
+                className={`tab-btn ${activeTab === t ? 'tab-btn--active' : ''}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {activeTab === 'validation' && (
+          <div className="validation-tab">
+            <div className="card">
+              <h3 className="card__title">🔬 Кросс-библиотечная валидация</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Сравните реализации методов сегментации между библиотеками. 
+                Результаты сохраняются в <code className="bg-gray-100 px-1 rounded">{validationResult?.report_dir}</code>
+              </p>
+              
+              {/* Настройки валидации */}
+              <div className="validation-controls">
+                <div className="controls__grid">
+                  <div className="control-group">
+                    <label className="control-group__label">🔹 Первичная библиотека</label>
+                    <select 
+                      value={validationPrimaryLib}
+                      onChange={(e) => setValidationPrimaryLib(e.target.value)}
+                      className="control-select"
+                    >
+                      <option value="torch">🔴 PyTorch</option>
+                      <option value="opencv">🟢 OpenCV</option>
+                      <option value="sklearn">🔵 Scikit-learn</option>
+                    </select>
+                  </div>
+                  
+                  <div className="control-group">
+                    <label className="control-group__label">⚪ Референсная библиотека</label>
+                    <select 
+                      value={validationReferenceLib}
+                      onChange={(e) => setValidationReferenceLib(e.target.value)}
+                      className="control-select"
+                    >
+                      <option value="opencv">🟢 OpenCV</option>
+                      <option value="sklearn">🔵 Scikit-learn</option>
+                      <option value="torch">🔴 PyTorch</option>
+                    </select>
+                  </div>
+                  
+                  <div className="control-group">
+                    <label className="control-group__label">🔍 Фильтр методов</label>
+                    <select 
+                      value={validationFilter}
+                      onChange={(e) => setValidationFilter(e.target.value)}
+                      className="control-select"
+                    >
+                      <option value="all">📦 Все методы</option>
+                      <option value="threshold">🎚 Пороговые</option>
+                      <option value="edge">✏️ Граничные</option>
+                      <option value="region">🔷 Региональные</option>
+                      <option value="clustering">🔵 Кластеризация</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <button 
+                  onClick={onValidate}
+                  disabled={!file || validationLoading}
+                  className="submit-btn submit-btn--secondary mt-4"
+                >
+                  {validationLoading ? '⏳ Валидация…' : '▶ Запустить валидацию'}
+                </button>
+              </div>
+            </div>
+            
+            {/* Результаты валидации */}
+            {validationResult && (
+              <div className="card mt-4">
+                <div className="flex justify-between items-center mb-4">
+                  <h4 className="card__title">📊 Результаты</h4>
+                  <div className="text-sm text-gray-500">
+                    ⏱ {validationResult.elapsed_ms}мс | 
+                    📈 {validationResult.methods_tested} методов |
+                    ✅ {validationResult.passed} PASS |
+                    ⚠️ {validationResult.warning} WARNING |
+                    ❌ {validationResult.failed} FAIL
+                  </div>
+                </div>
+                
+                {/* Сводная статистика */}
+                <div className="metrics-grid mb-4">
+                  <MetricCard label="Совпадение (IoU)" value={pct(validationResult.results.filter(r => r.iou != null && r.iou >= 0.8).length / validationResult.results.filter(r => r.iou != null).length || 0)} color="blue" />
+                  <MetricCard label="Среднее время" value={`${(validationResult.results.reduce((a, b) => a + (b.primary_time || 0), 0) / validationResult.results.length).toFixed(2)}s`} color="green" />
+                  <MetricCard label="Успешных" value={`${validationResult.passed}/${validationResult.methods_tested}`} color="success" />
+                </div>
+                
+                {/* Таблица результатов */}
+                <ValidationResultsTable results={validationResult.results} />
+                
+                {/* Ссылка на полный отчёт */}
+                <div className="mt-4 p-3 bg-gray-50 rounded text-sm">
+                  💾 Полный отчёт сохранён в: <code className="bg-white px-1 rounded">{validationResult.report_dir}</code>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Results ── */}
+        {activeTab === 'results' && (
+          <div className="results-grid">
+            {preview && <ImgCard title="📥 Оригинал" src={preview} />}
+            {gtFile && <ImgCard title="🎯 Ground Truth" src={URL.createObjectURL(gtFile)} />}
+            {res && <ImgCard title="🎨 Наложение" src={res.overlay_b64} />}
+            {res && <ImgCard title="🔲 Маска" src={res.mask_b64} grayscale />}
+            {res?.analysis.edges_b64 && <ImgCard title="📐 Границы" src={res.analysis.edges_b64} grayscale />}
+          </div>
+        )}
+
+        {/* ── Metrics ── */}
+        {activeTab === 'metrics' && res && (
+          <div>
+            {res.metrics ? (
+              <>
+                <div className="metrics-grid">
+                  <MetricCard label="IoU / Jaccard" value={pct(res.metrics.iou)} color="blue" />
+                  <MetricCard label="Dice Coeff." value={pct(res.metrics.dice)} color="purple" />
+                  <MetricCard label="Accuracy" value={pct(res.metrics.accuracy)} color="green" />
+                  <MetricCard label="Precision" value={pct(res.metrics.precision)} color="amber" />
+                  <MetricCard label="Recall" value={pct(res.metrics.recall)} color="red" />
+                  <MetricCard label="F1 Score" value={pct(res.metrics.f1_score)} color="pink" />
+                  <MetricCard label="Pixel Acc." value={pct(res.metrics.pixel_accuracy)} color="cyan" />
+                  <MetricCard label="MAE" value={fmt3(res.metrics.mae)} color="slate" />
+                  {res.metrics.hausdorff_distance != null &&
+                    <MetricCard label="Hausdorff" value={fmt2(res.metrics.hausdorff_distance)} color="violet" />}
+                </div>
+                <div className="confusion-matrix">
+                  <h4 className="confusion-matrix__title">Матрица ошибок</h4>
+                  <div className="confusion-grid">
+                    {[
+                      { l: `TP: ${res.metrics.true_positive}`, variant: 'tp' },
+                      { l: `FP: ${res.metrics.false_positive}`, variant: 'fp' },
+                      { l: `FN: ${res.metrics.false_negative}`, variant: 'fn' },
+                      { l: `TN: ${res.metrics.true_negative}`, variant: 'tn' },
+                    ].map(c => (
+                      <div key={c.l} className={`confusion-cell confusion-cell--${c.variant}`}>{c.l}</div>
                     ))}
                   </div>
                 </div>
-              ))}
+              </>
+            ) : (
+              <div className="info-banner info-banner--warning">
+                ℹ️ Загрузите Ground Truth маску для вычисления метрик качества.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Recommendations ── */}
+        {activeTab === 'recommendations' && res && (
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  {['#','Метод','Score','Время (мс)','Est. IoU','Лучше всего для'].map(h => (
+                    <th key={h}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {res.recommendations.map((r, i) => (
+                  <tr key={r.method} className={r.method === res.method ? 'data-table__row--selected' : ''}>
+                    <td>{i + 1}</td>
+                    <td><b>{r.method}</b> {r.method === res.method && <span className="text-success">✓</span>}</td>
+                    <td>{pct(r.score)}</td>
+                    <td>{r.estimated_time_ms.toFixed(0)}</td>
+                    <td>{pct(r.estimated_iou)}</td>
+                    <td>
+                      <div className="badge-group">
+                        {(r.best_for ?? []).map(b => (
+                          <Badge key={b} text={b} variant="success" />
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* ── Analysis ── */}
+        {activeTab === 'analysis' && res && (
+          <div className="analysis-grid">
+            <div className="card">
+              <h4 className="card__title">📈 Гистограмма интенсивностей</h4>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={res.analysis.histogram.map((v, i) => ({ bin: i * 4, count: v }))}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="bin" tick={{ fontSize: 10 }} label={{ value: 'Яркость', position: 'insideBottom', offset: -2, fontSize: 11 }} />
+                  <YAxis label={{value: 'Частота', angle: -90, position: 'insideLeft', fontSize: 11}} tick={{ fontSize: 10 }} />
+                  <Tooltip formatter={(v: number | undefined) => [v ?? 0, 'Частота']} />
+                  <Bar dataKey="count" fill="#3b82f6" radius={[2,2,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="card">
+              <h4 className="card__title">🔍 Характеристики изображения</h4>
+              <div className="chars-list">
+                {Object.entries(res.chars).map(([k, v]) => (
+                  <div key={k} className="char-item">
+                    <span className="char-item__key">{k}</span>
+                    <span className="char-item__value">
+                      {typeof v === 'number' ? v.toFixed(4) : String(v)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="card card--full">
+              <h4 className="card__title">📚 Рекомендуемые методы по типу сцены</h4>
+              <div className="examples-grid">
+                {Object.entries(res.examples).map(([type, ms]) => (
+                  <div key={type} className="example-card">
+                    <div className="example-card__title">
+                      {{ medical: '🏥 Медицина', documents: '📄 Документы',
+                         nature: '🌿 Природа', industrial: '🏭 Индустрия' }[type] ?? type}
+                    </div>
+                    <div className="badge-group">
+                      {ms.map(m => (
+                        <Badge key={m} text={m} variant={m === res.method ? 'info' : 'default'} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
       </main>
     </div>
   )
-}
-
-// ──────────────────────── Sub-components ───────────────────────────────────
-function ImgCard({ title, src, grayscale = false }: { title: string; src: string; grayscale?: boolean }) {
-  return (
-    <div style={cardStyle}>
-      <h4 style={cardTitle}>{title}</h4>
-      <img src={src} alt={title} style={{ width: '100%', borderRadius: 6, marginTop: '0.5rem',
-        filter: grayscale ? 'grayscale(1)' : undefined }} />
-    </div>
-  )
-}
-
-// ──────────────────────── Style helpers ────────────────────────────────────
-const cardStyle: React.CSSProperties = {
-  background: 'white', borderRadius: 10, padding: '1rem',
-  boxShadow: '0 1px 4px rgba(0,0,0,.08)',
-}
-const cardTitle: React.CSSProperties = {
-  margin: '0 0 0.25rem', fontSize: '0.85rem', fontWeight: 700, color: '#374151',
-}
-const labelStyle: React.CSSProperties = {
-  display: 'flex', flexDirection: 'column', gap: '0.3rem',
-}
-const labelText: React.CSSProperties = {
-  fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em',
-}
-const inputStyle: React.CSSProperties = {
-  padding: '0.45rem 0.6rem', border: '1px solid #cbd5e1', borderRadius: 7,
-  fontSize: '0.82rem', background: 'white', fontFamily: 'inherit',
-}
-const selectStyle: React.CSSProperties = {
-  ...inputStyle, cursor: 'pointer',
-}
-const modeBtn: React.CSSProperties = {
-  border: 'none', borderRadius: 7, padding: '0.4rem 0.8rem',
-  fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-}
-const tdStyle: React.CSSProperties = {
-  padding: '0.55rem 0.8rem', borderBottom: '1px solid #f1f5f9',
 }
 

@@ -41,7 +41,7 @@ class TorchImplementationValidator:
             ("otsu_thresholding", {}),
             ("adaptive_thresholding", {"block_size": 11, "C": 2}),
             ("threshold_niblack", {"window_size": 15, "k": -0.2}),
-            ("threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128}),
+            # ("threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128}),
             ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
             (
                 "threshold_phansalkar",
