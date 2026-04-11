@@ -507,7 +507,10 @@ class ModelTrainer:
                     continue
 
                 # Создаём модель
-                model = self.create_model(model_type)
+                if model_type == "fcn_tv":
+                    model = self.create_model(model_type, variant="fcn_resnet50")
+                else:
+                    model = self.create_model(model_type)
 
                 # Загружаем веса
                 checkpoint = torch.load(path, map_location=self.device)

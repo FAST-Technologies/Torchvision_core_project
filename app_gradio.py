@@ -1,8 +1,8 @@
 # app_gradio.py
 import gradio as gr
 import numpy as np
-from PIL import Image
-import sys, os
+import sys
+import os
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from segmenters.AutoSegmenter import AutoSegmenter, SegmentationGoal
@@ -81,11 +81,9 @@ demo = gr.Interface(
     title=" AutoSegmenter - Интеллектуальная сегментация изображений",
     description="""
     Загрузите изображение, и система автоматически подберет оптимальный метод сегментации!
-    
     **Поддерживаемые методы:**
     - Пороговые: Otsu, Adaptive, Niblack, Sauvola
     - Граничные: Canny, Sobel, Prewitt, Laplacian
-    
     **Особенности:**
     - Автоматический анализ характеристик изображения
     - Выбор метода на основе бенчмарков

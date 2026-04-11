@@ -2,7 +2,6 @@
 
 from typing import Dict, Any, Optional, List, Tuple
 import numpy as np
-from PIL import Image
 import cv2
 from dataclasses import dataclass
 from enum import Enum
@@ -27,7 +26,7 @@ class ImageType(Enum):
     SATELLITE = "satellite"  # Спутниковые снимки
     INDUSTRIAL = "industrial"  # Дефекты, контроль качества
     MICROSCOPY = "microscopy"  # Микроскопия
-    UNKNOWN = "unknown"
+    UNKNOWN = "unknown" # В случае, если датасет неизвестен
 
 
 @dataclass
@@ -5127,16 +5126,20 @@ class AutoSegmenter:
 
         # Оценка типа изображения
         estimated_type = self._estimate_image_type(
-            gray, mean_intensity, std_intensity, edge_density, complexity_score
+            gray,
+            float(mean_intensity),
+            float(std_intensity),
+            edge_density,
+            complexity_score,
         )
 
         return ImageCharacteristics(
             width=width,
             height=height,
             channels=channels,
-            mean_intensity=mean_intensity,
-            std_intensity=std_intensity,
-            contrast=contrast,
+            mean_intensity=float(mean_intensity),
+            std_intensity=float(std_intensity),
+            contrast=float(contrast),
             noise_level=noise_level,
             edge_density=edge_density,
             complexity_score=complexity_score,
@@ -5290,12 +5293,10 @@ class AutoSegmenter:
             mask: Маска сегментации
             metadata: Дополнительная информация (если return_metadata=True)
         """
-        from segmenters.OpenCVSegmenter import OpenCVSegmenter
-        from segmenters.SklearnSegmenter import SklearnSegmenter
 
         selected_method = ""
         selected_lib = ""
-        params = {}
+        params: Dict[str, Any] = {}
         confidence = 0.0
 
         if auto_select:
@@ -5361,7 +5362,7 @@ class AutoSegmenter:
             return OpenCVSegmenter
 
     def get_recommendations(
-        self, image: np.ndarray, top_k: int = 3
+        self, image: np.ndarray, top_k: int = 5
     ) -> List[Dict[str, Any]]:
         """
         Получить топ-K рекомендаций методов.
@@ -5385,7 +5386,7 @@ class AutoSegmenter:
             scores.items(), key=lambda x: x[1]["score"], reverse=True
         )
 
-        recommendations = []
+        recommendations: List[Dict[str, Any]] = []
         for method_name, data in sorted_methods[:top_k]:
             recommendations.append(
                 {
@@ -5399,41 +5400,6 @@ class AutoSegmenter:
             )
 
         return recommendations
-
-    def recommend_method(
-        self, image_type: ImageType, priority: str = "accuracy"
-    ) -> List[str]:
-        """
-        Рекомендация методов на основе типа изображения и приоритета.
-
-        Args:
-            image_type: Тип изображения
-            priority: 'accuracy' | 'speed' | 'robustness' | 'balanced'
-
-        Returns:
-            Список рекомендованных методов (отсортирован)
-        """
-        candidates = [
-            (name, profile)
-            for name, profile in self._method_profiles.items()
-            if image_type in profile.best_for_type
-        ]
-
-        if priority == "accuracy":
-            candidates.sort(key=lambda x: (-x[1].avg_iou, x[1].avg_time_ms))
-        elif priority == "speed":
-            candidates.sort(key=lambda x: (x[1].avg_time_ms, -x[1].avg_iou))
-        elif priority == "robustness":
-            candidates.sort(key=lambda x: (-x[1].robustness, -x[1].avg_iou))
-        else:  # balanced
-            score = (
-                lambda p: p.avg_iou * 0.4
-                + p.robustness * 0.3
-                + (100 - p.avg_time_ms) / 100 * 0.3
-            )
-            candidates.sort(key=lambda x: -score(x[1]))
-
-        return [name for name, _ in candidates[:5]]
 
 
 __all__ = ["AutoSegmenter", "SegmentationGoal", "ImageType", "METHODS_BY_LIBRARY"]

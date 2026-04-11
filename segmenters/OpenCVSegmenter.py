@@ -1621,6 +1621,7 @@ class OpenCVSegmenter(BaseSegmenter):
             # === Log-Gabor фильтр (радиальная часть) ===
             # Избегаем log(0) и деления на 0
             sigma_f = sigma_onf * fo  # sigma_f пропорциональна fo
+            print(sigma_f)
             log_gabor = np.zeros_like(R)
             mask = R > 0
             log_ratio = np.log(R[mask] / fo) / np.log(sigma_onf)

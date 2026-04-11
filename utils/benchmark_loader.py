@@ -2,12 +2,12 @@
 
 import pandas as pd
 import json
-from typing import Dict
+from typing import Dict, Optional
 from segmenters.AutoSegmenter import MethodProfile, ImageType
 
 
 def load_profiles_from_benchmark(
-    benchmark_csv_path: str, validation_json_path: str
+    benchmark_csv_path: str, validation_json_path: str, library: Optional[str] = None
 ) -> Dict[str, MethodProfile]:
     """
     Загрузка профилей методов из результатов ваших бенчмарков.
@@ -33,6 +33,7 @@ def load_profiles_from_benchmark(
 
         profiles[method_name] = MethodProfile(
             name=method_name,
+            library=library,
             avg_time_ms=method_data["Mean_Time_s"] * 1000,  # sec -> ms
             avg_iou=iou,
             memory_mb=50,  # Можно добавить замер памяти

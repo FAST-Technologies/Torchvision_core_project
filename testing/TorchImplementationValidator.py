@@ -922,8 +922,8 @@ class TorchImplementationValidator:
 
                 plt.xlabel("IoU Score", fontsize=11)
                 plt.title(
-                    f"Качество сегментации (IoU) по методам\n"
-                    f"🟢 PASS | 🟠 WARNING | 🔴 FAIL",
+                    "Качество сегментации (IoU) по методам\n"
+                    "🟢 PASS | 🟠 WARNING | 🔴 FAIL",
                     fontsize=12,
                     pad=20,
                 )
@@ -1179,7 +1179,7 @@ class TorchImplementationValidator:
                     (df["torch_mask_coverage"] < 5) | (df["torch_mask_coverage"] > 95)
                 ]
                 if not df_extreme.empty:
-                    f.write(f"\nМетоды с экстремальным покрытием (<5% или >95%):\n")
+                    f.write("\nМетоды с экстремальным покрытием (<5% или >95%):\n")
                     for _, row in df_extreme.iterrows():
                         f.write(
                             f"  - {row['method']}: {row['torch_mask_coverage']:.2f}%\n"

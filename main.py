@@ -920,7 +920,7 @@ def main():
         print(benchmark_df)
 
         print(f"\n✅ Все результаты сохранены в: {validator.output_dir}")
-        print(f"📊 Бенчмарк-графики в: ./data/validation_benchmark/charts/")
+        print("📊 Бенчмарк-графики в: ./data/validation_benchmark/charts/")
 
         # ============ 5. МАТРИЧНОЕ СРАВНЕНИЕ ============
         print("\n5. Матричное сравнение методов...")
@@ -1175,9 +1175,9 @@ def main():
         model_types: List[str] = [
             # "unet_smp",  # U-Net
             # "fpn_smp",  # FPN + MiT-B5
-            # "psp_smp",  # PSPNet + MiT-B5
+            "psp_smp",  # PSPNet + MiT-B5
             # "deeplab_tv",  # DeepLabV3+
-            "fcn_tv",  # FCN ResNet-50
+            # "fcn_tv",  # FCN ResNet-50
             # "segnet",  # SegNet
         ]
         results_by_model_and_aug: Dict[str, Dict[str, Any]] = {

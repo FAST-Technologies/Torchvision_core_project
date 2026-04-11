@@ -112,7 +112,7 @@ if uploaded_file is not None:
 
     # Маска
     axes[2].imshow(mask, cmap="gray")
-    axes[2].set_title(f"Маска (покрытие: {np.mean(mask > 0)*100:.1f}%)")
+    axes[2].set_title(f"Маска (покрытие: {np.mean(mask > 0) * 100:.1f}%)")
 
     for ax in axes:
         ax.axis("off")
