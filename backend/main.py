@@ -988,16 +988,16 @@ async def get_validation_status(task_id: str):
     if task["status"] in ("completed", "failed") and task.get("results") is not None:
         task["fetched"] = True
 
-    # 🔹 Очистка старых задач
+    # 🔹 Очистка старых задач (проверить или закомментить)
     now = time.time()
     for tid in list(_validation_tasks.keys()):
-        t = _validation_tasks[tid]
-        if t["status"] in ("completed", "failed"):
-            if (t.get("fetched", False) and (now - t.get("start_time", 0) > 300)) or (
+        if tid != task_id:
+            t = _validation_tasks[tid]
+            if (t["status"] in ("completed", "failed") and t.get("fetched", False)) or (
                 now - t.get("start_time", 0) > 3600
             ):
                 del _validation_tasks[tid]
-                logger.info(f"🗑 Cleaned up task {tid}")
+                logger.info(f"🗑 Cleaned up old task {tid}")
 
     logger.info(
         f"🔍 Status response for {task_id}: status={task['status']}, total={task.get('total_methods')}, processed={task.get('processed')}"
