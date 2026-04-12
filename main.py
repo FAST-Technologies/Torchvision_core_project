@@ -1174,8 +1174,8 @@ def main():
         ]
         model_types: List[str] = [
             # "unet_smp",  # U-Net
-            # "fpn_smp",  # FPN + MiT-B5
-            "psp_smp",  # PSPNet + MiT-B5
+            "fpn_smp",  # FPN + MiT-B5
+            # "psp_smp",  # PSPNet + MiT-B5
             # "deeplab_tv",  # DeepLabV3+
             # "fcn_tv",  # FCN ResNet-50
             # "segnet",  # SegNet

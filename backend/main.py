@@ -989,15 +989,15 @@ async def get_validation_status(task_id: str):
         task["fetched"] = True
 
     # 🔹 Очистка старых задач (проверить или закомментить)
-    now = time.time()
-    for tid in list(_validation_tasks.keys()):
-        if tid != task_id:
-            t = _validation_tasks[tid]
-            if (t["status"] in ("completed", "failed") and t.get("fetched", False)) or (
-                now - t.get("start_time", 0) > 3600
-            ):
-                del _validation_tasks[tid]
-                logger.info(f"🗑 Cleaned up old task {tid}")
+    # now = time.time()
+    # for tid in list(_validation_tasks.keys()):
+    #     if tid != task_id:
+    #         t = _validation_tasks[tid]
+    #         if (t["status"] in ("completed", "failed") and t.get("fetched", False)) or (
+    #             now - t.get("start_time", 0) > 3600
+    #         ):
+    #             del _validation_tasks[tid]
+    #             logger.info(f"🗑 Cleaned up old task {tid}")
 
     logger.info(
         f"🔍 Status response for {task_id}: status={task['status']}, total={task.get('total_methods')}, processed={task.get('processed')}"
@@ -1056,6 +1056,53 @@ async def get_validation_status(task_id: str):
         )
         response["methods_tested"] = len(summary)
         response["report_dir"] = "./data/validation_web"
+
+        benchmark_data = []
+        for method, data in task["results"].items():
+            if data.get("success"):
+                metrics = data.get("metrics", {})
+                benchmark_data.append(
+                    {
+                        "method": method,
+                        "torch_time": data.get("primary_time"),
+                        "reference_time": data.get("reference_time"),
+                        "time_diff": data.get("time_diff"),
+                        "iou": metrics.get("iou"),
+                        "dice": metrics.get("dice"),
+                        "f1_score": metrics.get("f1_score"),
+                        "mae": metrics.get("mae"),
+                        "pixel_accuracy": metrics.get("pixel_accuracy"),
+                        "validation_status": data.get("validation_status"),
+                        "precision": metrics.get("precision"),
+                        "recall": metrics.get("recall"),
+                        "predicted_area": metrics.get("predicted_area"),
+                    }
+                )
+
+        # Сводные метрики
+        valid_times = [d["torch_time"] for d in benchmark_data if d.get("torch_time")]
+        valid_iou = [d["iou"] for d in benchmark_data if d.get("iou") is not None]
+
+        response["benchmark"] = {
+            "methods_count": len(benchmark_data),
+            "passed": response["passed"],
+            "warning": response["warning"],
+            "failed": response["failed"],
+            "data": benchmark_data,
+            "avg_torch_time": sum(valid_times) / len(valid_times) if valid_times else 0,
+            "avg_iou": sum(valid_iou) / len(valid_iou) if valid_iou else 0,
+        }
+        response["benchmark_raw"] = [
+            {
+                "method": method,
+                "torch_time": data.get("primary_time"),
+                "reference_time": data.get("reference_time"),
+                "iou": data.get("metrics", {}).get("iou"),
+                "status": data.get("validation_status"),
+            }
+            for method, data in task["results"].items()
+            if data.get("success")
+        ]
 
     elif task["status"] == "failed":
         response["error"] = task["error"]

@@ -709,6 +709,32 @@ body {
   image-rendering: pixelated; /* Для лучшего отображения разности */
 }
 
+/* .chart-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.chart-card h4 {
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+/* Адаптивность для таблиц */
+/* @media (max-width: 768px) {
+  .data-table {
+    font-size: 0.85rem;
+  }
+  .data-table th,
+  .data-table td {
+    padding: 0.4rem 0.3rem;
+  }
+}  */
+
 /* Адаптивность */
 @media (max-width: 768px) {
   .mask-comparison__grid {

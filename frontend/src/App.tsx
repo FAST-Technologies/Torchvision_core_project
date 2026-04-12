@@ -1,7 +1,7 @@
 import { Fragment, useState, ChangeEvent, FormEvent, useMemo, useCallback, useEffect, useRef } from 'react'
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Legend 
+  LineChart, Line, Legend, Cell, ScatterChart, Scatter, ReferenceLine  
 } from 'recharts'
 import './App.css'
 
@@ -113,6 +113,42 @@ export interface ValidationResponse {
   report_dir: string;
   task_id?: string;
   progress?: ValidationProgress;
+  benchmark?: BenchmarkSummary;
+  benchmark_raw?: BenchmarkSummaryRaw;
+}
+
+export interface BenchmarkData {
+  method: string;
+  torch_time?: number;
+  reference_time?: number;
+  time_diff?: number;
+  iou?: number | null;
+  dice?: number | null;
+  f1_score?: number | null;
+  mae?: number | null;
+  pixel_accuracy?: number | null;
+  validation_status?: 'PASS' | 'WARNING' | 'FAIL';
+  precision?: number | null;
+  recall?: number | null;
+  predicted_area?: number;
+}
+
+export interface BenchmarkSummary {
+  methods_count: number;
+  passed: number;
+  warning: number;
+  failed: number;
+  avg_torch_time: number;
+  avg_iou: number;
+  data: BenchmarkData[];
+}
+
+export interface BenchmarkSummaryRaw {
+  method: any;
+  torch_time: number;
+  reference_time: number;
+  iou: number;
+  status: string;
 }
 
 interface MethodInfo {
@@ -377,6 +413,284 @@ function ValidationResultsTable({
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// Новый компонент ValidationBenchmarkCharts
+function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
+  console.log('📊 Benchmark data received:', data);
+  // График 1: Время выполнения по методам
+  const timeData = useMemo(() => 
+    data.data
+      .filter(d => d.torch_time != null)
+      .sort((a, b) => (a.torch_time || 0) - (b.torch_time || 0))
+      .map(d => ({ method: d.method, time: d.torch_time })),
+    [data]
+  );
+
+  // График 2: IoU по методам
+  const iouData = useMemo(() => 
+    data.data
+      .filter(d => d.iou != null)
+      .sort((a, b) => (a.iou || 0) - (b.iou || 0))
+      .map(d => ({ 
+        method: d.method, 
+        iou: d.iou,
+        status: d.validation_status 
+      })),
+    [data]
+  );
+
+  // 🔹 График 3: Сравнение времени (Scatter)
+  const compareData = useMemo(() => 
+    data.data
+      .filter(d => d.torch_time != null && d.reference_time != null && d.torch_time! > 0 && d.reference_time! > 0)
+      .map(d => ({
+        method: d.method,
+        torch: d.torch_time,
+        reference: d.reference_time,
+        ratio: d.reference_time! > 0 ? d.torch_time! / d.reference_time! : 0,
+      })),
+    [data]
+  );
+
+  // 🔹 График 4: Покрытие масок
+  const coverageData = useMemo(() => 
+    data.data
+      .filter(d => d.torch_mask_coverage != null)
+      .sort((a, b) => (a.torch_mask_coverage || 0) - (b.torch_mask_coverage || 0))
+      .map(d => ({ method: d.method, coverage: d.torch_mask_coverage })),
+    [data]
+  );
+
+  // 🔹 График 5: Матрица метрик (для heatmap)
+  const heatmapData = useMemo(() => 
+    data.data
+      .filter(d => d.iou != null && d.f1_score != null)
+      .slice(0, 20) // top-20 для читаемости
+      .map(d => ({
+        method: d.method,
+        iou: d.iou,
+        dice: d.dice,
+        precision: d.precision,
+        recall: d.recall,
+        f1: d.f1_score,
+      })),
+    [data]
+  );
+
+  // 🔹 График 6: Trade-off время vs IoU
+  const tradeoffData = useMemo(() => 
+    data.data
+      .filter(d => d.torch_time != null && d.iou != null && d.torch_time! > 0 && d.iou! > 0)
+      .map(d => ({
+        method: d.method,
+        time: d.torch_time,
+        iou: d.iou,
+        status: d.validation_status,
+      })),
+    [data]
+  );
+
+  console.log('⏱ Time data:', timeData); // ← Добавь это
+  console.log('🎯 IoU data:', iouData); // ← Добавь это
+
+  return (
+    <div className="benchmark-charts">
+      {/* Статистика */}
+      <div className="benchmark-summary">
+        <div className="summary-card">
+          <h4>📊 Сводка</h4>
+          <p>Методов: <b>{data.methods_count}</b></p>
+          <p>✅ PASS: <b>{data.passed}</b></p>
+          <p>⚠️ WARNING: <b>{data.warning}</b></p>
+          <p>❌ FAIL: <b>{data.failed}</b></p>
+          <p>Средний IoU: <b>{(data.avg_iou * 100).toFixed(1)}%</b></p>
+          <p>Среднее время: <b>{data.avg_torch_time.toFixed(3)}s</b></p>
+        </div>
+      </div>
+
+      {/* График 1: Время выполнения */}
+      <div className="chart-card">
+        <h4>⏱ Время выполнения (Torch)</h4>
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={timeData} layout="vertical">
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis type="number" label={{ value: 'Время (с)', position: 'insideBottom' }} />
+            <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
+            <Tooltip formatter={(v: number) => [`${v.toFixed(3)}s`, 'Время']} />
+            <Bar dataKey="time" fill="#3b82f6" radius={[0, 2, 2, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* График 2: IoU по методам */}
+      <div className="chart-card">
+        <h4>🎯 IoU по методам</h4>
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={iouData} layout="vertical">
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis type="number" domain={[0, 1]} label={{ value: 'IoU', position: 'insideBottom' }} />
+            <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
+            <Tooltip formatter={(v: number) => [`${(v * 100).toFixed(1)}%`, 'IoU']} />
+            <Bar dataKey="iou" radius={[0, 2, 2, 0]}>
+              {iouData.map((entry, index) => {
+                const color = 
+                  entry.status === 'PASS' ? '#22c55e' :
+                  entry.status === 'WARNING' ? '#f59e0b' :
+                  '#ef4444';
+                return <Cell key={`cell-${index}`} fill={color} />;
+              })}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* 🔹 График 3: Сравнение времени (Scatter) */}
+      {compareData.length > 0 && (
+        <div className="chart-card">
+          <h4>⚖️ Сравнение: Torch vs Reference</h4>
+          <ResponsiveContainer width="100%" height={300}>
+            <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              
+              {/* 🔹 Добавь domain для корректного масштабирования */}
+              <XAxis 
+                type="number" 
+                dataKey="torch" 
+                name="Torch" 
+                label={{ value: 'Torch (с)', position: 'insideBottom', offset: -5 }}
+                domain={[0, 'dataMax']}
+              />
+              <YAxis 
+                type="number" 
+                dataKey="reference" 
+                name="Reference" 
+                label={{ value: 'Reference (с)', angle: -90, position: 'insideLeft', offset: 0 }}
+                domain={[0, 'dataMax']}
+              />
+              
+              <Tooltip 
+                formatter={(v: number, name: string) => [`${v.toFixed(3)}s`, name]} 
+                cursor={{ strokeDasharray: '3 3' }} 
+              />
+              
+              {/* 🔹 Диагональная линия y=x через segment */}
+              <ReferenceLine
+                segment={[
+                  { x: 0, y: 0 },
+                  { x: 'dataMax' as any, y: 'dataMax' as any }
+                ]}
+                stroke="#888"
+                strokeDasharray="3 3"
+              />
+              
+              <Scatter name="Методы" data={compareData}>
+                {compareData.map((entry, index) => {
+                  const color = entry.ratio > 2 || entry.ratio < 0.5 ? '#ef4444' : '#3b82f6';
+                  return <Cell key={`cell-${index}`} fill={color} />;
+                })}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+          <p className="text-xs text-gray-500 mt-2">
+            🔴 Красные точки: методы, где разница во времени &gt;2×
+          </p>
+        </div>
+      )}
+      
+
+      {/* 🔹 График 4: Покрытие масок */}
+      {coverageData.length > 0 && (
+        <div className="chart-card">
+          <h4>📐 Покрытие масок (%)</h4>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={coverageData} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" domain={[0, 100]} label={{ value: 'Покрытие (%)', position: 'insideBottom' }} />
+              <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
+              <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, 'Покрытие']} />
+              <Bar dataKey="coverage" fill="#14b8a6" radius={[0, 2, 2, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* 🔹 График 5: Матрица метрик (упрощённая таблица вместо heatmap) */}
+      {heatmapData.length > 0 && (
+        <div className="chart-card">
+          <h4>🔥 Матрица метрик (top-{heatmapData.length})</h4>
+          <div className="overflow-x-auto">
+            <table className="data-table text-sm">
+              <thead>
+                <tr>
+                  <th>Метод</th>
+                  <th>IoU</th>
+                  <th>Dice</th>
+                  <th>Precision</th>
+                  <th>Recall</th>
+                  <th>F1</th>
+                </tr>
+              </thead>
+              <tbody>
+                {heatmapData.map((row, i) => (
+                  <tr key={i}>
+                    <td className="font-medium">{row.method}</td>
+                    <td className={row.iou! >= 0.8 ? 'text-green-600' : 'text-red-600'}>{pct(row.iou)}</td>
+                    <td>{pct(row.dice)}</td>
+                    <td>{pct(row.precision)}</td>
+                    <td>{pct(row.recall)}</td>
+                    <td>{pct(row.f1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            🟢 IoU ≥ 80% | 🔴 IoU &lt; 80%
+          </p>
+        </div>
+      )}
+
+      {/* 🔹 График 6: Trade-off время vs IoU */}
+      {tradeoffData.length > 0 && (
+        <div className="chart-card">
+          <h4>⚡ Trade-off: Скорость vs Точность</h4>
+          <ResponsiveContainer width="100%" height={300}>
+            <ScatterChart margin={{ top: 20, right: 20, bottom: 40, left: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" dataKey="time" name="Время" label={{ value: 'Время (с)', position: 'insideBottom' }} />
+              <YAxis type="number" dataKey="iou" name="IoU" label={{ value: 'IoU', angle: -90, position: 'insideLeft' }} />
+              <Tooltip formatter={(v: number, name: string) => 
+                name === 'iou' ? [`${(v * 100).toFixed(1)}%`, 'IoU'] : [`${v.toFixed(3)}s`, 'Время']
+              } />
+              <Scatter name="Методы" data={tradeoffData}>
+                {tradeoffData.map((entry, index) => {
+                  // Цвет по статусу
+                  const color = 
+                    entry.status === 'PASS' ? '#22c55e' :
+                    entry.status === 'WARNING' ? '#f59e0b' :
+                    '#ef4444';
+                  // Подписываем лучшие компромиссы
+                  const isTop = index < 5; // упрощённо: первые 5
+                  return (
+                    <Cell 
+                      key={`cell-${index}`} 
+                      fill={color}
+                      stroke={isTop ? '#000' : 'none'}
+                      strokeWidth={isTop ? 1 : 0}
+                    />
+                  );
+                })}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+          <p className="text-xs text-gray-500 mt-2">
+            🟢 PASS | 🟠 WARNING | 🔴 FAIL | ⬛ Топ-5 компромиссов
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -652,6 +966,8 @@ export default function App() {
                 failed: status.failed || 0,
                 results: summary,
                 report_dir: status.report_dir || './data/validation_web',
+                benchmark: status.benchmark,        // ← Ключевое!
+                benchmark_raw: status.benchmark_raw, // ← Для отладки
               });
             } else {
               setErr(status.error || 'Ошибка валидации');
@@ -965,6 +1281,30 @@ export default function App() {
                     ? '⏳ Валидация…' 
                     : '▶ Запустить валидацию'}
                 </button>
+              </div>
+              {validationResult?.benchmark ? (
+                <div className="card mt-4">
+                  <h4 className="card__title">📈 Бенчмарк-анализ</h4>
+                  <ValidationBenchmarkCharts data={validationResult.benchmark} />
+                </div>
+              ) : (
+                <div className="text-gray-500 text-sm mt-4">
+                  ℹ️ Данные для бенчмарка ещё не загружены
+                </div>
+              )}
+              {validationResult?.benchmark_raw && (
+                <details>
+                  <summary>🔍 Raw benchmark data</summary>
+                  <pre>{JSON.stringify(validationResult.benchmark_raw, null, 2)}</pre>
+                </details>
+              )}
+              <div className="card mt-4">
+                <h4>📊 Benchmark debug</h4>
+                <p>validationResult: {validationResult ? '✅' : '❌'}</p>
+                <p>benchmark: {validationResult?.benchmark ? '✅' : '❌'}</p>
+                <pre className="text-xs max-h-40 overflow-auto">
+                  {JSON.stringify(validationResult?.benchmark, null, 2)}
+                </pre>
               </div>
             </div>
             
