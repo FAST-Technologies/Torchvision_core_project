@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import asyncio
 
 import torch
 
@@ -478,7 +479,7 @@ class SegmentationBenchmark:
         from ultralytics import YOLO
 
         model = YOLO(model_name)
-        key = f"yolov8_{model_name.replace('.pt', '').replace('-', '_')}"
+        key = os.path.splitext(os.path.basename(model_name))[0]
 
         self.models[key] = {
             "model": model,
@@ -1173,6 +1174,55 @@ class SegmentationBenchmark:
             lines.append(f"{model_clean} & {mIoU} & {acc} & {time} \\\\")
         lines.extend([r"\bottomrule", r"\end{tabular}", r"\end{table}"])
         return "\n".join(lines)
+
+    async def compare_step_by_step(
+        self,
+        image_input: Union[str, Image.Image],
+        alpha: float = 0.6,
+        task_id: Optional[str] = None,
+        benchmark_tasks: Optional[Dict] = None,
+        benchmark_tasks_lock: Optional[asyncio.Lock] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Пошаговое выполнение бенчмарка с обновлением прогресса.
+
+        Args:
+            image_input: Изображение для инференса
+            alpha: Прозрачность наложения
+            task_id: ID задачи для обновления статуса
+            benchmark_tasks: Словарь задач (для обновления)
+            benchmark_tasks_lock: Lock для синхронизации
+        """
+        print(f"🚀 Starting step-by-step benchmark on {len(self.models)} models...")
+        model_keys = list(self.models.keys())
+
+        # Прогресс: 75% -> 95% на этапе инференса (20% диапазона)
+        progress_start = 75
+        progress_range = 20
+
+        for i, key in enumerate(model_keys):
+            print(f"\n🔹 Running {key} ({i+1}/{len(model_keys)})...")
+
+            # 🔹 Обновляем прогресс
+            if task_id and benchmark_tasks and benchmark_tasks_lock:
+                progress = progress_start + (i / len(model_keys)) * progress_range
+                async with benchmark_tasks_lock:
+                    benchmark_tasks[task_id]["progress"] = progress
+                    benchmark_tasks[task_id]["message"] = f"🔍 Инференс {key}..."
+                await asyncio.sleep(0)  # Даём событию обновиться
+
+            # Запускаем инференс одной модели
+            self.run_single(image_input, key, alpha=alpha)
+
+            # Освобождаем память после каждой модели (кроме последней)
+            if i < len(model_keys) - 1:
+                del self.models[key]["model"]
+                del self.models[key]["processor"]
+                torch.cuda.empty_cache()
+                gc.collect()
+                print(f"   🗑️  Freed {key} from VRAM")
+
+        return self.get_summary()
 
 
 def export_comparison_table(

@@ -157,7 +157,7 @@ export interface BenchmarkSummaryRaw {
 }
 
 export interface BenchmarkProgress {
-  status: 'idle' | 'pending' | 'running' | 'completed' | 'failed';
+  status: 'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   message: string;
   error_details?: {
@@ -870,20 +870,33 @@ export default function App() {
 
   useEffect(() => {
     if (!benchmarkTaskId || benchmarkLoading) return;
+    
     const poll = setInterval(async () => {
       try {
         const res = await fetch(`${API}/api/benchmark/status/${benchmarkTaskId}`);
         const data = await res.json();
-        setBenchmarkProgress(data);
-        if (data.status === 'completed' || data.status === 'failed') {
+        
+        setBenchmarkProgress(prev => ({
+          ...prev,
+          status: data.status,
+          progress: data.progress,
+          message: data.message,
+          error_details: data.error_details,
+        }));
+        
+        if (['completed', 'failed', 'cancelled'].includes(data.status)) {
           clearInterval(poll);
           setBenchmarkLoading(false);
-          if (data.status === 'completed') setBenchmarkResult(data.results);
+          if (data.status === 'completed') {
+            setBenchmarkResult(data.results);
+          }
+          console.log(`✅ Benchmark ${data.status}:`, data);
         }
       } catch (e) {
         console.error('Poll error:', e);
       }
     }, 2000);
+    
     return () => clearInterval(poll);
   }, [benchmarkTaskId, benchmarkLoading]);
 
@@ -1688,6 +1701,17 @@ export default function App() {
                 </div>
               )}
 
+              {benchmarkLoading && benchmarkProgress.status === 'running' && (
+                <div className="mt-4 p-4 bg-blue-50 rounded border border-blue-200">
+                  <h4 className="font-semibold text-blue-800 mb-2">🔄 Бенчмарк в процессе</h4>
+                  <ul className="text-sm text-blue-700 space-y-1">
+                    <li>• Статус: {benchmarkProgress.message}</li>
+                    <li>• Прогресс: {benchmarkProgress.progress.toFixed(1)}%</li>
+                    <li>• Осталось моделей: ~{Math.ceil((100 - benchmarkProgress.progress) / 5)}</li>
+                  </ul>
+                </div>
+              )}
+
               {benchmarkProgress.status === 'failed' && (
                 <div className="error-banner">
                   ❌ {benchmarkProgress.message}
@@ -1704,7 +1728,7 @@ export default function App() {
 
               {/* Результаты */}
               {benchmarkResult && (
-                <div className="mt-6 space-y-6">
+                <div className="mt-6 space-y-8">
                   {/* Сводная таблица */}
                   <div className="overflow-x-auto">
                     <table className="data-table">
@@ -1725,16 +1749,26 @@ export default function App() {
                     </table>
                   </div>
 
-                  {/* Графики */}
-                  <div className="mt-4 p-3 bg-white rounded shadow">
-                    <h4 className="font-semibold mb-2">📈 Графики метрик</h4>
+                  {/* Графики — каждый в отдельной карточке */}
+                  <div className="space-y-6">
+                    <h4 className="font-semibold text-lg">📈 Графики метрик</h4>
+                    
+                    {/* Основной график сравнения */}
                     {benchmarkResult?.charts?.metrics_plot_b64 && (
-                      <img 
-                        src={`data:image/png;base64,${benchmarkResult.charts.metrics_plot_b64}`}
-                        alt="Benchmark metrics"
-                        className="w-full h-auto rounded"
-                      />
+                      <div className="chart-card chart-card--tall">
+                        <h5 className="font-medium mb-3">🎯 Mean IoU по моделям</h5>
+                        <div className="chart-container">
+                          <img 
+                            src={`data:image/png;base64,${benchmarkResult.charts.metrics_plot_b64}`}
+                            alt="Benchmark metrics"
+                            className="chart-img"
+                          />
+                        </div>
+                      </div>
                     )}
+                    
+                    {/* 🔹 Здесь можно добавить другие графики, если бэкенд будет их возвращать */}
+                    {/* {benchmarkResult?.charts?.time_plot_b64 && (...)} */}
                   </div>
                 </div>
               )}
@@ -1743,8 +1777,22 @@ export default function App() {
         )}
         {benchmarkLoading && (
           <button 
-            onClick={() => fetch(`${API}/api/benchmark/${benchmarkTaskId}`, { method: 'DELETE' })}
+            onClick={async () => {
+              try {
+                const res = await fetch(`${API}/api/benchmark/${benchmarkTaskId}`, { method: 'DELETE' });
+                const data = await res.json();
+                
+                // 🔹 400 — это не ошибка, а инфо о том, что задача уже завершена
+                if (res.ok || res.status === 400) {
+                  setBenchmarkProgress(prev => ({ ...prev, status: data.status, message: data.message }));
+                  setBenchmarkLoading(false);
+                }
+              } catch (e) {
+                console.error('❌ Cancel error:', e);
+              }
+            }}
             className="text-red-500 text-sm hover:underline ml-2"
+            disabled={!benchmarkLoading || benchmarkProgress.status === 'cancelled'}
           >
             ✕ Отменить
           </button>

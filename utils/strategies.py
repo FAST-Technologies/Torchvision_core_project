@@ -29,6 +29,8 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+from utils.paths import ADE20K_DIR, ensure_dirs
+
 num_classes: int = 150
 
 
@@ -793,6 +795,8 @@ def _log_inference_details_standalone(
     print(f"\n🔍 Model: {model_type}")
     print(f"   Mask shape: {seg_map.shape}, dtype: {seg_map.dtype}")
 
+    ensure_dirs(ADE20K_DIR)
+
     unique_classes = np.unique(seg_map)
     print(
         f"   Predicted classes ({len(unique_classes)}): {unique_classes[:20]}{'...' if len(unique_classes) > 20 else ''}"
@@ -846,7 +850,7 @@ def _log_inference_details_standalone(
         print(f"🏆 Top class: {report['top_class']} ({report['top_class_pct']}%)")
         export_class_report(
             report,
-            f"./data/ade20k_test_trained/{model_type}_prediction_report.md",
+            str(ADE20K_DIR / f"{model_type}_prediction_report.md"),
             format="markdown",
         )
     except Exception as e:

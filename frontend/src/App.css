@@ -724,6 +724,63 @@ body {
   color: #1e293b;
 }
 
+/* ── Benchmark Charts ───────────────────────────────────────────── */
+.chart-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-md);
+  margin-bottom: 1rem;
+}
+
+.chart-card--tall {
+  /* Фиксированная высота для графиков */
+  min-height: 400px;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-card h5 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: #334155;
+}
+
+.chart-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  background: #f8fafc;
+  border-radius: var(--radius-sm);
+  padding: 0.5rem;
+}
+
+.chart-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+/* Вертикальный стек для нескольких графиков */
+.benchmark-charts-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .chart-card--tall {
+    min-height: 320px;
+  }
+  .chart-container {
+    min-height: 280px;
+  }
+}
+
 /* Адаптивность для таблиц */
 @media (max-width: 768px) {
   .data-table {

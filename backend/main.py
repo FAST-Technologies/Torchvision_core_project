@@ -50,6 +50,9 @@ _CACHE_MAX = 3
 
 _validation_tasks: Dict[str, Dict] = {}
 
+print(f"🔍 CWD: {os.getcwd()}")
+print(f"🔍 __file__: {__file__}")
+
 
 def _get_or_load_neural(config: dict, task: str) -> Any:
     from segmenters.NeuralSegmenter import NeuralSegmenter

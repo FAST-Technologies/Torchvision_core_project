@@ -22,6 +22,8 @@ import torch
 import gc
 import base64
 import json
+from fastapi.responses import JSONResponse
+import numpy as np
 
 import logging
 
@@ -31,6 +33,7 @@ logger = logging.getLogger("benchmark")
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.config import settings
+from utils.paths import ensure_dirs, ADE20K_DIR, MODELS_DIR, PROJECT_ROOT, DATA_DIR
 
 router = APIRouter(
     prefix="/api/benchmark",
@@ -43,6 +46,34 @@ router = APIRouter(
 
 # Простое хранилище задач (в продакшене замените на Redis/Celery)
 benchmark_tasks: Dict[str, Dict[str, Any]] = {}
+
+benchmark_tasks_lock = asyncio.Lock()
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """Кастомный JSON-энкодер для numpy-типов и специальных float-значений"""
+
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            if np.isnan(obj):
+                return None  # или "NaN" как строка
+            elif np.isinf(obj):
+                return None if obj > 0 else None  # или "Infinity"/"-Infinity"
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+
+def safe_json_response(content: Any, status_code: int = 200) -> JSONResponse:
+    """Возвращает JSONResponse с безопасной сериализацией"""
+    return JSONResponse(
+        content=content,
+        status_code=status_code,
+        media_type="application/json",
+    )
 
 
 def img_to_b64(path: str) -> str:
@@ -87,12 +118,16 @@ async def run_benchmark(
     gt_file: Optional[UploadFile] = None,
     config: Optional[Dict] = None,
 ):
-    benchmark_tasks[task_id] = {
-        "status": "running",
-        "progress": 0,
-        "message": "Инициализация...",
-        "results": None,
-    }
+    logger.info(
+        f"🔄 Task {task_id}: progress={benchmark_tasks[task_id]['progress']}, message={benchmark_tasks[task_id]['message']}"
+    )
+    async with benchmark_tasks_lock:
+        benchmark_tasks[task_id] = {
+            "status": "running",
+            "progress": 0,
+            "message": "Инициализация...",
+            "results": None,
+        }
     if torch.cuda.is_available():
         vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
         if vram_gb < 20:  # менее 20 ГБ
@@ -102,6 +137,20 @@ async def run_benchmark(
         import numpy as np
         from PIL import Image
 
+        ensure_dirs(ADE20K_DIR)
+
+        logger.info(f"🔍 PROJECT_ROOT: {PROJECT_ROOT}")
+        logger.info(f"🔍 MODELS_DIR: {MODELS_DIR}")
+        logger.info(f"🔍 DATA_DIR: {DATA_DIR}")
+
+        # Проверка существования ключевых файлов
+        for key, path in [
+            ("SegFormer", settings.SEGFORMER_PATH),
+            ("UNet", settings.MODEL_DIR / settings.UNET_CHECKPOINT),
+            ("Default Image", settings.DEFAULT_IMAGE),
+        ]:
+            exists = "✅" if os.path.exists(path) else "❌"
+            logger.info(f"{exists} {key}: {path}")
         inference_params = config.get("inference", {})
         alpha = inference_params.get("alpha", 0.6)
         warmup_runs = inference_params.get("warmup_runs", 2)
@@ -125,8 +174,9 @@ async def run_benchmark(
         }
         palette = PALETTES.get(palette_name, ade_palette)
 
-        benchmark_tasks[task_id]["progress"] = 5
-        benchmark_tasks[task_id]["message"] = "Загрузка бенчмарка..."
+        async with benchmark_tasks_lock:
+            benchmark_tasks[task_id]["progress"] = 5
+            benchmark_tasks[task_id]["message"] = "Загрузка бенчмарка..."
 
         if image_file:
             image_input = Image.open(image_file.file).convert("RGB")
@@ -165,7 +215,9 @@ async def run_benchmark(
             (
                 "segformer",
                 bench.load_segformer,
-                {"path": settings.SEGFORMER_PATH},
+                {
+                    "path": str(settings.MODEL_DIR / settings.SEGFORMER_PATH),
+                },
             ),
             ("segformer_b2", bench.load_segformer_variant, {"variant": "b2"}),
             (
@@ -201,8 +253,8 @@ async def run_benchmark(
                 "unet_pretrained",
                 bench.load_unet_trained,
                 {
-                    "checkpoint_path": os.path.join(
-                        settings.MODEL_DIR, settings.UNET_CHECKPOINT
+                    "checkpoint_path": str(
+                        settings.MODEL_DIR / settings.UNET_CHECKPOINT
                     ),
                     "encoder_name": "resnet34",
                 },
@@ -211,9 +263,9 @@ async def run_benchmark(
                 "deeplab_pretrained",
                 bench.load_deeplab_trained,
                 {
-                    "checkpoint_path": os.path.join(
-                        settings.MODEL_DIR, settings.DEEPLAB_CHECKPOINT
-                    )
+                    "checkpoint_path": str(
+                        settings.MODEL_DIR / settings.DEEPLAB_CHECKPOINT
+                    ),
                 },
             ),
             (
@@ -221,8 +273,8 @@ async def run_benchmark(
                 bench.load_fpn_mit_pretrained,
                 {
                     "variant": "b5",
-                    "checkpoint_path": os.path.join(
-                        settings.MODEL_DIR, settings.FPN_MIT_CHECKPOINT
+                    "checkpoint_path": str(
+                        settings.MODEL_DIR / settings.FPN_MIT_CHECKPOINT
                     ),
                 },
             ),
@@ -231,8 +283,8 @@ async def run_benchmark(
                 bench.load_psp_mit_pretrained,
                 {
                     "variant": "b5",
-                    "checkpoint_path": os.path.join(
-                        settings.MODEL_DIR, settings.PSP_MIT_CHECKPOINT
+                    "checkpoint_path": str(
+                        settings.MODEL_DIR / settings.PSP_MIT_CHECKPOINT
                     ),
                 },
             ),
@@ -241,8 +293,8 @@ async def run_benchmark(
                 bench.load_fcn_resnet50_pretrained,
                 {
                     "variant": "fcn_resnet50",
-                    "checkpoint_path": os.path.join(
-                        settings.MODEL_DIR, settings.FCN_RESNET50_CHECKPOINT
+                    "checkpoint_path": str(
+                        settings.MODEL_DIR / settings.FCN_RESNET50_CHECKPOINT
                     ),
                 },
             ),
@@ -251,8 +303,8 @@ async def run_benchmark(
                 bench.load_segnet_pretrained,
                 {
                     "encoder_name": "resnet34",
-                    "checkpoint_path": os.path.join(
-                        settings.MODEL_DIR, settings.SEGNET_RESNET34_CHECKPOINT
+                    "checkpoint_path": str(
+                        settings.MODEL_DIR / settings.SEGNET_RESNET34_CHECKPOINT
                     ),
                 },
             ),
@@ -270,66 +322,114 @@ async def run_benchmark(
             ]
 
         for i, (key, load_fn, kwargs) in enumerate(model_load_steps):
-            benchmark_tasks[task_id]["progress"] = 5 + (i / len(model_load_steps)) * 70
-            benchmark_tasks[task_id]["message"] = f"🔄 {key}: загрузка..."
+            async with benchmark_tasks_lock:
+                benchmark_tasks[task_id]["progress"] = (
+                    5 + (i / len(model_load_steps)) * 70
+                )
+                benchmark_tasks[task_id]["message"] = f"🔄 {key}: загрузка..."
+            await asyncio.sleep(0)
             try:
                 if "checkpoint_path" in kwargs:
-                    if not os.path.exists(kwargs["checkpoint_path"]):
-                        print(
-                            f"⚠️ Checkpoint not found: {kwargs['checkpoint_path']}, skipping {key}"
+                    full_path = kwargs["checkpoint_path"]
+                    if not os.path.exists(full_path):
+                        logger.warning(
+                            f"⚠️ Checkpoint not found: {full_path}, skipping {key}"
                         )
                         continue
                 load_fn(**kwargs)
                 torch.cuda.empty_cache()
                 gc.collect()
             except Exception as e:
-                print(f"⚠️ Не удалось загрузить {key}: {e}")
+                logger.error(f"❌ Failed to load {key}: {e}", exc_info=True)
 
-        benchmark_tasks[task_id]["message"] = f"✅ {key}: готово"
-        # 3. Запуск сравнения
-        benchmark_tasks[task_id]["message"] = "Запуск инференса..."
-        await asyncio.to_thread(bench.compare, image_input=image_input, alpha=alpha)
+        async with benchmark_tasks_lock:
+            benchmark_tasks[task_id]["message"] = f"✅ {key}: готово"
+            benchmark_tasks[task_id]["message"] = "Запуск инференса..."
+        await bench.compare_step_by_step(
+            image_input=image_input,
+            alpha=alpha,
+            task_id=task_id,
+            benchmark_tasks=benchmark_tasks,
+            benchmark_tasks_lock=benchmark_tasks_lock,
+        )
 
-        # 4. Сохранение результатов
+        # Сохранение результатов
+        async with benchmark_tasks_lock:
+            benchmark_tasks[task_id]["message"] = "Сохранение результатов..."
+        await asyncio.sleep(0)
+
         out_dir = f"./data/benchmark_{task_id}"
         await asyncio.to_thread(bench.save_results, out_dir)
         await asyncio.to_thread(bench.plot_all_metrics, path=f"{out_dir}/plot_all.png")
-
-        benchmark_tasks[task_id]["status"] = "completed"
-        benchmark_tasks[task_id]["progress"] = 100
-        benchmark_tasks[task_id]["message"] = "Готово"
-        benchmark_tasks[task_id]["results"] = {
-            "summary": bench.get_summary(),
-            "output_dir": out_dir,
-            "charts": {
-                "metrics_plot_b64": img_to_b64(f"{out_dir}/plot_all.png"),
-            },
-        }
+        async with benchmark_tasks_lock:
+            benchmark_tasks[task_id]["status"] = "completed"
+            benchmark_tasks[task_id]["progress"] = 100
+            benchmark_tasks[task_id]["message"] = "Готово"
+        await asyncio.sleep(0)
+        summary = bench.get_summary()
+        for model, metrics in summary.items():
+            for key in ["mIoU", "pixel_acc", "f1_weighted"]:
+                val = metrics.get(key)
+                if isinstance(val, (float, np.floating)) and (
+                    np.isnan(val) or np.isinf(val)
+                ):
+                    metrics[key] = None
+        async with benchmark_tasks_lock:
+            benchmark_tasks[task_id]["results"] = {
+                "summary": summary,
+                "output_dir": out_dir,
+                "charts": {
+                    "metrics_plot_b64": img_to_b64(f"{out_dir}/plot_all.png"),
+                },
+            }
 
     except Exception as e:
         import traceback
 
-        benchmark_tasks[task_id]["status"] = "failed"
-        benchmark_tasks[task_id]["message"] = str(e)
-        benchmark_tasks[task_id]["error_details"] = {
-            "error_type": type(e).__name__,
-            "failed_at": benchmark_tasks[task_id]["message"],  # на каком этапе
-            "traceback": (
-                traceback.format_exc() if logger.level == logging.DEBUG else None
-            ),
-        }
+        async with benchmark_tasks_lock:
+            benchmark_tasks[task_id]["status"] = "failed"
+            benchmark_tasks[task_id]["message"] = str(e)
+            benchmark_tasks[task_id]["error_details"] = {
+                "error_type": type(e).__name__,
+                "failed_at": benchmark_tasks[task_id]["message"],  # на каком этапе
+                "traceback": (
+                    traceback.format_exc() if logger.level == logging.DEBUG else None
+                ),
+            }
         logger.error(f"Benchmark {task_id} failed: {e}", exc_info=True)
 
 
+# @router.post("/start")
+# async def start_benchmark(
+#     # req: BenchmarkStartRequest,
+#     image: Optional[UploadFile] = File(None),
+#     gt_mask: Optional[UploadFile] = File(None),
+#     use_default_image: bool = Form(True),
+#     image_path: Optional[str] = Form(None),
+#     config: Optional[str] = Form(None),
+#     bg: BackgroundTasks = None,
+# ):
+#     config_dict = {}
+#     if config:
+#         try:
+#             config_dict = json.loads(config)
+#         except json.JSONDecodeError:
+#             raise HTTPException(422, detail="Invalid config JSON")
+#     req = BenchmarkStartRequest(
+#         use_default_image=use_default_image,
+#         image_path=image_path,
+#     )
+#     task_id = str(uuid.uuid4())
+#     bg.add_task(run_benchmark, task_id, req, image, gt_mask, config_dict)
+#     return {"task_id": task_id}
 @router.post("/start")
 async def start_benchmark(
-    # req: BenchmarkStartRequest,
     image: Optional[UploadFile] = File(None),
     gt_mask: Optional[UploadFile] = File(None),
     use_default_image: bool = Form(True),
     image_path: Optional[str] = Form(None),
     config: Optional[str] = Form(None),
-    bg: BackgroundTasks = None,
+    # 🔹 Убираем bg: BackgroundTasks = None
 ):
     config_dict = {}
     if config:
@@ -337,30 +437,97 @@ async def start_benchmark(
             config_dict = json.loads(config)
         except json.JSONDecodeError:
             raise HTTPException(422, detail="Invalid config JSON")
+
     req = BenchmarkStartRequest(
         use_default_image=use_default_image,
         image_path=image_path,
     )
+
     task_id = str(uuid.uuid4())
-    bg.add_task(run_benchmark, task_id, req, image, gt_mask, config_dict)
+
+    # 🔹 Запускаем задачу в том же event loop
+    asyncio.create_task(run_benchmark(task_id, req, image, gt_mask, config_dict))
+
     return {"task_id": task_id}
 
 
+# @router.get("/status/{task_id}")
+# async def get_status(task_id: str):
+#     task = benchmark_tasks.get(task_id)
+#     if not task:
+#         raise HTTPException(status_code=404, detail="Task not found")
+
+#     logger.debug(f"📡 Status requested for {task_id}: {task['status']} / {task['progress']}%")
+
+#     # 🔹 Безопасная сериализация результатов
+#     if task.get("results") and "summary" in task["results"]:
+#         # Конвертируем все потенциально проблемные значения
+#         summary = task["results"]["summary"]
+#         for model, metrics in summary.items():
+#             for key, value in metrics.items():
+#                 if isinstance(value, (float, np.floating)):
+#                     if np.isnan(value) or np.isinf(value):
+#                         metrics[key] = None
+
+
+#     return safe_json_response(task)
 @router.get("/status/{task_id}")
 async def get_status(task_id: str):
-    if task_id not in benchmark_tasks:
+    async with benchmark_tasks_lock:
+        task = benchmark_tasks.get(task_id)
+    logger.info(f"📡 GET /status/{task_id} -> {task.get('progress')}%")
+
+    if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    return benchmark_tasks[task_id]
+
+    logger.debug(
+        f"📡 Status requested for {task_id}: {task['status']} / {task['progress']}%"
+    )
+    if task.get("results") and "summary" in task["results"]:
+        summary = task["results"]["summary"]
+        for model, metrics in summary.items():
+            for key, value in metrics.items():
+                if isinstance(value, (float, np.floating)):
+                    if np.isnan(value) or np.isinf(value):
+                        metrics[key] = None
+
+    return safe_json_response(task)
+
+
+@router.get("/debug/{task_id}")
+async def debug_task(task_id: str):
+    task = benchmark_tasks.get(task_id)
+    if not task:
+        return {"error": "Task not found"}
+
+    return {
+        "task_id": task_id,
+        "status": task.get("status"),
+        "progress": task.get("progress"),
+        "message": task.get("message"),
+        "results_keys": (
+            list(task.get("results", {}).keys()) if task.get("results") else None
+        ),
+        "last_updated": time.time(),
+    }
 
 
 @router.delete("/{task_id}")
 async def cancel_benchmark(task_id: str):
-    if task_id not in benchmark_tasks:
-        raise HTTPException(404, detail="Task not found")
+    # if task_id not in benchmark_tasks:
+    #     raise HTTPException(404, detail="Task not found")
 
-    task = benchmark_tasks[task_id]
-    if task["status"] in ("completed", "failed"):
-        raise HTTPException(400, detail="Task already finished")
+    # task = benchmark_tasks[task_id]
+    # if task["status"] in ("completed", "failed"):
+    #     raise HTTPException(400, detail="Task already finished")
+    task = benchmark_tasks.get(task_id)
+
+    if not task:
+        # 🔹 Не ошибка, а информативный ответ
+        return {"status": "not_found", "message": "Task not found or already removed"}
+
+    if task["status"] in ("completed", "failed", "cancelled"):
+        return {"status": task["status"], "message": f"Task already {task['status']}"}
 
     task["status"] = "cancelled"
     task["message"] = "Отменено пользователем"
