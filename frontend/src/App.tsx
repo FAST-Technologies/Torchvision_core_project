@@ -98,6 +98,11 @@ export interface ValidationProgress {
   total: number;           // всего методов
   elapsed_ms?: number;     // затраченное время
   error?: string;          // ошибка, если статус 'failed'
+  error_details?: {
+    error_type: string;
+    failed_at: string;
+    traceback?: string;
+  };
 }
 
 export interface ValidationResponse {
@@ -151,6 +156,49 @@ export interface BenchmarkSummaryRaw {
   status: string;
 }
 
+export interface BenchmarkProgress {
+  status: 'idle' | 'pending' | 'running' | 'completed' | 'failed';
+  progress: number;
+  message: string;
+  error_details?: {
+    error_type: string;
+    failed_at: string;
+    traceback?: string;
+  };
+}
+
+export interface BenchmarkConfig {
+  // 🔹 Модели для запуска
+  models_to_run?: string[]; // ['segformer', 'mask2former', ...]
+  
+  // 🔹 Метрики для расчёта
+  metrics?: Array<'mIoU' | 'pixel_acc' | 'f1_weighted' | 'time_ms'>;
+  
+  // 🔹 Типы графиков
+  plot_types?: Array<'bar' | 'scatter' | 'heatmap' | 'confusion'>;
+  
+  // 🔹 Параметры инференса
+  inference?: {
+    alpha?: number;          // Прозрачность наложения (0..1)
+    batch_size?: number;     // Размер батча (если поддерживается)
+    warmup_runs?: number;    // Прогревочные прогоны
+  };
+  
+  // 🔹 Фильтры результатов
+  filters?: {
+    min_iou?: number;        // Минимальный IoU для отображения
+    max_time_ms?: number;    // Максимальное время
+    only_passed?: boolean;   // Только прошедшие валидацию
+  };
+  
+  // 🔹 Визуализация
+  visualization?: {
+    show_overlay?: boolean;  // Показывать наложение маски
+    show_gt?: boolean;       // Показывать ground truth
+    color_palette?: 'ade' | 'coco' | 'cityscapes';
+  };
+}
+
 interface MethodInfo {
   name: string; library: string; avg_iou: number; avg_time_ms: number
   memory_mb: number; robustness: number; description: string
@@ -159,7 +207,7 @@ interface MethodInfo {
 }
 
 type GoalType = 'balanced' | 'speed' | 'accuracy' | 'low_memory'
-type Tab  = 'results' | 'metrics' | 'recommendations' | 'analysis' | 'validation'
+type Tab  = 'results' | 'metrics' | 'recommendations' | 'analysis' | 'validation' | 'benchmark'
 type Mode = 'classical' | 'neural'
 type NeuralTask = 'semantic' | 'instance' | 'panoptic'
 
@@ -458,9 +506,9 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
   // 🔹 График 4: Покрытие масок
   const coverageData = useMemo(() => 
     data.data
-      .filter(d => d.torch_mask_coverage != null)
-      .sort((a, b) => (a.torch_mask_coverage || 0) - (b.torch_mask_coverage || 0))
-      .map(d => ({ method: d.method, coverage: d.torch_mask_coverage })),
+      .filter(d => d.predicted_area != null)
+      .sort((a, b) => (a.predicted_area || 0) - (b.predicted_area || 0))
+      .map(d => ({ method: d.method, coverage: d.predicted_area })),
     [data]
   );
 
@@ -493,8 +541,8 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
     [data]
   );
 
-  console.log('⏱ Time data:', timeData); // ← Добавь это
-  console.log('🎯 IoU data:', iouData); // ← Добавь это
+  console.log('⏱ Time data:', timeData);
+  console.log('🎯 IoU data:', iouData);
 
   return (
     <div className="benchmark-charts">
@@ -768,6 +816,24 @@ export default function App() {
     processed: 0,
     total: 0,
   });
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false);
+  const [benchmarkTaskId, setBenchmarkTaskId] = useState<string | null>(null);
+  const [benchmarkProgress, setBenchmarkProgress] = useState<BenchmarkProgress>({
+    status: 'idle',
+    progress: 0,
+    message: '',
+    error_details: undefined,
+  });
+  const [benchmarkResult, setBenchmarkResult] = useState<any>(null);
+  const [benchmarkGtFile, setBenchmarkGtFile] = useState<File | null>(null);
+  const [selectedBenchmarkModels, setSelectedBenchmarkModels] = useState<string[]>([
+    'segformer', 'mask2former', 'unet_pretrained'
+  ]);
+  const [savedPresets, setSavedPresets] = useState<string[]>([]);
+
+  useEffect(() => {
+    setSavedPresets(getSavedPresets());
+  }, []);
 
   useEffect(() => {
     if (autoSelect || mode === 'neural') return
@@ -801,6 +867,58 @@ export default function App() {
     console.log('🔄 validationLoading:', validationLoading);
     console.log('🔄 validationResult:', !!validationResult);
   }, [validationProgress, validationLoading, validationResult]);
+
+  useEffect(() => {
+    if (!benchmarkTaskId || benchmarkLoading) return;
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/api/benchmark/status/${benchmarkTaskId}`);
+        const data = await res.json();
+        setBenchmarkProgress(data);
+        if (data.status === 'completed' || data.status === 'failed') {
+          clearInterval(poll);
+          setBenchmarkLoading(false);
+          if (data.status === 'completed') setBenchmarkResult(data.results);
+        }
+      } catch (e) {
+        console.error('Poll error:', e);
+      }
+    }, 2000);
+    return () => clearInterval(poll);
+  }, [benchmarkTaskId, benchmarkLoading]);
+
+  useEffect(() => {
+    if (benchmarkResult?.charts) {
+      console.log('📊 benchmarkResult.charts:', benchmarkResult.charts);
+    }
+  }, [benchmarkResult]);
+
+  const calculateEstimatedTime = (models: string[]): number => {
+    const ESTIMATED_TIMES: Record<string, number> = {
+      'segformer': 30000,
+      'segformer_b2': 25000,
+      'mask2former': 45000,
+      'maskformer': 40000,
+      'oneformer': 50000,
+      'dpt': 35000,
+      'upernet': 30000,
+      'sam': 20000,
+      'sam2': 25000,
+      'yolov8n_seg': 10000,
+      'yolov8s_seg': 15000,
+      'yolov8m_seg': 20000,
+      'unet_pretrained': 15000,
+      'deeplab_pretrained': 20000,
+      'fpn_mit_b5_pretrained': 18000,
+      'psp_mit_b5_pretrained': 18000,
+      'fcn_resnet50_pretrained': 12000,
+      'segnet_resnet34_pretrained': 10000,
+      'maskrcnn_pretrained': 25000,
+    };
+    
+    return models.reduce((sum, model) => 
+      sum + (ESTIMATED_TIMES[model] || 20000), 0);
+  };
 
   const handleMethodChange = (e: ChangeEvent<HTMLSelectElement>) => {
     const methodName = e.target.value;
@@ -864,6 +982,84 @@ export default function App() {
       setLoading(false)
     }
   }
+
+  const onBenchmarkStart = async () => {
+    const health = await fetch(`${API}/api/benchmark/health`).then(r => r.json());
+    if (health.vram_mb < 20000) { // <20 ГБ
+      if (!window.confirm(`⚠️ Мало VRAM: ${health.vram_mb.toFixed(0)} МБ. Бенчмарк может упасть. Продолжить?`)) {
+        return;
+      }
+    }
+    setBenchmarkLoading(true);
+    setBenchmarkProgress({
+      status: 'pending',
+      progress: 0,
+      message: 'Запуск...',
+      error_details: undefined,
+    });
+    setBenchmarkResult(null);
+    try {
+      // const res = await fetch(`${API}/api/benchmark/start`, {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify({ use_default_image: true })
+      // });
+      const fd = new FormData();
+      if (file) fd.append('image', file);
+      if (benchmarkGtFile) fd.append('gt_mask', benchmarkGtFile);
+      fd.append('use_default_image', String(!file));
+      if (!file) {
+        fd.append('image_path', './data/ade20k_test_trained/original_image_0.jpg');
+      }
+      const config: BenchmarkConfig = {
+        // Модели (все доступные по умолчанию)
+        models_to_run: [
+          'segformer', 'segformer_b2', 'mask2former', 'maskformer', 'oneformer',
+          'dpt', 'upernet', 'sam', 'sam2', 'yolov8n_seg', 'yolov8s_seg', 'yolov8m_seg',
+          'unet_pretrained', 'deeplab_pretrained', 'fpn_mit_b5_pretrained',
+          'psp_mit_b5_pretrained', 'fcn_resnet50_pretrained', 'segnet_resnet34_pretrained',
+          'maskrcnn_pretrained'
+        ],
+        
+        // Метрики
+        metrics: ['mIoU', 'pixel_acc', 'f1_weighted', 'time_ms'],
+        
+        // Графики
+        plot_types: ['bar', 'scatter', 'heatmap', 'confusion'],
+        
+        // Инференс
+        inference: {
+          alpha: 0.6,
+          warmup_runs: 2,
+        },
+        
+        // Фильтры
+        filters: {
+          min_iou: 0.0,
+          only_passed: false,
+        },
+        
+        // Визуализация
+        visualization: {
+          show_overlay: true,
+          show_gt: true,
+          color_palette: 'ade',
+        },
+      };
+      fd.append('config', JSON.stringify(config));
+
+      const res = await fetch(`${API}/api/benchmark/start`, {
+        method: 'POST',
+        body: fd,
+      });
+      if (!res.ok) throw new Error('Ошибка запуска');
+      const { task_id } = await res.json();
+      setBenchmarkTaskId(task_id);
+    } catch (e: any) {
+      setBenchmarkLoading(false);
+      setErr(e.message);
+    }
+  };
 
   const onValidate = async () => {
     if (!file) { setErr('Сначала загрузите изображение'); return; }
@@ -1040,6 +1236,39 @@ export default function App() {
     };
   }, []);
 
+  const saveBenchmarkPreset = useCallback((name: string, config: BenchmarkConfig) => {
+    try {
+      const presets = JSON.parse(localStorage.getItem('benchmark_presets') || '{}');
+      presets[name] = config;
+      localStorage.setItem('benchmark_presets', JSON.stringify(presets));
+      setSavedPresets(Object.keys(presets));
+      console.log(`✅ Preset "${name}" saved`);
+      return true;
+    } catch (e) {
+      console.error('❌ Failed to save preset:', e);
+      return false;
+    }
+  }, []);
+
+  const loadBenchmarkPreset = useCallback((name: string): BenchmarkConfig | null => {
+    try {
+      const presets = JSON.parse(localStorage.getItem('benchmark_presets') || '{}');
+      return presets[name] || null;
+    } catch (e) {
+      console.error('❌ Failed to load preset:', e);
+      return null;
+    }
+  }, []);
+
+  const getSavedPresets = useCallback((): string[] => {
+    try {
+      const presets = JSON.parse(localStorage.getItem('benchmark_presets') || '{}');
+      return Object.keys(presets);
+    } catch {
+      return [];
+    }
+  }, []);
+
   return (
     <div className="app">
       {/* ── Header ── */}
@@ -1199,6 +1428,7 @@ export default function App() {
               ['metrics', '📊 Метрики'],
               ['recommendations','💡 Рекомендации'],
               ['analysis', '🔍 Анализ'],
+              ['benchmark', '📊 Бенчмарк'],
               ...(mode === 'classical' ? [['validation', '🔬 Валидация'] as [Tab, string]] : []),
             ] as [Tab, string][]).map(([t, label]) => (
               <button 
@@ -1350,6 +1580,174 @@ export default function App() {
               </div>
             )}
           </div>
+        )}
+
+        {/* ── Benchmark Tab ── */}
+        {activeTab === 'benchmark' && (
+          <div className="benchmark-tab">
+            <div className="card">
+              <h3 className="card__title">📊 Кросс-методный бенчмарк</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Сравните все доступные методы (классические + нейросетевые) на стандартном наборе. 
+                Выполнение может занять 5-15 минут.
+              </p>
+
+              <div className="flex items-center gap-2 mb-4">
+                <select 
+                  className="control-select text-sm"
+                  onChange={(e) => {
+                    const preset = loadBenchmarkPreset(e.target.value);
+                    if (preset) {
+                      console.log('📥 Loaded preset:', preset);
+                      // 🔹 Здесь можно обновить selectedBenchmarkModels или конфиг
+                    }
+                  }}
+                  defaultValue=""
+                >
+                  <option value="" disabled>📁 Загрузить пресет...</option>
+                  {savedPresets.map(name => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+                
+                <button
+                  type="button"
+                  onClick={() => {
+                    const name = prompt('Название пресета:');
+                    if (name) {
+                      const config: BenchmarkConfig = {
+                        models_to_run: ['segformer', 'mask2former', 'unet_pretrained'],
+                        metrics: ['mIoU', 'pixel_acc', 'f1_weighted', 'time_ms'],
+                        plot_types: ['bar', 'scatter', 'heatmap', 'confusion'],
+                        inference: { alpha: 0.6, warmup_runs: 2 },
+                        filters: { min_iou: 0.0, only_passed: false },
+                        visualization: { show_overlay: true, show_gt: true, color_palette: 'ade' },
+                      };
+                      if (saveBenchmarkPreset(name, config)) {
+                        alert(`✅ Пресет "${name}" сохранён`);
+                      }
+                    }
+                  }}
+                  className="text-sm text-primary hover:underline"
+                >
+                  💾 Сохранить пресет
+                </button>
+              </div>
+
+              <button
+                onClick={onBenchmarkStart}
+                disabled={benchmarkLoading}
+                className="submit-btn submit-btn--secondary"
+              >
+                {benchmarkLoading ? `⏳ ${benchmarkProgress.message} (${benchmarkProgress.progress}%)` : '▶ Запустить бенчмарк'}
+              </button>
+
+              <div className="control-group mt-4">
+                <span className="control-group__label">🎯 GT-маска (опц.)</span>
+                <input 
+                  type="file" 
+                  accept="image/*"
+                  onChange={e => setBenchmarkGtFile(e.target.files?.[0] || null)} 
+                  className="control-input" 
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Для расчёта метрик (mIoU, pixel_acc). Если не указано — используется дефолтная.
+                </p>
+              </div>
+
+              {selectedBenchmarkModels.map(model => (
+                <label key={model} className="flex items-center gap-1 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedBenchmarkModels.includes(model)}
+                    onChange={(e) => {
+                      setSelectedBenchmarkModels(prev => 
+                        e.target.checked 
+                          ? [...prev, model] 
+                          : prev.filter(m => m !== model)
+                      );
+                    }}
+                  />
+                  {model}
+                </label>
+              ))}
+
+              {!benchmarkLoading && (
+                <p className="text-xs text-gray-500 mt-2">
+                  ⏱ Примерное время: {(calculateEstimatedTime(selectedBenchmarkModels) / 60000).toFixed(1)} мин
+                </p>
+              )}
+
+              {/* Прогресс */}
+              {benchmarkLoading && (
+                <div className="validation-progress mt-4">
+                  <div className="validation-progress__bar">
+                    <div className="validation-progress__fill" style={{ width: `${benchmarkProgress.progress}%` }} />
+                  </div>
+                  <div className="text-sm mt-2 text-gray-600">{benchmarkProgress.message}</div>
+                </div>
+              )}
+
+              {benchmarkProgress.status === 'failed' && (
+                <div className="error-banner">
+                  ❌ {benchmarkProgress.message}
+                  {benchmarkProgress.error_details && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-sm">Детали ошибки</summary>
+                      <pre className="text-xs bg-red-50 p-2 rounded mt-1 overflow-auto">
+                        {benchmarkProgress.error_details.traceback || JSON.stringify(benchmarkProgress.error_details, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              )}
+
+              {/* Результаты */}
+              {benchmarkResult && (
+                <div className="mt-6 space-y-6">
+                  {/* Сводная таблица */}
+                  <div className="overflow-x-auto">
+                    <table className="data-table">
+                      <thead>
+                        <tr><th>Метод</th><th>mIoU</th><th>Pixel Acc</th><th>Time (ms)</th><th>Classes</th></tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(benchmarkResult.summary).map(([method, data]: [string, any]) => (
+                          <tr key={method}>
+                            <td><b>{method}</b></td>
+                            <td>{(data.mIoU * 100).toFixed(1)}%</td>
+                            <td>{data.pixel_acc.toFixed(3)}</td>
+                            <td>{data.time_ms.toFixed(1)}</td>
+                            <td>{data.unique_classes}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Графики */}
+                  <div className="mt-4 p-3 bg-white rounded shadow">
+                    <h4 className="font-semibold mb-2">📈 Графики метрик</h4>
+                    {benchmarkResult?.charts?.metrics_plot_b64 && (
+                      <img 
+                        src={`data:image/png;base64,${benchmarkResult.charts.metrics_plot_b64}`}
+                        alt="Benchmark metrics"
+                        className="w-full h-auto rounded"
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {benchmarkLoading && (
+          <button 
+            onClick={() => fetch(`${API}/api/benchmark/${benchmarkTaskId}`, { method: 'DELETE' })}
+            className="text-red-500 text-sm hover:underline ml-2"
+          >
+            ✕ Отменить
+          </button>
         )}
 
         {/* ── Results ── */}

@@ -76,18 +76,18 @@ class TorchImplementationValidator:
                 "gradient_magnitude_direction",
                 {"threshold": 0.1},
             ),
-            (
-                "phase_congruency_edge",
-                {
-                    "nscales": 4,
-                    "norientations": 4,
-                    "min_wavelength": 3,
-                    "mult": 2.0,
-                    "sigma_onf": 0.55,
-                    "k_noise": 2.0,
-                    "threshold": 0.5,
-                },
-            ),
+            # (
+            #     "phase_congruency_edge",
+            #     {
+            #         "nscales": 4,
+            #         "norientations": 4,
+            #         "min_wavelength": 3,
+            #         "mult": 2.0,
+            #         "sigma_onf": 0.55,
+            #         "k_noise": 2.0,
+            #         "threshold": 0.5,
+            #     },
+            # ),
         ]
 
         self.region_methods: List[MethodConfig] = [

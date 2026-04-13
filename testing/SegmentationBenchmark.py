@@ -447,6 +447,47 @@ class SegmentationBenchmark:
         print("✅ Loaded deeplab pretrained")
         return self
 
+    def load_maskformer(
+        self, name: str = "facebook/maskformer-resnet50-ade20k-full"
+    ) -> "SegmentationBenchmark":
+        """Загрузка MaskFormer модели"""
+        from transformers import (
+            MaskFormerImageProcessor,
+            MaskFormerForInstanceSegmentation,
+        )
+
+        processor = MaskFormerImageProcessor.from_pretrained(name)
+        model = (
+            MaskFormerForInstanceSegmentation.from_pretrained(name)
+            .to(self.device)
+            .eval()
+        )
+
+        self.models["maskformer"] = {
+            "model": model,
+            "processor": processor,
+            "type": "maskformer",
+        }
+        print(f"✅ Loaded MaskFormer from {name}")
+        return self
+
+    def load_yolov8(
+        self, model_name: str = "yolov8n-seg.pt"
+    ) -> "SegmentationBenchmark":
+        """Загрузка YOLOv8 модели"""
+        from ultralytics import YOLO
+
+        model = YOLO(model_name)
+        key = f"yolov8_{model_name.replace('.pt', '').replace('-', '_')}"
+
+        self.models[key] = {
+            "model": model,
+            "processor": None,
+            "type": "yolov8",
+        }
+        print(f"✅ Loaded YOLOv8 from {model_name}")
+        return self
+
     def load_all_pretrained_cnn(
         self, checkpoint_dir: str = "./checkpoints"
     ) -> "SegmentationBenchmark":

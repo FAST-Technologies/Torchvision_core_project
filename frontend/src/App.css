@@ -709,7 +709,7 @@ body {
   image-rendering: pixelated; /* Для лучшего отображения разности */
 }
 
-/* .chart-card {
+.chart-card {
   background: white;
   border-radius: 12px;
   padding: 1rem;
@@ -725,7 +725,7 @@ body {
 }
 
 /* Адаптивность для таблиц */
-/* @media (max-width: 768px) {
+@media (max-width: 768px) {
   .data-table {
     font-size: 0.85rem;
   }
@@ -733,7 +733,7 @@ body {
   .data-table td {
     padding: 0.4rem 0.3rem;
   }
-}  */
+} 
 
 /* Адаптивность */
 @media (max-width: 768px) {

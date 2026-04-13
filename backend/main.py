@@ -36,6 +36,8 @@ from segmenters.AutoSegmenter import (
 )
 from metrics.SegmentationMetrics import SegmentationMetrics
 from testing.TorchImplementationValidator import TorchImplementationValidator
+from routers import benchmark
+from fastapi import Request
 
 # from segmenters.NeuralModelFactory import NeuralModelFactory
 
@@ -81,8 +83,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(benchmark.router)
 
 auto_seg = AutoSegmenter()
+
+
+@app.middleware("http")
+async def log_benchmark_requests(request: Request, call_next):
+    if request.url.path.startswith("/api/benchmark"):
+        start = time.time()
+        response = await call_next(request)
+        duration = time.time() - start
+        logger.info(f"Benchmark {request.url.path} took {duration:.2f}s")
+        return response
+    return await call_next(request)
+
 
 # ── Конфиг нейросетей ──────────────────────────────────────────────────────
 NEURAL_CONFIGS: Dict[str, Dict[str, dict]] = {
@@ -974,7 +989,7 @@ def _process_single_method(
         import traceback
 
         logger.error(traceback.format_exc())
-        raise  # Перехватится в _run_validation_task
+        raise
 
 
 @app.get("/api/validate/status/{task_id}")
