@@ -127,15 +127,21 @@ export interface BenchmarkData {
   torch_time?: number;
   reference_time?: number;
   time_diff?: number;
+  accuracy?: number | null;
   iou?: number | null;
   dice?: number | null;
+  precision?: number | null;
+  recall?: number | null;
   f1_score?: number | null;
   mae?: number | null;
   pixel_accuracy?: number | null;
+  hausdorff_distance?: number | null;
+  area_ratio?: number
   validation_status?: 'PASS' | 'WARNING' | 'FAIL';
-  precision?: number | null;
-  recall?: number | null;
+  coverage_pct?: number
   predicted_area?: number;
+  ground_truth_area?: number;
+  area_difference?: number | null;
 }
 
 export interface BenchmarkSummary {
@@ -232,6 +238,17 @@ const LIBRARIES: LibraryOption[] = [
     { value: "torch", label: "PyTorch", icon: "🔴" },
   ];
 const API = 'http://localhost:8000'
+
+type AreaChartData = {
+  method: string;
+  coverage: number;  // ← обязательно number, не number | undefined
+  status?: 'PASS' | 'WARNING' | 'FAIL';
+  gt_area: number;
+};
+
+const isValidAreaData = (d: BenchmarkData): d is BenchmarkData & { coverage_pct: number; ground_truth_area: number } => {
+  return d.coverage_pct != null && d.ground_truth_area != null && d.ground_truth_area > 0;
+};
 
 // ──────────────────────── Helpers ──────────────────────────────────────────
 const pct  = (n: number | null | undefined) => n == null ? '—' : `${(n * 100).toFixed(1)}%`
@@ -503,12 +520,65 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
     [data]
   );
 
-  // 🔹 График 4: Покрытие масок
+  // 🔹 График 4: Покрытие масок  (пиксели)
   const coverageData = useMemo(() => 
     data.data
       .filter(d => d.predicted_area != null)
       .sort((a, b) => (a.predicted_area || 0) - (b.predicted_area || 0))
       .map(d => ({ method: d.method, coverage: d.predicted_area })),
+    [data]
+  );
+
+  // 🔹 График 4: Покрытие масок  (проценты)
+  const coverageData2 = useMemo(() => 
+    data.data
+      .filter(d => d.predicted_area != null && d.ground_truth_area != null && d.ground_truth_area > 0)
+      .map(d => ({
+        method: d.method,
+        coverage: (d.predicted_area! / d.ground_truth_area! * 100),  // ← Процент!
+        status: d.validation_status,
+      })),
+    [data]
+  );
+
+  const coverageData3 = useMemo(() => 
+  data.data
+    .filter(d => d.area_ratio != null && d.ground_truth_area != null && d.ground_truth_area > 0)
+    .sort((a, b) => (a.area_ratio || 0) - (b.area_ratio || 0))
+    .map(d => ({
+      method: d.method,
+      coverage: (d.area_ratio || 0) * 100,  // ← Конвертируем в проценты (0-100%+)
+      status: d.validation_status,
+      pred_area: d.predicted_area,
+      gt_area: d.ground_truth_area,
+    })),
+  [data]
+);
+
+  {/* 🔹 График: Покрытие относительно GT (%) */}
+  const coveragePctData = useMemo(() => 
+    data.data
+      .filter(isValidAreaData)
+      .map(d => ({
+        method: d.method,
+        coverage: d.coverage_pct,
+        status: d.validation_status,
+        gt_area: d.ground_truth_area,
+      })),
+    [data]
+  );
+
+  {/* 🔹 График: Сравнение площадей масок */}
+  const areaComparisonData = useMemo(() => 
+    data.data
+      .filter(d => d.predicted_area != null && d.ground_truth_area != null)
+      .map(d => ({
+        method: d.method,
+        predicted: d.predicted_area,
+        ground_truth: d.ground_truth_area,
+        ratio: d.ground_truth_area! > 0 ? (d.predicted_area! / d.ground_truth_area! * 100) : 0,
+      }))
+      .sort((a, b) => (b.ground_truth ?? 0) - (a.ground_truth ?? 0)),
     [data]
   );
 
@@ -519,11 +589,20 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
       .slice(0, 20) // top-20 для читаемости
       .map(d => ({
         method: d.method,
+        accuracy: d.accuracy,
         iou: d.iou,
         dice: d.dice,
         precision: d.precision,
         recall: d.recall,
         f1: d.f1_score,
+        mae: d.mae,
+        pixel_accuracy: d.pixel_accuracy,
+        hausdorff_distance: d.hausdorff_distance,
+        area_ratio: d.area_ratio,
+        coverage_pct: d.coverage_pct,
+        predicted_area: d.predicted_area,
+        ground_truth_area: d.ground_truth_area,
+        area_difference: d.area_difference,
       })),
     [data]
   );
@@ -652,16 +731,145 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
       {/* 🔹 График 4: Покрытие масок */}
       {coverageData.length > 0 && (
         <div className="chart-card">
-          <h4>📐 Покрытие масок (%)</h4>
+          <h4>📐 Покрытие масок (px)</h4>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={coverageData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" domain={[0, 100]} label={{ value: 'Покрытие (%)', position: 'insideBottom' }} />
+              <XAxis type="number" domain={[0, 100]} label={{ value: 'Покрытие (px)', position: 'insideBottom' }} />
               <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, 'Покрытие']} />
+              <Tooltip formatter={(v: number) => [`${v.toFixed(1)}px`, 'Покрытие']} />
               <Bar dataKey="coverage" fill="#14b8a6" radius={[0, 2, 2, 0]} />
             </BarChart>
           </ResponsiveContainer>
+        </div>
+      )}
+
+      {coverageData2.length > 0 && (
+        <div className="chart-card">
+          <h4>📐 Покрытие масок (Ground Truth / Prediction, %)</h4>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={coverageData2} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" domain={[0, 200]} label={{ value: 'Покрытие (%)', position: 'insideBottom' }} />
+              <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
+              <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, 'Покрытие']} />
+              <Bar dataKey="coverage" fill="#14b8a6" radius={[0, 2, 2, 0]} />
+              <ReferenceLine x={100} stroke="#888" strokeDasharray="3 3" /> 
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* 🔹 График: Отношение площадей маски (%) */}
+      {coverageData3.length > 0 && (
+        <div className="chart-card">
+          <h4>📐 Отношение площадей: Prediction / Ground Truth</h4>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={coverageData3} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis 
+                type="number" 
+                domain={[0, 200]}  // ← 0-200%: видно пере- и недо-сегментацию
+                label={{ value: 'Покрытие (%)', position: 'insideBottom' }} 
+              />
+              <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
+              <Tooltip 
+                formatter={(v: number, name: string) => {
+                  if (name === 'coverage') return [`${v.toFixed(1)}%`, 'Отношение'];
+                  if (name === 'pred_area') return [`${Math.round(v)} px`, 'Предсказание'];
+                  if (name === 'gt_area') return [`${Math.round(v)} px`, 'Ground Truth'];
+                  return [v, name];
+                }}
+              />
+              <Bar dataKey="coverage" radius={[0, 2, 2, 0]}>
+                {coverageData3.map((entry, index) => {
+                  // 🔹 Цвет по отклонению от 100%
+                  const color = 
+                    entry.coverage >= 95 && entry.coverage <= 105 ? '#22c55e' :    // ✅ Идеально
+                    entry.coverage >= 80 && entry.coverage <= 120 ? '#f59e0b' :   // ⚠️ Нормально
+                    '#ef4444';                                                     // ❌ Плохо
+                  return <Cell key={`cell-${index}`} fill={color} />;
+                })}
+              </Bar>
+              {/* 🔹 Линия идеального покрытия 100% */}
+              <ReferenceLine 
+                x={100} 
+                stroke="#888" 
+                strokeDasharray="3 3" 
+                label={{ value: '100%', position: 'top', fill: '#666', fontSize: 10 }} 
+              />
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="text-xs text-gray-500 mt-2">
+            🟢 95-105% | 🟠 80-120% | 🔴 &lt;80% или &gt;120%
+          </p>
+        </div>
+      )}
+
+      {coveragePctData.length > 0 && (
+        <div className="chart-card">
+          <h4>🎯 Покрытие маски (% от GT)</h4>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={coveragePctData} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis 
+                type="number" 
+                domain={[0, 200]}  // 0-200%, чтобы видеть пере- и недо-сегментацию
+                label={{ value: 'Покрытие (%)', position: 'insideBottom' }} 
+              />
+              <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
+              <Tooltip 
+                formatter={(v: number, name: string) => {
+                  if (name === 'coverage') return [`${v.toFixed(1)}%`, 'Покрытие'];
+                  if (name === 'gt_area') return [`${Math.round(v)} px`, 'GT площадь'];
+                  return [v, name];
+                }}
+              />
+              <Bar dataKey="coverage" radius={[0, 2, 2, 0]}>
+                {coveragePctData.map((entry, index) => {
+                  // Цвет по отклонению от 100%
+                  if (entry.coverage == null) return null;
+                  const color = 
+                    entry.coverage >= 95 && entry.coverage <= 105 ? '#22c55e' :    // ✅ Хорошо
+                    entry.coverage >= 80 && entry.coverage <= 120 ? '#f59e0b' :   // ⚠️ Нормально
+                    '#ef4444';                                                     // ❌ Плохо
+                  return <Cell key={`cell-${index}`} fill={color} />;
+                })}
+              </Bar>
+              {/* 🔹 Линия идеального покрытия 100% */}
+              <ReferenceLine x={100} stroke="#888" strokeDasharray="3 3" label={{ value: '100%', position: 'top', fill: '#666' }} />
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="text-xs text-gray-500 mt-2">
+            🟢 95-105% | 🟠 80-120% | 🔴 &lt;80% или &gt;120%
+          </p>
+        </div>
+      )}
+
+      {areaComparisonData.length > 0 && (
+        <div className="chart-card">
+          <h4>📐 Площади масок: Prediction vs Ground Truth</h4>
+          <ResponsiveContainer width="100%" height={350}>
+            <BarChart data={areaComparisonData} layout="vertical" margin={{ left: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" label={{ value: 'Пиксели', position: 'insideBottom' }} />
+              <YAxis dataKey="method" type="category" width={140} tick={{ fontSize: 9 }} />
+              <Tooltip 
+                formatter={(v: number, name: string) => {
+                  if (name === 'predicted') return [`${Math.round(v)} px`, 'Предсказание'];
+                  if (name === 'ground_truth') return [`${Math.round(v)} px`, 'Ground Truth'];
+                  if (name === 'ratio') return [`${v.toFixed(1)}%`, 'Отношение'];
+                  return [v, name];
+                }}
+              />
+              <Legend />
+              <Bar dataKey="ground_truth" name="Ground Truth" fill="#94a3b8" radius={[2, 0, 0, 2]} />
+              <Bar dataKey="predicted" name="Prediction" fill="#3b82f6" radius={[0, 2, 2, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="text-xs text-gray-500 mt-2">
+            🔵 Предсказание | ⚪ Ground Truth | Чем ближе столбцы — тем лучше
+          </p>
         </div>
       )}
 
@@ -674,11 +882,18 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
               <thead>
                 <tr>
                   <th>Метод</th>
+                  <th>Accuracy</th>
                   <th>IoU</th>
                   <th>Dice</th>
-                  <th>Precision</th>
                   <th>Recall</th>
                   <th>F1</th>
+                  <th>MAE</th>
+                  <th>Pixel_Accuracy</th>
+                  <th>Hausdorff_Distance</th>
+                  <th>Area_Ratio</th>
+                  <th>Predicted_Area</th>
+                  <th>Ground_Truth_Area</th>
+                  <th>Area_Difference</th>
                 </tr>
               </thead>
               <tbody>
@@ -686,10 +901,17 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
                   <tr key={i}>
                     <td className="font-medium">{row.method}</td>
                     <td className={row.iou! >= 0.8 ? 'text-green-600' : 'text-red-600'}>{pct(row.iou)}</td>
+                    <td>{pct(row.accuracy)}</td>
                     <td>{pct(row.dice)}</td>
-                    <td>{pct(row.precision)}</td>
                     <td>{pct(row.recall)}</td>
                     <td>{pct(row.f1)}</td>
+                    <td>{pct(row.mae)}</td>
+                    <td>{pct(row.pixel_accuracy)}</td>
+                    <td>{row.hausdorff_distance}</td>
+                    <td>{pct(row.area_ratio)}</td>
+                    <td>{row.predicted_area}</td>
+                    <td>{row.ground_truth_area}</td>
+                    <td>{row.area_difference}</td>
                   </tr>
                 ))}
               </tbody>
@@ -869,36 +1091,30 @@ export default function App() {
   }, [validationProgress, validationLoading, validationResult]);
 
   useEffect(() => {
-    if (!benchmarkTaskId || benchmarkLoading) return;
-    
+    if (!benchmarkTaskId) return;
     const poll = setInterval(async () => {
       try {
-        const res = await fetch(`${API}/api/benchmark/status/${benchmarkTaskId}`);
-        const data = await res.json();
-        
-        setBenchmarkProgress(prev => ({
-          ...prev,
+        const r = await fetch(`${API}/api/benchmark/status/${benchmarkTaskId}`);
+        if (!r.ok) { console.error('Benchmark poll HTTP', r.status); return; }
+        const data = await r.json();
+        setBenchmarkProgress({
           status: data.status,
-          progress: data.progress,
-          message: data.message,
+          progress: data.progress ?? 0,
+          message: data.message ?? '',
           error_details: data.error_details,
-        }));
-        
-        if (['completed', 'failed', 'cancelled'].includes(data.status)) {
+        });
+        if (['completed','failed','cancelled'].includes(data.status)) {
           clearInterval(poll);
           setBenchmarkLoading(false);
-          if (data.status === 'completed') {
-            setBenchmarkResult(data.results);
-          }
+          setBenchmarkTaskId(null);
+          if (data.status === 'completed') setBenchmarkResult(data.results);
+          else setErr(data.message ?? 'Бенчмарк завершился с ошибкой');
           console.log(`✅ Benchmark ${data.status}:`, data);
         }
-      } catch (e) {
-        console.error('Poll error:', e);
-      }
+      } catch (e) { console.error('Benchmark poll error:', e); }
     }, 2000);
-    
     return () => clearInterval(poll);
-  }, [benchmarkTaskId, benchmarkLoading]);
+  }, [benchmarkTaskId]);
 
   useEffect(() => {
     if (benchmarkResult?.charts) {
@@ -997,13 +1213,16 @@ export default function App() {
   }
 
   const onBenchmarkStart = async () => {
-    const health = await fetch(`${API}/api/benchmark/health`).then(r => r.json());
-    if (health.vram_mb < 20000) { // <20 ГБ
-      if (!window.confirm(`⚠️ Мало VRAM: ${health.vram_mb.toFixed(0)} МБ. Бенчмарк может упасть. Продолжить?`)) {
-        return;
-      }
+    const health = await fetch(`${API}/api/benchmark/health`).then(r => r.json()).catch(() => null);
+    if (health && health.cuda_available && health.vram_mb < 8000) {
+      if (!window.confirm(
+        `⚠️ Мало VRAM: ${health.vram_mb?.toFixed(0)} МБ (${health.device_name ?? 'GPU'}).\n` +
+        `Свободно: ${health.vram_free_mb?.toFixed(0) ?? '?'} МБ. Некоторые модели могут не загрузиться.\n` +
+        `Продолжить?`
+      )) return;
     }
     setBenchmarkLoading(true);
+    setBenchmarkTaskId(null);  // сбрасываем старый task_id перед новым запросом
     setBenchmarkProgress({
       status: 'pending',
       progress: 0,
@@ -1011,6 +1230,7 @@ export default function App() {
       error_details: undefined,
     });
     setBenchmarkResult(null);
+    setErr('');
     try {
       // const res = await fetch(`${API}/api/benchmark/start`, {
       //   method: 'POST',
@@ -1027,8 +1247,10 @@ export default function App() {
       const config: BenchmarkConfig = {
         // Модели (все доступные по умолчанию)
         models_to_run: [
-          'segformer', 'segformer_b2', 'mask2former', 'maskformer', 'oneformer',
-          'dpt', 'upernet', 'sam', 'sam2', 'yolov8n_seg', 'yolov8s_seg', 'yolov8m_seg',
+          'segformer', 'segformer_b2', 
+          // 'mask2former', 'maskformer', 'oneformer',
+          'dpt', 'upernet', 
+          // 'sam', 'sam2', 'yolov8n_seg', 'yolov8s_seg', 'yolov8m_seg',
           'unet_pretrained', 'deeplab_pretrained', 'fpn_mit_b5_pretrained',
           'psp_mit_b5_pretrained', 'fcn_resnet50_pretrained', 'segnet_resnet34_pretrained',
           'maskrcnn_pretrained'
@@ -1694,21 +1916,22 @@ export default function App() {
               {/* Прогресс */}
               {benchmarkLoading && (
                 <div className="validation-progress mt-4">
-                  <div className="validation-progress__bar">
-                    <div className="validation-progress__fill" style={{ width: `${benchmarkProgress.progress}%` }} />
+                  <div className="validation-progress__header">
+                    <span>⚙️ {benchmarkProgress.message || 'Инициализация...'}</span>
+                    <span>{benchmarkProgress.progress > 0 ? `${benchmarkProgress.progress.toFixed(0)}%` : ''}</span>
                   </div>
-                  <div className="text-sm mt-2 text-gray-600">{benchmarkProgress.message}</div>
-                </div>
-              )}
-
-              {benchmarkLoading && benchmarkProgress.status === 'running' && (
-                <div className="mt-4 p-4 bg-blue-50 rounded border border-blue-200">
-                  <h4 className="font-semibold text-blue-800 mb-2">🔄 Бенчмарк в процессе</h4>
-                  <ul className="text-sm text-blue-700 space-y-1">
-                    <li>• Статус: {benchmarkProgress.message}</li>
-                    <li>• Прогресс: {benchmarkProgress.progress.toFixed(1)}%</li>
-                    <li>• Осталось моделей: ~{Math.ceil((100 - benchmarkProgress.progress) / 5)}</li>
-                  </ul>
+                  <div className="validation-progress__bar">
+                    <div
+                      className="validation-progress__fill"
+                      style={{ width: `${Math.min(benchmarkProgress.progress, 100)}%` }}
+                    />
+                  </div>
+                  <div className="validation-progress__details">
+                    <span>Статус: {benchmarkProgress.status}</span>
+                    {benchmarkProgress.progress > 0 && (
+                      <span>Загружено: {benchmarkProgress.progress.toFixed(0)}%</span>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1728,7 +1951,7 @@ export default function App() {
 
               {/* Результаты */}
               {benchmarkResult && (
-                <div className="mt-6 space-y-8">
+                <div className="mt-6 space-y-6">
                   {/* Сводная таблица */}
                   <div className="overflow-x-auto">
                     <table className="data-table">
@@ -1749,24 +1972,26 @@ export default function App() {
                     </table>
                   </div>
 
-                  {/* Графики — каждый в отдельной карточке */}
+                  {/* Графики */}
                   <div className="space-y-6">
                     <h4 className="font-semibold text-lg">📈 Графики метрик</h4>
-                    
-                    {/* Основной график сравнения */}
                     {benchmarkResult?.charts?.metrics_plot_b64 && (
                       <div className="chart-card chart-card--tall">
                         <h5 className="font-medium mb-3">🎯 Mean IoU по моделям</h5>
                         <div className="chart-container">
-                          <img 
-                            src={`data:image/png;base64,${benchmarkResult.charts.metrics_plot_b64}`}
-                            alt="Benchmark metrics"
+                          <img
+                            src={
+                              String(benchmarkResult.charts.metrics_plot_b64).startsWith('data:')
+                                ? benchmarkResult.charts.metrics_plot_b64
+                                : `data:image/png;base64,${benchmarkResult.charts.metrics_plot_b64}`
+                            }
+                            alt="Benchmark metrics plot"
                             className="chart-img"
+                            onError={e => { (e.target as HTMLImageElement).style.display='none'; }}
                           />
                         </div>
                       </div>
                     )}
-                    
                     {/* 🔹 Здесь можно добавить другие графики, если бэкенд будет их возвращать */}
                     {/* {benchmarkResult?.charts?.time_plot_b64 && (...)} */}
                   </div>
@@ -1775,21 +2000,21 @@ export default function App() {
             </div>
           </div>
         )}
-        {benchmarkLoading && (
-          <button 
+        {benchmarkLoading && benchmarkTaskId && (
+          <button
             onClick={async () => {
               try {
                 const res = await fetch(`${API}/api/benchmark/${benchmarkTaskId}`, { method: 'DELETE' });
                 const data = await res.json();
-                
-                // 🔹 400 — это не ошибка, а инфо о том, что задача уже завершена
+                // 200 = cancelled, 404 = not found, 400 = already finished
                 if (res.ok || res.status === 400) {
-                  setBenchmarkProgress(prev => ({ ...prev, status: data.status, message: data.message }));
                   setBenchmarkLoading(false);
+                  setBenchmarkTaskId(null);
+                  console.log('❌ Data Status:', data.status)
+                  console.log('❌ Data Message:', data.message)
+                  setBenchmarkProgress(prev => ({ ...prev, status: 'failed', message: 'Отменено пользователем' }));
                 }
-              } catch (e) {
-                console.error('❌ Cancel error:', e);
-              }
+              } catch (e) { console.error('❌ Cancel error:', e); setBenchmarkLoading(false); setBenchmarkTaskId(null); }
             }}
             className="text-red-500 text-sm hover:underline ml-2"
             disabled={!benchmarkLoading || benchmarkProgress.status === 'cancelled'}

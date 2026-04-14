@@ -1079,21 +1079,30 @@ async def get_validation_status(task_id: str):
         for method, data in task["results"].items():
             if data.get("success"):
                 metrics = data.get("metrics", {})
+                pred_area = metrics.get("predicted_area", 0) or 0
+                gt_area = metrics.get("ground_truth_area", 0) or 0
+                coverage_pct = (pred_area / gt_area * 100) if gt_area > 0 else 0
                 benchmark_data.append(
                     {
                         "method": method,
                         "torch_time": data.get("primary_time"),
                         "reference_time": data.get("reference_time"),
                         "time_diff": data.get("time_diff"),
+                        "accuracy": metrics.get("accuracy"),
                         "iou": metrics.get("iou"),
                         "dice": metrics.get("dice"),
+                        "precision": metrics.get("precision"),
+                        "recall": metrics.get("recall"),
                         "f1_score": metrics.get("f1_score"),
                         "mae": metrics.get("mae"),
                         "pixel_accuracy": metrics.get("pixel_accuracy"),
+                        "hausdorff_distance": metrics.get('hausdorff_distance', float('nan')),
+                        "area_ratio": metrics.get('area_ratio'),
                         "validation_status": data.get("validation_status"),
-                        "precision": metrics.get("precision"),
-                        "recall": metrics.get("recall"),
+                        "coverage_pct": round(coverage_pct, 2),      # ← Процент покрытия
                         "predicted_area": metrics.get("predicted_area"),
+                        "ground_truth_area": metrics.get("ground_truth_area"),
+                        "area_difference": metrics.get("area_difference"),
                     }
                 )
 
