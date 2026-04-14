@@ -346,10 +346,15 @@ async def run_benchmark(
                 logger.error(f"❌ Failed to load {key}: {e}", exc_info=True)
 
         benchmark_tasks[task_id]["message"] = f"✅ {key}: готово. Все модели загружены. Запуск инференса..."
-        benchmark_tasks[task_id]["progress"] = 80
-        # 3. Запуск сравнения
+        benchmark_tasks[task_id]["progress"] = 50
         benchmark_tasks[task_id]["message"] = "Запуск инференса..."
-        await asyncio.to_thread(bench.compare, image_input=image_input, alpha=alpha)
+        # await asyncio.to_thread(bench.compare, image_input=image_input, alpha=alpha)
+        await bench.compare_step_by_step(
+            image_input=image_input,
+            alpha=alpha,
+            task_id=task_id,
+            benchmark_tasks=benchmark_tasks,
+        )
 
         # 4. Сохранение результатов
         benchmark_tasks[task_id]["message"] = "Сохранение результатов..."

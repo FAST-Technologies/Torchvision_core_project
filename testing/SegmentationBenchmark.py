@@ -1181,7 +1181,6 @@ class SegmentationBenchmark:
         alpha: float = 0.6,
         task_id: Optional[str] = None,
         benchmark_tasks: Optional[Dict] = None,
-        benchmark_tasks_lock: Optional[asyncio.Lock] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """
         Пошаговое выполнение бенчмарка с обновлением прогресса.
@@ -1191,33 +1190,37 @@ class SegmentationBenchmark:
             alpha: Прозрачность наложения
             task_id: ID задачи для обновления статуса
             benchmark_tasks: Словарь задач (для обновления)
-            benchmark_tasks_lock: Lock для синхронизации
         """
         print(f"🚀 Starting step-by-step benchmark on {len(self.models)} models...")
         model_keys = list(self.models.keys())
-
-        # Прогресс: 75% -> 95% на этапе инференса (20% диапазона)
-        progress_start = 75
-        progress_range = 20
+        
+        # Прогресс: 50% -> 99% на этапе инференса (49% диапазона)
+        progress_start = 50
+        progress_range = 49
 
         for i, key in enumerate(model_keys):
             print(f"\n🔹 Running {key} ({i+1}/{len(model_keys)})...")
 
-            # 🔹 Обновляем прогресс
-            if task_id and benchmark_tasks and benchmark_tasks_lock:
+            # 🔹 Обновляем прогресс ПЕРЕД запуском модели
+            if task_id and benchmark_tasks:
                 progress = progress_start + (i / len(model_keys)) * progress_range
-                async with benchmark_tasks_lock:
-                    benchmark_tasks[task_id]["progress"] = progress
-                    benchmark_tasks[task_id]["message"] = f"🔍 Инференс {key}..."
-                await asyncio.sleep(0)  # Даём событию обновиться
+                benchmark_tasks[task_id]["progress"] = progress
+                benchmark_tasks[task_id]["message"] = f"🔍 Инференс {key} ({i+1}/{len(model_keys)})..."
+                await asyncio.sleep(0)
 
-            # Запускаем инференс одной модели
+            # Запускаем инференс одной модели (синхронно)
             self.run_single(image_input, key, alpha=alpha)
 
-            # Освобождаем память после каждой модели (кроме последней)
+            # 🔹 Обновляем прогресс ПОСЛЕ завершения модели
+            if task_id and benchmark_tasks:
+                benchmark_tasks[task_id]["progress"] = progress_start + ((i + 1) / len(model_keys)) * progress_range
+                benchmark_tasks[task_id]["message"] = f"✅ {key} завершён"
+                await asyncio.sleep(0)
+
             if i < len(model_keys) - 1:
-                del self.models[key]["model"]
-                del self.models[key]["processor"]
+                if key in self.models:
+                    self.models[key].pop("model", None)
+                    self.models[key].pop("processor", None)
                 torch.cuda.empty_cache()
                 gc.collect()
                 print(f"   🗑️  Freed {key} from VRAM")

@@ -223,6 +223,16 @@ const NEURAL_TASKS = [
   { value: 'panoptic', label: '🌐 Паноптическая' }
 ] as const;
 
+export const DEFAULT_BENCHMARK_MODELS: string[] = [
+  'segformer', 'segformer_b2', 'mask2former', 'maskformer', 'oneformer',
+  'dpt', 'upernet', 
+  // 'sam', 'sam2', 
+  'yolov8n_seg', 'yolov8s_seg',
+  'yolov8m_seg', 'unet_pretrained', 'deeplab_pretrained', 'fpn_mit_b5_pretrained',
+  'psp_mit_b5_pretrained', 'fcn_resnet50_pretrained', 'segnet_resnet34_pretrained',
+  'maskrcnn_pretrained',
+];
+
 const NEURAL_MODELS: Record<NeuralTask, string[]> = {
   semantic: ['segformer_b0','segformer_b1','segformer_b2','segformer_b3','segformer_b4','segformer_b5',
     'mask2former_swin_base','mask2former_swin_large','oneformer_swin_large','dpt_large',
@@ -979,7 +989,7 @@ function ImgCard({ title, src, grayscale = false }: { title: string; src: string
           ❌ Ошибка загрузки изображения
           <button 
             className="text-sm text-primary hover:underline mt-1"
-            onClick={() => { setError(false); }} // Попытка перезагрузить
+            onClick={() => { setError(false); }}
           >
             Повторить
           </button>
@@ -1048,9 +1058,9 @@ export default function App() {
   });
   const [benchmarkResult, setBenchmarkResult] = useState<any>(null);
   const [benchmarkGtFile, setBenchmarkGtFile] = useState<File | null>(null);
-  const [selectedBenchmarkModels, setSelectedBenchmarkModels] = useState<string[]>([
-    'segformer', 'mask2former', 'unet_pretrained'
-  ]);
+  const [selectedBenchmarkModels, setSelectedBenchmarkModels] = useState<string[]>(
+    DEFAULT_BENCHMARK_MODELS
+  );
   const [savedPresets, setSavedPresets] = useState<string[]>([]);
 
   useEffect(() => {
@@ -1246,15 +1256,7 @@ export default function App() {
       }
       const config: BenchmarkConfig = {
         // Модели (все доступные по умолчанию)
-        models_to_run: [
-          'segformer', 'segformer_b2', 
-          // 'mask2former', 'maskformer', 'oneformer',
-          'dpt', 'upernet', 
-          // 'sam', 'sam2', 'yolov8n_seg', 'yolov8s_seg', 'yolov8m_seg',
-          'unet_pretrained', 'deeplab_pretrained', 'fpn_mit_b5_pretrained',
-          'psp_mit_b5_pretrained', 'fcn_resnet50_pretrained', 'segnet_resnet34_pretrained',
-          'maskrcnn_pretrained'
-        ],
+        models_to_run: DEFAULT_BENCHMARK_MODELS,
         
         // Метрики
         metrics: ['mIoU', 'pixel_acc', 'f1_weighted', 'time_ms'],
@@ -1920,7 +1922,7 @@ export default function App() {
                     <span>⚙️ {benchmarkProgress.message || 'Инициализация...'}</span>
                     <span>{benchmarkProgress.progress > 0 ? `${benchmarkProgress.progress.toFixed(0)}%` : ''}</span>
                   </div>
-                  <div className="validation-progress__bar">
+                  <div className={`validation-progress__bar ${benchmarkProgress.status === 'running' ? 'running' : ''}`}>
                     <div
                       className="validation-progress__fill"
                       style={{ width: `${Math.min(benchmarkProgress.progress, 100)}%` }}
@@ -1932,6 +1934,16 @@ export default function App() {
                       <span>Загружено: {benchmarkProgress.progress.toFixed(0)}%</span>
                     )}
                   </div>
+                  {benchmarkProgress.status === 'running' && (
+                    <div className="mt-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <h4 className="font-semibold text-blue-800 mb-2 text-sm">🔄 Бенчмарк в процессе</h4>
+                      <ul className="text-sm text-blue-700 space-y-1">
+                        <li>• Текущий этап: <b>{benchmarkProgress.message}</b></li>
+                        <li>• Прогресс: <b>{benchmarkProgress.progress.toFixed(1)}%</b></li>
+                        <li>• Осталось этапов: ~<b>{Math.max(0, Math.ceil((100 - benchmarkProgress.progress) / 5))}</b></li>
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
 
