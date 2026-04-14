@@ -36,7 +36,7 @@ from segmenters.AutoSegmenter import (
 )
 from metrics.SegmentationMetrics import SegmentationMetrics
 from testing.TorchImplementationValidator import TorchImplementationValidator
-from routers import benchmark
+from routers import benchmark, comparator
 from fastapi import Request
 
 # from segmenters.NeuralModelFactory import NeuralModelFactory
@@ -87,6 +87,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(benchmark.router)
+app.include_router(comparator.router)
+print(f"📋 Registered routes: {[r.path for r in app.routes]}")
 
 auto_seg = AutoSegmenter()
 

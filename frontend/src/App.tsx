@@ -205,6 +205,41 @@ export interface BenchmarkConfig {
   };
 }
 
+export interface ComparatorMethod {
+  name: string;
+  library: "opencv" | "sklearn" | "torch";
+  method: string;
+  params?: Record<string, any>;
+}
+
+export interface ComparatorResult {
+  method: string;
+  library: string;
+  f1_score?: number;
+  jaccard?: number;
+  accuracy?: number;
+  test_time?: number;
+  ref_time?: number;
+  error?: string;
+}
+
+export interface ComparatorSummary {
+  methods_count: number;
+  successful: number;
+  failed: number;
+  top_by_f1: ComparatorResult[];
+  avg_f1?: number;
+}
+
+export interface ComparatorResponse {
+  success: boolean;
+  elapsed_ms: number;
+  summary: ComparatorSummary;
+  results: ComparatorResult[];
+  output_dir: string;
+  charts: Record<string, string>; // base64
+}
+
 interface MethodInfo {
   name: string; library: string; avg_iou: number; avg_time_ms: number
   memory_mb: number; robustness: number; description: string
@@ -213,7 +248,7 @@ interface MethodInfo {
 }
 
 type GoalType = 'balanced' | 'speed' | 'accuracy' | 'low_memory'
-type Tab  = 'results' | 'metrics' | 'recommendations' | 'analysis' | 'validation' | 'benchmark'
+type Tab  = 'results' | 'metrics' | 'recommendations' | 'analysis' | 'validation' | 'benchmark' | 'comparator'
 type Mode = 'classical' | 'neural'
 type NeuralTask = 'semantic' | 'instance' | 'panoptic'
 
@@ -232,6 +267,24 @@ export const DEFAULT_BENCHMARK_MODELS: string[] = [
   'psp_mit_b5_pretrained', 'fcn_resnet50_pretrained', 'segnet_resnet34_pretrained',
   'maskrcnn_pretrained',
 ];
+
+export const DEFAULT_COMPARATOR_METHODS: Record<string, string[]> = {
+  opencv: [
+    "global_thresholding", "otsu_thresholding", "adaptive_thresholding",
+    "canny_edge", "sobel_edge", "threshold_sauvola",
+    "threshold_niblack", "threshold_bernsen", "prewitt_edge"
+  ],
+  sklearn: [
+    "global_thresholding", "otsu_thresholding", "adaptive_thresholding",
+    "canny_edge", "sobel_edge", "threshold_sauvola",
+    "threshold_niblack", "threshold_bernsen", "prewitt_edge"
+  ],
+  torch: [
+    "global_thresholding", "otsu_thresholding", "adaptive_thresholding",
+    "canny_edge", "sobel_edge", "threshold_sauvola",
+    "threshold_niblack", "threshold_bernsen", "prewitt_edge"
+  ]
+};
 
 const NEURAL_MODELS: Record<NeuralTask, string[]> = {
   semantic: ['segformer_b0','segformer_b1','segformer_b2','segformer_b3','segformer_b4','segformer_b5',
@@ -1063,6 +1116,21 @@ export default function App() {
   );
   const [savedPresets, setSavedPresets] = useState<string[]>([]);
 
+  // Comparator
+  const [comparatorLoading, setComparatorLoading] = useState(false);
+  const [comparatorTaskId, setComparatorTaskId] = useState<string | null>(null);
+  const [comparatorProgress, setComparatorProgress] = useState<BenchmarkProgress>({
+    status: 'idle', progress: 0, message: '',
+  });
+  const [comparatorResult, setComparatorResult] = useState<ComparatorResponse | null>(null);
+  const [selectedComparatorMethods, setSelectedComparatorMethods] = useState<ComparatorMethod[]>([
+    { name: "Otsu_OpenCV", library: "opencv", method: "otsu_thresholding" },
+    { name: "Otsu_Sklearn", library: "sklearn", method: "otsu_thresholding" },
+    { name: "Otsu_Torch", library: "torch", method: "otsu_thresholding" },
+  ]);
+  const [comparatorReference, setComparatorReference] = useState<ComparatorMethod>({
+    name: "Reference_Otsu", library: "sklearn", method: "otsu_thresholding"
+  });
   useEffect(() => {
     setSavedPresets(getSavedPresets());
   }, []);
@@ -1294,6 +1362,52 @@ export default function App() {
       setBenchmarkTaskId(task_id);
     } catch (e: any) {
       setBenchmarkLoading(false);
+      setErr(e.message);
+    }
+  };
+
+  const onComparatorStart = async () => {
+    if (!file) { setErr('Загрузите изображение'); return; }
+    
+    setComparatorLoading(true);
+    setComparatorProgress({ status: 'pending', progress: 0, message: 'Запуск...' });
+    setComparatorResult(null);
+    
+    try {
+      const fd = new FormData();
+      fd.append('image', file);
+      fd.append('methods', JSON.stringify(selectedComparatorMethods));
+      fd.append('reference', JSON.stringify(comparatorReference));
+      fd.append('comparison_type', 'batch');
+      
+      const res = await fetch(`${API}/api/comparator/start`, { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('Ошибка запуска');
+      const { task_id } = await res.json();
+      setComparatorTaskId(task_id);
+      
+      // 🔹 Поллинг
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch(`${API}/api/comparator/status/${task_id}`);
+          const data = await r.json();
+          setComparatorProgress({
+            status: data.status, progress: data.progress ?? 0, message: data.message ?? ''
+          });
+          if (['completed', 'failed', 'cancelled'].includes(data.status)) {
+            clearInterval(poll);
+            setComparatorLoading(false);
+            setComparatorTaskId(null);
+            if (data.status === 'completed' && data.results) {
+              setComparatorResult(data.results);
+            } else if (data.status === 'failed') {
+              setErr(data.message ?? 'Ошибка компаратора');
+            }
+          }
+        } catch (e) { console.error('Comparator poll error:', e); }
+      }, 2000);
+      
+    } catch (e: any) {
+      setComparatorLoading(false);
       setErr(e.message);
     }
   };
@@ -1666,6 +1780,7 @@ export default function App() {
               ['recommendations','💡 Рекомендации'],
               ['analysis', '🔍 Анализ'],
               ['benchmark', '📊 Бенчмарк'],
+              ['comparator', '⚖️ Компаратор'],
               ...(mode === 'classical' ? [['validation', '🔬 Валидация'] as [Tab, string]] : []),
             ] as [Tab, string][]).map(([t, label]) => (
               <button 
@@ -2033,6 +2148,183 @@ export default function App() {
           >
             ✕ Отменить
           </button>
+        )}
+
+        {/* Вкладка компаратора */}
+        {activeTab === 'comparator' && (
+          <div className="comparator-tab">
+            <div className="card">
+              <h3 className="card__title">⚖️ Компаратор методов</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Сравните реализации одного метода в разных библиотеках (OpenCV / Sklearn / Torch).
+              </p>
+              
+              {/* Настройки */}
+              <div className="comparator-controls">
+                {/* Референсный метод */}
+                <div className="control-group mb-4">
+                  <label className="control-group__label">🎯 Референсный метод</label>
+                  <select 
+                    value={comparatorReference.name}
+                    onChange={(e) => {
+                      const ref = selectedComparatorMethods.find(m => m.name === e.target.value);
+                      if (ref) setComparatorReference(ref);
+                    }}
+                    className="control-select"
+                  >
+                    {selectedComparatorMethods.map(m => (
+                      <option key={m.name} value={m.name}>{m.name} ({m.library})</option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* Выбор методов */}
+                <div className="control-group mb-4">
+                  <label className="control-group__label">📋 Методы для сравнения</label>
+                  <div className="flex flex-wrap gap-2">
+                    {DEFAULT_COMPARATOR_METHODS.opencv.map((method: string) => (
+                      <label key={method} className="flex items-center gap-1 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={selectedComparatorMethods.some(m => m.method === method && m.library === 'opencv')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedComparatorMethods(prev => [...prev, {
+                                name: `${method}_OpenCV`,
+                                library: 'opencv' as const,  // ← 🔹 Явно указываем!
+                                method: method,
+                                params: {}
+                              }]);
+                            } else {
+                              setSelectedComparatorMethods(prev => prev.filter(m => 
+                                !(m.method === method && m.library === 'opencv')
+                              ));
+                            }
+                          }}
+                        />
+                        🟢 {method}
+                      </label>
+                    ))}
+                    {DEFAULT_COMPARATOR_METHODS.sklearn.map((method: string) => (
+                      <label key={method} className="flex items-center gap-1 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={selectedComparatorMethods.some(m => m.method === method && m.library === 'sklearn')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedComparatorMethods(prev => [...prev, {
+                                name: `${method}_Sklearn`, 
+                                library: 'sklearn' as const, 
+                                method: method,
+                                params: {}
+                              }]);
+                            } else {
+                              setSelectedComparatorMethods(prev => prev.filter(m => 
+                                !(m.method === method && m.library === 'sklearn')
+                              ));
+                            }
+                          }}
+                        />
+                        🔵 {method}
+                      </label>
+                    ))}
+                    {DEFAULT_COMPARATOR_METHODS.torch.map((method: string) => (
+                      <label key={method} className="flex items-center gap-1 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={selectedComparatorMethods.some(m => m.method === method && m.library === 'torch')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedComparatorMethods(prev => [...prev, {
+                                name: `${method}_PyTorch`, 
+                                library: 'torch' as const, 
+                                method: method,
+                                params: {}
+                              }]);
+                            } else {
+                              setSelectedComparatorMethods(prev => prev.filter(m => 
+                                !(m.method === method && m.library === 'torch')
+                              ));
+                            }
+                          }}
+                        />
+                        🔴 {method}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                
+                <button 
+                  onClick={onComparatorStart}
+                  disabled={comparatorLoading || selectedComparatorMethods.length === 0}
+                  className="submit-btn submit-btn--secondary"
+                >
+                  {comparatorLoading ? `⏳ ${comparatorProgress.message}` : '▶ Запустить сравнение'}
+                </button>
+              </div>
+              
+              {/* Прогресс */}
+              {comparatorLoading && (
+                <div className="validation-progress mt-4">
+                  <div className="validation-progress__header">
+                    <span>⚙️ {comparatorProgress.message}</span>
+                    <span>{comparatorProgress.progress > 0 ? `${comparatorProgress.progress.toFixed(0)}%` : ''}</span>
+                  </div>
+                  <div className="validation-progress__bar">
+                    <div className="validation-progress__fill" style={{ width: `${Math.min(comparatorProgress.progress, 100)}%` }} />
+                  </div>
+                </div>
+              )}
+              
+              {/* Результаты */}
+              {comparatorResult && (
+                <div className="mt-6 space-y-6">
+                  {/* Сводка */}
+                  <div className="metrics-grid">
+                    <MetricCard label="Методов" value={comparatorResult.summary.methods_count.toString()} color="blue" />
+                    <MetricCard label="Успешно" value={comparatorResult.summary.successful.toString()} color="success" />
+                    <MetricCard label="Средний F1" value={comparatorResult.summary.avg_f1 ? pct(comparatorResult.summary.avg_f1) : '—'} color="purple" />
+                  </div>
+                  
+                  {/* Топ по F1 */}
+                  <div className="overflow-x-auto">
+                    <table className="data-table">
+                      <thead><tr><th>Метод</th><th>Библиотека</th><th>F1</th><th>IoU</th><th>Время (с)</th></tr></thead>
+                      <tbody>
+                        {comparatorResult.summary.top_by_f1.map((r, i) => (
+                          <tr key={r.method}>
+                            <td><b>{r.method}</b></td>
+                            <td>{r.library}</td>
+                            <td>{pct(r.f1_score)}</td>
+                            <td>{pct(r.jaccard)}</td>
+                            <td>{r.test_time?.toFixed(3)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {/* Графики */}
+                  <div className="space-y-6">
+                    <h4 className="font-semibold text-lg">📈 Сводная визуализация</h4>
+                    {comparatorResult.charts?.['comparison_summary.jpg'] && (
+                      <div className="chart-card chart-card--tall">
+                        <h5 className="font-medium mb-3">🎯 Mean IoU по моделям</h5>
+                        <div className="chart-container">
+                          <img 
+                            src={`data:image/jpeg;base64,${comparatorResult.charts['comparison_summary.jpg']}`}
+                            alt="Summary comparator results"
+                            className="chart-img"
+                            onError={e => { (e.target as HTMLImageElement).style.display='none'; }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {/* ── Results ── */}
