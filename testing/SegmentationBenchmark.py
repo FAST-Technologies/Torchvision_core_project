@@ -1193,7 +1193,7 @@ class SegmentationBenchmark:
         """
         print(f"🚀 Starting step-by-step benchmark on {len(self.models)} models...")
         model_keys = list(self.models.keys())
-        
+
         # Прогресс: 50% -> 99% на этапе инференса (49% диапазона)
         progress_start = 50
         progress_range = 49
@@ -1205,7 +1205,9 @@ class SegmentationBenchmark:
             if task_id and benchmark_tasks:
                 progress = progress_start + (i / len(model_keys)) * progress_range
                 benchmark_tasks[task_id]["progress"] = progress
-                benchmark_tasks[task_id]["message"] = f"🔍 Инференс {key} ({i+1}/{len(model_keys)})..."
+                benchmark_tasks[task_id][
+                    "message"
+                ] = f"🔍 Инференс {key} ({i+1}/{len(model_keys)})..."
                 await asyncio.sleep(0)
 
             # Запускаем инференс одной модели (синхронно)
@@ -1213,7 +1215,9 @@ class SegmentationBenchmark:
 
             # 🔹 Обновляем прогресс ПОСЛЕ завершения модели
             if task_id and benchmark_tasks:
-                benchmark_tasks[task_id]["progress"] = progress_start + ((i + 1) / len(model_keys)) * progress_range
+                benchmark_tasks[task_id]["progress"] = (
+                    progress_start + ((i + 1) / len(model_keys)) * progress_range
+                )
                 benchmark_tasks[task_id]["message"] = f"✅ {key} завершён"
                 await asyncio.sleep(0)
 

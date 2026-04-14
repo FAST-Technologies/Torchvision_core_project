@@ -304,7 +304,7 @@ const API = 'http://localhost:8000'
 
 type AreaChartData = {
   method: string;
-  coverage: number;  // ← обязательно number, не number | undefined
+  coverage: number;
   status?: 'PASS' | 'WARNING' | 'FAIL';
   gt_area: number;
 };
@@ -466,7 +466,6 @@ function ValidationProgressBar({ progress }: { progress: ValidationProgress }) {
         </div>
       </div>
       
-      {/* 🔹 Глобальная ошибка, если все картинки не загрузились */}
       {Object.values(imgErrors).every(v => v) && (
         <div className="text-red-500 text-sm mt-2">
           ⚠️ Не удалось загрузить изображения. Проверьте консоль для деталей.
@@ -486,6 +485,13 @@ function ValidationResultsTable({
   referenceLib: string;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  if (!results || results.length === 0) {
+    return (
+      <div className="text-center py-8 text-gray-500">
+        📭 Нет данных для отображения
+      </div>
+    );
+  }
   return (
     <div className="overflow-x-auto">
       <table className="data-table">
@@ -545,7 +551,6 @@ function ValidationResultsTable({
   );
 }
 
-// Новый компонент ValidationBenchmarkCharts
 function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
   console.log('📊 Benchmark data received:', data);
   // График 1: Время выполнения по методам
@@ -598,7 +603,7 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
       .filter(d => d.predicted_area != null && d.ground_truth_area != null && d.ground_truth_area > 0)
       .map(d => ({
         method: d.method,
-        coverage: (d.predicted_area! / d.ground_truth_area! * 100),  // ← Процент!
+        coverage: (d.predicted_area! / d.ground_truth_area! * 100),
         status: d.validation_status,
       })),
     [data]
@@ -610,7 +615,7 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
     .sort((a, b) => (a.area_ratio || 0) - (b.area_ratio || 0))
     .map(d => ({
       method: d.method,
-      coverage: (d.area_ratio || 0) * 100,  // ← Конвертируем в проценты (0-100%+)
+      coverage: (d.area_ratio || 0) * 100,
       status: d.validation_status,
       pred_area: d.predicted_area,
       gt_area: d.ground_truth_area,
@@ -711,6 +716,7 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
             <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
             <Tooltip formatter={(v: number) => [`${v.toFixed(3)}s`, 'Время']} />
             <Bar dataKey="time" fill="#3b82f6" radius={[0, 2, 2, 0]} />
+            <Legend />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -733,6 +739,7 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
                 return <Cell key={`cell-${index}`} fill={color} />;
               })}
             </Bar>
+            <Legend />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -782,6 +789,7 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
                   return <Cell key={`cell-${index}`} fill={color} />;
                 })}
               </Scatter>
+              <Legend />
             </ScatterChart>
           </ResponsiveContainer>
           <p className="text-xs text-gray-500 mt-2">
@@ -802,6 +810,7 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
               <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
               <Tooltip formatter={(v: number) => [`${v.toFixed(1)}px`, 'Покрытие']} />
               <Bar dataKey="coverage" fill="#14b8a6" radius={[0, 2, 2, 0]} />
+              <Legend />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -818,6 +827,7 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
               <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, 'Покрытие']} />
               <Bar dataKey="coverage" fill="#14b8a6" radius={[0, 2, 2, 0]} />
               <ReferenceLine x={100} stroke="#888" strokeDasharray="3 3" /> 
+              <Legend />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -861,6 +871,7 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
                 strokeDasharray="3 3" 
                 label={{ value: '100%', position: 'top', fill: '#666', fontSize: 10 }} 
               />
+              <Legend />
             </BarChart>
           </ResponsiveContainer>
           <p className="text-xs text-gray-500 mt-2">
@@ -901,6 +912,7 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
               </Bar>
               {/* 🔹 Линия идеального покрытия 100% */}
               <ReferenceLine x={100} stroke="#888" strokeDasharray="3 3" label={{ value: '100%', position: 'top', fill: '#666' }} />
+              <Legend />
             </BarChart>
           </ResponsiveContainer>
           <p className="text-xs text-gray-500 mt-2">
@@ -1005,7 +1017,6 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
                     entry.status === 'PASS' ? '#22c55e' :
                     entry.status === 'WARNING' ? '#f59e0b' :
                     '#ef4444';
-                  // Подписываем лучшие компромиссы
                   const isTop = index < 5; // упрощённо: первые 5
                   return (
                     <Cell 
@@ -1300,7 +1311,7 @@ export default function App() {
       )) return;
     }
     setBenchmarkLoading(true);
-    setBenchmarkTaskId(null);  // сбрасываем старый task_id перед новым запросом
+    setBenchmarkTaskId(null);
     setBenchmarkProgress({
       status: 'pending',
       progress: 0,
@@ -1310,11 +1321,6 @@ export default function App() {
     setBenchmarkResult(null);
     setErr('');
     try {
-      // const res = await fetch(`${API}/api/benchmark/start`, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ use_default_image: true })
-      // });
       const fd = new FormData();
       if (file) fd.append('image', file);
       if (benchmarkGtFile) fd.append('gt_mask', benchmarkGtFile);
@@ -1356,6 +1362,8 @@ export default function App() {
       const res = await fetch(`${API}/api/benchmark/start`, {
         method: 'POST',
         body: fd,
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify({ use_default_image: true })
       });
       if (!res.ok) throw new Error('Ошибка запуска');
       const { task_id } = await res.json();
@@ -1427,30 +1435,20 @@ export default function App() {
     fd.append('methods_filter', validationFilter);
     
     try {
-      const startRes = await fetch(`${API}/api/validate`, { method: 'POST', body: fd });
+      const startRes = await fetch(`${API}/api/validate/start`, { method: 'POST', body: fd });
       if (!startRes.ok) throw new Error(`Ошибка запуска: ${startRes.status}`);
       const { task_id } = await startRes.json();
       console.log('🔹 Validation started, task_id:', task_id);
       setValidationTaskId(task_id);
       const startTime = Date.now();
-      const MAX_POLLING_TIME = 5 * 60 * 1000;
+      console.log("Current time: ", startTime)
       
-      // 🔹 Polling: НЕ перезаписываем статус вручную!
       await new Promise(resolve => setTimeout(resolve, 300));
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
       }
       pollIntervalRef.current = setInterval(async () => {
-        // if (Date.now() - startTime > MAX_POLLING_TIME) {
-        //   console.log('⏰ Polling timeout, stopping');
-        //   clearInterval(pollInterval);
-        //   setValidationTaskId(null);
-        //   setValidationLoading(false);
-        //   setValidationProgress(prev => ({ ...prev, status: 'failed', error: 'Timeout' }));
-        //   setErr('Превышено время ожидания валидации');
-        //   return;
-        // }
         try {
           const statusUrl = `${API}/api/validate/status/${task_id}`;
           console.log('🔄 Polling:', statusUrl);
@@ -1477,11 +1475,18 @@ export default function App() {
             console.log('✅ Validation finished');
             if (pollIntervalRef.current) {
               clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;  // ← КРИТИЧНО!
+              pollIntervalRef.current = null;
             }
             setValidationTaskId(null);
             if (status.status === 'completed') {
-              const summary = status.results?.map((r: any) => ({
+              console.log('🔹 status.benchmark:', status.benchmark);
+              console.log('🔹 status.benchmark_raw:', status.benchmark_raw);
+              console.log('🔹 status.results type:', typeof status.results);
+              console.log('🔹 status.results isArray:', Array.isArray(status.results));
+              console.log('🔹 status.results length:', Array.isArray(status.results) ? status.results.length : 'N/A');
+              const resultsArray = Array.isArray(status.results) ? status.results : [];
+              console.log('🔹 resultsArray length:', resultsArray.length);
+              const summary = resultsArray.map((r: any) => ({
                 method: r.method,
                 success: r.success,
                 validation_status: r.validation_status,
@@ -1513,8 +1518,8 @@ export default function App() {
                 failed: status.failed || 0,
                 results: summary,
                 report_dir: status.report_dir || './data/validation_web',
-                benchmark: status.benchmark,        // ← Ключевое!
-                benchmark_raw: status.benchmark_raw, // ← Для отладки
+                benchmark: status.benchmark,
+                benchmark_raw: status.benchmark_raw,
               });
             } else {
               setErr(status.error || 'Ошибка валидации');
@@ -1579,7 +1584,6 @@ export default function App() {
 
   useEffect(() => {
     return () => {
-      // 🔹 Очищаем интервал при размонтировании
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -1951,7 +1955,6 @@ export default function App() {
                     const preset = loadBenchmarkPreset(e.target.value);
                     if (preset) {
                       console.log('📥 Loaded preset:', preset);
-                      // 🔹 Здесь можно обновить selectedBenchmarkModels или конфиг
                     }
                   }}
                   defaultValue=""
@@ -2119,7 +2122,6 @@ export default function App() {
                         </div>
                       </div>
                     )}
-                    {/* 🔹 Здесь можно добавить другие графики, если бэкенд будет их возвращать */}
                     {/* {benchmarkResult?.charts?.time_plot_b64 && (...)} */}
                   </div>
                 </div>
@@ -2422,6 +2424,7 @@ export default function App() {
                   <YAxis label={{value: 'Частота', angle: -90, position: 'insideLeft', fontSize: 11}} tick={{ fontSize: 10 }} />
                   <Tooltip formatter={(v: number | undefined) => [v ?? 0, 'Частота']} />
                   <Bar dataKey="count" fill="#3b82f6" radius={[2,2,0,0]} />
+                  <Legend />
                 </BarChart>
               </ResponsiveContainer>
             </div>

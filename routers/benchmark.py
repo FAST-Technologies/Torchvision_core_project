@@ -46,6 +46,7 @@ router = APIRouter(
 # Простое хранилище задач (в продакшене замените на Redis/Celery)
 benchmark_tasks: Dict[str, Dict[str, Any]] = {}
 
+
 class NumpyEncoder(json.JSONEncoder):
     """Кастомный JSON-энкодер для numpy-типов и специальных float-значений"""
 
@@ -54,7 +55,7 @@ class NumpyEncoder(json.JSONEncoder):
             return int(obj)
         elif isinstance(obj, np.floating):
             if np.isnan(obj):
-                return None  # или "NaN" как строка
+                return None
             elif np.isinf(obj):
                 return None if obj > 0 else None  # или "Infinity"/"-Infinity"
             return float(obj)
@@ -83,24 +84,25 @@ class BenchmarkStartRequest(BaseModel):
 
 
 @router.get("/health")
-async def benchmark_health():
+async def benchmark_health() -> Dict[str, Any]:
     if torch.cuda.is_available():
-        total_vram_mb   = torch.cuda.get_device_properties(0).total_memory / 1024**2
-        alloc_vram_mb   = torch.cuda.memory_allocated(0) / 1024**2
-        free_vram_mb    = total_vram_mb - alloc_vram_mb
-        device_name     = torch.cuda.get_device_name(0)
+        total_vram_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2
+        alloc_vram_mb = torch.cuda.memory_allocated(0) / 1024**2
+        free_vram_mb = total_vram_mb - alloc_vram_mb
+        reserved_vram_mb = torch.cuda.memory_reserved(0) / 1024**2
+        device_name = torch.cuda.get_device_name(0)
     else:
-        total_vram_mb = alloc_vram_mb = free_vram_mb = 0.0
+        total_vram_mb = alloc_vram_mb = free_vram_mb = reserved_vram_mb = 0.0
         device_name = "cpu"
 
     return {
         "status": "ok",
         "cuda_available": torch.cuda.is_available(),
         "device_name": device_name,
-        # vram_mb теперь = суммарная VRAM (не allocated) — для проверки достаточности
         "vram_mb": total_vram_mb,
         "vram_allocated_mb": alloc_vram_mb,
         "vram_free_mb": free_vram_mb,
+        "reserved_vram_mb": reserved_vram_mb,
         "active_tasks": len(
             [t for t in benchmark_tasks.values() if t["status"] == "running"]
         ),
@@ -108,7 +110,7 @@ async def benchmark_health():
 
 
 @router.get("/api/benchmark/debug")
-async def debug_benchmark():
+async def debug_benchmark() -> Dict[str, Any]:
     return {
         "active_tasks": len(benchmark_tasks),
         "tasks": {
@@ -124,10 +126,7 @@ async def run_benchmark(
     image_file: Optional[UploadFile] = None,
     gt_file: Optional[UploadFile] = None,
     config: Optional[Dict] = None,
-):
-    # logger.info(
-    #     f"🔄 Task {task_id}: progress={benchmark_tasks[task_id]['progress']}, message={benchmark_tasks[task_id]['message']}"
-    # )
+) -> None:
     benchmark_tasks[task_id] = {
         "status": "running",
         "progress": 0,
@@ -169,7 +168,6 @@ async def run_benchmark(
         show_gt = viz_params.get("show_gt", True)
         palette_name = viz_params.get("color_palette", "ade")
 
-        # Выбор палитры
         from utils.palettes import ade_palette, coco_palette, cityscapes_palette
 
         PALETTES = {
@@ -190,7 +188,6 @@ async def run_benchmark(
         elif req.image_path and os.path.exists(req.image_path):
             image_input = Image.open(req.image_path).convert("RGB")
         else:
-            # Дефолтное изображение из ADE20K
             from huggingface_hub import hf_hub_download
 
             repo_id = "hf-internal-testing/fixtures_ade20k"
@@ -217,7 +214,7 @@ async def run_benchmark(
 
         models_to_run = config.get("models_to_run") if config else None
 
-        # 2. Загрузка моделей (вызывайте только те, что у вас есть в models/)
+        # Загрузка моделей
         model_load_steps = [
             (
                 "segformer",
@@ -345,7 +342,9 @@ async def run_benchmark(
             except Exception as e:
                 logger.error(f"❌ Failed to load {key}: {e}", exc_info=True)
 
-        benchmark_tasks[task_id]["message"] = f"✅ {key}: готово. Все модели загружены. Запуск инференса..."
+        benchmark_tasks[task_id][
+            "message"
+        ] = f"✅ {key}: готово. Все модели загружены. Запуск инференса..."
         benchmark_tasks[task_id]["progress"] = 50
         benchmark_tasks[task_id]["message"] = "Запуск инференса..."
         # await asyncio.to_thread(bench.compare, image_input=image_input, alpha=alpha)
@@ -356,11 +355,13 @@ async def run_benchmark(
             benchmark_tasks=benchmark_tasks,
         )
 
-        # 4. Сохранение результатов
+        # Сохранение результатов
         benchmark_tasks[task_id]["message"] = "Сохранение результатов..."
         out_dir = f"./data/benchmark_{task_id}"
         os.makedirs(out_dir, exist_ok=True)
-        os.makedirs("./data/ade20k_test_trained", exist_ok=True)  # для prediction_report
+        os.makedirs(
+            "./data/ade20k_test_trained", exist_ok=True
+        )
         await asyncio.to_thread(bench.save_results, out_dir)
         await asyncio.to_thread(bench.plot_all_metrics, path=f"{out_dir}/plot_all.png")
 
@@ -383,7 +384,6 @@ async def run_benchmark(
             },
         }
 
-
     except Exception as e:
         import traceback
 
@@ -391,7 +391,7 @@ async def run_benchmark(
         benchmark_tasks[task_id]["message"] = str(e)
         benchmark_tasks[task_id]["error_details"] = {
             "error_type": type(e).__name__,
-            "failed_at": benchmark_tasks[task_id]["message"],  # на каком этапе
+            "failed_at": benchmark_tasks[task_id]["message"],
             "traceback": (
                 traceback.format_exc() if logger.level == logging.DEBUG else None
             ),
@@ -401,14 +401,13 @@ async def run_benchmark(
 
 @router.post("/start")
 async def start_benchmark(
-    # req: BenchmarkStartRequest,
     image: Optional[UploadFile] = File(None),
     gt_mask: Optional[UploadFile] = File(None),
     use_default_image: bool = Form(True),
     image_path: Optional[str] = Form(None),
     config: Optional[str] = Form(None),
     bg: BackgroundTasks = None,
-):
+) -> Dict[str, str]:
     config_dict = {}
     if config:
         try:
@@ -425,7 +424,7 @@ async def start_benchmark(
 
 
 @router.get("/status/{task_id}")
-async def get_status(task_id: str):
+async def get_status(task_id: str) -> JSONResponse:
     task = benchmark_tasks[task_id]
     logger.info(f"📡 GET /status/{task_id} -> {task.get('progress')}%")
     if task_id not in benchmark_tasks or not task:
@@ -443,8 +442,9 @@ async def get_status(task_id: str):
 
     return safe_json_response(task)
 
+
 @router.get("/debug/{task_id}")
-async def debug_task(task_id: str):
+async def debug_task(task_id: str) -> Dict[str, Any]:
     task = benchmark_tasks.get(task_id)
     if not task:
         return {"error": "Task not found"}
@@ -462,7 +462,7 @@ async def debug_task(task_id: str):
 
 
 @router.delete("/{task_id}")
-async def cancel_benchmark(task_id: str):
+async def cancel_benchmark(task_id: str) -> Dict[str, str]:
     if task_id not in benchmark_tasks:
         raise HTTPException(404, detail="Task not found")
 
@@ -471,7 +471,11 @@ async def cancel_benchmark(task_id: str):
         return {"status": "not_found", "message": "Task not found or already removed"}
     if task["status"] in ("completed", "failed", "cancelled"):
         del benchmark_tasks[task_id]
-        return {"status": "deleted", "was": task["status"], "message": f"Task already {task['status']}"}
+        return {
+            "status": "deleted",
+            "was": task["status"],
+            "message": f"Task already {task['status']}",
+        }
 
     task["status"] = "cancelled"
     task["message"] = "Отменено пользователем"

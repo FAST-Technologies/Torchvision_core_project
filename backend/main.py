@@ -14,7 +14,7 @@ AutoSegmenter API — улучшенная версия FastAPI бэкенда.
   9. Пользовательские параметры корректно мёржатся с дефолтами.
 """
 import asyncio
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import json, os, sys, base64, io, math, logging, time
 from contextlib import asynccontextmanager
 import uuid
@@ -36,7 +36,7 @@ from segmenters.AutoSegmenter import (
 )
 from metrics.SegmentationMetrics import SegmentationMetrics
 from testing.TorchImplementationValidator import TorchImplementationValidator
-from routers import benchmark, comparator
+from routers import benchmark, comparator, validator
 from fastapi import Request
 
 # from segmenters.NeuralModelFactory import NeuralModelFactory
@@ -47,8 +47,6 @@ logger = logging.getLogger("autoseg")
 # ── Кеш нейронных моделей ──────────────────────────────────────────────────
 _model_cache: Dict[str, Any] = {}
 _CACHE_MAX = 3
-
-_validation_tasks: Dict[str, Dict] = {}
 
 print(f"🔍 CWD: {os.getcwd()}")
 print(f"🔍 __file__: {__file__}")
@@ -88,6 +86,7 @@ app.add_middleware(
 )
 app.include_router(benchmark.router)
 app.include_router(comparator.router)
+app.include_router(validator.router)
 print(f"📋 Registered routes: {[r.path for r in app.routes]}")
 
 auto_seg = AutoSegmenter()
@@ -335,7 +334,7 @@ def _best_for(method_name: str) -> list:
 
 
 @app.get("/api/health")
-async def health():
+async def health() -> Dict[str, Any]:
     return {
         "status": "ok",
         "cuda": torch.cuda.is_available(),
@@ -345,12 +344,12 @@ async def health():
 
 
 @app.get("/api/cache_info")
-async def cache_info():
+async def cache_info() -> Dict[str, Any]:
     return {"count": len(_model_cache), "models": [k[:80] for k in _model_cache]}
 
 
 @app.get("/api/methods_library")
-async def get_methods_by_library(library: Optional[str] = None):
+async def get_methods_by_library(library: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     if library and library in METHODS_BY_LIBRARY:
         source_dict = METHODS_BY_LIBRARY.get(library, {})
     else:
@@ -362,7 +361,6 @@ async def get_methods_by_library(library: Optional[str] = None):
 
     result = {}
     for name, profile in source_dict.items():
-        # MethodProfile — это dataclass, обращаемся к атрибутам напрямую
         if isinstance(profile, MethodProfile):
             result[name] = {
                 "name": profile.name,
@@ -381,7 +379,7 @@ async def get_methods_by_library(library: Optional[str] = None):
                 ),
             }
         else:
-            # Fallback для словарей (если вдруг source_dict содержит dict)
+            # Fallback
             result[name] = {
                 "name": profile.get("name", name),
                 "avg_iou": profile.get("avg_iou", 0.0),
@@ -394,7 +392,7 @@ async def get_methods_by_library(library: Optional[str] = None):
 
 
 @app.get("/api/methods")
-async def get_methods(library: Optional[str] = None):
+async def get_methods(library: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     """Возвращает доступные методы для указанной библиотеки"""
     if library and library not in METHODS_BY_LIBRARY:
         raise HTTPException(
@@ -448,7 +446,7 @@ async def segment(
     library: Optional[str] = Form("opencv"),
     custom_params: str = Form("{}"),
     gt_mask: Optional[UploadFile] = File(default=None),
-):
+) -> Dict[str, Any]:
     t0 = time.perf_counter()
     try:
         img_pil = Image.open(io.BytesIO(await file.read())).convert("RGB")
@@ -546,10 +544,6 @@ async def segment(
                     )
 
                 profile = METHODS_BY_LIBRARY[library][method]
-                # default_params = auto_seg.available_methods.get(method, {}).get(
-                #     "params", {}
-                # )
-                # final_params = {**default_params, **user_params}
                 final_params = {**(profile.params or {}), **user_params}
                 logger.info(
                     f"🛠 Using params for {method}/{library} params={final_params}"
@@ -640,507 +634,8 @@ async def segment(
         raise HTTPException(500, str(exc))
 
 
-# ── Валидация методов ──────────────────────────────────────────────────────
-# @app.post("/api/validate")
-# async def validate_methods(
-#     file: UploadFile = File(...),
-#     primary_library: str = Form("torch"),      # "torch" | "opencv" | "sklearn"
-#     reference_library: str = Form("opencv"),   # "torch" | "opencv" | "sklearn"
-#     methods_filter: Optional[str] = Form(None), # "threshold" | "edge" | "region" | "all"
-# ):
-#     """
-#     Запускает кросс-библиотечную валидацию методов сегментации.
-
-#     Returns:
-#         Сводные результаты валидации (без тяжёлых изображений)
-#     """
-#     t0 = time.perf_counter()
-#     try:
-#         # Загрузка изображения
-#         img_array = np.array(Image.open(io.BytesIO(await file.read())).convert("RGB"))
-
-#         # Инициализация валидатора
-#         validator = TorchImplementationValidator(output_dir="./data/validation_web")
-
-#         # Выбор методов для валидации
-#         if methods_filter == "threshold":
-#             methods_list = validator.threshold_methods
-#         elif methods_filter == "edge":
-#             methods_list = validator.edge_methods
-#         elif methods_filter == "region":
-#             methods_list = validator.region_methods
-#         elif methods_filter == "clustering":
-#             methods_list = validator.clastering_methods
-#         else:
-#             # Все методы (может быть долго!)
-#             methods_list = (
-#                 validator.threshold_methods +
-#                 validator.edge_methods +
-#                 validator.region_methods +
-#                 validator.clastering_methods
-#             )
-#         # Маппинг библиотек к классам сегментеров
-#         LIB_MAP = {
-#             "torch": "TorchSegmenter",
-#             "opencv": "OpenCVSegmenter",
-#             "sklearn": "SklearnSegmenter",
-#         }
-
-# from segmenters.TorchSegmenter import TorchSegmenter
-# from segmenters.OpenCVSegmenter import OpenCVSegmenter
-# from segmenters.SklearnSegmenter import SklearnSegmenter
-
-#         CLASS_MAP = {
-#             "torch": TorchSegmenter,
-#             "opencv": OpenCVSegmenter,
-#             "sklearn": SklearnSegmenter,
-#         }
-
-#         primary_class = CLASS_MAP.get(primary_library, TorchSegmenter)
-#         reference_class = CLASS_MAP.get(reference_library, OpenCVSegmenter)
-
-#         # Запуск валидации
-#         results = validator.validate_segmentation_methods(
-#             image_path=img_array,
-#             methods_list=methods_list,
-#             torch_segmenter_class=primary_class,
-#             reference_segmenter_class=reference_class,
-#             reference=reference_library,
-#             status_message=f"ВАЛИДАЦИЯ: {LIB_MAP[primary_library]} vs {LIB_MAP[reference_library]}",
-#             prefix=f"web_validation_{primary_library}_{reference_library}",
-#             validation_type=methods_filter or "all",
-#             additional_method=LIB_MAP[primary_library],
-#         )
-#         # Подготовка лёгкого ответа для фронтенда
-#         summary = []
-#         for method, data in results.items():
-#             if not data.get("success"):
-#                 summary.append({
-#                     "method": method,
-#                     "success": False,
-#                     "error": data.get("error", "Unknown error"),
-#                 })
-#                 continue
-
-#             metrics = data.get("metrics", {})
-#             summary.append({
-#                 "method": method,
-#                 "success": True,
-#                 "validation_status": data.get("validation_status"),
-#                 "iou": metrics.get("iou"),
-#                 "dice": metrics.get("dice"),
-#                 "pixel_accuracy": metrics.get("pixel_accuracy"),
-#                 "precision": metrics.get("precision"),
-#                 "recall": metrics.get("recall"),
-#                 "f1_score": metrics.get("f1_score"),
-#                 "mae": metrics.get("mae"),
-#                 "hausdorff_distance": metrics.get("hausdorff_distance"),
-#                 "primary_time": data.get("first_method_time"),
-#                 "reference_time": data.get("second_method_time"),
-#                 "time_diff": data.get("methods_time_difference"),
-#             })
-
-#         elapsed = (time.perf_counter() - t0) * 1000
-
-#         return {
-#             "success": True,
-#             "elapsed_ms": round(elapsed, 1),
-#             "primary_library": primary_library,
-#             "reference_library": reference_library,
-#             "methods_tested": len(summary),
-#             "passed": sum(1 for s in summary if s.get("validation_status") == "PASS"),
-#             "warning": sum(1 for s in summary if s.get("validation_status") == "WARNING"),
-#             "failed": sum(1 for s in summary if s.get("validation_status") == "FAIL"),
-#             "results": summary,
-#             "report_dir": validator.output_dir,  # Для отладки
-#         }
-#     except HTTPException:
-#         raise
-#     except Exception as exc:
-#         import traceback
-#         logger.error(f"❌ /api/validate error: {exc}\n{traceback.format_exc()}")
-#         raise HTTPException(500, f"Validation failed: {str(exc)}")
-
-
-def _get_methods_for_filter(
-    validator: TorchImplementationValidator, methods_filter: Optional[str]
-):
-    if methods_filter == "threshold":
-        return validator.threshold_methods
-    elif methods_filter == "edge":
-        return validator.edge_methods
-    elif methods_filter == "region":
-        return validator.region_methods
-    elif methods_filter == "clustering":
-        return validator.clastering_methods
-    else:
-        return (
-            validator.threshold_methods
-            + validator.edge_methods
-            + validator.region_methods
-            + validator.clastering_methods
-        )
-
-
-@app.post("/api/validate")
-async def start_validation(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    primary_library: str = Form("torch"),
-    reference_library: str = Form("opencv"),
-    methods_filter: Optional[str] = Form(None),
-):
-    """Запускает валидацию в фоне и возвращает task_id"""
-    task_id = str(uuid.uuid4())
-    temp_validator = TorchImplementationValidator(output_dir="./data/validation_web")
-    methods_list = _get_methods_for_filter(temp_validator, methods_filter)
-    total_methods = len(methods_list)
-    logger.info(f"🔧 methods_filter={methods_filter}, total_methods={total_methods}")
-    _validation_tasks[task_id] = {
-        "status": "running",
-        "progress": 0,
-        "total_methods": total_methods,
-        "processed": 0,
-        "start_time": time.time(),
-        "results": None,
-        "error": None,
-        "fetched": False,
-    }
-
-    background_tasks.add_task(
-        _run_validation_task,
-        task_id,
-        await file.read(),
-        primary_library,
-        reference_library,
-        methods_filter,
-    )
-
-    return {"task_id": task_id, "status": "running"}
-
-
-async def _run_validation_task(
-    task_id: str,
-    file_content: bytes,
-    primary_library: str,
-    reference_library: str,
-    methods_filter: Optional[str],
-):
-    """Фоновая задача валидации"""
-    try:
-        _validation_tasks[task_id]["status"] = "running"
-        _validation_tasks[task_id]["progress"] = 0
-
-        # Загрузка изображения
-        img_array = np.array(Image.open(io.BytesIO(file_content)).convert("RGB"))
-
-        # Инициализация валидатора
-        validator = TorchImplementationValidator(output_dir="./data/validation_web")
-
-        # Выбор методов
-        if methods_filter == "threshold":
-            methods_list = validator.threshold_methods
-        elif methods_filter == "edge":
-            methods_list = validator.edge_methods
-        elif methods_filter == "region":
-            methods_list = validator.region_methods
-        elif methods_filter == "clustering":
-            methods_list = validator.clastering_methods
-        else:
-            methods_list = (
-                validator.threshold_methods
-                + validator.edge_methods
-                + validator.region_methods
-                + validator.clastering_methods
-            )
-
-        _validation_tasks[task_id]["total_methods"] = len(methods_list)
-        import cv2
-        from segmenters.TorchSegmenter import TorchSegmenter
-        from segmenters.OpenCVSegmenter import OpenCVSegmenter
-        from segmenters.SklearnSegmenter import SklearnSegmenter
-
-        # Маппинг библиотек
-        CLASS_MAP = {
-            "torch": TorchSegmenter,
-            "opencv": OpenCVSegmenter,
-            "sklearn": SklearnSegmenter,
-        }
-        primary_class = CLASS_MAP.get(primary_library, TorchSegmenter)
-        reference_class = CLASS_MAP.get(reference_library, OpenCVSegmenter)
-
-        results = {}
-        for idx, (method_name, params) in enumerate(methods_list):
-            try:
-                result = await asyncio.to_thread(
-                    _process_single_method,
-                    method_name,
-                    params,
-                    img_array,
-                    primary_class,
-                    reference_class,
-                    validator,
-                )
-                results[method_name] = result
-
-            except Exception as e:
-                results[method_name] = {"success": False, "error": str(e)}
-
-            # 🔹 Обновляем прогресс
-            _validation_tasks[task_id]["processed"] = idx + 1
-            _validation_tasks[task_id]["progress"] = round(
-                (idx + 1) / len(methods_list) * 100, 1
-            )
-            _validation_tasks[task_id]["elapsed_ms"] = round(
-                (time.time() - _validation_tasks[task_id]["start_time"]) * 1000, 1
-            )
-            await asyncio.sleep(0)
-
-        # Завершение
-        _validation_tasks[task_id]["status"] = "completed"
-        _validation_tasks[task_id]["results"] = results
-        _validation_tasks[task_id]["elapsed_ms"] = round(
-            (time.time() - _validation_tasks[task_id]["start_time"]) * 1000, 1
-        )
-
-    except Exception as e:
-        _validation_tasks[task_id]["status"] = "failed"
-        _validation_tasks[task_id]["error"] = str(e)
-        _validation_tasks[task_id]["elapsed_ms"] = round(
-            (time.time() - _validation_tasks[task_id].get("start_time", time.time()))
-            * 1000,
-            1,
-        )
-        logger.error(f"❌ Validation task {task_id} failed: {e}")
-
-
-def _process_single_method(
-    method_name: str,
-    params: dict,
-    img_array: np.ndarray,
-    primary_class,
-    reference_class,
-    validator,
-) -> dict:
-    """Синхронная обработка одного метода — запускается в отдельном потоке"""
-    import cv2
-    from metrics.SegmentationMetrics import SegmentationMetrics
-
-    logger.info(f"🔹 START Processing method: {method_name}")
-    try:
-        # Primary реализация
-        start1 = time.time()
-        seg1 = primary_class(method=method_name, **params)
-        mask1 = seg1.segment(img_array, **params)
-        time1 = time.time() - start1
-        logger.info(f"✅ {method_name} primary done: {time1:.3f}s")
-
-        # Reference реализация
-        start2 = time.time()
-        ref_params = params.copy()
-        ref_params["postprocess"] = False
-        seg2 = reference_class(method=method_name, **ref_params)
-        mask2 = seg2.segment(img_array, **ref_params)
-        time2 = time.time() - start2
-        logger.info(f"✅ {method_name} primary done: {time2:.3f}s")
-
-        # Метрики
-        metrics = SegmentationMetrics.calculate_all_metrics(mask1, mask2, threshold=0.5)
-        metrics.update(
-            {
-                "first_method_time": time1,
-                "second_method_time": time2,
-                "methods_time_difference": abs(time1 - time2),
-            }
-        )
-
-        status = validator._check_validation_status(metrics)
-
-        # Визуализация
-        orig_gray = (
-            cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-            if img_array.ndim == 3
-            else img_array
-        )
-        mask1_vis = mask1 if mask1.max() == 255 else mask1 * 255
-        mask2_vis = mask2 if mask2.max() == 255 else mask2 * 255
-        diff = np.abs(mask1_vis.astype(int) - mask2_vis.astype(int))
-        logger.info(f"✅ FINISHED {method_name}")
-        result = {
-            "success": True,
-            "validation_status": status,
-            "metrics": metrics,
-            "primary_time": time1,
-            "reference_time": time2,
-            "original_b64": arr_to_b64(orig_gray),
-            "primary_mask_b64": arr_to_b64(mask1_vis),
-            "reference_mask_b64": arr_to_b64(mask2_vis),
-            "difference_b64": arr_to_b64(diff),
-        }
-        for key in [
-            "original_b64",
-            "primary_mask_b64",
-            "reference_mask_b64",
-            "difference_b64",
-        ]:
-            if key in result:
-                size_kb = len(result[key]) / 1024
-                logger.info(f"📦 {key}: {size_kb:.1f} KB")
-                if size_kb > 500:  # >500KB — предупреждение
-                    logger.warning(f"⚠️ Large base64 string: {key} ({size_kb:.1f} KB)")
-        return result
-    except Exception as e:
-        logger.error(f"❌ ERROR in {method_name}: {type(e).__name__}: {e}")
-        import traceback
-
-        logger.error(traceback.format_exc())
-        raise
-
-
-@app.get("/api/validate/status/{task_id}")
-async def get_validation_status(task_id: str):
-    # 🔹 Сначала проверяем, существует ли задача!
-    task = _validation_tasks.get(task_id)
-    if not task:
-        raise HTTPException(404, "Task not found")
-
-    # 🔹 Только потом работаем с task как с словарём
-    if task["status"] in ("completed", "failed") and task.get("results") is not None:
-        task["fetched"] = True
-
-    # 🔹 Очистка старых задач (проверить или закомментить)
-    # now = time.time()
-    # for tid in list(_validation_tasks.keys()):
-    #     if tid != task_id:
-    #         t = _validation_tasks[tid]
-    #         if (t["status"] in ("completed", "failed") and t.get("fetched", False)) or (
-    #             now - t.get("start_time", 0) > 3600
-    #         ):
-    #             del _validation_tasks[tid]
-    #             logger.info(f"🗑 Cleaned up old task {tid}")
-
-    logger.info(
-        f"🔍 Status response for {task_id}: status={task['status']}, total={task.get('total_methods')}, processed={task.get('processed')}"
-    )
-    logger.info(f"🔍 Task {task_id} found: {task_id in _validation_tasks}")
-    response = {
-        "task_id": task_id,
-        "status": task["status"],
-        "progress": task["progress"],
-        "processed": task["processed"],
-        "total_methods": task["total_methods"],
-        "elapsed_ms": task.get("elapsed_ms"),
-    }
-
-    if task["status"] == "completed":
-        summary = []
-        for method, data in task["results"].items():
-            if not data.get("success"):
-                summary.append(
-                    {"method": method, "success": False, "error": data.get("error")}
-                )
-                continue
-            metrics = data.get("metrics", {})
-            summary.append(
-                {
-                    "method": method,
-                    "success": True,
-                    "validation_status": data.get("validation_status"),
-                    "iou": metrics.get("iou"),
-                    "dice": metrics.get("dice"),
-                    "pixel_accuracy": metrics.get("pixel_accuracy"),
-                    "precision": metrics.get("precision"),
-                    "recall": metrics.get("recall"),
-                    "f1_score": metrics.get("f1_score"),
-                    "mae": metrics.get("mae"),
-                    "hausdorff_distance": metrics.get("hausdorff_distance"),
-                    "primary_time": data.get("primary_time"),
-                    "reference_time": data.get("reference_time"),
-                    "time_diff": data.get("methods_time_difference"),
-                    "original_b64": data.get("original_b64"),
-                    "primary_mask_b64": data.get("primary_mask_b64"),
-                    "reference_mask_b64": data.get("reference_mask_b64"),
-                    "difference_b64": data.get("difference_b64"),
-                }
-            )
-
-        response["results"] = summary
-        response["passed"] = sum(
-            1 for s in summary if s.get("validation_status") == "PASS"
-        )
-        response["warning"] = sum(
-            1 for s in summary if s.get("validation_status") == "WARNING"
-        )
-        response["failed"] = sum(
-            1 for s in summary if s.get("validation_status") == "FAIL"
-        )
-        response["methods_tested"] = len(summary)
-        response["report_dir"] = "./data/validation_web"
-
-        benchmark_data = []
-        for method, data in task["results"].items():
-            if data.get("success"):
-                metrics = data.get("metrics", {})
-                pred_area = metrics.get("predicted_area", 0) or 0
-                gt_area = metrics.get("ground_truth_area", 0) or 0
-                coverage_pct = (pred_area / gt_area * 100) if gt_area > 0 else 0
-                benchmark_data.append(
-                    {
-                        "method": method,
-                        "torch_time": data.get("primary_time"),
-                        "reference_time": data.get("reference_time"),
-                        "time_diff": data.get("time_diff"),
-                        "accuracy": metrics.get("accuracy"),
-                        "iou": metrics.get("iou"),
-                        "dice": metrics.get("dice"),
-                        "precision": metrics.get("precision"),
-                        "recall": metrics.get("recall"),
-                        "f1_score": metrics.get("f1_score"),
-                        "mae": metrics.get("mae"),
-                        "pixel_accuracy": metrics.get("pixel_accuracy"),
-                        "hausdorff_distance": metrics.get('hausdorff_distance', float('nan')),
-                        "area_ratio": metrics.get('area_ratio'),
-                        "validation_status": data.get("validation_status"),
-                        "coverage_pct": round(coverage_pct, 2),      # ← Процент покрытия
-                        "predicted_area": metrics.get("predicted_area"),
-                        "ground_truth_area": metrics.get("ground_truth_area"),
-                        "area_difference": metrics.get("area_difference"),
-                    }
-                )
-
-        # Сводные метрики
-        valid_times = [d["torch_time"] for d in benchmark_data if d.get("torch_time")]
-        valid_iou = [d["iou"] for d in benchmark_data if d.get("iou") is not None]
-
-        response["benchmark"] = {
-            "methods_count": len(benchmark_data),
-            "passed": response["passed"],
-            "warning": response["warning"],
-            "failed": response["failed"],
-            "data": benchmark_data,
-            "avg_torch_time": sum(valid_times) / len(valid_times) if valid_times else 0,
-            "avg_iou": sum(valid_iou) / len(valid_iou) if valid_iou else 0,
-        }
-        response["benchmark_raw"] = [
-            {
-                "method": method,
-                "torch_time": data.get("primary_time"),
-                "reference_time": data.get("reference_time"),
-                "iou": data.get("metrics", {}).get("iou"),
-                "status": data.get("validation_status"),
-            }
-            for method, data in task["results"].items()
-            if data.get("success")
-        ]
-
-    elif task["status"] == "failed":
-        response["error"] = task["error"]
-
-    return response
-
-
 @app.get("/recommendations/")
-async def get_recommendations_ep(file: UploadFile = File(...)):
+async def get_recommendations_ep(file: UploadFile = File(...)) -> Dict[str, List[Dict[str, Any]]]:
     img = np.array(Image.open(io.BytesIO(await file.read())))
     return {"recommendations": auto_seg.get_recommendations(img, top_k=5)}
 

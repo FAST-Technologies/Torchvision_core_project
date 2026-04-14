@@ -1,4 +1,5 @@
 # routers/comparator.py
+
 import os
 import sys
 import uuid
@@ -27,7 +28,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("comparator")
 
 router = APIRouter(
-    prefix="/api/comparator", 
+    prefix="/api/comparator",
     tags=["comparator"],
     responses={
         404: {"description": "Task not found"},
@@ -39,45 +40,70 @@ router = APIRouter(
 _comparator_tasks: Dict[str, Dict[str, Any]] = {}
 _comparator_lock = asyncio.Lock()
 
-# 🔹 Кастомный энкодер (как в benchmark.py)
+
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, np.integer): return int(obj)
+        if isinstance(obj, np.integer):
+            return int(obj)
         elif isinstance(obj, np.floating):
-            if np.isnan(obj) or np.isinf(obj): return None
+            if np.isnan(obj) or np.isinf(obj):
+                return None
             return float(obj)
-        elif isinstance(obj, np.ndarray): return obj.tolist()
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
         return super().default(obj)
 
+
 def safe_json_response(content: Any, status_code: int = 200) -> JSONResponse:
-    return JSONResponse(content=content, status_code=status_code, media_type="application/json")
+    return JSONResponse(
+        content=content, status_code=status_code, media_type="application/json"
+    )
+
 
 def img_to_b64(path: str) -> str:
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode()
 
+
 # 🔹 Конфигурация методов по умолчанию
 DEFAULT_COMPARATOR_METHODS = {
     "opencv": [
-        "global_thresholding", "otsu_thresholding", "adaptive_thresholding",
-        "canny_edge", "sobel_edge", "threshold_sauvola"
+        "global_thresholding",
+        "otsu_thresholding",
+        "adaptive_thresholding",
+        "canny_edge",
+        "sobel_edge",
+        "threshold_sauvola",
     ],
     "sklearn": [
-        "global_thresholding", "otsu_thresholding", "adaptive_thresholding",
-        "canny_edge", "sobel_edge", "threshold_sauvola"
+        "global_thresholding",
+        "otsu_thresholding",
+        "adaptive_thresholding",
+        "canny_edge",
+        "sobel_edge",
+        "threshold_sauvola",
     ],
     "torch": [
-        "global_thresholding", "otsu_thresholding", "adaptive_thresholding",
-        "canny_edge", "sobel_edge", "threshold_sauvola"
-    ]
+        "global_thresholding",
+        "otsu_thresholding",
+        "adaptive_thresholding",
+        "canny_edge",
+        "sobel_edge",
+        "threshold_sauvola",
+    ],
 }
+
 
 def _extract_library_from_name(name: str) -> str:
     """Извлекает библиотеку из имени метода: Otsu_OpenCV -> opencv"""
-    if name.endswith('_OpenCV'): return 'opencv'
-    elif name.endswith('_Sklearn'): return 'sklearn'
-    elif name.endswith('_Torch'): return 'torch'
-    return 'opencv'
+    if name.endswith("_OpenCV"):
+        return "opencv"
+    elif name.endswith("_Sklearn"):
+        return "sklearn"
+    elif name.endswith("_Torch"):
+        return "torch"
+    return "opencv"
+
 
 def _create_segmenter(library: str, method: str, params: Dict[str, Any]):
     """Фабрика сегментеров"""
@@ -89,6 +115,7 @@ def _create_segmenter(library: str, method: str, params: Dict[str, Any]):
         return TorchSegmenter(method, **params)
     raise ValueError(f"Unknown library: {library}")
 
+
 async def _run_comparator_task(
     task_id: str,
     image: np.ndarray,
@@ -96,7 +123,7 @@ async def _run_comparator_task(
     reference_config: Dict[str, Any],
     comparison_type: str = "batch",
     output_dir: Optional[str] = None,
-):
+) -> None:
     """Асинхронная задача компаратора"""
     async with _comparator_lock:
         _comparator_tasks[task_id] = {
@@ -118,27 +145,31 @@ async def _run_comparator_task(
                 library = cfg.get("library") or _extract_library_from_name(cfg["name"])
                 method_name = cfg["method"]
                 params = cfg.get("params", {})
-                
+
                 seg = _create_segmenter(library, method_name, params)
-                segmenters.append({
-                    "name": cfg["name"], 
-                    "segmenter": seg, 
-                    "library": library  # ← сохраняем для отчёта
-                })
+                segmenters.append(
+                    {
+                        "name": cfg["name"],
+                        "segmenter": seg,
+                        "library": library,
+                    }
+                )
             except Exception as e:
                 logger.warning(f"⚠️ Skip {cfg.get('name', 'unknown')}: {e}")
 
         ref_seg = _create_segmenter(
             reference_config["library"],
             reference_config["method"],
-            reference_config.get("params", {})
+            reference_config.get("params", {}),
         )
         ref_name = reference_config["name"]
 
         # 🔹 Прогресс: 0-20% подготовка, 20-90% сравнение, 90-100% сохранение
         async with _comparator_lock:
             _comparator_tasks[task_id]["progress"] = 20
-            _comparator_tasks[task_id]["message"] = f"Запущено {len(segmenters)} методов"
+            _comparator_tasks[task_id][
+                "message"
+            ] = f"Запущено {len(segmenters)} методов"
 
         # 🔹 Пакетное сравнение с пошаговым обновлением
         results = []
@@ -146,8 +177,10 @@ async def _run_comparator_task(
             progress = 20 + (i / len(segmenters)) * 70
             async with _comparator_lock:
                 _comparator_tasks[task_id]["progress"] = progress
-                _comparator_tasks[task_id]["message"] = f"Сравнение {cfg['name']} ({i+1}/{len(segmenters)})"
-            await asyncio.sleep(0)  # 🔹 Критично для обновления UI
+                _comparator_tasks[task_id][
+                    "message"
+                ] = f"Сравнение {cfg['name']} ({i+1}/{len(segmenters)})"
+            await asyncio.sleep(0)
 
             try:
                 start = time.time()
@@ -155,27 +188,32 @@ async def _run_comparator_task(
                 test_time = time.time() - start
 
                 ref_mask = ref_seg.segment(image)
-                ref_time = time.time() - start - test_time  # approximate
+                ref_time = time.time() - start - test_time
 
-                metrics = comparator.compute_metrics(ref_mask, test_mask, ref_name, cfg["name"])
+                metrics = comparator.compute_metrics(
+                    ref_mask, test_mask, ref_name, cfg["name"]
+                )
 
-                results.append({
-                    "method": cfg["name"],
-                    "library": cfg["library"],
-                    **metrics,
-                    "test_time": test_time,
-                    "ref_time": ref_time,
-                })
+                results.append(
+                    {
+                        "method": cfg["name"],
+                        "library": cfg["library"],
+                        **metrics,
+                        "test_time": test_time,
+                        "ref_time": ref_time,
+                    }
+                )
 
-                # 🔹 Сохраняем визуализацию (опционально)
-                if i < 3:  # только первые 3 для экономии места
+                if i < 3:
                     out_path = os.path.join(output_dir, f"viz_{cfg['name']}.png")
                     comparator.visualize_comparison(
-                        image, ref_mask, test_mask,
+                        image,
+                        ref_mask,
+                        test_mask,
                         {"method": ref_name, "execution_time": ref_time},
                         {"method": cfg["name"], "execution_time": test_time},
                         metrics,
-                        output_path=out_path
+                        output_path=out_path,
                     )
 
             except Exception as e:
@@ -190,15 +228,36 @@ async def _run_comparator_task(
         # Сохранение
         df = comparator.batch_comparison(
             image=image,
-            methods_config=[{"name": r["method"], "segmenter": _create_segmenter(
-                next((c["library"] for c in methods_config if c["name"] == r["method"]), "opencv"),
-                next((c["method"] for c in methods_config if c["name"] == r["method"]), "otsu_thresholding"),
-                {}
-            )} for r in results if "error" not in r],
+            methods_config=[
+                {
+                    "name": r["method"],
+                    "segmenter": _create_segmenter(
+                        next(
+                            (
+                                c["library"]
+                                for c in methods_config
+                                if c["name"] == r["method"]
+                            ),
+                            "opencv",
+                        ),
+                        next(
+                            (
+                                c["method"]
+                                for c in methods_config
+                                if c["name"] == r["method"]
+                            ),
+                            "otsu_thresholding",
+                        ),
+                        {},
+                    ),
+                }
+                for r in results
+                if "error" not in r
+            ],
             reference_segmenter=ref_seg,
             reference_name=ref_name,
             save_results=True,
-            output_dir=output_dir
+            output_dir=output_dir,
         )
 
         # 🔹 Подготовка ответа
@@ -209,14 +268,22 @@ async def _run_comparator_task(
             "top_by_f1": sorted(
                 [r for r in results if "f1_score" in r],
                 key=lambda x: x["f1_score"],
-                reverse=True
+                reverse=True,
             )[:5],
-            "avg_f1": np.mean([r["f1_score"] for r in results if "f1_score" in r]) if any("f1_score" in r for r in results) else None,
+            "avg_f1": (
+                np.mean([r["f1_score"] for r in results if "f1_score" in r])
+                if any("f1_score" in r for r in results)
+                else None
+            ),
         }
 
         # 🔹 Сериализация графиков
         charts = {}
-        for fname in ["comparison_summary.jpg", "f1_score_matrix.png", "accuracy_matrix.png"]:
+        for fname in [
+            "comparison_summary.jpg",
+            "f1_score_matrix.png",
+            "accuracy_matrix.png",
+        ]:
             fpath = os.path.join(output_dir, fname)
             if os.path.exists(fpath):
                 charts[fname] = img_to_b64(fpath)
@@ -240,8 +307,11 @@ async def _run_comparator_task(
             _comparator_tasks[task_id]["error_details"] = {
                 "error_type": type(e).__name__,
                 "failed_at": _comparator_tasks[task_id]["message"],
-                "traceback": traceback.format_exc() if logger.level == logging.DEBUG else None,
+                "traceback": (
+                    traceback.format_exc() if logger.level == logging.DEBUG else None
+                ),
             }
+
 
 # 🔹 Роуты
 @router.post("/start")
@@ -250,36 +320,37 @@ async def start_comparator(
     methods: str = Form(...),  # JSON string
     reference: str = Form(...),  # JSON string
     comparison_type: str = Form("batch"),
-):
+) -> Dict[str, str]:
     try:
         methods_config = json.loads(methods)
         reference_config = json.loads(reference)
     except json.JSONDecodeError as e:
         raise HTTPException(422, detail=f"Invalid JSON: {e}")
-
-    # Загрузка изображения
     from PIL import Image
+
     img = Image.open(image.file).convert("RGB")
     image_array = np.array(img)
 
     task_id = str(uuid.uuid4())
-    asyncio.create_task(_run_comparator_task(
-        task_id=task_id,
-        image=image_array,
-        methods_config=methods_config,
-        reference_config=reference_config,
-        comparison_type=comparison_type,
-    ))
+    asyncio.create_task(
+        _run_comparator_task(
+            task_id=task_id,
+            image=image_array,
+            methods_config=methods_config,
+            reference_config=reference_config,
+            comparison_type=comparison_type,
+        )
+    )
     return {"task_id": task_id}
 
+
 @router.get("/status/{task_id}")
-async def get_status(task_id: str):
+async def get_status(task_id: str) -> JSONResponse:
     async with _comparator_lock:
         task = _comparator_tasks.get(task_id)
     if not task:
         raise HTTPException(404, detail="Task not found")
 
-    # 🔹 Очистка NaN перед возвратом
     if task.get("results") and "results" in task["results"]:
         for r in task["results"]["results"]:
             for k, v in r.items():
@@ -288,8 +359,9 @@ async def get_status(task_id: str):
 
     return safe_json_response(task)
 
+
 @router.delete("/{task_id}")
-async def cancel_comparator(task_id: str):
+async def cancel_comparator(task_id: str) -> Dict[str, str]:
     async with _comparator_lock:
         task = _comparator_tasks.get(task_id)
     if not task:
