@@ -359,9 +359,7 @@ async def run_benchmark(
         benchmark_tasks[task_id]["message"] = "Сохранение результатов..."
         out_dir = f"./data/benchmark_{task_id}"
         os.makedirs(out_dir, exist_ok=True)
-        os.makedirs(
-            "./data/ade20k_test_trained", exist_ok=True
-        )
+        os.makedirs("./data/ade20k_test_trained", exist_ok=True)
         await asyncio.to_thread(bench.save_results, out_dir)
         await asyncio.to_thread(bench.plot_all_metrics, path=f"{out_dir}/plot_all.png")
 

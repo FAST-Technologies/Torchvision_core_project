@@ -33,6 +33,7 @@ router = APIRouter(prefix="/api/validate", tags=["validate"])
 _validation_tasks: Dict[str, Dict[str, Any]] = {}
 _validation_lock = asyncio.Lock()
 
+
 # 🔹 Энкодер для NaN/Infinity
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -51,6 +52,7 @@ def safe_json_response(content: Any, status_code: int = 200) -> JSONResponse:
     return JSONResponse(
         content=content, status_code=status_code, media_type="application/json"
     )
+
 
 def arr_to_b64(arr: np.ndarray) -> str:
     """numpy → data:image/png;base64,..."""
@@ -248,18 +250,32 @@ async def _run_validation_task(
             _validation_tasks[task_id]["fetched"] = False
             _validation_tasks[task_id]["results"] = {
                 "summary": summary,
-                "passed": sum(1 for s in summary if s.get("validation_status") == "PASS"),
-                "warning": sum(1 for s in summary if s.get("validation_status") == "WARNING"),
-                "failed": sum(1 for s in summary if s.get("validation_status") == "FAIL"),
+                "passed": sum(
+                    1 for s in summary if s.get("validation_status") == "PASS"
+                ),
+                "warning": sum(
+                    1 for s in summary if s.get("validation_status") == "WARNING"
+                ),
+                "failed": sum(
+                    1 for s in summary if s.get("validation_status") == "FAIL"
+                ),
                 "methods_tested": len(summary),
                 "report_dir": "./data/validation_web",
                 "benchmark": {
                     "methods_count": len(benchmark_data),
-                    "passed": sum(1 for s in summary if s.get("validation_status") == "PASS"),
-                    "warning": sum(1 for s in summary if s.get("validation_status") == "WARNING"),
-                    "failed": sum(1 for s in summary if s.get("validation_status") == "FAIL"),
+                    "passed": sum(
+                        1 for s in summary if s.get("validation_status") == "PASS"
+                    ),
+                    "warning": sum(
+                        1 for s in summary if s.get("validation_status") == "WARNING"
+                    ),
+                    "failed": sum(
+                        1 for s in summary if s.get("validation_status") == "FAIL"
+                    ),
                     "data": benchmark_data,
-                    "avg_torch_time": sum(valid_times) / len(valid_times) if valid_times else 0,
+                    "avg_torch_time": (
+                        sum(valid_times) / len(valid_times) if valid_times else 0
+                    ),
                     "avg_iou": sum(valid_iou) / len(valid_iou) if valid_iou else 0,
                 },
                 "benchmark_raw": [
@@ -404,13 +420,13 @@ async def start_validation(
 async def get_validation_status(task_id: str) -> JSONResponse:
     async with _validation_lock:
         task = _validation_tasks.get(task_id)
-    
+
     if not task:
         raise HTTPException(404, detail="Task not found")
-    
+
     if task["status"] in ("completed", "failed") and task.get("results") is not None:
         task["fetched"] = True
-    
+
     response = {
         "task_id": task_id,
         "status": task["status"],
@@ -420,7 +436,7 @@ async def get_validation_status(task_id: str) -> JSONResponse:
         "elapsed_ms": task.get("elapsed_ms"),
         "message": task.get("message"),
     }
-    
+
     if task["status"] == "completed" and task.get("results"):
         results_data = task["results"]
         if isinstance(results_data, dict) and "summary" in results_data:
@@ -428,43 +444,43 @@ async def get_validation_status(task_id: str) -> JSONResponse:
                 if key != "results":
                     response[key] = value
             response["results"] = results_data.get("summary", [])
-        
+
         elif isinstance(results_data, dict):
             summary = []
             for method, data in results_data.items():
                 if not isinstance(data, dict) or not data.get("success"):
-                    summary.append({
-                        "method": method, 
-                        "success": False, 
-                        "error": data.get("error")
-                    })
+                    summary.append(
+                        {"method": method, "success": False, "error": data.get("error")}
+                    )
                     continue
-                
+
                 metrics = data.get("metrics", {})
-                summary.append({
-                    "method": method,
-                    "success": True,
-                    "validation_status": data.get("validation_status"),
-                    # Метрики
-                    "iou": metrics.get("iou"),
-                    "dice": metrics.get("dice"),
-                    "pixel_accuracy": metrics.get("pixel_accuracy"),
-                    "precision": metrics.get("precision"),
-                    "recall": metrics.get("recall"),
-                    "f1_score": metrics.get("f1_score"),
-                    "mae": metrics.get("mae"),
-                    "hausdorff_distance": metrics.get("hausdorff_distance"),
-                    # Временные метрики
-                    "primary_time": data.get("primary_time"),
-                    "reference_time": data.get("reference_time"),
-                    "time_diff": data.get("methods_time_difference"),
-                    # Base64 изображения
-                    "original_b64": data.get("original_b64"),
-                    "primary_mask_b64": data.get("primary_mask_b64"),
-                    "reference_mask_b64": data.get("reference_mask_b64"),
-                    "difference_b64": data.get("difference_b64"),
-                })
-            
+                summary.append(
+                    {
+                        "method": method,
+                        "success": True,
+                        "validation_status": data.get("validation_status"),
+                        # Метрики
+                        "iou": metrics.get("iou"),
+                        "dice": metrics.get("dice"),
+                        "pixel_accuracy": metrics.get("pixel_accuracy"),
+                        "precision": metrics.get("precision"),
+                        "recall": metrics.get("recall"),
+                        "f1_score": metrics.get("f1_score"),
+                        "mae": metrics.get("mae"),
+                        "hausdorff_distance": metrics.get("hausdorff_distance"),
+                        # Временные метрики
+                        "primary_time": data.get("primary_time"),
+                        "reference_time": data.get("reference_time"),
+                        "time_diff": data.get("methods_time_difference"),
+                        # Base64 изображения
+                        "original_b64": data.get("original_b64"),
+                        "primary_mask_b64": data.get("primary_mask_b64"),
+                        "reference_mask_b64": data.get("reference_mask_b64"),
+                        "difference_b64": data.get("difference_b64"),
+                    }
+                )
+
             benchmark_data = []
             for method, data in results_data.items():
                 if not isinstance(data, dict) or not data.get("success"):
@@ -473,80 +489,106 @@ async def get_validation_status(task_id: str) -> JSONResponse:
                 pred_area = metrics.get("predicted_area", 0) or 0
                 gt_area = metrics.get("ground_truth_area", 0) or 0
                 coverage_pct = (pred_area / gt_area * 100) if gt_area > 0 else 0
-                
-                benchmark_data.append({
-                    "method": method,
-                    "torch_time": data.get("primary_time"),
-                    "reference_time": data.get("reference_time"),
-                    "time_diff": data.get("time_diff"),
-                    "accuracy": metrics.get("accuracy"),
-                    "iou": metrics.get("iou"),
-                    "dice": metrics.get("dice"),
-                    "precision": metrics.get("precision"),
-                    "recall": metrics.get("recall"),
-                    "f1_score": metrics.get("f1_score"),
-                    "mae": metrics.get("mae"),
-                    "pixel_accuracy": metrics.get("pixel_accuracy"),
-                    "hausdorff_distance": metrics.get("hausdorff_distance"),
-                    "area_ratio": metrics.get("area_ratio"),
-                    "validation_status": data.get("validation_status"),
-                    "coverage_pct": round(coverage_pct, 2),
-                    "predicted_area": metrics.get("predicted_area"),
-                    "ground_truth_area": metrics.get("ground_truth_area"),
-                    "area_difference": metrics.get("area_difference"),
-                })
-            
-            valid_times = [d["torch_time"] for d in benchmark_data if d.get("torch_time")]
-            valid_iou = [d["iou"] for d in benchmark_data if d.get("iou") is not None]
-            
-            response.update({
-                "results": summary,
-                "passed": sum(1 for s in summary if s.get("validation_status") == "PASS"),
-                "warning": sum(1 for s in summary if s.get("validation_status") == "WARNING"),
-                "failed": sum(1 for s in summary if s.get("validation_status") == "FAIL"),
-                "methods_tested": len(summary),
-                "report_dir": "./data/validation_web",
-                "benchmark": {
-                    "methods_count": len(benchmark_data),
-                    "passed": sum(1 for s in summary if s.get("validation_status") == "PASS"),
-                    "warning": sum(1 for s in summary if s.get("validation_status") == "WARNING"),
-                    "failed": sum(1 for s in summary if s.get("validation_status") == "FAIL"),
-                    "data": benchmark_data,
-                    "avg_torch_time": sum(valid_times) / len(valid_times) if valid_times else 0,
-                    "avg_iou": sum(valid_iou) / len(valid_iou) if valid_iou else 0,
-                },
-                "benchmark_raw": [
+
+                benchmark_data.append(
                     {
                         "method": method,
                         "torch_time": data.get("primary_time"),
                         "reference_time": data.get("reference_time"),
-                        "iou": data.get("metrics", {}).get("iou"),
-                        "status": data.get("validation_status"),
+                        "time_diff": data.get("time_diff"),
+                        "accuracy": metrics.get("accuracy"),
+                        "iou": metrics.get("iou"),
+                        "dice": metrics.get("dice"),
+                        "precision": metrics.get("precision"),
+                        "recall": metrics.get("recall"),
+                        "f1_score": metrics.get("f1_score"),
+                        "mae": metrics.get("mae"),
+                        "pixel_accuracy": metrics.get("pixel_accuracy"),
+                        "hausdorff_distance": metrics.get("hausdorff_distance"),
+                        "area_ratio": metrics.get("area_ratio"),
+                        "validation_status": data.get("validation_status"),
+                        "coverage_pct": round(coverage_pct, 2),
+                        "predicted_area": metrics.get("predicted_area"),
+                        "ground_truth_area": metrics.get("ground_truth_area"),
+                        "area_difference": metrics.get("area_difference"),
                     }
-                    for method, data in results_data.items()
-                    if isinstance(data, dict) and data.get("success")
-                ],
-            })
-    
+                )
+
+            valid_times = [
+                d["torch_time"] for d in benchmark_data if d.get("torch_time")
+            ]
+            valid_iou = [d["iou"] for d in benchmark_data if d.get("iou") is not None]
+
+            response.update(
+                {
+                    "results": summary,
+                    "passed": sum(
+                        1 for s in summary if s.get("validation_status") == "PASS"
+                    ),
+                    "warning": sum(
+                        1 for s in summary if s.get("validation_status") == "WARNING"
+                    ),
+                    "failed": sum(
+                        1 for s in summary if s.get("validation_status") == "FAIL"
+                    ),
+                    "methods_tested": len(summary),
+                    "report_dir": "./data/validation_web",
+                    "benchmark": {
+                        "methods_count": len(benchmark_data),
+                        "passed": sum(
+                            1 for s in summary if s.get("validation_status") == "PASS"
+                        ),
+                        "warning": sum(
+                            1
+                            for s in summary
+                            if s.get("validation_status") == "WARNING"
+                        ),
+                        "failed": sum(
+                            1 for s in summary if s.get("validation_status") == "FAIL"
+                        ),
+                        "data": benchmark_data,
+                        "avg_torch_time": (
+                            sum(valid_times) / len(valid_times) if valid_times else 0
+                        ),
+                        "avg_iou": sum(valid_iou) / len(valid_iou) if valid_iou else 0,
+                    },
+                    "benchmark_raw": [
+                        {
+                            "method": method,
+                            "torch_time": data.get("primary_time"),
+                            "reference_time": data.get("reference_time"),
+                            "iou": data.get("metrics", {}).get("iou"),
+                            "status": data.get("validation_status"),
+                        }
+                        for method, data in results_data.items()
+                        if isinstance(data, dict) and data.get("success")
+                    ],
+                }
+            )
+
     elif task["status"] == "failed":
         response["error"] = task.get("error")
         if task.get("error_details"):
             response["error_details"] = task["error_details"]
-    
+
     if response.get("results") and isinstance(response["results"], list):
         for item in response["results"]:
             if item.get("metrics"):
                 for k, v in item["metrics"].items():
-                    if isinstance(v, (float, np.floating)) and (np.isnan(v) or np.isinf(v)):
+                    if isinstance(v, (float, np.floating)) and (
+                        np.isnan(v) or np.isinf(v)
+                    ):
                         item["metrics"][k] = None
-    
+
     logger.info(f"🔍 Returning response keys: {list(response.keys())}")
     if "results" in response:
         logger.info(f"🔍 response['results'] type: {type(response['results'])}")
-        if isinstance(response['results'], list):
+        if isinstance(response["results"], list):
             logger.info(f"🔍 response['results'] length: {len(response['results'])}")
-            if response['results']:
-                logger.info(f"🔍 first result keys: {list(response['results'][0].keys())}")
+            if response["results"]:
+                logger.info(
+                    f"🔍 first result keys: {list(response['results'][0].keys())}"
+                )
     return safe_json_response(response)
 
 

@@ -56,6 +56,7 @@ class ModelType(Enum):
     UNET_SMP = "unet_smp"
     FPN_SMP = "fpn_smp"
     PSPNET_SMP = "pspnet_smp"
+    PSP_SMP = "psp_smp"
     FCN_TV = "fcn_tv"
     SAM = "sam"
     DPT = "dpt"
@@ -82,8 +83,8 @@ class NeuralModelFactory:
         if config_path is not None:
             new_path = Path(config_path)
             if cls._config is None or new_path != cls._config_path:
-                cls._config = None  # сбрасываем кеш для нового пути
-                cls._config_path = new_path  # запоминаем новый путь
+                cls._config = None
+                cls._config_path = new_path
         if cls._config is None:
             path = cls._config_path
             if path.exists():
@@ -980,10 +981,10 @@ class NeuralModelFactory:
             raise ImportError(
                 "ultralytics library required for YOLOv8. Install with: pip install ultralytics"
             )
-
-        # model_name может быть путём к .pt файлу или именем пресета
         model = YOLO(model_name)
-        # YOLO не использует processor в классическом смысле
+        print(model)
+        print("✅ YOLO загружена!")
+        print(f"   Устройство: {device}")
         return model, None, "yolov8"
 
     # ========== УНИВЕРСАЛЬНЫЙ ЗАГРУЗЧИК SMP ==========

@@ -30,6 +30,8 @@ class NeuralTrainer:
         lr: float = 1e-4,
         weight_decay: float = 1e-4,
         ignore_index: int = 255,
+        aux_loss_weight: float = 0.4,  # FIX 4: коэф. aux_loss для DeepLab/FCN
+        verbose_first_batch: bool = False,
     ) -> None:
         self.model = model.to(device)
         self.train_loader: DataLoader = train_loader
@@ -37,12 +39,16 @@ class NeuralTrainer:
         self.device: str = device
         self.num_classes: int = int(num_classes)
         self.ignore_index: int = ignore_index
+        self.aux_loss_weight: float = aux_loss_weight
+        self.verbose_first_batch: bool = verbose_first_batch
         self.criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
         self.optimizer = torch.optim.AdamW(
             model.parameters(), lr=lr, weight_decay=weight_decay
         )
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, T_max=len(train_loader) * 50  # 50 эпох
+            self.optimizer,
+            T_max=len(train_loader) * 50,
+            eta_min=lr * 0.01,
         )
         self.history: Dict[str, Any] = {
             "train_loss": [],
@@ -54,36 +60,46 @@ class NeuralTrainer:
     def train_epoch(self) -> float:
         """Одна эпоха обучения"""
         self.model.train()
-        total_loss = 0
+        total_loss = 0.0
 
         for batch_idx, batch in enumerate(self.train_loader):
             images = batch["image"].to(self.device)
-            masks = batch["mask"].to(self.device)
+            masks = batch["mask"].to(self.device).long()
 
             if batch_idx == 0:
                 print(f"DEBUG: masks shape={masks.shape}, dtype={masks.dtype}")
-                print(f"DEBUG: masks range=[{masks.min()}, {masks.max()}]")
-                print(f"DEBUG: unique values={torch.unique(masks)[:20]}")
+                print(f"🔍 DEBUG masks (ignore_index={self.ignore_index}):")
+                print(f"   Range: [{masks.min()}, {masks.max()}]")
+                print(f"   Unique: {torch.unique(masks)[:30]}")
+                print(f"   Count of class 0 (wall): {(masks == 0).sum().item()}")
+                print(f"   Count of ignore_index (255): {(masks == 255).sum().item()}")
+                print(f"   Count of class 149: {(masks == 149).sum().item()}")
 
             self.optimizer.zero_grad()
             # Forward pass
             outputs = self.model(images)  # [B, C, H, W]
 
             if isinstance(outputs, dict):
-                outputs = outputs["out"]
+                main_out = outputs["out"]
+                aux_out = outputs.get("aux", None)
+            else:
+                main_out = outputs
+                aux_out = None
 
-            if torch.any(masks < 0) or torch.any(masks >= self.num_classes):
-                invalid = ((masks < 0) | (masks >= self.num_classes)) & (
-                    masks != self.criterion.ignore_index
-                )
-                if torch.any(invalid):
+            invalid = ((masks < 0) | (masks >= self.num_classes)) & (
+                masks != self.ignore_index
+            )
+            if torch.any(invalid):
+                if batch_idx == 0:
                     print(
-                        f"⚠️  Invalid mask values: min={masks.min()}, max={masks.max()}"
+                        f"⚠️  Found {invalid.sum().item()} invalid mask values, "
+                        f"replacing with ignore_index={self.ignore_index}"
                     )
-                    print(f"   Unique invalid: {torch.unique(masks[invalid])}")
-                    masks = masks.clone()
-                    masks[invalid] = self.criterion.ignore_index
-            loss = self.criterion(outputs, masks.long())
+                masks = masks.clone()
+                masks[invalid] = self.ignore_index
+            loss = self.criterion(main_out, masks)
+            # if aux_out is not None:
+            #     loss += self.aux_loss_weight * self.criterion(aux_out, masks)
             loss.backward()
 
             # Gradient clipping для стабильности
@@ -103,8 +119,8 @@ class NeuralTrainer:
         """Валидация с вычислением mIoU"""
         self.model.eval()
         total_loss = 0
-        all_preds = []
-        all_targets = []
+        all_preds: List[int] = []
+        all_targets: List[int] = []
 
         with torch.no_grad():
             for batch in self.val_loader:
@@ -129,7 +145,6 @@ class NeuralTrainer:
         ]
         if filtered:
             f_preds, f_targets = zip(*filtered)
-            # Используем macro для честного mIoU (среднее по классам, не взвешенное)
             present_labels = list(set(f_targets))
             miou = jaccard_score(
                 f_targets,
@@ -146,10 +161,17 @@ class NeuralTrainer:
         self,
         epochs: int = 20,
         checkpoint_path: str = "./models/best_model.pth",
-        early_stop_patience: int = 5,
+        early_stop_patience: int = 200,
     ) -> Dict[str, List]:
         """Полный цикл обучения"""
-        print(f"🎯 Starting training for {epochs} epochs...")
+        import os
+
+        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+
+        print(
+            f"🎯 Starting training for {epochs} epochs "
+            f"| ignore_index={self.ignore_index} | aux_loss_w={self.aux_loss_weight}"
+        )
         patience_counter = 0
         for epoch in range(epochs):
             start_time = time.time()
@@ -159,7 +181,10 @@ class NeuralTrainer:
             self.history["train_loss"].append(train_loss)
             self.history["val_loss"].append(val_loss)
             self.history["val_miou"].append(val_miou)
-            print(f"📊 Epoch {epoch + 1}/{epochs} | Time: {epoch_time:.3f}s")
+            lr_now = self.optimizer.param_groups[0]["lr"]
+            print(
+                f"📊 Epoch {epoch + 1}/{epochs} | Time: {epoch_time:.3f}s | LR: {lr_now:.3e}"
+            )
             print(f"   Train Loss: {train_loss:.4f}")
             print(f"   Val Loss:   {val_loss:.4f}")
             print(f"   Val mIoU:   {val_miou:.4f}")
@@ -171,6 +196,7 @@ class NeuralTrainer:
                         "model_state_dict": self.model.state_dict(),
                         "optimizer_state_dict": self.optimizer.state_dict(),
                         "miou": val_miou,
+                        "ignore_index": self.ignore_index,
                     },
                     checkpoint_path,
                 )

@@ -349,7 +349,9 @@ async def cache_info() -> Dict[str, Any]:
 
 
 @app.get("/api/methods_library")
-async def get_methods_by_library(library: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+async def get_methods_by_library(
+    library: Optional[str] = None,
+) -> Dict[str, Dict[str, Any]]:
     if library and library in METHODS_BY_LIBRARY:
         source_dict = METHODS_BY_LIBRARY.get(library, {})
     else:
@@ -635,7 +637,9 @@ async def segment(
 
 
 @app.get("/recommendations/")
-async def get_recommendations_ep(file: UploadFile = File(...)) -> Dict[str, List[Dict[str, Any]]]:
+async def get_recommendations_ep(
+    file: UploadFile = File(...),
+) -> Dict[str, List[Dict[str, Any]]]:
     img = np.array(Image.open(io.BytesIO(await file.read())))
     return {"recommendations": auto_seg.get_recommendations(img, top_k=5)}
 

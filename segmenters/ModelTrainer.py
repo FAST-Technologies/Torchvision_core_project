@@ -43,6 +43,20 @@ DEFAULT_IMAGE_SIZE: Tuple[int, int] = (512, 512)
 NUM_CLASSES: int = 150
 device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
+# ─── Правильные ignore_index по типу модели ───────────────────────────────
+# DeepLab/FCN (torchvision) обучались с ignore_index=0, потому что:
+#   - ADE20K: класс 0 = "wall" доминирует (>30% пикселей во многих изображениях)
+#   - Включение его в лосс перегружает модель предсказывать только класс 0
+# SMP-модели (U-Net, FPN, PSPNet): ignore_index=255 — стандарт ADE20K
+IGNORE_INDEX_BY_MODEL: Dict[str, int] = {
+    "deeplab_tv": 0,
+    "fcn_tv": 255,
+    "unet_smp": 255,
+    "fpn_smp": 255,
+    "psp_smp": 255,
+    "segnet": 255,
+}
+
 
 class TrainingConfig:
     """Конфигурация для эксперимента обучения"""
@@ -58,8 +72,9 @@ class TrainingConfig:
         encoder_name: str = "resnet34",
         variant: str = "b5",  # Для MiT encoder
         subset_fraction: float = 0.05,
-        early_stop_patience: int = 5,
+        early_stop_patience: int = 200,
         checkpoint_name: Optional[str] = None,
+        use_class_weights: bool = False,
     ) -> None:
         self.experiment_name = experiment_name
         self.model_type = model_type
@@ -71,6 +86,7 @@ class TrainingConfig:
         self.variant = variant
         self.subset_fraction = subset_fraction
         self.early_stop_patience = early_stop_patience
+        self.use_class_weights = use_class_weights
 
         # Генерируем уникальное имя чекпоинта
         if checkpoint_name is None:
@@ -117,7 +133,7 @@ class ModelTrainer:
 
         # ========== SMP МОДЕЛИ ==========
         if model_type == "unet_smp":
-            print("🔹 Training U-Net (SMP) on ADE20K...")
+            print("🔹 Creating U-Net (SMP)...")
             return smp.Unet(
                 encoder_name=encoder_name,  # Можно заменить на "resnet50", "efficientnet-b0"
                 encoder_weights="imagenet",
@@ -126,7 +142,7 @@ class ModelTrainer:
                 activation=None,
             )
         elif model_type == "fpn_smp":
-            print(f"🔹 Training FPN + MiT-{variant} on ADE20K...")
+            print(f"🔹 Creating FPN + MiT-{variant}...")
             encoder = f"mit_{variant}"
             return smp.FPN(
                 encoder_name=encoder,
@@ -136,7 +152,7 @@ class ModelTrainer:
                 activation=None,
             )
         elif model_type == "psp_smp":
-            print(f"🔹 Training PSPNet + MiT-{variant} on ADE20K...")
+            print(f"🔹 Creating PSPNet + MiT-{variant}...")
             encoder = f"mit_{variant}"
             psp_size = 2048 if "mit" in encoder else 512
             return smp.PSPNet(
@@ -150,24 +166,34 @@ class ModelTrainer:
 
         # ========== TORCHVISION МОДЕЛИ ==========
         elif model_type == "deeplab_tv":
-            print("🔹 Training DeepLabV3+ (Torchvision) on ADE20K...")
+            print("🔹 Creating DeepLabV3+ (Torchvision)...")
             model = tv_seg.deeplabv3_resnet101(weights="COCO_WITH_VOC_LABELS_V1")
             in_channels = model.classifier[4].in_channels
             # model.classifier[4] = nn.Conv2d(256, NUM_CLASSES, kernel_size=1)
             model.classifier[4] = nn.Conv2d(in_channels, NUM_CLASSES, kernel_size=1)
             nn.init.normal_(model.classifier[4].weight, 0, 0.01)
             nn.init.constant_(model.classifier[4].bias, 0)
+            # if for_training:
+            #     if isinstance(model.backbone, nn.Module):
+            #         for param in model.backbone.parameters():
+            #             param.requires_grad = False
+            #     else:
+            #         print(f"⚠️  Backbone не является nn.Module: {type(model.backbone)}")
             if for_training:
-                if isinstance(model.backbone, nn.Module):
-                    for param in model.backbone.parameters():
-                        param.requires_grad = False
-                else:
-                    print(f"⚠️  Backbone не является nn.Module: {type(model.backbone)}")
-            print("   🔒 Backbone frozen for initial training")
+                for param in model.backbone.parameters():
+                    param.requires_grad = False
+                print("   🔒 Backbone frozen for initial training")
+            if hasattr(model, "aux_classifier") and model.aux_classifier is not None:
+                aux_in_ch = model.aux_classifier[4].in_channels
+                model.aux_classifier[4] = nn.Conv2d(
+                    aux_in_ch, NUM_CLASSES, kernel_size=1
+                )
+                nn.init.normal_(model.aux_classifier[4].weight, 0, 0.01)
+                nn.init.constant_(model.aux_classifier[4].bias, 0)
 
             return model
         elif model_type == "fcn_tv":
-            print(f"🔹 Training FCN ({variant}) on ADE20K...")
+            print(f"🔹 Creating FCN ({variant})...")
             variants = {
                 "fcn_resnet50": tv_seg.fcn_resnet50,
                 "fcn_resnet101": tv_seg.fcn_resnet101,
@@ -179,7 +205,9 @@ class ModelTrainer:
 
             model = variants[variant](weights="DEFAULT")
             in_channels = model.classifier[4].in_channels
+            old_out_ch = model.classifier[4].out_channels
             model.classifier[4] = nn.Conv2d(in_channels, NUM_CLASSES, kernel_size=1)
+            print(f"   Classifier: {old_out_ch} → {NUM_CLASSES} classes")
             # model.classifier[4] = nn.Conv2d(512, NUM_CLASSES, kernel_size=1)
             nn.init.normal_(model.classifier[4].weight, 0, 0.01)
             nn.init.constant_(model.classifier[4].bias, 0)
@@ -187,9 +215,16 @@ class ModelTrainer:
                 for param in model.backbone.parameters():
                     param.requires_grad = False
                 print("   🔒 Backbone frozen for initial training")
+            if hasattr(model, "aux_classifier") and model.aux_classifier is not None:
+                aux_in_ch = model.aux_classifier[4].in_channels
+                model.aux_classifier[4] = nn.Conv2d(
+                    aux_in_ch, NUM_CLASSES, kernel_size=1
+                )
+                nn.init.normal_(model.aux_classifier[4].weight, 0, 0.01)
+                nn.init.constant_(model.aux_classifier[4].bias, 0)
             return model
         elif model_type == "segnet":
-            print("🔹 Training SegNet on ADE20K...")
+            print("🔹 Creating SegNet (U-Net proxy)...")
             try:
                 # Используем U-Net как SegNet proxy (рекомендуется)
                 model = smp.Unet(
@@ -221,24 +256,29 @@ class ModelTrainer:
                 f"Unknown model_type: {model_type}. Available: unet_smp, fpn_smp, psp_smp, deeplab_tv, fcn_tv, segnet"
             )
 
+    # ──────────────────────────────────────────────────────────────────────
+    # DataLoaders
+    # ──────────────────────────────────────────────────────────────────────
     def create_dataloaders(
         self,
         augmentation_level: str,
         batch_size: int = 4,
         subset_fraction: float = 0.05,
+        ignore_index: int = 255,
     ) -> Tuple[DataLoader, DataLoader]:
         """Создание DataLoader с нужным уровнем аугментаций"""
 
         print(f"   Augmentation level: {augmentation_level}")
         # Train с аугментациями
+        is_augmented = augmentation_level != "none"
         train_dataset = ADE20KDataset(
             root_dir=self.root_dir,
             split="training",
             image_size=DEFAULT_IMAGE_SIZE,
-            augment=True if augmentation_level != "none" else False,
+            augment=is_augmented,
             augmentation_level=augmentation_level,
             hflip_prob=0.5,
-            vflip_prob=0.1 if augmentation_level == "aggressive" else 0.0,
+            # vflip_prob=0.1 if augmentation_level == "aggressive" else 0.0,
             rotation_prob=(
                 0.3 if augmentation_level in ["medium", "aggressive"] else 0.0
             ),
@@ -250,6 +290,7 @@ class ModelTrainer:
                 if augmentation_level in ["medium", "aggressive"]
                 else (1.0, 1.0)
             ),
+            ignore_index=ignore_index,
             subset_fraction=subset_fraction,
         )
 
@@ -259,6 +300,7 @@ class ModelTrainer:
             image_size=DEFAULT_IMAGE_SIZE,
             augment=False,
             augmentation_level="none",
+            ignore_index=ignore_index,
             subset_fraction=subset_fraction,
         )
 
@@ -271,100 +313,213 @@ class ModelTrainer:
 
         return train_loader, val_loader
 
-    def train_experiment(self, config: TrainingConfig) -> Dict[str, Any]:
+    # ──────────────────────────────────────────────────────────────────────
+    # Веса классов (опционально)
+    # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def compute_class_weights(
+        train_loader: DataLoader,
+        num_classes: int = NUM_CLASSES,
+        ignore_index: int = 255,
+        max_batches: int = 100,
+    ) -> torch.Tensor:
         """
-        Обучение одного эксперимента
-        Returns:
-            Dict с результатами обучения
+        Считает инвертированные частоты классов для борьбы с дисбалансом.
+        Используется при создании CrossEntropyLoss(weight=...).
+        """
+        class_counts = torch.zeros(num_classes, dtype=torch.float64)
+        for idx, batch in enumerate(train_loader):
+            if idx >= max_batches:
+                break
+            masks = batch["mask"]
+            for c in range(num_classes):
+                class_counts[c] += (masks == c).sum().item()
+        class_counts = class_counts.clamp(min=1.0)
+        # median frequency balancing
+        median_freq = class_counts.median()
+        weights = median_freq / class_counts
+        weights = weights / weights.sum() * num_classes
+        print(
+            f"   Class weights computed (top-5 highest): "
+            f"{sorted(weights.tolist(), reverse=True)[:5]}"
+        )
+        return weights.float()
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Основной метод обучения
+    # ──────────────────────────────────────────────────────────────────────
+    def train_experiment(self, config: "TrainingConfig") -> Dict[str, Any]:
+        """
+        Обучение одного эксперимента.
+
+        Ключевые исправления:
+        - ignore_index берётся из IGNORE_INDEX_BY_MODEL (0 для DeepLab/FCN!)
+        - mask_fill_value для аугментаций = 255 (не 0)
+        - LR scheduler не прерывается при разморозке backbone
+        - aux_loss для DeepLab/FCN учитывается в лоссе
         """
         print(f"\n{'=' * 70}")
         print(f"ЭКСПЕРИМЕНТ: {config.experiment_name}")
-        print(f"Аугментации: {config.augmentation_level}")
+        print(f"Модель: {config.model_type} | Аугментации: {config.augmentation_level}")
         print(f"{'=' * 70}")
 
-        # Создание модели
+        # ── FIX 1: правильный ignore_index для данного типа модели ──
+        ignore_index = IGNORE_INDEX_BY_MODEL.get(config.model_type, 255)
+        print(f"   ignore_index: {ignore_index} (для {config.model_type})")
+
         model = self.create_model(
             config.model_type, config.encoder_name, config.variant, for_training=True
         ).to(self.device)
-        # Создание DataLoader
+        if config.model_type in ["deeplab_tv", "fcn_tv", "segnet"]:
+            model.train()
+            print("Strating train mode")
+        print(f"🔍 Model training mode: {model.training}")
+
+        print(f"✅ Pre-training checks:")
+        print(f"   Model training mode: {model.training}")
+        print(
+            f"   Backbone frozen: {all(not p.requires_grad for p in model.backbone.parameters())}"
+        )
+
+        # ── FIX 2: mask_fill_value=255 при аугментациях ──
         train_loader, val_loader = self.create_dataloaders(
-            config.augmentation_level, config.batch_size, config.subset_fraction
+            config.augmentation_level,
+            config.batch_size,
+            config.subset_fraction,
+            ignore_index=ignore_index,
         )
 
-        # 🔥 Настройка оптимизатора в зависимости от типа модели
-        is_torchvision_model = config.model_type in ["deeplab_tv", "fcn_tv"]
-
-        if is_torchvision_model:
-            # 🔥 Только classifier на первых эпохах (как в старом варианте)
-            optimizer = torch.optim.AdamW(
-                [p for p in model.parameters() if p.requires_grad],
-                lr=config.lr,
-                weight_decay=1e-4,
-            )
-            print("   📊 Optimizer: classifier only (frozen backbone)")
-        else:
-            # SMP модели — все параметры
-            optimizer = torch.optim.AdamW(
-                model.parameters(), lr=config.lr, weight_decay=1e-4
-            )
-            print("   📊 Optimizer: all parameters")
-
-        # Трейнер
-        trainer = NeuralTrainer(
-            model=model,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            num_classes=NUM_CLASSES,
-            lr=config.lr,
-            device=str(self.device),
-            ignore_index=255,
-        )
-
-        # Переопределяем оптимизатор и scheduler
-        trainer.criterion = nn.CrossEntropyLoss(ignore_index=255)
-        trainer.optimizer = optimizer
-        trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=len(train_loader) * config.epochs
-        )
-
-        # Валидация первого батча
+        # ── Валидация первого батча ──
         print("🔍 Validating first batch...")
         sample_batch = next(iter(train_loader))
         masks = sample_batch["mask"]
-        print(f"   Mask range: [{masks.min()}, {masks.max()}]")
+        valid_masks = masks[masks != ignore_index]
+        print(
+            f"   Mask range (excl. ignore): [{valid_masks.min() if len(valid_masks) else 'N/A'}, "
+            f"{valid_masks.max() if len(valid_masks) else 'N/A'}]"
+        )
         print(f"   Unique values: {torch.unique(masks)[:20].tolist()}")
-        valid_masks = masks[masks != 255]
+        print(f"Count of 255: {(masks == 255).sum().item()}")
         if len(valid_masks) > 0:
             assert (
-                valid_masks.min() >= 0 and valid_masks.max() <= 149
-            ), f"Mask values out of range! Got [{valid_masks.min()}, {valid_masks.max()}]"
+                valid_masks.min() >= 0 and valid_masks.max() <= NUM_CLASSES - 1
+            ), f"Mask values out of range! [{valid_masks.min()}, {valid_masks.max()}]"
 
-        # Обучение
+        if ignore_index == 0:
+            print("⚠️  WARNING: ignore_index=0, но класс 0='wall' доминирует в ADE20K!")
+            print(
+                "   Эти пиксели будут пропущены в loss — модель не научится предсказывать стены!"
+            )
+
+        print("\n5.1. Обучение с разными уровнями аугментаций...")
+        print(f"✅ ignore_index: {ignore_index}")
+        print(f"   Unique mask values (sample): {torch.unique(masks)[:20]}")
+        print(f"   Mask range: [{masks.min()}, {masks.max()}]")
+
+        # Проверка что класс 0 присутствует
+        if (masks == 0).sum() > 0:
+            print(f"   ✅ Class 0 (wall) found: {(masks == 0).sum()} pixels")
+        else:
+            print(f"   ❌ Class 0 NOT FOUND - check your ignore_index!")
+
+        # ── Веса классов (опционально) ──
+        class_weights = None
+        if config.use_class_weights:
+            print("   Computing class weights...")
+            class_weights = self.compute_class_weights(
+                train_loader, NUM_CLASSES, ignore_index
+            ).to(self.device)
+
+        # ── FIX 1: criterion с правильным ignore_index ──
+        criterion = nn.CrossEntropyLoss(
+            ignore_index=ignore_index,
+            weight=class_weights,
+        )
+
+        # ── Optimizer: только unfrozen параметры ──
+        is_tv_model = config.model_type in ["deeplab_tv", "fcn_tv"]
+        trainable_params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.AdamW(trainable_params, lr=config.lr, weight_decay=1e-4)
+        if is_tv_model:
+            print(
+                f"   📊 Optimizer: {len(trainable_params)} trainable tensors (frozen backbone)"
+            )
+        else:
+            print(f"   📊 Optimizer: all {len(trainable_params)} parameters")
+
+        # ── FIX 3: единый CosineAnnealingLR на всё обучение ──
+        # Больше НЕ создаём новый scheduler при разморозке.
+        # T_max = полное число шагов батчей.
+        total_steps = len(train_loader) * config.epochs
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=total_steps,
+            # eta_min=config.lr * 0.01
+        )
+
+        trainer = NeuralTrainer.__new__(NeuralTrainer)
+        trainer.model = model
+        trainer.train_loader = train_loader
+        trainer.val_loader = val_loader
+        trainer.device = (
+            str(self.device) if not isinstance(self.device, str) else self.device
+        )
+        trainer.num_classes = NUM_CLASSES
+        trainer.ignore_index = ignore_index
+        trainer.criterion = criterion
+        trainer.optimizer = optimizer
+        trainer.scheduler = scheduler
+        trainer.best_miou = 0.0
+        trainer.aux_loss_weight = 0.0
+        trainer.verbose_first_batch = False
+        # trainer.aux_loss_weight = 0.0
+        trainer.history = {"train_loss": [], "val_loss": [], "val_miou": []}
+        print(f"Criterion ignore_index: {trainer.criterion.ignore_index}")
+        print(
+            f"✅ Trainer attributes: ignore_index={trainer.ignore_index}, "
+            f"aux_loss_w={trainer.aux_loss_weight}, "
+            f"criterion.ignore_index={trainer.criterion.ignore_index},"
+            f"device={trainer.device}"
+        )
+        print(f"   Criterion ignore_index: {trainer.criterion.ignore_index}")
+        print(f"   Optimizer param groups: {len(trainer.optimizer.param_groups)}")
+
         checkpoint_path = os.path.join(self.checkpoint_dir, config.checkpoint_name)
-
         print("🎯 Starting training...")
 
         for epoch in range(config.epochs):
-            # 🔥 Разморозка backbone после 5 эпох для Torchvision моделей
-            if is_torchvision_model and epoch == 5:
-                if isinstance(model.backbone, nn.Module):
-                    for param in model.backbone.parameters():
+            # ── FIX 3: разморозка backbone без пересоздания scheduler ──
+            if is_tv_model and epoch == 5:
+                backbone = getattr(model, "backbone", None)
+                if backbone is not None and isinstance(backbone, nn.Module):
+                    for param in backbone.parameters():
                         param.requires_grad = True
-                else:
-                    print(
-                        f"⚠️  Backbone не является nn.Module при разморозке: {type(model.backbone)}"
+                    frozen_count = sum(
+                        1 for p in backbone.parameters() if not p.requires_grad
                     )
-
-                # 🔥 Новый оптимизатор для всех параметров (как в старом варианте)
-                trainer.optimizer = torch.optim.AdamW(
-                    model.parameters(),
-                    lr=config.lr / 10,  # 🔥 Уменьшаем LR
-                    weight_decay=1e-4,
-                )
-                trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                    trainer.optimizer, T_max=len(train_loader) * (config.epochs - 5)
-                )
-                print("   🔓 Unfroze backbone, reduced LR")
+                    print(f"   🔓 Unfroze backbone: {frozen_count} params still frozen")
+                    # Добавляем backbone-параметры в существующий optimizer
+                    # trainer.optimizer.add_param_group({
+                    #     "params": [p for p in backbone.parameters()],
+                    #     "lr": config.lr / 10,  # в 10 раз меньше, как было раньше
+                    #     "weight_decay": 1e-4,
+                    # })
+                    # print(f"   🔓 Unfroze backbone (LR={config.lr / 10:.1e}), "
+                    #       f"scheduler continues without reset")
+                    trainer.optimizer = torch.optim.AdamW(
+                        model.parameters(), lr=config.lr / 10, weight_decay=1e-4
+                    )
+                    remaining_epochs = config.epochs - epoch
+                    trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                        trainer.optimizer,
+                        T_max=len(train_loader) * remaining_epochs,
+                        eta_min=config.lr / 10 * 0.01,
+                    )
+                    print(
+                        f"   🔓 Unfroze backbone, new optimizer + scheduler (LR={config.lr/10:.1e})"
+                    )
+                else:
+                    print(f"   ⚠️  Cannot unfreeze backbone: {type(backbone)}")
 
             start_time = time.time()
             train_loss = trainer.train_epoch()
@@ -375,7 +530,10 @@ class ModelTrainer:
             trainer.history["val_loss"].append(val_loss)
             trainer.history["val_miou"].append(val_miou)
 
-            print(f"\n📊 Epoch {epoch + 1}/{config.epochs} | Time: {epoch_time:.1f}s")
+            print(
+                f"\n📊 Epoch {epoch + 1}/{config.epochs} | Time: {epoch_time:.1f}s "
+                f"| LR: {trainer.optimizer.param_groups[0]['lr']:.2e}"
+            )
             print(f"   Train Loss: {train_loss:.4f}")
             print(f"   Val Loss:   {val_loss:.4f}")
             print(f"   Val mIoU:   {val_miou:.4f}")
@@ -388,19 +546,31 @@ class ModelTrainer:
                         "model_state_dict": model.state_dict(),
                         "optimizer_state_dict": trainer.optimizer.state_dict(),
                         "miou": val_miou,
+                        "config": {
+                            "model_type": config.model_type,
+                            "ignore_index": ignore_index,
+                            "augmentation_level": config.augmentation_level,
+                        },
                     },
                     checkpoint_path,
                 )
                 print(f"   💾 Saved best model (mIoU: {val_miou:.4f})")
 
+            # Early stopping
+            if epoch >= config.early_stop_patience:
+                recent_miou = trainer.history["val_miou"][-config.early_stop_patience :]
+                if max(recent_miou) <= trainer.best_miou * 0.999:
+                    print(f"   ⏹️  Early stopping at epoch {epoch + 1}")
+                    break
+
             torch.cuda.empty_cache()
             gc.collect()
 
-        # Результаты
         result = {
             "experiment_name": config.experiment_name,
             "augmentation_level": config.augmentation_level,
             "model_type": config.model_type,
+            "ignore_index": ignore_index,
             "epochs_trained": len(trainer.history["train_loss"]),
             "best_miou": trainer.best_miou,
             "final_train_loss": (
@@ -415,13 +585,10 @@ class ModelTrainer:
             "history": trainer.history,
             "config": config,
         }
-
         self.experiment_results.append(result)
 
-        print("\n✅ Эксперимент завершён!")
-        print(f"   Best mIoU: {trainer.best_miou * 100:.4f}%")
-        print(f"   Чекпоинт: {checkpoint_path}")
-
+        print(f"\n✅ Experiment done! Best mIoU: {trainer.best_miou * 100:.2f}%")
+        print(f"   Checkpoint: {checkpoint_path}")
         return result
 
     def compare_trained_models(
@@ -455,11 +622,9 @@ class ModelTrainer:
                 "segnet",
             ]
 
-        # Если пути не указаны, используем стандартные имена
         if checkpoint_paths is None:
             checkpoint_paths = {}
             for model_typer in model_types:
-                # 🔥 Имя модели для отображения
                 if model_typer == "unet_smp":
                     name = "U-Net"
                 elif model_typer == "deeplab_tv":
@@ -475,7 +640,6 @@ class ModelTrainer:
                 else:
                     name = model_typer
 
-                # 🔥 Ищем чекпоинт с правильным именем
                 pattern = os.path.join(
                     self.checkpoint_dir, f"{model_typer}_{augmentation_level}_*.pth"
                 )
@@ -520,7 +684,6 @@ class ModelTrainer:
                 else:
                     state_dict = checkpoint
 
-                # 🔥 Фильтрация aux_classifier для DeepLab (как в старом варианте)
                 if model_type == "deeplab_tv":
                     model_keys = {
                         k: v
@@ -536,6 +699,7 @@ class ModelTrainer:
                     models[name] = model.to(self.device).train()
                 else:
                     models[name] = model.to(self.device).eval()
+                model = model.to(self.device).eval()
 
                 print(f"✅ Loaded {name}")
 
@@ -678,7 +842,6 @@ class ModelTrainer:
             else:
                 state_dict = checkpoint
 
-            # 🔥 Фильтрация aux_classifier для DeepLab (как в старом варианте)
             if model_type == "deeplab_tv":
                 model_keys = {
                     k: v
@@ -739,6 +902,9 @@ class ModelTrainer:
 
         return results
 
+    # ──────────────────────────────────────────────────────────────────────
+    # Сравнение аугментаций
+    # ──────────────────────────────────────────────────────────────────────
     def compare_augmentations(
         self,
         model_type: str = "unet_smp",
@@ -812,6 +978,9 @@ class ModelTrainer:
 
         return comparison_df
 
+    # ──────────────────────────────────────────────────────────────────────
+    # Визуализация
+    # ──────────────────────────────────────────────────────────────────────
     def plot_experiment_comparison(self, output_path: Optional[str] = None):
         """Визуализация сравнения экспериментов"""
         if len(self.experiment_results) < 2:
@@ -835,12 +1004,12 @@ class ModelTrainer:
         ax1.bar(aug_labels, miou_values, color=colors, edgecolor="black")
         ax1.set_xlabel("Уровень аугментаций")
         ax1.set_ylabel("Best mIoU (%)")
-        ax1.set_title("Влияние аугментаций на качество")
+        ax1.set_title("Влияние аугментаций на Best mIoU")
         ax1.grid(axis="y", alpha=0.3)
 
         # Добавляем значения на столбцы
         for i, v in enumerate(miou_values):
-            ax1.text(i, v + 0.5, f"{v:.1f}%", ha="center", fontsize=10)
+            ax1.text(i, v + 0.3, f"{v:.1f}%", ha="center", fontsize=9)
 
         # 2. Learning curves
         ax2 = axes[0, 1]
@@ -855,7 +1024,7 @@ class ModelTrainer:
 
         ax2.set_xlabel("Epoch")
         ax2.set_ylabel("Validation mIoU (%)")
-        ax2.set_title("Динамика обучения")
+        ax2.set_title("Динамика обучения (Val mIoU)")
         ax2.legend()
         ax2.grid(True, alpha=0.3)
 
@@ -893,7 +1062,9 @@ class ModelTrainer:
             table_data.append(
                 [
                     result["augmentation_level"],
+                    result["model_type"],
                     f"{result['best_miou'] * 100:.2f}%",
+                    result["ignore_index"],
                     f"{result['epochs_trained']}",
                     (
                         f"{result['final_train_loss']:.4f}"
@@ -905,7 +1076,14 @@ class ModelTrainer:
 
         table = ax4.table(
             cellText=table_data,
-            colLabels=["Augmentation", "Best mIoU", "Epochs", "Final Train Loss"],
+            colLabels=[
+                "Augmentation",
+                "Model",
+                "Best mIoU",
+                "ignore_idx",
+                "Epochs",
+                "Final Train Loss",
+            ],
             loc="center",
             cellLoc="center",
         )
@@ -926,6 +1104,9 @@ class ModelTrainer:
         print(f"\n📊 Визуализация сохранена: {output_path}")
         plt.show()
 
+    # ──────────────────────────────────────────────────────────────────────
+    # Обучение всех моделей
+    # ──────────────────────────────────────────────────────────────────────
     def train_all_models(
         self,
         augmentation_level: str = "medium",
@@ -943,16 +1124,27 @@ class ModelTrainer:
             {"model_type": "unet_smp", "encoder_name": "resnet34", "variant": "b5"},
             {"model_type": "fpn_smp", "encoder_name": "resnet34", "variant": "b5"},
             {"model_type": "psp_smp", "encoder_name": "resnet34", "variant": "b5"},
-            {"model_type": "deeplab_tv", "encoder_name": "resnet34", "variant": "b5"},
+            {
+                "model_type": "deeplab_tv",
+                "encoder_name": "resnet34",
+                "variant": "b5",
+                "lr": 1e-5,
+            },
             {
                 "model_type": "fcn_tv",
                 "encoder_name": "resnet34",
                 "variant": "fcn_resnet50",
+                "lr": 1e-5,
             },
-            {"model_type": "segnet", "encoder_name": "resnet34", "variant": "b5"},
+            {
+                "model_type": "segnet",
+                "encoder_name": "resnet34",
+                "variant": "b5",
+                "lr": 1e-4,
+            },
         ]
 
-        all_results = {}
+        all_results: Dict[str, Any] = {}
 
         for config in model_configs:
             experiment_config = TrainingConfig(
@@ -961,7 +1153,7 @@ class ModelTrainer:
                 augmentation_level=augmentation_level,
                 epochs=epochs,
                 batch_size=batch_size,
-                lr=lr,
+                lr=config.get("lr", lr),
                 encoder_name=config["encoder_name"],
                 variant=config["variant"],
                 subset_fraction=subset_fraction,
@@ -974,6 +1166,7 @@ class ModelTrainer:
             [
                 {
                     "Model": r["model_type"],
+                    "ignore_index": r["ignore_index"],
                     "Best mIoU (%)": r["best_miou"] * 100,
                     "Epochs": r["epochs_trained"],
                     "Checkpoint": os.path.basename(r["checkpoint_path"]),

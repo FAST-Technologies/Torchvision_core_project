@@ -92,6 +92,7 @@ class ADE20KDataset(Dataset):
             ]
         )
 
+    # ──────────────────────────────────────────────────────────────────────
     def _configure_augmentations(
         self,
         hflip_prob: float = 0.5,
@@ -135,14 +136,18 @@ class ADE20KDataset(Dataset):
         else:
             raise ValueError(f"Unknown augmentation_level: {self.augmentation_level}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def __len__(self) -> int:
         return len(self.valid_indices)
 
+    # ──────────────────────────────────────────────────────────────────────
     def _apply_geometric_augmentations(
         self, img: Image.Image, mask: Image.Image
     ) -> Tuple[Image.Image, Image.Image]:
         """
-        Применяет геометрические аугментации одинаково к изображению и маске.
+        Геометрические аугментации применяются ОДИНАКОВО к image и mask.
+        Для маски: fill = self.ignore_index (не 0, не 255 по умолчанию —
+        именно то значение, которое проигнорирует CrossEntropyLoss).
         """
         transforms_applied = []
 
@@ -169,9 +174,8 @@ class ADE20KDataset(Dataset):
         if self.augment and self.scale_range != (1.0, 1.0):
             scale = random.uniform(*self.scale_range)
             orig_w, orig_h = img.size
-            # Новый размер
-            new_w = int(orig_w * scale)
-            new_h = int(orig_h * scale)
+            new_w = max(1, int(orig_w * scale))
+            new_h = max(1, int(orig_h * scale))
 
             # Ресайз
             img = TF.resize(
@@ -190,11 +194,13 @@ class ADE20KDataset(Dataset):
                 mask = TF.crop(mask, top, left, orig_h, orig_w)
             else:
                 # Pad
+                pad_w = max(0, orig_w - new_w)
+                pad_h = max(0, orig_h - new_h)
                 padding = [
-                    max(0, orig_w - new_w) // 2,
-                    max(0, orig_h - new_h) // 2,
-                    max(0, orig_w - new_w) - max(0, orig_w - new_w) // 2,
-                    max(0, orig_h - new_h) - max(0, orig_h - new_h) // 2,
+                    pad_w // 2,
+                    pad_h // 2,
+                    pad_w - pad_w // 2,
+                    pad_h - pad_h // 2,
                 ]
                 img = TF.pad(img, padding, fill=(0, 0, 0))
                 mask = TF.pad(mask, padding, fill=self.ignore_index)
@@ -217,7 +223,7 @@ class ADE20KDataset(Dataset):
                 translate=translate,
                 scale=scale,
                 shear=shear,
-                fill=(0, 0, 0),
+                fill=0,
             )
             mask = TF.affine(
                 mask,
@@ -235,18 +241,7 @@ class ADE20KDataset(Dataset):
 
         return img, mask
 
-    def test_augmentation_sync(self) -> None:
-        """Unit-тест: после аугментаций image и mask имеют одинаковый размер"""
-        dataset = ADE20KDataset(augment=True, augmentation_level="medium")
-        sample = dataset[0]
-
-        assert (
-            sample["image"].shape[1:] == sample["mask"].shape
-        ), f"Shape mismatch: {sample['image'].shape} vs {sample['mask'].shape}"
-
-        # Опционально: проверить, что значения маски в допустимом диапазоне
-        assert sample["mask"].min() >= 0 and sample["mask"].max() <= 150
-
+    # ──────────────────────────────────────────────────────────────────────
     def _apply_photometric_augmentations(self, img: Image.Image) -> Image.Image:
         """
         Применяет фотометрические аугментации только к изображению.
@@ -265,7 +260,9 @@ class ADE20KDataset(Dataset):
 
         # 2. Random Grayscale
         if self.augmentation_level == "aggressive" and random.random() < 0.1:
-            img = TF.grayscale(img)  # Конвертируем обратно в RGB
+            img = TF.to_grayscale(
+                img, num_output_channels=3
+            )  # Конвертируем обратно в RGB
 
         # 3. Random Gamma
         if self.augmentation_level == "aggressive" and random.random() < 0.2:
@@ -274,6 +271,7 @@ class ADE20KDataset(Dataset):
 
         return img
 
+    # ──────────────────────────────────────────────────────────────────────
     def __getitem__(self, idx) -> Dict[str, Any]:
         real_idx = self.valid_indices[idx]
         img_file = self.image_files[real_idx]
@@ -287,30 +285,52 @@ class ADE20KDataset(Dataset):
         # 2. Фотометрические аугментации (только к изображению)
         img = self._apply_photometric_augmentations(img)
 
-        # 3. Конвертация маски в numpy
-        mask_np: np.ndarray = np.array(mask_pil, dtype=np.int64)
-        mask_np = np.clip(mask_np, 0, 149)  # ADE20K имеет 150 классов (0-149)
-
-        # 4. Resize к целевому размеру
-        if img.size != self.image_size:
+        # 3. Resize к целевому размеру
+        if (img.width, img.height) != (self.image_size[1], self.image_size[0]):
             img = TF.resize(
                 img,
                 self.image_size,
                 interpolation=TF.InterpolationMode.BILINEAR,
                 antialias=True,
             )
-            mask_pil_resized = TF.resize(
-                mask_pil, self.image_size, interpolation=TF.InterpolationMode.NEAREST
+            mask_pil = TF.resize(
+                mask_pil,
+                self.image_size,
+                interpolation=TF.InterpolationMode.NEAREST,
             )
-            mask_np = np.array(mask_pil_resized, dtype=np.int64)
-            mask_np = np.clip(mask_np, 0, 149)
+
+        # 4. Маска → numpy int64
+        mask_np: np.ndarray = np.array(mask_pil, dtype=np.int64)
+
+        # FIX: clip только НЕ-ignore пикселей
+        # Было: np.clip(mask_np, 0, 149) — уничтожало ignore_index=255
+        # Теперь: ignore-пиксели остаются нетронутыми, остальные → [0, 149]
+        valid_mask = mask_np != self.ignore_index
+        mask_np[valid_mask] = np.clip(mask_np[valid_mask], 0, 149)
 
         # 5. Нормализация изображения
-        img = self.img_transform(img)
+        img_tensor: torch.Tensor = self.img_transform(img)
 
-        # 6. Конвертация маски в tensor
-        mask: torch.Tensor = torch.from_numpy(mask_np).long()
-        return {"image": img, "mask": mask, "image_id": img_file}
+        # 6. Маска → tensor
+        mask_tensor: torch.Tensor = torch.from_numpy(mask_np).long()
+
+        return {"image": img_tensor, "mask": mask_tensor, "image_id": img_file}
+
+    # ──────────────────────────────────────────────────────────────────────
+    def test_augmentation_sync(self) -> bool:
+        """Простой unit-тест: image и mask одного размера после аугментаций."""
+        sample = self[0]
+        h, w = sample["image"].shape[1], sample["image"].shape[2]
+        mh, mw = sample["mask"].shape
+        assert (h, w) == (mh, mw), f"Shape mismatch: image=({h},{w}) mask=({mh},{mw})"
+        # ignore-пиксели не должны менять диапазон
+        m = sample["mask"]
+        valid = m[m != self.ignore_index]
+        if len(valid) > 0:
+            assert (
+                valid.min() >= 0 and valid.max() <= 149
+            ), f"Mask values out of range: [{valid.min()}, {valid.max()}]"
+        return True
 
 
 class ADE20KDatasetWithTransforms(Dataset):
@@ -428,15 +448,21 @@ class ADE20KDatasetWithTransforms(Dataset):
         )
 
         # Конвертация в tensor
-        img_tensor: torch.Tensor = self.transform["image"](img)
-        mask_tensor: torch.Tensor = self.transform["mask"](mask)
+        # img_tensor: torch.Tensor = self.transform["image"](img)
+        # mask_tensor: torch.Tensor = self.transform["mask"](mask)
 
-        # Для маски используем long для совместимости с loss функциями
-        mask_tensor = mask_tensor.squeeze(0).long()  # (1, H, W) -> (H, W)
+        # # Для маски используем long для совместимости с loss функциями
+        # mask_tensor = mask_tensor.squeeze(0).long()  # (1, H, W) -> (H, W)
+        img_tensor: torch.Tensor = self.transform["image"](img)
+        mask_np = np.array(mask, dtype=np.int64)
+        valid = mask_np != self.ignore_index
+        mask_np[valid] = np.clip(mask_np[valid], 0, 149)
+        mask_tensor = torch.from_numpy(mask_np).long()
 
         return {"image": img_tensor, "mask": mask_tensor, "image_id": img_file}
 
 
+# ──────────────────────────────────────────────────────────────────────────────
 def test_dataloader() -> bool:
     print("\n" + "=" * 50)
     print("Тестирование загрузчика ADE20K")
@@ -452,14 +478,15 @@ def test_dataloader() -> bool:
             rotation_prob=0.3,
             color_jitter_prob=0.3,
             subset_fraction=0.01,
+            ignore_index=0,
         )
 
         #  Начинаем с num_workers=0 для отладки
         train_loader = DataLoader(
             train_dataset,
-            batch_size=4,  # Маленький batch
+            batch_size=4,
             shuffle=True,
-            num_workers=0,  # 🔥 0 для отладки!
+            num_workers=0,
             pin_memory=False,
         )
         print(f"✅ DataLoader ready: {len(train_loader)} batches")
@@ -478,6 +505,11 @@ def test_dataloader() -> bool:
             assert (
                 masks.min() >= 0 and masks.max() <= 150
             ), f"Mask out of range: [{masks.min()}, {masks.max()}]"
+            non_ignore = masks[masks != 0]
+            if len(non_ignore) > 0:
+                assert (
+                    non_ignore.min() >= 1 and non_ignore.max() <= 149
+                ), f"Non-ignore mask values out of range: [{non_ignore.min()}, {non_ignore.max()}]"
             print("   ✅ Batch valid")
             if batch_idx >= 2:
                 break
@@ -506,10 +538,9 @@ def test_dataloader() -> bool:
         plt.tight_layout()
         plt.savefig("./data/ade20k_augmentations_preview.png", dpi=150)
         print("   ✅ Preview saved to ./data/ade20k_augmentations_preview.png")
+        print("\n✅ Все тесты пройдены!")
+        return True
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         traceback.print_exc()
         return False
-
-    print("\n✅ Все тесты пройдены!")
-    return True
