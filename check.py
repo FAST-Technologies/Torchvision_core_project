@@ -733,10 +733,10 @@ def compare_trained_models():
                     # Особый инференс для Mask R-CNN
                     images_list = [images[i] for i in range(images.shape[0])]
                     outputs = model(images_list)
-                    for out, gt in zip(outputs, masks_gt):
-                        pred = convert_maskrcnn_to_semantic([out], gt.shape)
-                        all_preds.extend(pred.cpu().flatten().tolist())
-                        all_targets.extend(gt.cpu().flatten().tolist())
+                    # for out, gt in zip(outputs, masks_gt):
+                    #     pred = convert_maskrcnn_to_semantic([out], gt.shape)
+                    #     all_preds.extend(pred.cpu().flatten().tolist())
+                    #     all_targets.extend(gt.cpu().flatten().tolist())
                 else:
                     # Стандартный инференс
                     outputs = model(images)

@@ -1,3 +1,9 @@
+# test.py
+
+"""
+Вспомогательный скрипт для проверки параметров CUDA платформы.
+"""
+
 import torch
 
 torch.cuda.empty_cache()

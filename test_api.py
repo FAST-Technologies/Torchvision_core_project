@@ -1,4 +1,9 @@
 # test_api.py
+
+"""
+Вспомогательный скрипт для проверки работы API веб-сайта.
+"""
+
 import requests
 
 with open("test_images/coco_img.jpg", "rb") as f:

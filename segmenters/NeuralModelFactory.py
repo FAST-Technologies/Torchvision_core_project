@@ -972,7 +972,7 @@ class NeuralModelFactory:
 
     @classmethod
     def _load_yolov8(
-        cls, model_name: Optional[str], device: str = "cuda"
+        cls, model_name: str, device: str = "cuda"
     ) -> Tuple[Any, Any, str]:
         """Загрузка YOLOv8 для сегментации"""
         try:

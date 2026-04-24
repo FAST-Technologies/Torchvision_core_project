@@ -313,7 +313,7 @@ class TorchSegmenter(BaseSegmenter):
 
     @staticmethod
     def _normalize_to_255(
-        img: Union[Image.Image, np.ndarray]
+        img: Union[Image.Image, np.ndarray],
     ) -> Union[Image.Image, np.ndarray]:
         """Метод нормализации изображения"""
         if isinstance(img, np.ndarray):

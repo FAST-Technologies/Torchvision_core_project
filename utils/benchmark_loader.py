@@ -7,7 +7,7 @@ from segmenters.AutoSegmenter import MethodProfile, ImageType
 
 
 def load_profiles_from_benchmark(
-    benchmark_csv_path: str, validation_json_path: str, library: Optional[str] = None
+    benchmark_csv_path: str, validation_json_path: str, library: str = "opencv"
 ) -> Dict[str, MethodProfile]:
     """
     Загрузка профилей методов из результатов ваших бенчмарков.

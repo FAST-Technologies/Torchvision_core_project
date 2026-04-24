@@ -1,6 +1,7 @@
 # segmenters/NeuralTrainer.py
 
 # Импорт основных библиотек
+import os
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -60,7 +61,7 @@ class NeuralTrainer:
     def train_epoch(self) -> float:
         """Одна эпоха обучения"""
         self.model.train()
-        total_loss = 0.0
+        total_loss: float = 0.0
 
         for batch_idx, batch in enumerate(self.train_loader):
             images = batch["image"].to(self.device)
@@ -87,7 +88,7 @@ class NeuralTrainer:
                 aux_out = None
 
             invalid = ((masks < 0) | (masks >= self.num_classes)) & (
-                masks != self.ignore_index
+                masks != self.criterion.ignore_index
             )
             if torch.any(invalid):
                 if batch_idx == 0:
@@ -96,7 +97,7 @@ class NeuralTrainer:
                         f"replacing with ignore_index={self.ignore_index}"
                     )
                 masks = masks.clone()
-                masks[invalid] = self.ignore_index
+                masks[invalid] = self.criterion.ignore_index
             loss = self.criterion(main_out, masks)
             # if aux_out is not None:
             #     loss += self.aux_loss_weight * self.criterion(aux_out, masks)
@@ -118,7 +119,7 @@ class NeuralTrainer:
     def validate(self) -> tuple:
         """Валидация с вычислением mIoU"""
         self.model.eval()
-        total_loss = 0
+        total_loss: float = 0.0
         all_preds: List[int] = []
         all_targets: List[int] = []
 
@@ -164,8 +165,6 @@ class NeuralTrainer:
         early_stop_patience: int = 200,
     ) -> Dict[str, List]:
         """Полный цикл обучения"""
-        import os
-
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
 
         print(
@@ -174,10 +173,10 @@ class NeuralTrainer:
         )
         patience_counter = 0
         for epoch in range(epochs):
-            start_time = time.time()
+            start_time: float = time.time()
             train_loss = self.train_epoch()
             val_loss, val_miou = self.validate()
-            epoch_time = time.time() - start_time
+            epoch_time: float = time.time() - start_time
             self.history["train_loss"].append(train_loss)
             self.history["val_loss"].append(val_loss)
             self.history["val_miou"].append(val_miou)

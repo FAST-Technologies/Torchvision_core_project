@@ -1,3 +1,10 @@
+# analyze.py
+
+"""
+Вспомогательный скрипт для проверки влияния аугментаций на качество обучения сегментационных моделей.
+"""
+
+# Импорт основных библиотек
 import glob
 import os
 import gc
@@ -11,9 +18,10 @@ from PIL import Image
 import torch
 from huggingface_hub import hf_hub_download
 import time
+from typing import Tuple, Dict, Any
 
 
-def analyze_augmentation_impact():
+def analyze_augmentation_impact() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Исследование влияния аугментаций на качество сегментации
     Исправленная версия с поддержкой всех моделей и корректными метриками
@@ -23,12 +31,19 @@ def analyze_augmentation_impact():
     print("ИССЛЕДОВАНИЕ: ВЛИЯНИЕ АУГМЕНТАЦИЙ НА КАЧЕСТВО СЕГМЕНТАЦИИ")
     print("=" * 80)
 
-    models_dir = "./models"
-    model_types = ["unet_smp", "fpn_smp", "psp_smp", "deeplab_tv", "fcn_tv", "segnet"]
-    augmentation_levels = ["none", "basic", "medium"]
+    models_dir: str = "./models"
+    model_types: List[str] = [
+        "unet_smp",
+        "fpn_smp",
+        "psp_smp",
+        "deeplab_tv",
+        "fcn_tv",
+        "segnet",
+    ]
+    augmentation_levels: List[str] = ["none", "basic", "medium"]
 
     # Маппинг имён чекпоинтов на ModelType enum
-    MODEL_TYPE_MAPPING = {
+    MODEL_TYPE_MAPPING: Dict[str, str] = {
         "unet_smp": "unet_smp",
         "fpn_smp": "fpn_smp",
         "psp_smp": "pspnet_smp",
@@ -37,17 +52,17 @@ def analyze_augmentation_impact():
         "segnet": "segnet",
     }
 
-    checkpoints = {}
+    checkpoints: dict = {}
 
     print("\n🔍 Поиск чекпоинтов...")
     for model_type in model_types:
         for aug_level in augmentation_levels:
-            pattern = f"{models_dir}/{model_type}_{aug_level}_*.pth"
-            files = glob.glob(pattern)
+            pattern: str = f"{models_dir}/{model_type}_{aug_level}_*.pth"
+            files: List[str] = glob.glob(pattern)
 
             if files:
                 latest_checkpoint = max(files, key=os.path.getctime)
-                key = f"{model_type}_{aug_level}"
+                key: str = f"{model_type}_{aug_level}"
                 checkpoints[key] = {
                     "path": latest_checkpoint,
                     "model_type": MODEL_TYPE_MAPPING.get(model_type, model_type),
@@ -58,22 +73,18 @@ def analyze_augmentation_impact():
             else:
                 print(f"   ⚠️  {model_type}_{aug_level}: не найден")
 
-    # 2. Загружаем тестовое изображение и маску
     print("\n📥 Загрузка тестовых данных...")
-
-    repo_id = "hf-internal-testing/fixtures_ade20k"
-    img_path = hf_hub_download(
+    repo_id: str = "hf-internal-testing/fixtures_ade20k"
+    img_path: str = hf_hub_download(
         repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset"
     )
-    mask_path = hf_hub_download(
+    mask_path: str = hf_hub_download(
         repo_id=repo_id, filename="ADE_val_00000001.png", repo_type="dataset"
     )
 
-    test_image = Image.open(img_path).convert("RGB")
-    gt_mask_pil = Image.open(mask_path)
-
-    # Конвертируем маску в правильный формат для ADE20K
-    gt_mask = np.array(gt_mask_pil)
+    test_image: Image.Image = Image.open(img_path).convert("RGB")
+    gt_mask_pil: Image.Image = Image.open(mask_path)
+    gt_mask: np.ndarray = np.array(gt_mask_pil)
     if gt_mask.ndim == 3 and gt_mask.shape[2] == 3:
         # RGB маска → берём первый канал или конвертируем
         gt_mask = gt_mask[:, :, 0]
@@ -81,10 +92,9 @@ def analyze_augmentation_impact():
     print(f"   ✅ Изображение: {test_image.size}")
     print(f"   ✅ Маска: {gt_mask.shape}, unique values: {len(np.unique(gt_mask))}")
 
-    # 3. Оцениваем каждую модель
     print("\n🧪 Оценка моделей...")
     results = []
-    overlay_images = {}  # Для сохранения визуализаций
+    overlay_images = {}
 
     for key, checkpoint_info in checkpoints.items():
         try:
@@ -95,7 +105,6 @@ def analyze_augmentation_impact():
 
             print(f"\n   🔹 {key} {display_name}_{aug_level}...")
 
-            # Инициализация сегментатора
             segmenter = NeuralSegmenter(
                 model_type=model_type,
                 checkpoint_path=checkpoint_path,
@@ -113,8 +122,6 @@ def analyze_augmentation_impact():
 
             pred_mask_2 = segmenter.segment(np.array(test_image))
 
-            # 🔹 КОРРЕКТНЫЙ РАСЧЁТ МЕТРИК ДЛЯ МНОГОКЛАССОВОЙ СЕГМЕНТАЦИИ
-            # Вариант 1: mIoU (mean IoU по всем классам)
             if gt_mask.shape != pred_mask.shape:
                 # Ресайз предсказания под размер GT
                 from scipy.ndimage import zoom
@@ -145,7 +152,7 @@ def analyze_augmentation_impact():
 
             m_iou = np.mean(iou_per_class) if iou_per_class else 0.0
 
-            # Бинарные метрики (объект vs фон) для совместимости
+            # Бинарные метрики (объект vs фон)
             pred_binary = (pred_mask_resized > 0).astype(np.uint8)
             gt_binary = (gt_mask > 0).astype(np.uint8)
 
@@ -181,10 +188,9 @@ def analyze_augmentation_impact():
             )
             overlay_images[key] = overlay
 
-            # Сохраняем overlay
-            output_dir = "./data/augmentation_analysis"
+            output_dir: str = "./data/augmentation_analysis"
             os.makedirs(output_dir, exist_ok=True)
-            overlay_path = f"{output_dir}/overlay_{display_name}_{aug_level}.jpg"
+            overlay_path: str = f"{output_dir}/overlay_{display_name}_{aug_level}.jpg"
             overlay.save(overlay_path)
 
             print(
@@ -206,7 +212,6 @@ def analyze_augmentation_impact():
             traceback.print_exc()
             continue
 
-    # 4. Анализ результатов
     if not results:
         print("\n❌ Нет результатов для анализа!")
         return None
@@ -215,7 +220,7 @@ def analyze_augmentation_impact():
     print("РЕЗУЛЬТАТЫ ОЦЕНКИ")
     print("=" * 80)
 
-    df = pd.DataFrame(results)
+    df: pd.DataFrame = pd.DataFrame(results)
 
     # Сводная таблица
     print("\n📊 Сводная таблица метрик (mIoU):")
@@ -240,8 +245,15 @@ def analyze_augmentation_impact():
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
     axes = axes.flatten()
 
-    metrics_to_plot = ["iou", "dice", "f1_score", "precision", "recall", "accuracy"]
-    metric_names = {
+    metrics_to_plot: List[str] = [
+        "iou",
+        "dice",
+        "f1_score",
+        "precision",
+        "recall",
+        "accuracy",
+    ]
+    metric_names: Dict[str, str] = {
         "iou": "IoU",
         "dice": "Dice",
         "f1_score": "F1-Score",
@@ -268,12 +280,8 @@ def analyze_augmentation_impact():
             ax.axis("off")
             continue
 
-        # Группируем данные
         plot_data = df.groupby(["model", "augmentation"])[metric].first().unstack()
-
-        # Строим bar chart
         plot_data.plot(kind="bar", ax=ax, colormap="viridis", edgecolor="black")
-
         ax.set_title(f"{metric_names[metric]} по моделям и аугментациям", fontsize=11)
         ax.set_ylabel("Score")
         ax.set_xlabel("Модель")
@@ -326,8 +334,6 @@ def analyze_augmentation_impact():
 
     # График 4: Heatmap прироста
     fig, ax = plt.subplots(figsize=(12, 8))
-
-    # Создаем pivot таблицу для heatmap
     heatmap_data = df.pivot_table(
         index="model", columns="augmentation", values="iou", aggfunc="first"
     )
@@ -370,7 +376,7 @@ def analyze_augmentation_impact():
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     # Разница basic - none
-    df_analysis = df.copy()
+    df_analysis: pd.DataFrame = df.copy()
 
     # Считаем прирост
     for model in df_analysis["model"].unique():
@@ -408,7 +414,6 @@ def analyze_augmentation_impact():
     print(f"   ✅ График прироста сохранен: {output_dir}/augmentation_gain.png")
     plt.close()
 
-    # 6. Сохранение сравнения визуализаций (сетка оверлеев)
     print("\n🖼️ Сохранение сравнения визуализаций...")
 
     for model in df["model"].unique():
@@ -440,7 +445,6 @@ def analyze_augmentation_impact():
         plt.close()
         print(f"   ✅ Сравнение для {model}: {output_dir}/comparison_{model}.png")
 
-    # 7. Статистический анализ
     print("\n" + "=" * 80)
     print("СТАТИСТИЧЕСКИЙ АНАЛИЗ")
     print("=" * 80)
@@ -464,12 +468,12 @@ def analyze_augmentation_impact():
     print(f"   Аугментации: {best_row['augmentation']}")
     print(f"   mIoU: {best_row['iou']:.4f}")
 
-    # 8. Экспорт результатов
+    # Экспорт результатов
     df.to_csv(f"{output_dir}/augmentation_impact_results.csv", index=False)
     print(f"\n💾 Результаты сохранены: {output_dir}/augmentation_impact_results.csv")
 
-    # 9. Генерация отчёта в Markdown
-    report_path = f"{output_dir}/report.md"
+    # Генерация отчёта в Markdown
+    report_path: str = f"{output_dir}/report.md"
     with open(report_path, "w", encoding="utf-8") as f:
         f.write("# Отчёт: Влияние аугментаций на качество сегментации\n\n")
         f.write(f"Дата: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}\n\n")
@@ -491,7 +495,7 @@ def analyze_augmentation_impact():
 
 def save_augmentation_comparison_grid(
     overlay_images, output_dir="./data/augmentation_analysis", model_names=None
-):
+) -> None:
     """
     Создаёт единую сетку сравнения всех моделей.
 
@@ -516,7 +520,7 @@ def save_augmentation_comparison_grid(
         print("⚠️  Нет моделей для визуализации")
         return
 
-    n_models = len(models)
+    n_models: int = len(models)
     fig, axes = plt.subplots(n_models, 3, figsize=(15, 5 * n_models), squeeze=False)
 
     for row, model in enumerate(models):
@@ -564,7 +568,7 @@ def save_augmentation_comparison_grid(
         y=1.01,
         fontweight="bold",
     )
-    plt.tight_layout(rect=[0, 0, 1, 0.98])  # Место для suptitle
+    plt.tight_layout(rect=[0, 0, 1, 0.98])
     plt.savefig(
         f"{output_dir}/full_comparison_grid.png",
         dpi=300,
@@ -576,7 +580,6 @@ def save_augmentation_comparison_grid(
     print(f"✅ Полная сетка сравнения: {output_dir}/full_comparison_grid.png")
 
 
-# Запуск исследования
 if __name__ == "__main__":
     print("\n🔍 CUDA DIAGNOSTICS:")
     print(f"   CUDA available: {torch.cuda.is_available()}")
@@ -587,7 +590,7 @@ if __name__ == "__main__":
         )
     results_df, overlay_images_result = analyze_augmentation_impact()
     print("\n🔍 DEBUG: overlay_images keys:")
-    for k in sorted(overlay_images_result.keys())[:10]:  # Первые 10 ключей
+    for k in sorted(overlay_images_result.keys())[:10]:
         print(f"   {k}")
 
     print(f"\n🔍 DEBUG: извлечённые модели:")

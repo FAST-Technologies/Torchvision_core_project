@@ -14,6 +14,7 @@ from testing.TorchImplementationValidator import TorchImplementationValidator
 from metrics.SegmentationMetrics import SegmentationMetrics
 from utils.warmup import SegmentationWarmUp
 from utils.threshold_warmup import ThresholdWarmUp
+from testing.BatchClassicTester import BatchClassicTester
 
 from transformers import MaskFormerImageProcessor, MaskFormerForInstanceSegmentation
 from utils.strategies import _create_overlay_standalone, segment_image_unified
@@ -1550,6 +1551,66 @@ def main():
             )
 
         print(cpu_cuda_results)
+    # ====================================================================
+    # ДОПОЛНИТЕЛЬНОЕ ИССЛЕДОВАНИЕ: Массовое тестирование классических методов
+    # ====================================================================
+    if test_classic_logic:
+        print("\n" + "=" * 80)
+        print("🚀 ЗАПУСК МАССОВОГО ТЕСТИРОВАНИЯ КЛАССИЧЕСКИХ МЕТОДОВ")
+        print("=" * 80)
+
+        # Конфигурация теста
+        batch_tester = BatchClassicTester(
+            ade20k_root="./data/ade20k/ADEChallengeData2016",
+            output_dir="./data/batch_classic_test",
+            split="validation",  # или "training"
+            max_images=50,  # Лимит для быстрого теста (None = все)
+            image_size=(512, 512),
+        )
+
+        # Запуск тестирования
+        print("⏳ Запуск массового тестирования...")
+        results_df = batch_tester.run_batch_test()
+
+        # Сохранение результатов
+        csv_path, json_path, md_path = batch_tester.save_results(results_df)
+
+        # Построение графиков
+        batch_tester.plot_results(results_df)
+
+        # Вывод сводки в консоль
+        print("\n" + "=" * 80)
+        print("📊 СВОДКА ПО МАССОВОМУ ТЕСТИРОВАНИЮ")
+        print("=" * 80)
+
+        print(f"\n🏆 Топ-5 методов по IoU:")
+        for i, row in results_df.head(5).iterrows():
+            print(
+                f"   {i+1}. {row['Method']}: IoU={row['iou_mean']:.4f} ± {row['iou_std']:.4f}"
+            )
+
+        print(f"\n⚡ Топ-5 самых быстрых методов:")
+        fast_df = (
+            results_df.dropna(subset=["time_mean_s"]).sort_values("time_mean_s").head(5)
+        )
+        for i, row in fast_df.iterrows():
+            print(f"   {i+1}. {row['Method']}: {row['time_mean_s']*1000:.1f} мс")
+
+        print(f"\n❌ Методы с наибольшим числом ошибок:")
+        error_df = (
+            results_df[results_df["error_count"] > 0]
+            .sort_values("error_count", ascending=False)
+            .head(5)
+        )
+        if not error_df.empty:
+            for i, row in error_df.iterrows():
+                print(
+                    f"   {row['Method']}: {row['error_count']} ошибок ({row['error_rate']*100:.1f}%)"
+                )
+        else:
+            print("   Нет ошибок!")
+
+        print(f"\n💾 Все результаты сохранены в: {batch_tester.output_dir}")
 
     return tester, results, comparator
 

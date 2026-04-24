@@ -24,13 +24,9 @@ from dataseters.ADE20KDataset import ADE20KDataset
 from .NeuralTrainer import NeuralTrainer
 from utils.strategies import SegNet
 
-from typing import (
-    List,
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-)
+from typing import List, Tuple, Dict, Any, Optional, Literal, TypedDict, NotRequired
+from dataclasses import dataclass
+from matplotlib.colors import Colormap
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
@@ -56,6 +52,42 @@ IGNORE_INDEX_BY_MODEL: Dict[str, int] = {
     "psp_smp": 255,
     "segnet": 255,
 }
+
+ModelType = Literal["unet_smp", "fpn_smp", "psp_smp", "deeplab_tv", "fcn_tv", "segnet"]
+EncoderName = Literal["resnet34", "resnet50", "resnet101"]
+
+
+class ModelConfig(TypedDict):
+    model_type: ModelType
+    encoder_name: EncoderName
+    variant: str
+    lr: NotRequired[float]
+
+
+# @dataclass
+# class ModelConfig:
+#     model_type: str
+#     encoder_name: str
+#     variant: str
+#     lr: Optional[float] = None
+
+# # Преобразование из вашего списка:
+# model_configs: list[ModelConfig] = [ModelConfig(**cfg) for cfg in raw_configs]
+
+# from pydantic import BaseModel
+# from typing import Literal, Optional
+
+# class ModelConfig(BaseModel):
+#     model_type: Literal["unet_smp", "fpn_smp", "psp_smp", "deeplab_tv", "fcn_tv", "segnet"]
+#     encoder_name: str
+#     variant: str
+#     lr: Optional[float] = None
+
+# # Валидация и приведение типов "на лету":
+# model_configs = [ModelConfig(**cfg) for cfg in raw_configs]
+
+# # Пример: если передать "lr": "1e-5" (строку), Pydantic сам превратит её в float.
+# # Если передать неверный model_type → выбросит ValidationError.
 
 
 class TrainingConfig:
@@ -90,12 +122,12 @@ class TrainingConfig:
 
         # Генерируем уникальное имя чекпоинта
         if checkpoint_name is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
             self.checkpoint_name = f"{model_type}_{augmentation_level}_{timestamp}.pth"
         else:
             self.checkpoint_name = checkpoint_name
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"TrainingConfig({self.experiment_name}, "
             f"model={self.model_type}, "
@@ -452,9 +484,7 @@ class ModelTrainer:
         # T_max = полное число шагов батчей.
         total_steps = len(train_loader) * config.epochs
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=total_steps,
-            # eta_min=config.lr * 0.01
+            optimizer, T_max=total_steps, eta_min=config.lr * 0.01
         )
 
         trainer = NeuralTrainer.__new__(NeuralTrainer)
@@ -521,10 +551,10 @@ class ModelTrainer:
                 else:
                     print(f"   ⚠️  Cannot unfreeze backbone: {type(backbone)}")
 
-            start_time = time.time()
+            start_time: float = time.time()
             train_loss = trainer.train_epoch()
             val_loss, val_miou = trainer.validate()
-            epoch_time = time.time() - start_time
+            epoch_time: float = time.time() - start_time
 
             trainer.history["train_loss"].append(train_loss)
             trainer.history["val_loss"].append(val_loss)
@@ -918,7 +948,7 @@ class ModelTrainer:
             augmentation_levels = ["none", "basic", "medium", "aggressive"]
 
         if base_config is None:
-            base_config = {
+            base_config: Dict[str, Any] = {
                 "epochs": 20,
                 "batch_size": 4,
                 "lr": 1e-4,
@@ -945,7 +975,7 @@ class ModelTrainer:
             results.append(result)
 
         # Создание сравнительной таблицы
-        comparison_df = pd.DataFrame(
+        comparison_df: pd.DataFrame = pd.DataFrame(
             [
                 {
                     "Augmentation": r["augmentation_level"],
@@ -961,11 +991,13 @@ class ModelTrainer:
         )
 
         # Сортировка по mIoU
-        comparison_df = comparison_df.sort_values("Best mIoU (%)", ascending=False)
+        comparison_df: pd.DataFrame = comparison_df.sort_values(
+            "Best mIoU (%)", ascending=False
+        )
 
         # Сохранение
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        comparison_path = os.path.join(
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        comparison_path: str = os.path.join(
             self.checkpoint_dir, f"augmentation_comparison_{model_type}_{timestamp}.csv"
         )
         comparison_df.to_csv(comparison_path, index=False)
@@ -981,7 +1013,7 @@ class ModelTrainer:
     # ──────────────────────────────────────────────────────────────────────
     # Визуализация
     # ──────────────────────────────────────────────────────────────────────
-    def plot_experiment_comparison(self, output_path: Optional[str] = None):
+    def plot_experiment_comparison(self, output_path: Optional[str] = None) -> None:
         """Визуализация сравнения экспериментов"""
         if len(self.experiment_results) < 2:
             print("⚠️ Нужно минимум 2 эксперимента для сравнения")
@@ -997,7 +1029,6 @@ class ModelTrainer:
         for result in self.experiment_results:
             aug_labels.append(result["augmentation_level"])
             miou_values.append(result["best_miou"] * 100)
-        from matplotlib.colors import Colormap
 
         cmap: Colormap = plt.get_cmap("viridis")
         colors = cmap(np.linspace(0, 1, len(miou_values)))
@@ -1007,7 +1038,6 @@ class ModelTrainer:
         ax1.set_title("Влияние аугментаций на Best mIoU")
         ax1.grid(axis="y", alpha=0.3)
 
-        # Добавляем значения на столбцы
         for i, v in enumerate(miou_values):
             ax1.text(i, v + 0.3, f"{v:.1f}%", ha="center", fontsize=9)
 
@@ -1120,7 +1150,7 @@ class ModelTrainer:
         Returns:
             Dict с результатами по каждой модели
         """
-        model_configs = [
+        model_configs: List[ModelConfig] = [
             {"model_type": "unet_smp", "encoder_name": "resnet34", "variant": "b5"},
             {"model_type": "fpn_smp", "encoder_name": "resnet34", "variant": "b5"},
             {"model_type": "psp_smp", "encoder_name": "resnet34", "variant": "b5"},
@@ -1158,11 +1188,11 @@ class ModelTrainer:
                 variant=config["variant"],
                 subset_fraction=subset_fraction,
             )
-            result = self.train_experiment(experiment_config)
+            result: Dict[str, Any] = self.train_experiment(experiment_config)
             all_results[config["model_type"]] = result
 
         # Сводная таблица
-        summary_df = pd.DataFrame(
+        summary_df: pd.DataFrame = pd.DataFrame(
             [
                 {
                     "Model": r["model_type"],
@@ -1175,10 +1205,12 @@ class ModelTrainer:
             ]
         )
 
-        summary_df = summary_df.sort_values("Best mIoU (%)", ascending=False)
+        summary_df: pd.DataFrame = summary_df.sort_values(
+            "Best mIoU (%)", ascending=False
+        )
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        summary_path = os.path.join(
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        summary_path: str = os.path.join(
             self.checkpoint_dir, f"all_models_summary_{timestamp}.csv"
         )
         summary_df.to_csv(summary_path, index=False)
@@ -1201,8 +1233,6 @@ class ModelTrainer:
         """
         Оценка обученных чекпоинтов на валидационном наборе
         """
-        from sklearn.metrics import jaccard_score
-
         print(f"\n{'=' * 70}")
         print("ОЦЕНКА ЧЕКПОИНТОВ")
         print(f"{'=' * 70}")
@@ -1239,7 +1269,7 @@ class ModelTrainer:
             else:
                 state_dict = checkpoint
 
-            # 🔥 Фильтрация aux_classifier для DeepLab (как в старом варианте)
+            # Фильтрация aux_classifier для DeepLab (как в старом варианте)
             if model_type == "deeplab_tv":
                 model_keys = {
                     k: v
@@ -1278,7 +1308,7 @@ class ModelTrainer:
                 zero_division=0,
             )
 
-            result = {
+            result: Dict[str, Any] = {
                 "Checkpoint": checkpoint_name,
                 "mIoU (%)": miou * 100,
                 "Path": checkpoint_path,
@@ -1292,12 +1322,12 @@ class ModelTrainer:
             torch.cuda.empty_cache()
 
         # Создание таблицы
-        results_df = pd.DataFrame(results)
+        results_df: pd.DataFrame = pd.DataFrame(results)
         results_df = results_df.sort_values("mIoU (%)", ascending=False)
 
         # Сохранение
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        eval_path = os.path.join(
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        eval_path: str = os.path.join(
             self.checkpoint_dir, f"checkpoint_evaluation_{timestamp}.csv"
         )
         results_df.to_csv(eval_path, index=False)
