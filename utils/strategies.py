@@ -3,19 +3,30 @@
 # Импорт основных библиотек
 import sys
 import os
+import time
 
-import torchvision.transforms as T
-import segmentation_models_pytorch as smp
-
-from typing import List, Union, Tuple, Dict, Any, Optional, Callable
-import torch
-import numpy as np
 import requests
 from io import BytesIO
-from PIL import Image
-import time
-from scipy.ndimage import zoom
+from pathlib import Path
+from typing import (
+    List,
+    Union,
+    Tuple,
+    Dict,
+    Any,
+    Optional,
+    Callable,
+    Literal,
+)
 
+import torch
+import numpy as np
+import torchvision.transforms as T
+import segmentation_models_pytorch as smp
+from scipy.ndimage import zoom
+from PIL import Image
+
+# Локальные импорты
 from utils.utils import (
     extract_logits_info,
     compute_metrics,
@@ -24,20 +35,74 @@ from utils.utils import (
     export_class_report,
 )
 from utils.palettes import ade_palette
-
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
 from utils.paths import ADE20K_DIR, ensure_dirs
+
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES & CONSTANTS
+# ──────────────────────────────────────────────────────────────────────
+ImageInput = Union[str, Path, Image.Image, np.ndarray, torch.Tensor]
+MaskArray = np.ndarray  # Binary/semantic mask: H×W, dtype uint8/int
+ImageArray = np.ndarray  # RGB image: H×W×3, dtype uint8
+ModelType = Literal[
+    "segformer",
+    "mask2former",
+    "oneformer",
+    "dpt",
+    "upernet",
+    "deeplab_tv",
+    "fcn_tv",
+    "maskrcnn_tv",
+    "unet_smp",
+    "mit_smp",
+    "fpn_mit",
+    "psp_mit",
+    "deeplab_smp",
+    "segnet",
+    "segnet_custom",
+    "sam",
+    "mobile_sam",
+    "sam2",
+    "yolov8",
+    "yolov8n_seg",
+    "yolov8s_seg",
+    "yolov8m_seg",
+]
+InferFunc = Callable[[Any, Any, Image.Image, str], Tuple[MaskArray, Image.Image]]
+
+project_root = Path(__file__).resolve().parents[1]
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 num_classes: int = 150
 
 
 def infer_segformer(
-    model: Any, processor: Any, image: Image.Image, device: str = "cuda"
-) -> Tuple[np.ndarray, Image.Image]:
-    """Инференс для SegFormer — возвращает маску в размере оригинального изображения (работает для B0-B5)."""
+    model: Any,
+    processor: Any,
+    image: Image.Image,
+    device: str = "cuda",
+) -> Tuple[MaskArray, Image.Image]:
+    """
+    Инференс для SegFormer (HuggingFace Transformers).
+
+    Возвращает семантическую маску в размере оригинального изображения.
+    Поддерживает все варианты: B0, B1, B2, B3, B4, B5.
+
+    Args:
+        model: Загруженная модель `SegformerForSemanticSegmentation`.
+        processor: `SegformerImageProcessor` для препроцессинга и постпроцессинга.
+        image: Входное изображение `PIL.Image` в RGB.
+        device: Устройство для вычислений (`"cuda"` или `"cpu"`).
+
+    Returns:
+        Tuple[np.ndarray, PIL.Image]:
+        - `seg_map`: Семантическая маска `[H, W]`, dtype `uint8`, значения 0..149.
+        - `image`: Оригинальное изображение (без изменений).
+
+    Note:
+        - Использует `post_process_semantic_segmentation` с `target_sizes` для ресайза к оригиналу.
+        - Все вычисления выполняются в контексте `torch.no_grad()`.
+    """
     inputs = processor(images=image, return_tensors="pt").to(device)
     with torch.no_grad():
         outputs = model(**inputs)
@@ -56,8 +121,26 @@ def infer_segformer(
 
 
 def infer_mask2former(
-    model: Any, processor: Any, image: Image.Image, device: str = "cuda"
-) -> Tuple[np.ndarray, Image.Image]:
+    model: Any,
+    processor: Any,
+    image: Image.Image,
+    device: str = "cuda",
+) -> Tuple[MaskArray, Image.Image]:
+    """
+    Инференс для Mask2Former (HuggingFace Transformers).
+
+    Args:
+        model: Загруженная модель `MCXg9A2HnWdvPyVuJosKiPA2iGvNGZYVsV`.
+        processor: `Mask2FormerImageProcessor`.
+        image: Входное изображение `PIL.Image` в RGB.
+        device: Устройство для вычислений.
+
+    Returns:
+        Tuple[np.ndarray, PIL.Image]: Семантическая маска и оригинальное изображение.
+
+    Raises:
+        ValueError: Если изображение имеет нулевые размеры.
+    """
     if image.width == 0 or image.height == 0:
         raise ValueError("Image has zero dimensions")
 
@@ -74,8 +157,25 @@ def infer_mask2former(
 
 
 def infer_oneformer(
-    model: Any, processor: Any, image: Image.Image, device: str = "cuda"
-) -> Tuple[np.ndarray, Image.Image]:
+    model: Any,
+    processor: Any,
+    image: Image.Image,
+    device: str = "cuda",
+) -> Tuple[MaskArray, Image.Image]:
+    """
+    Инференс для OneFormer (HuggingFace Transformers).
+
+    Поддерживает мультитасковое обучение: в вызове указывается `task_inputs=["semantic"]`.
+
+    Args:
+        model: Загруженная модель `OneFormerForUniversalSegmentation`.
+        processor: `OneFormerImageProcessor`.
+        image: Входное изображение `PIL.Image` в RGB.
+        device: Устройство для вычислений.
+
+    Returns:
+        Tuple[np.ndarray, PIL.Image]: Семантическая маска и оригинальное изображение.
+    """
     inputs = processor(images=image, task_inputs=["semantic"], return_tensors="pt").to(
         device
     )
@@ -99,8 +199,21 @@ def infer_deeplab_torchvision(
     image: Image.Image,
     device: str = "cuda",
     target_size: Tuple[int, int] = (512, 512),
-) -> Tuple[np.ndarray, Image.Image]:
-    """Инференс для DeepLabV3+ из torchvision"""
+) -> Tuple[MaskArray, Image.Image]:
+    """
+    Инференс для DeepLabV3+ из torchvision.
+
+    Args:
+        model: Загруженная модель `DeepLabV3` из `torchvision.models.segmentation`.
+        processor: Не используется (для совместимости интерфейса).
+        image: Входное изображение `PIL.Image`.
+        device: Устройство для вычислений.
+        target_size: Размер, к которому ресайзится изображение перед инференсом
+            (должен совпадать с размером при обучении модели).
+
+    Returns:
+        Tuple[np.ndarray, PIL.Image]: Семантическая маска в размере оригинала и оригинальное изображение.
+    """
 
     # Preprocessing
     preprocess = T.Compose(
@@ -110,7 +223,7 @@ def infer_deeplab_torchvision(
         ]
     )
 
-    # Ресайз к target_size (как при обучении!)
+    # Ресайз к target_size
     image_resized = image.resize(target_size, Image.Resampling.BILINEAR)
     input_tensor = preprocess(image_resized).unsqueeze(0).to(device)
 
@@ -128,7 +241,9 @@ def infer_deeplab_torchvision(
             raw_output[0] if hasattr(raw_output, "__getitem__") else raw_output
         )  # [C, H, W]
 
-    predicted_mask = logits.argmax(0).cpu().numpy()  # [H, W]
+    predicted_mask: MaskArray = (
+        logits.argmax(0).cpu().numpy().astype(np.uint8)
+    )  # [H, W]
 
     # Ресайз к оригиналу
     if predicted_mask.shape != (image.size[1], image.size[0]):
@@ -147,11 +262,27 @@ def infer_unet_smp(
     encoder_name: str = "resnet34",
     device: str = "cuda",
     output_stride: int = 1,
-) -> Tuple[np.ndarray, Image.Image]:
+) -> Tuple[MaskArray, Image.Image]:
     """
-    Универсальный инференс для SMP-моделей и SegNet.
+    Универсальный инференс для SMP-моделей (U-Net, SegNet) и кастомных архитектур.
+
+    Особенности:
+    - Авто-определение препроцессинга через `smp.encoders.get_preprocessing_fn`.
+    - Паддинг под `output_stride` для моделей с downsample (FPN, PSPNet).
+    - Кроппинг паддинга и ресайз к оригинальному размеру.
+
+    Args:
+        model: Загруженная модель из `segmentation_models_pytorch`.
+        processor: Не используется (для совместимости интерфейса).
+        image: Входное изображение `PIL.Image`.
+        encoder_name: Название encoder'а для препроцессинга (по умолчанию `"resnet34"`).
+        device: Устройство для вычислений.
+        output_stride: Кратность размера (1 для U-Net/SegNet, 8/16/32 для других).
+
+    Returns:
+        Tuple[np.ndarray, PIL.Image]: Семантическая маска в размере оригинала и оригинальное изображение.
     """
-    # Preprocessing
+    # Preprocessing function
     try:
         # Для SMP-моделей с encoder
         if hasattr(model, "encoder") and hasattr(model.encoder, "name"):
@@ -161,7 +292,7 @@ def infer_unet_smp(
             # Fallback для SegNet без encoder атрибута
             raise AttributeError("No encoder attribute")
     except Exception:
-        # Стандартный ImageNet preprocessing для SegNet
+        # Fallback: стандартный ImageNet preprocessing для SegNet
         mean = np.array([0.485, 0.456, 0.406])
         std = np.array([0.229, 0.224, 0.225])
 
@@ -662,47 +793,90 @@ class SegNet(torch.nn.Module):
         return decoder(x)
 
 
+# ──────────────────────────────────────────────────────────────────────
+# УНИВЕРСАЛЬНАЯ ФУНКЦИЯ СЕГМЕНТАЦИИ
+# ──────────────────────────────────────────────────────────────────────
 def segment_image_unified(
     model: Any,
     processor: Any,
-    image_input: Union[str, Image.Image, np.ndarray, torch.Tensor],
-    model_type: str,
+    image_input: ImageInput,
+    model_type: ModelType,
     alpha: float = 0.5,
-    palette: Optional[Union[List[List[int]], Callable]] = None,
+    palette: Optional[Union[List[List[int]], Callable[[], List[List[int]]]]] = None,
     device: str = "cuda",
     verbose: bool = True,
     num_classes: int = num_classes,
-    class_names: Optional[dict] = None,
-    gt_mask=None,
+    class_names: Optional[Dict[int, str]] = None,
+    gt_mask: Optional[MaskArray] = None,
 ) -> Tuple[Image.Image, Dict[str, Any]]:
     """
     Универсальная функция сегментации для любой архитектуры.
-    Используется в SegmentationBenchmark.
+
+    Автоматически:
+    1. Загружает/конвертирует изображение из разных форматов.
+    2. Выбирает стратегию инференса по `model_type`.
+    3. Выполняет предсказание и постпроцессинг.
+    4. (Опционально) Логирует детали и считает метрики при наличии GT.
+    5. Создаёт overlay-визуализацию.
 
     Args:
-        model: загруженная модель
-        processor: процессор (для HF-моделей) или None
-        image_input: путь к файлу, URL или PIL.Image
-        model_type: "segformer" | "mask2former" | "deeplab_tv" | "unet_smp" | "sam"
-        alpha: прозрачность маски (0..1)
-        palette: палитра цветов (по умолчанию ADE20K)
-        device: устройство для вычислений
-        verbose: логировать детали
-        num_classes: количество классов
-        class_names: словарь имён классов
-        gt_mask: ground truth для метрик
+        model: Загруженная модель (PyTorch module или HF transformers).
+        processor: Процессор для препроцессинга (HF) или `None`.
+        image_input: Входные данные: путь (строка/Path), URL, `PIL.Image`, `np.ndarray` или `torch.Tensor`.
+        model_type: Тип модели из `INFERENCE_STRATEGIES` (см. ниже).
+        alpha: Прозрачность наложения маски (0.0 = только фото, 1.0 = только маска).
+        palette: Цветовая палитра для визуализации (список `[R, G, B]` на класс).
+        device: Устройство для вычислений (`"cuda"` или `"cpu"`).
+        verbose: Если `True`, выводит детали инференса в консоль.
+        num_classes: Количество классов сегментации (по умолчанию 150 для ADE20K).
+        class_names: Словарь `{class_id: class_name}` для логирования.
+        gt_mask: Ground truth маска для расчёта метрик (опционально).
 
     Returns:
-        Tuple[Image.Image, Dict]: (overlay, result_dict)
-    """
+        Tuple[PIL.Image, Dict[str, Any]]:
+        - `overlay`: Изображение с наложенной цветной маской.
+        - `result_ Словарь с метаданными:
+            ```python
+            {
+                "model": str,
+                "overlay": PIL.Image,
+                "mask": np.ndarray,
+                "inference_time_ms": float,
+                "metrics": Dict[str, float],  # если есть GT
+                "image_size": Tuple[int, int],  # (H, W)
+                "output_shape": Tuple[int, int],  # (H, W)
+                "unique_classes": int,
+                "class_stats": List[Tuple[int, str, int, float]],  # top-10 классов
+            }
+            ```
 
-    # Загрузка изображения
-    if isinstance(image_input, str):
-        if image_input.startswith(("http://", "https://")):
-            resp = requests.get(image_input)
+    Raises:
+        ValueError: Если `model_type` не найден в `INFERENCE_STRATEGIES` или входной формат не поддерживается.
+
+    Example:
+        ```python
+        overlay, info = segment_image_unified(
+            model=segformer_model,
+            processor=segformer_processor,
+            image_input="test.jpg",
+            model_type="segformer",
+            gt_mask=gt_array,
+        )
+        print(f"IoU: {info['metrics']['iou']:.3f}")
+        overlay.save("result.png")
+        ```
+    """
+    # ──────────────────────────────────────────────────────────────
+    # 1. Загрузка и нормализация изображения
+    # ──────────────────────────────────────────────────────────────
+    if isinstance(image_input, (str, Path)):
+        path_str = str(image_input)
+        if path_str.startswith(("http://", "https://")):
+            resp = requests.get(path_str, timeout=30)
+            resp.raise_for_status()
             image = Image.open(BytesIO(resp.content)).convert("RGB")
         else:
-            image = Image.open(image_input).convert("RGB")
+            image = Image.open(path_str).convert("RGB")
     elif isinstance(image_input, Image.Image):
         image = image_input.convert("RGB")
     elif isinstance(image_input, np.ndarray):
@@ -723,30 +897,47 @@ def segment_image_unified(
                 )
         else:
             raise ValueError(f"Unsupported array shape: {image_input.shape}")
+    elif isinstance(image_input, torch.Tensor):
+        # Конвертация torch.Tensor -> np.ndarray -> PIL.Image
+        tensor_np = image_input.cpu().numpy()
+        if tensor_np.ndim == 3 and tensor_np.shape[0] in [1, 3]:
+            tensor_np = np.transpose(tensor_np, (1, 2, 0))  # CHW -> HWC
+        if tensor_np.max() <= 1.0:
+            tensor_np = (tensor_np * 255).astype(np.uint8)
+        else:
+            tensor_np = tensor_np.astype(np.uint8)
+        image = Image.fromarray(tensor_np).convert("RGB")
     else:
         raise ValueError(
             f"Unsupported input type: {type(image_input)}. "
-            f"Expected str, PIL.Image, or np.ndarray"
+            f"Expected str, Path, PIL.Image, np.ndarray, or torch.Tensor"
         )
 
-    t0 = time.time()
+    t0 = time.perf_counter()
 
-    # Выбор стратегии инференса
+    # ──────────────────────────────────────────────────────────────
+    # 2. Выбор и выполнение стратегии инференса
+    # ──────────────────────────────────────────────────────────────
     if model_type not in INFERENCE_STRATEGIES:
-        raise ValueError(
-            f"Unknown model_type: {model_type}. "
-            f"Available: {list(INFERENCE_STRATEGIES.keys())}"
-        )
+        available = list(INFERENCE_STRATEGIES.keys())
+        raise ValueError(f"Unknown model_type: {model_type}. Available: {available}")
 
     infer_func = INFERENCE_STRATEGIES[model_type]
 
     # Выполнение инференса (стратегии уже содержат torch.no_grad() внутри)
+    seg_map: MaskArray
     seg_map, _ = infer_func(
         model=model, processor=processor, image=image, device=device
     )
 
-    # Вербозный вывод и метрики
-    result_info = {}
+    # ──────────────────────────────────────────────────────────────
+    # 3. Логирование и метрики (если verbose)
+    # ──────────────────────────────────────────────────────────────
+    result_info: Dict[str, Any] = {}
+
+    # ──────────────────────────────────────────────────────────────
+    # 4. Создание overlay-визуализации
+    # ──────────────────────────────────────────────────────────────
     overlay = _create_overlay_standalone(image, seg_map, alpha=alpha, palette=palette)
     if verbose:
         result_info = _log_inference_details_standalone(
@@ -766,7 +957,7 @@ def segment_image_unified(
             "model": model_type,
             "overlay": overlay,
             "mask": seg_map,
-            "inference_time_ms": (time.time() - t0) * 1000,
+            "inference_time_ms": (time.perf_counter() - t0) * 1000,
             "metrics": {},
             "image_size": image.size[::-1],
             "output_shape": seg_map.shape,
@@ -778,16 +969,32 @@ def segment_image_unified(
 
 def _log_inference_details_standalone(
     image: Image.Image,
-    seg_map: np.ndarray,
+    seg_map: MaskArray,
     model_type: str,
     model: Any,
-    class_names: Optional[Dict[str, Any]] = None,
-    gt_mask=None,
+    class_names: Optional[Dict[int, str]] = None,
+    gt_mask: Optional[MaskArray] = None,
     num_classes: int = num_classes,
     initial_time: float = 0.0,
-    palette=None,
+    palette: Optional[Union[List[List[int]], Callable[[], List[List[int]]]]] = None,
 ) -> Dict[str, Any]:
-    """Логирование деталей инференса (standalone версия)"""
+    """
+    Логирует детали инференса и рассчитывает метрики (если есть GT).
+
+    Args:
+        image: Оригинальное изображение.
+        seg_map: Предсказанная семантическая маска.
+        model_type: Тип модели.
+        model: Экземпляр модели.
+        class_names: Словарь имён классов.
+        gt_mask: Ground truth для метрик.
+        num_classes: Количество классов.
+        initial_time: Время начала инференса (для замера).
+        palette: Палитра для визуализации.
+
+    Returns:
+        Dict[str, Any]: Словарь с метаданными (см. `segment_image_unified`).
+    """
 
     if callable(class_names):
         class_names = class_names()
@@ -804,7 +1011,7 @@ def _log_inference_details_standalone(
 
     total_pixels = seg_map.size
     print("   Top 5 classes by pixel count:")
-    class_stats = []
+    class_stats: List[Tuple[int, str, int, float]] = []
     for cls in unique_classes:
         count = np.sum(seg_map == cls)
         if count > 0:
@@ -857,7 +1064,7 @@ def _log_inference_details_standalone(
         print(f"⚠️  Analysis skipped: {e}")
 
     # Метрики если есть GT
-    metrics = {}
+    metrics: Dict[str, float] = {}
     if gt_mask is not None:
         try:
             gt_np = np.array(gt_mask) if isinstance(gt_mask, Image.Image) else gt_mask
@@ -871,7 +1078,7 @@ def _log_inference_details_standalone(
     # Создание overlay
     alpha = 0.5
     overlay = _create_overlay_standalone(image, seg_map, alpha=alpha, palette=palette)
-    inference_time = time.time() - initial_time
+    inference_time = time.perf_counter() - initial_time
 
     return {
         "model": model_type,
@@ -887,9 +1094,27 @@ def _log_inference_details_standalone(
 
 
 def _get_num_classes_standalone(
-    model: Any, model_type: str, fallback: int = num_classes
+    model: Any,
+    model_type: str,
+    fallback: int = num_classes,
 ) -> Optional[int]:
-    """Безопасно получает число классов из модели (standalone версия)"""
+    """
+    Безопасно получает число выходных классов из модели.
+
+    Проверяет в порядке:
+    1. `model.config.id2label` (HF transformers)
+    2. `model.classifier[-1].out_channels` (torchvision)
+    3. Последний `torch.nn.Conv2d` в архитектуре (SMP/custom)
+    4. `fallback` по умолчанию
+
+    Args:
+        model: Экземпляр модели.
+        model_type: Тип модели для эвристик.
+        fallback: Значение по умолчанию, если не удалось определить.
+
+    Returns:
+        Optional[int]: Количество классов или `None` для instance-сегментации (SAM).
+    """
     try:
         if hasattr(model, "config") and hasattr(model.config, "id2label"):
             return len(model.config.id2label)
@@ -914,19 +1139,28 @@ def _get_num_classes_standalone(
 
 
 def _create_overlay_standalone(
-    image: Image.Image, mask: np.ndarray, alpha: float = 0.5, palette=None
+    image: Image.Image,
+    mask: MaskArray,
+    alpha: float = 0.5,
+    palette: Optional[Union[List[List[int]], Callable[[], List[List[int]]]]] = None,
 ) -> Image.Image:
     """
-    Создаёт визуализацию: оригинал + цветная маска (standalone версия).
+    Создаёт визуализацию: оригинал + цветная маска.
+
+    Алгоритм:
+    1. Загружает палитру (по умолчанию ADE20K).
+    2. Для каждого класса назначает цвет из палитры.
+    3. Блендит оригинал и цветную маску с коэффициентом `alpha`.
 
     Args:
-        image: PIL.Image в RGB
-        mask: np.ndarray [H, W] с целочисленными метками классов
-        alpha: коэффициент блендинга (0 = только фото, 1 = только маска)
-        palette: список цветов [R,G,B] для каждого класса (по умолчанию ADE20K)
+        image: Оригинальное изображение `PIL.Image` в RGB.
+        mask: Семантическая маска `[H, W]` с целочисленными метками классов.
+        alpha: Коэффициент блендинга (0.0 = только фото, 1.0 = только маска).
+        palette: Палитра цветов `[R, G, B]` для каждого класса.
+            Если `None`, используется `ade_palette()`. Если `callable`, вызывается.
 
     Returns:
-        PIL.Image с наложенной маской
+        PIL.Image: Изображение с наложенной цветной маской, режим `"RGB"`.
     """
 
     if palette is None:
@@ -951,6 +1185,9 @@ def _create_overlay_standalone(
     return Image.fromarray(overlay)
 
 
+# ──────────────────────────────────────────────────────────────────────
+# РЕЕСТР СТРАТЕГИЙ ИНФЕРЕНСА
+# ──────────────────────────────────────────────────────────────────────
 INFERENCE_STRATEGIES = {
     # === Transformer-based HuggingFace модели ===
     "segformer": infer_segformer,

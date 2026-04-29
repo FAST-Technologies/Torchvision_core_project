@@ -3,6 +3,7 @@
 # Импорт основных библиотек
 import time
 import numpy as np
+import torch
 from typing import (
     TypedDict,
     List,
@@ -10,11 +11,30 @@ from typing import (
     Dict,
     Any,
     Optional,
+    Literal,
 )
-import torch
+
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES & TYPEDDICTS
+# ──────────────────────────────────────────────────────────────────────
+SegmenterLike = Any  # Объект с методом .segment() или .segment_with_mask()
+ImagePattern = Literal["gradient", "noise", "checkerboard", "circles"]
 
 
 class WarmupStats(TypedDict):
+    """
+    Статистика warm-up для одного метода.
+
+    Attributes:
+        method: Имя метода.
+        n_runs: Количество успешных прогонов.
+        median_time_ms: Медианное время выполнения (мс).
+        mean_time_ms: Среднее время выполнения (мс).
+        std_time_ms: Стандартное отклонение времени (мс).
+        min_time_ms: Минимальное время (мс).
+        max_time_ms: Максимальное время (мс).
+    """
+
     method: str
     n_runs: int
     median_time_ms: float
@@ -26,8 +46,29 @@ class WarmupStats(TypedDict):
 
 class SegmentationWarmUp:
     """
-    Техника warm-up для классических методов сегментации.
-    Прогревает кэши, JIT-компиляцию и CUDA kernels перед бенчмарком.
+    Универсальный warm-up для классических и нейросетевых методов сегментации.
+
+    Предназначен для:
+    - Прогрева кэшей, JIT-компиляции и CUDA kernels перед бенчмарком.
+    - Оценки стабильности времени выполнения (mean/std/min/max).
+    - Автоматической адаптации под CPU/CUDA устройства.
+
+    Особенности:
+    - Поддержка различных тестовых паттернов: `gradient`, `noise`, `checkerboard`, `circles`.
+    - Специальный CUDA warm-up с синхронизацией и очисткой кэша.
+    - Обработка исключений: сбойный прогон не останавливает весь warm-up.
+    - Возврат типизированной статистики для дальнейшего анализа.
+
+    Example:
+        ```python
+        warmup = SegmentationWarmUp(n_warmup_runs=5, image_size=(256, 256))
+        stats = warmup.warmup_segmenter(
+            segmenter=my_segmenter,
+            method_name="otsu",
+            verbose=True,
+        )
+        print(f"Mean time: {stats['mean_time_ms']:.2f}ms ± {stats['std_time_ms']:.2f}ms")
+        ```
     """
 
     def __init__(
@@ -36,20 +77,34 @@ class SegmentationWarmUp:
         image_size: Tuple[int, int] = (256, 256),
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
     ) -> None:
-        self.n_warmup_runs = n_warmup_runs
-        self.image_size = image_size
-        self.device = device
+        """
+        Инициализация утилиты warm-up.
+
+        Args:
+            n_warmup_runs: Количество прогонов для каждого метода.
+            image_size: Размер тестовых изображений `(высота, ширина)`.
+            device: Устройство для вычислений (`"cuda"` или `"cpu"`).
+        """
+        self.n_warmup_runs: int = n_warmup_runs
+        self.image_size: Tuple[int, int] = image_size
+        self.device: str = device
         self.warmup_results: Dict[str, List[float]] = {}
 
-    def create_test_image(self, pattern: str = "gradient") -> np.ndarray:
+    def create_test_image(self, pattern: ImagePattern = "gradient") -> np.ndarray:
         """
         Создаёт тестовое изображение для warm-up.
 
+        Поддерживаемые паттерны:
+        - `"gradient"`: Градиент по горизонтали/вертикали (для пороговых методов).
+        - `"noise"`: Случайный цветной шум (для граничных методов).
+        - `"checkerboard"`: Шахматная доска (для детекции контуров).
+        - `"circles"`: Концентрические круги (для тестирования кривизны границ).
+
         Args:
-            pattern: Тип паттерна ("gradient", "noise", "checkerboard", "circles")
+            pattern: Тип паттерна.
 
         Returns:
-            np.ndarray: Тестовое изображение (H, W, 3) uint8
+            np.ndarray: Изображение формы `(H, W, 3)`, dtype `uint8`, диапазон `[0, 255]`.
         """
         h, w = self.image_size
 
@@ -84,12 +139,13 @@ class SegmentationWarmUp:
                 mask = (x - center_x) ** 2 + (y - center_y) ** 2 <= radius**2
                 img[mask] = 0
         else:
+            # Fallback: случайный шум
             img = np.random.randint(0, 256, (h, w, 3), dtype=np.uint8)  # type: ignore[assignment]
         return img
 
     def warmup_segmenter(
         self,
-        segmenter: Any,
+        segmenter: SegmenterLike,
         method_name: str,
         real_image: Optional[np.ndarray] = None,
         verbose: bool = True,
@@ -98,16 +154,26 @@ class SegmentationWarmUp:
         """
         Прогрев конкретного сегментера.
 
+        Логика:
+        1. Выбирает изображение: `real_image` (если задано и `use_real_image=True`) или сгенерированное.
+        2. Выполняет `n_warmup_runs` прогонов с замером времени через `time.perf_counter()`.
+        3. Для CUDA-сегментеров вызывает `_warmup_cuda()` для дополнительной синхронизации.
+        4. Рассчитывает статистику: mean, std, min, max, median.
+
         Args:
-            segmenter: Экземпляр сегментера (OpenCV/Sklearn/Torch)
-            method_name: Имя метода для логирования
-            image: Тестовое изображение (если None, создаётся автоматически)
-            verbose: Логировать ли процесс
-            use_real_image: Использовать ли реальное изображение
+            segmenter: Экземпляр сегментера с методом `.segment()` или `.segment_with_mask()`.
+            method_name: Имя метода для логирования и ключа в результатах.
+            real_image: Реальное изображение для тестирования (опционально).
+            verbose: Если `True`, выводит прогресс в консоль.
+            use_real_image: Если `True`, использует `real_image` вместо сгенерированного.
 
         Returns:
-            WarmupStats: Словарь со статистикой warm-up
+            WarmupStats: Словарь со статистикой времени выполнения (в миллисекундах).
+
+        Raises:
+            AttributeError: Если у сегментера нет ни `.segment()`, ни `.segment_with_mask()`.
         """
+        # Выбор изображения
         if use_real_image and real_image is not None:
             image = real_image
         else:
@@ -172,10 +238,28 @@ class SegmentationWarmUp:
         return stats
 
     def _warmup_cuda(
-        self, segmenter: Any, image: np.ndarray, verbose: bool = True
+        self,
+        segmenter: SegmenterLike,
+        image: np.ndarray,
+        verbose: bool = True,
     ) -> None:
         """
-        Специальный warm-up для CUDA kernels (Torch сегментеры).
+        Специальный warm-up для CUDA kernels (Torch-сегментеры).
+
+        Выполняет:
+        1. `torch.cuda.synchronize()` перед прогонами.
+        2. Дополнительные `n_warmup_runs` вызовов без замера времени.
+        3. `torch.cuda.synchronize()` и `torch.cuda.empty_cache()` после.
+
+        Это необходимо для:
+        - Инициализации CUDA context и выделения памяти.
+        - Прогрева JIT-компилированных ядер (если используются).
+        - Стабилизации времени выполнения для последующих бенчмарков.
+
+        Args:
+            segmenter: Экземпляр Torch-сегментера.
+            image: Тестовое изображение.
+            verbose: Если `True`, выводит статус в консоль.
         """
         if verbose:
             print("   🔥 CUDA warm-up...")
@@ -202,20 +286,22 @@ class SegmentationWarmUp:
 
     def warmup_all_segmenters(
         self,
-        segmenters_dict: Dict[str, Any],
+        segmenters_dict: Dict[str, SegmenterLike],
         image: Optional[np.ndarray] = None,
         verbose: bool = True,
-    ) -> Dict[str, Dict[str, float]]:
+    ) -> Dict[str, Any]:
         """
         Прогрев всех сегментеров в словаре.
 
         Args:
-            segmenters_dict: {name: segmenter_object}
-            image: Тестовое изображение
-            verbose: Логирование
+            segmenters_dict: Словарь `{имя_метода: экземпляр_сегментера}`.
+            image: Общее тестовое изображение для всех методов (опционально).
+            verbose: Если `True`, выводит прогресс в консоль.
 
         Returns:
-            Dict с результатами warm-up для каждого метода
+            Dict[str, Any]: Результаты по методам:
+            - При успехе: `WarmupStats` (см. `warmup_segmenter()`).
+            - При ошибке: `{"error": str}`.
         """
         all_results: Dict[str, Any] = {}
 
@@ -239,11 +325,14 @@ class SegmentationWarmUp:
     def get_warmup_summary(self) -> str:
         """
         Возвращает текстовую сводку результатов warm-up.
+
+        Returns:
+            str: Форматированный отчёт с методом, средним временем и стандартным отклонением.
         """
         if not self.warmup_results:
             return "No warm-up results available"
 
-        lines = ["\n📊 WARM-UP SUMMARY", "=" * 60]
+        lines: List[str] = ["\n📊 WARM-UP SUMMARY", "=" * 60]
 
         for method, times in self.warmup_results.items():
             if isinstance(times, dict) and "error" in times:

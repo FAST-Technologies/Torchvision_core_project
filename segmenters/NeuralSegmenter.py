@@ -1,8 +1,8 @@
 # segmenters/NeuralSegmenter.py
 
 # Импорт основных библиотек
-from segmenters.BaseSegmenter import BaseSegmenter
-from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType
+from segmenters.BaseSegmenter import BaseSegmenter, ImageInput, BinaryMask
+from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType, ModelTuple
 from utils.strategies import segment_image_unified as infer_unified
 from utils.palettes import (
     ade_palette,
@@ -22,31 +22,71 @@ from typing import (
     Dict,
     Any,
     Optional,
+    Callable,
 )
 import time
 import requests
 from io import BytesIO
-from PIL import Image
+from pathlib import Path
 
+from PIL import Image
 import numpy as np
 from scipy.ndimage import zoom
-
 import torch
-from typing_extensions import TypeAlias
 
-TRANSFORMERS_AVAILABLE = True
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES & CONSTANTS
+# ──────────────────────────────────────────────────────────────────────
+TRANSFORMERS_AVAILABLE: bool = True
 num_classes: int = 150
 
-ImagePath: TypeAlias = str
-NumpyImage: TypeAlias = np.ndarray
-PILImage: TypeAlias = Image.Image
-TorchImage: TypeAlias = torch.Tensor
-ImageInput: TypeAlias = Union[ImagePath, NumpyImage, PILImage, TorchImage]
+# Алиасы для типов изображений
+ImagePath = str
+NumpyImage = np.ndarray
+PILImage = Image.Image
+TorchImage = torch.Tensor
+DeviceStr = Union[torch.device, str]
+ClassNamesDict = Optional[Dict[Union[int, str], str]]
+PaletteType = Optional[List[List[int]]]
 
 
 class NeuralSegmenter(BaseSegmenter):
     """
-    Универсальный сегментатор с поддержкой множественных нейронных архитектур
+    Универсальный сегментатор с поддержкой множественных нейронных архитектур.
+
+    Поддерживаемые модели:
+    - HuggingFace Transformers: SegFormer, Mask2Former, OneFormer, DPT, UPerNet
+    - Segmentation Models PyTorch: U-Net, FPN, PSPNet (с разными encoder'ами)
+    - Torchvision: DeepLabV3+, FCN, Mask R-CNN
+    - Instance segmentation: SAM, YOLOv8
+
+    Особенности:
+    - Автоматическая загрузка предобученных весов из HF Hub или локальных чекпоинтов.
+    - Единый интерфейс `.segment()` / `.segment_with_mask()` для всех архитектур.
+    - Поддержка различных палитр (ADE20K, COCO, Cityscapes) для визуализации.
+    - Делегирование инференса стратегии из `utils.strategies.segment_image_unified`.
+
+    Attributes:
+        model_type_str (str): Строковый идентификатор типа модели.
+        model_type (ModelType): Enum-тип модели.
+        model_name (str): Имя модели в HF Hub или локальный путь.
+        device (torch.device): Устройство для вычислений.
+        num_classes (int): Количество выходных классов.
+        palette (List[List[int]]): Цветовая палитра для визуализации.
+        model (nn.Module): Загруженная модель в режиме `.eval()`.
+        processor (Optional[Any]): HF-процессор для препроцессинга (или None).
+
+    Example:
+        ```python
+        # Загрузка SegFormer B5
+        segmenter = NeuralSegmenter(
+            model_type="segformer",
+            model_name="nvidia/segformer-b5-finetuned-ade-640-640",
+            device="cuda",
+        )
+        mask = segmenter.segment("test.jpg")  # BinaryMask
+        overlay = segmenter.segment_image("test.jpg", alpha=0.7)  # PIL.Image
+        ```
     """
 
     def __init__(
@@ -57,10 +97,28 @@ class NeuralSegmenter(BaseSegmenter):
         device: Optional[str] = None,
         local_path: Optional[str] = None,
         num_classes: int = num_classes,
-        palette: Optional[List[List[int]]] = None,
+        palette: PaletteType = None,
         checkpoint_path: Optional[str] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
+        """
+        Инициализация нейросетевого сегментатора.
+
+        Args:
+            model_type: Тип модели (строка или значение ModelType enum).
+            model_name: Имя модели в HuggingFace Hub (для HF-моделей).
+            variant: Вариант модели (например, "b5" для SegFormer, "fcn_resnet50" для FCN).
+            device: Устройство для вычислений ("cuda" или "cpu"). Если `None`, авто-определение.
+            local_path: Локальный путь к модели (альтернатива model_name для HF).
+            num_classes: Количество выходных классов (по умолчанию 150 для ADE20K).
+            palette: Цветовая палитра для визуализации. Если `None`, используется дефолтная (ADE20K).
+            checkpoint_path: Путь к чекпоинту .pth для SMP/torchvision-моделей.
+            **kwargs: Дополнительные параметры для `NeuralModelFactory.create_model()`.
+
+        Raises:
+            ImportError: Если `transformers` не установлен для HF-моделей.
+            ValueError: Если `model_type` не поддерживается фабрикой.
+        """
         super().__init__()
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError(
@@ -77,24 +135,23 @@ class NeuralSegmenter(BaseSegmenter):
         self.params: Dict[str, Any] = kwargs
         self.num_classes: int = int(num_classes)
 
-        start_time: float = time.time()
+        start_time: float = time.perf_counter()
         cp_path: str = (
             checkpoint_path if checkpoint_path is not None else "checkpoint.pth"
         )
+        model_tuple: ModelTuple
         if variant is not None:
-            # Загрузка из YAML конфига
-            model, processor, model_type_str = (
-                NeuralModelFactory.create_model_from_config(
-                    model_type=model_type,
-                    variant=variant,
-                    device=str(self.device),
-                    checkpoint_path=cp_path,
-                    **kwargs,
-                )
+            # Загрузка из YAML-конфига
+            model_tuple = NeuralModelFactory.create_model_from_config(
+                model_type=model_type,
+                variant=variant,
+                device=str(self.device),
+                checkpoint_path=cp_path,
+                **kwargs,
             )
         else:
             # Прямая загрузка
-            model, processor, model_type_str = NeuralModelFactory.create_model(
+            model_tuple = NeuralModelFactory.create_model(
                 model_type=self.model_type,
                 model_name=model_name,
                 local_path=local_path,
@@ -103,14 +160,16 @@ class NeuralSegmenter(BaseSegmenter):
                 num_classes=num_classes,
                 **kwargs,
             )
-        self.model = model
-        self.processor = processor
-        self.model_type_str = model_type_str
-        print(f"Модель загружена за {time.time() - start_time:.4f} секунд")
+        self.model, self.processor, self.model_type_str = model_tuple
+        load_time = time.perf_counter() - start_time
+        print(f"Модель загружена за {load_time:.4f} секунд")
         self.palette: Optional[List[List[int]]] = (
             palette if palette else self._get_default_palette()
         )
 
+        # ──────────────────────────────────────────────────────────────
+        # Логирование
+        # ──────────────────────────────────────────────────────────────
         print("✅ Нейросетевая модель загружена!")
         print(f"   Тип: {self.model_type_str}")
         print(
@@ -126,54 +185,112 @@ class NeuralSegmenter(BaseSegmenter):
                 print(f"{class_id}: {class_name}")
 
     def _get_default_palette(self) -> List[List[int]]:
-        """Палитра ADE20K по умолчанию"""
+        """
+        Возвращает палитру ADE20K по умолчанию.
+
+        Returns:
+            List[List[int]]: Список `[R, G, B]` для каждого класса (150 классов).
+        """
         return ade_palette()
 
+    # ──────────────────────────────────────────────────────────────────────
+    # СТАТИЧЕСКИЕ МЕТОДЫ: ИМЕНА КЛАССОВ И ПАЛИТРЫ
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def get_ade_class_names() -> Dict[int, str]:
+        """
+        Возвращает словарь имён классов для датасета ADE20K.
+
+        Returns:
+            Dict[int, str]: `{class_id: class_name}` для 150 классов.
+        """
         # ADE20K Class Names (0-indexed, 150 classes)
         # Source: http://sceneparsing.csail.mit.edu/
         return get_ade_class_names()
 
     @staticmethod
     def ade_palette() -> List[List[int]]:
-        """ADE20K palette that maps each class to RGB values."""
+        """
+        Возвращает палитру ADE20K для визуализации.
+
+        Returns:
+            List[List[int]]: Список `[R, G, B]` для каждого класса.
+        """
         return ade_palette()
 
     @staticmethod
     def get_coco_class_names() -> Dict[int, str]:
+        """
+        Возвращает словарь имён классов для датасета COCO.
+
+        Returns:
+            Dict[int, str]: `{class_id: class_name}` для 80 классов.
+        """
         # COCO Class Names (0-indexed, 80 classes)
         # Source: https://docs.ultralytics.com/datasets/detect/coco/#dataset-yaml
         return get_coco_class_names()
 
     @staticmethod
     def coco_palette() -> List[List[int]]:
-        """ADE20K palette that maps each class to RGB values."""
+        """
+        Возвращает палитру COCO для визуализации.
+
+        Returns:
+            List[List[int]]: Список `[R, G, B]` для каждого класса.
+        """
         return coco_palette()
 
     @staticmethod
     def get_cityscapes_extended_class_names() -> Dict[int, str]:
+        """
+        Возвращает расширенный словарь имён классов для Cityscapes (34 класса).
+
+        Returns:
+            Dict[int, str]: `{class_id: class_name}` для 34 классов.
+        """
         # Cityscapes Extended (34 classes - includes "grouped" categories)
         return get_cityscapes_extended_class_names()
 
     @staticmethod
     def cityscapes_extended_palette() -> List[List[int]]:
-        """ADE20K palette that maps each class to RGB values."""
+        """
+        Возвращает расширенную палитру Cityscapes для визуализации.
+
+        Returns:
+            List[List[int]]: Список `[R, G, B]` для каждого класса.
+        """
         return cityscapes_extended_palette()
 
     @staticmethod
     def get_cityscapes_class_names() -> Dict[int, str]:
+        """
+        Возвращает стандартный словарь имён классов для Cityscapes (19 классов).
+
+        Returns:
+            Dict[int, str]: `{class_id: class_name}` для 19 классов.
+        """
         # Cityscapes Class Names (0-indexed, 19 classes for semantic segmentation)
         # Source: https://www.cityscapes-dataset.com/
         return get_cityscapes_class_names()
 
     @staticmethod
     def cityscapes_palette() -> List[List[int]]:
-        """ADE20K palette that maps each class to RGB values."""
+        """
+        Возвращает стандартную палитру Cityscapes для визуализации.
+
+        Returns:
+            List[List[int]]: Список `[R, G, B]` для каждого класса.
+        """
         return cityscapes_palette()
 
     @staticmethod
     def get_chexpert_observation_class_names() -> Dict[int, str]:
+        """
+        Возвращает словарь имён классов для CheXpert (14 наблюдений).
+
+        Returns:
+            Dict[int, str]: `{class_id: class_name}` для 14 классов.
+        """
         # CheXpert Observation Classes (14 labels for classification)
         # Source: https://stanfordmlgroup.github.io/competitions/chexpert/
         chexpert_observation_names: Dict[int, str] = {
@@ -208,7 +325,12 @@ class NeuralSegmenter(BaseSegmenter):
 
     @staticmethod
     def chexpert_observation_palette() -> List[List[int]]:
-        """ADE20K palette that maps each class to RGB values."""
+        """
+        Возвращает палитру для визуализации классов CheXpert.
+
+        Returns:
+            List[List[int]]: Список `[R, G, B]` для каждого класса.
+        """
         return [
             [120, 120, 120],
             [180, 120, 120],
@@ -228,6 +350,12 @@ class NeuralSegmenter(BaseSegmenter):
 
     @staticmethod
     def get_isic_class_names() -> Dict[int, str]:
+        """
+        Возвращает словарь имён классов для ISIC 2018 (бинарная сегментация).
+
+        Returns:
+            Dict[int, str]: `{0: "background", 1: "lesion"}`.
+        """
         # ISIC 2018 Class Names (Binary: skin lesion segmentation)
         # Source: https://challenge.isic-archive.com/
         isic_class_names: Dict[int, str] = {
@@ -242,23 +370,60 @@ class NeuralSegmenter(BaseSegmenter):
 
     @staticmethod
     def binary_palette() -> List[List[int]]:
-        """ADE20K palette that maps each class to RGB values."""
+        """
+        Возвращает бинарную палитру для визуализации (фон/объект).
+
+        Returns:
+            List[List[int]]: `[[120, 120, 120], [180, 120, 120]]`.
+        """
         return [[120, 120, 120], [180, 120, 120]]
 
     @staticmethod
-    def _resize_mask_to_original(mask: np.ndarray, target_size: tuple) -> np.ndarray:
-        """Утилита для ресайза маски — используется в стратегиях при необходимости"""
+    def _resize_mask_to_original(
+        mask: np.ndarray, target_size: Tuple[int, int]
+    ) -> np.ndarray:
+        """
+        Утилита для ресайза маски к оригинальному размеру изображения.
+
+        Использует ближайшего соседа (`order=0`) для сохранения целочисленных меток.
+
+        Args:
+            mask: Маска формы `(H, W)`.
+            target_size: Целевой размер `(высота, ширина)`.
+
+        Returns:
+            np.ndarray: Ресайзнутая маска формы `target_size`.
+        """
         if mask.shape != target_size:
             sh, sw = target_size[0] / mask.shape[0], target_size[1] / mask.shape[1]
             return zoom(mask, (sh, sw), order=0)
         return mask
 
     def load_image(self, input_image: ImageInput) -> Image.Image:
-        """Загрузка изображения из различных источников"""
+        """
+        Загружает изображение из различных источников в формат `PIL.Image` (RGB).
+
+        Поддерживаемые форматы:
+        - Строка: путь к файлу или URL.
+        - `PIL.Image`: конвертируется в RGB.
+        - `np.ndarray`: конвертируется в PIL (поддержка 2D/3D/4D).
+        - `torch.Tensor`: конвертируется через `.cpu().numpy()` → PIL.
+
+        Args:
+            input_image: Входное изображение в любом поддерживаемом формате.
+
+        Returns:
+            PIL.Image: Изображение в режиме "RGB".
+
+        Raises:
+            ValueError: Если не удалось загрузить изображение по пути/URL.
+            TypeError: Если тип входных данных не поддерживается.
+        """
         img: Image.Image
         if isinstance(input_image, str):
             if input_image.startswith(("http://", "https://")):
-                resp = requests.get(input_image)
+                resp = requests.get(input_image, timeout=30)
+                resp.raise_for_status()
                 img = Image.open(BytesIO(resp.content)).convert("RGB")
             else:
                 img = Image.open(input_image).convert("RGB")
@@ -300,18 +465,26 @@ class NeuralSegmenter(BaseSegmenter):
 
     def predict_segmentation_map(
         self,
-        input_image: Union[ImageInput],
+        input_image: ImageInput,
         verbose: bool = True,
-        class_names: Optional[Dict] = None,
-        gt_mask=None,
+        class_names: ClassNamesDict = None,
+        gt_mask: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
-        Предсказание карты сегментации с опциональной вербозностью и метриками.
-        Инференс полностью делегируется стратегиям из inference/strategies.py
-        ДЕЛЕГИРУЕТ standalone функции из strategies.py
+        Предсказывает карту семантической сегментации с опциональной вербозностью и метриками.
+
+        Инференс полностью делегируется функции `utils.strategies.segment_image_unified`.
+
+        Args:
+            input_image: Входное изображение в любом поддерживаемом формате.
+            verbose: Если `True`, выводит детали инференса в консоль.
+            class_names: Словарь `{класс: имя}` для отображения имён классов.
+            gt_mask: Ground truth маска для расчёта метрик (опционально).
 
         Returns:
-            Tuple[np.ndarray, Dict]: (seg_map, result_dict)
+            Tuple[np.ndarray, Dict[str, Any]]:
+            - `seg_map`: Семантическая маска `[H, W]`, dtype `uint8`.
+            - `result_info`: Словарь с метаданными (метрики, время, классы, ...).
         """
         # Вызываем standalone функцию
         overlay, result_info = infer_unified(
@@ -335,11 +508,23 @@ class NeuralSegmenter(BaseSegmenter):
         input_image: Union[str, Image.Image],
         alpha: float = 0.9,
         verbose: bool = True,
-        class_names: Optional[Dict] = None,
-        gt_mask=None,
+        class_names: ClassNamesDict = None,
+        gt_mask: Optional[np.ndarray] = None,
     ) -> Tuple[Image.Image, Dict[str, Any]]:
         """
         Универсальная функция сегментации для любой архитектуры.
+
+        Возвращает наложение маски на оригинальное изображение + метаданные.
+
+        Args:
+            input_image: Путь к изображению или `PIL.Image`.
+            alpha: Прозрачность наложения (0.0 = только фото, 1.0 = только маска).
+            verbose: Если `True`, выводит детали инференса.
+            class_names: Словарь имён классов.
+            gt_mask: Ground truth для метрик.
+
+        Returns:
+            Tuple[PIL.Image, Dict[str, Any]]: (overlay, result_info).
         """
         return infer_unified(
             model=self.model,
@@ -355,14 +540,25 @@ class NeuralSegmenter(BaseSegmenter):
             gt_mask=gt_mask,
         )
 
-    def prepare_mask_for_overlay(self, mask_input) -> np.ndarray:
+    def prepare_mask_for_overlay(
+        self, mask_input: Union[np.ndarray, Image.Image]
+    ) -> np.ndarray:
         """
-        Конвертирует маску в 2D numpy array для create_overlay.
+        Конвертирует маску в 2D numpy array для создания overlay.
 
-        Handles:
-        - PIL Image (RGB or L)
-        - numpy array with extra dimensions
-        - RGB label images (converts to single channel)
+        Обрабатывает:
+        - `PIL.Image` (режимы "L" или "RGB").
+        - `np.ndarray` с лишними измерениями (например, `(H, W, 1)`).
+        - RGB-маски (использует первый канал).
+
+        Args:
+            mask_input: Входная маска в любом формате.
+
+        Returns:
+            np.ndarray: 2D массив формы `(H, W)`, dtype `uint8`.
+
+        Raises:
+            ValueError: Если маска не может быть приведена к 2D.
         """
         # Конвертируем PIL → numpy если нужно
         if isinstance(mask_input, Image.Image):
@@ -390,14 +586,20 @@ class NeuralSegmenter(BaseSegmenter):
 
     def segment_image(self, image: ImageInput, alpha: float = 0.9) -> Image.Image:
         """
-        Performs semantic segmentation on an image and returns an overlay mask.
+        Выполняет семантическую сегментацию и возвращает наложение маски на оригинал.
+
+        Алгоритм:
+        1. Загружает изображение через `load_image()`.
+        2. Предсказывает семантическую карту через `predict_segmentation_map()`.
+        3. Назначает цвета из палитры для каждого класса.
+        4. Блендит оригинал и цветную маску с коэффициентом `alpha`.
 
         Args:
-            input_image (str or PIL.Image): Path to an image file, URL, or a PIL Image instance.
-            alpha (float): Blending factor for overlay. 0 = only original, 1 = only mask.
+            image: Входное изображение в любом поддерживаемом формате.
+            alpha: Коэффициент блендинга (0.0 = только фото, 1.0 = только маска).
 
         Returns:
-            PIL.Image: The original image blended with the segmentation mask.
+            PIL.Image: Изображение с наложенной цветной маской, режим "RGB".
         """
         img: Image.Image = self.load_image(image)  # type: ignore[arg-type]
 
@@ -418,21 +620,23 @@ class NeuralSegmenter(BaseSegmenter):
         )
         return Image.fromarray(overlay)
 
-    def segment(  # type: ignore[override]
-        self, image: ImageInput, **kwargs: Any
-    ) -> np.ndarray:
+    def segment(self, image: ImageInput, **kwargs: Any) -> BinaryMask:  # type: ignore[override]
         """
         Основной метод сегментации.
 
+        Возвращает бинарную маску, где объект = 255, фон = 0.
+        Для многоклассовой сегментации: всё, кроме класса 0, считается объектом.
+
         Args:
-            image: Входное изображение (RGB, grayscale или любой формат)
+            image: Входное изображение в любом поддерживаемом формате.
+            **kwargs: Дополнительные параметры (игнорируются, для совместимости).
 
         Returns:
-            np.ndarray: Бинарная маска сегментации (H, W) uint8 [0/255]
+            BinaryMask: Бинарная маска формы `(H, W)`, dtype `uint8`, значения {0, 255}.
         """
         # Получаем карту сегментации через стратегию инференса
         seg_map, _ = self.predict_segmentation_map(image, verbose=False)
-        # Возвращаем бинарную маску (всё кроме фона = 0)
+        # Бинаризация: всё кроме фона (класс 0) = объект
         mask = (seg_map > 0).astype(np.uint8) * 255
         return mask
 
@@ -440,17 +644,24 @@ class NeuralSegmenter(BaseSegmenter):
         self, image: ImageInput, **kwargs: Any
     ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """
-        Сегментация с возвратом визуализации и маски.
+        Сегментация с возвратом визуализации и бинарной маски.
+
+        Алгоритм:
+        1. Предсказывает семантическую карту.
+        2. Создаёт бинарную маску (объект = 255, фон = 0).
+        3. Создаёт цветной overlay с использованием палитры.
+        4. Блендит оригинал и overlay.
 
         Args:
-            image: Входное изображение
+            image: Входное изображение.
+            **kwargs: Дополнительные параметры (например, `alpha` для блендинга).
 
         Returns:
             Tuple[np.ndarray, np.ndarray]:
-                - Визуализация: исходное изображение с наложенной маской (0–255, RGB).
-                - Маска: бинарная маска (0–255, grayscale).
+            - `result`: Визуализация (оригинал + цветная маска), форма `(H, W, 3)`, dtype `uint8`.
+            - `mask`: Бинарная маска, форма `(H, W)`, dtype `uint8`, значения {0, 255}.
         """
-        start_time: float = time.time()
+        start_time: float = time.perf_counter()
         alpha = kwargs.get("alpha", 0.9)
 
         # Получаем карту сегментации
@@ -489,7 +700,30 @@ class NeuralSegmenter(BaseSegmenter):
         self, input_image: Union[str, Image.Image]
     ) -> Dict[str, Any]:
         """
-        Детальная сегментация с возвратом всех промежуточных результатов
+        Детальная сегментация с возвратом всех промежуточных результатов.
+
+        Возвращает:
+        - Оригинальное изображение.
+        - Семантическую карту (индексы классов).
+        - Цветную сегментацию (RGB).
+        - Overlay (оригинал + сегментация).
+        - Распределение классов по пикселям.
+
+        Args:
+            input_image: Путь к изображению или `PIL.Image`.
+
+        Returns:
+            Dict[str, Any]:
+            ```python
+            {
+                "original": PIL.Image,
+                "segmentation_map": np.ndarray,  # [H, W], int
+                "color_seg": np.ndarray,         # [H, W, 3], uint8
+                "overlay": np.ndarray,           # [H, W, 3], uint8
+                "class_distribution": Dict[str, Dict],  # {name: {id, count, pct}}
+                "total_classes": int,
+            }
+            ```
         """
         img: Image.Image = self.load_image(input_image)
 
@@ -533,7 +767,24 @@ class NeuralSegmenter(BaseSegmenter):
         }
 
     def get_class_info(self) -> Dict[str, Any]:
-        """Получить информацию о классах модели"""
+        """
+        Возвращает информацию о классах модели.
+
+        Проверяет в порядке:
+        1. `model.config.id2label` (HF-модели).
+        2. Последний `torch.nn.Conv2d` в архитектуре (SMP/torchvision).
+        3. Fallback на `self.num_classes`.
+
+        Returns:
+            Dict[str, Any]:
+            ```python
+            {
+                "num_classes": int,
+                "id2label": Dict[int, str],
+                "label2id": Dict[str, int],
+            }
+            ```
+        """
         if not hasattr(self, "model"):
             return {"error": "Model not initialized"}
 

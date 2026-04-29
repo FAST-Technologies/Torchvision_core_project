@@ -4,9 +4,23 @@
 import os
 import sys
 import time
-from datetime import datetime
 import gc
 import glob
+from pathlib import Path
+from datetime import datetime
+from typing import (
+    List,
+    Tuple,
+    Dict,
+    Any,
+    Optional,
+    Literal,
+    TypedDict,
+    NotRequired,
+    Union,
+)
+from dataclasses import dataclass
+from matplotlib.colors import Colormap
 
 import numpy as np
 import pandas as pd
@@ -15,37 +29,36 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import segmentation_models_pytorch as smp
-
 import torchvision.models.segmentation as tv_seg
-
 from sklearn.metrics import jaccard_score
 
+# Локальные импорты
 from dataseters.ADE20KDataset import ADE20KDataset
 from .NeuralTrainer import NeuralTrainer
 from utils.strategies import SegNet
 
-from typing import List, Tuple, Dict, Any, Optional, Literal, TypedDict, NotRequired
-from dataclasses import dataclass
-from matplotlib.colors import Colormap
-
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-# Константы
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES & CONSTANTS
+# ──────────────────────────────────────────────────────────────────────
 DEFAULT_ROOT_DIR: str = "./data/ade20k"
 DEFAULT_CHECKPOINT_DIR: str = "./models"
 DEFAULT_IMAGE_SIZE: Tuple[int, int] = (512, 512)
 NUM_CLASSES: int = 150
+
+ModelType = Literal["unet_smp", "fpn_smp", "psp_smp", "deeplab_tv", "fcn_tv", "segnet"]
+EncoderName = Literal["resnet34", "resnet50", "resnet101", "mit_b5", "efficientnet-b0"]
+AugmentationLevel = Literal["none", "basic", "medium", "aggressive"]
 device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
-# ─── Правильные ignore_index по типу модели ───────────────────────────────
+# ──────────────────────────────────────────────────────────────────────
+# ПРАВИЛЬНЫЕ ignore_index ПО ТИПУ МОДЕЛИ
+# ──────────────────────────────────────────────────────────────────────
 # DeepLab/FCN (torchvision) обучались с ignore_index=0, потому что:
 #   - ADE20K: класс 0 = "wall" доминирует (>30% пикселей во многих изображениях)
 #   - Включение его в лосс перегружает модель предсказывать только класс 0
 # SMP-модели (U-Net, FPN, PSPNet): ignore_index=255 — стандарт ADE20K
 IGNORE_INDEX_BY_MODEL: Dict[str, int] = {
-    "deeplab_tv": 0,
+    "deeplab_tv": 255,
     "fcn_tv": 255,
     "unet_smp": 255,
     "fpn_smp": 255,
@@ -53,15 +66,53 @@ IGNORE_INDEX_BY_MODEL: Dict[str, int] = {
     "segnet": 255,
 }
 
-ModelType = Literal["unet_smp", "fpn_smp", "psp_smp", "deeplab_tv", "fcn_tv", "segnet"]
-EncoderName = Literal["resnet34", "resnet50", "resnet101"]
-
 
 class ModelConfig(TypedDict):
+    """
+    Конфигурация модели для обучения.
+
+    Attributes:
+        model_type: Тип архитектуры сегментации.
+        encoder_name: Название encoder'а (для SMP-моделей).
+        variant: Вариант модели (например, "b5" для MiT, "fcn_resnet50" для FCN).
+        lr: Learning rate (опционально, переопределяет значение по умолчанию).
+    """
+
     model_type: ModelType
     encoder_name: EncoderName
     variant: str
     lr: NotRequired[float]
+
+
+class TrainingResult(TypedDict):
+    """
+    Результаты обучения одного эксперимента.
+
+    Attributes:
+        experiment_name: Уникальное имя эксперимента.
+        augmentation_level: Уровень аугментаций данных.
+        model_type: Тип обученной модели.
+        ignore_index: Индекс игнорируемых пикселей в лоссе.
+        epochs_trained: Фактическое количество проведённых эпох.
+        best_miou: Лучший достигнутый mIoU на валидации.
+        final_train_loss: Значение тренировочного лосса на последней эпохе.
+        final_val_loss: Значение валидационного лосса на последней эпохе.
+        checkpoint_path: Путь к сохранённому чекпоинту.
+        history: Словарь с историей метрик по эпохам.
+        config: Исходная конфигурация эксперимента.
+    """
+
+    experiment_name: str
+    augmentation_level: str
+    model_type: str
+    ignore_index: int
+    epochs_trained: int
+    best_miou: float
+    final_train_loss: Optional[float]
+    final_val_loss: Optional[float]
+    checkpoint_path: str
+    history: Dict[str, List[float]]
+    config: "TrainingConfig"
 
 
 # @dataclass
@@ -91,39 +142,89 @@ class ModelConfig(TypedDict):
 
 
 class TrainingConfig:
-    """Конфигурация для эксперимента обучения"""
+    """
+    Конфигурация для эксперимента обучения моделей сегментации.
+
+    Инкапсулирует все гиперпараметры и мета-информацию для воспроизводимости.
+    Автоматически генерирует уникальное имя чекпоинта на основе таймстампа.
+
+    Attributes:
+        experiment_name: Человекочитаемое имя эксперимента.
+        model_type: Тип архитектуры (из ModelType).
+        augmentation_level: Уровень аугментаций данных ("none", "basic", "medium", "aggressive").
+        epochs: Максимальное количество эпох обучения.
+        batch_size: Размер батча для DataLoader.
+        lr: Начальный learning rate.
+        encoder_name: Название encoder'а (для SMP-моделей).
+        variant: Вариант модели (например, "b5" для MiT).
+        subset_fraction: Доля данных для использования (для быстрых тестов).
+        early_stop_patience: Количество эпох без улучшения для early stopping.
+        use_class_weights: Использовать ли взвешенный CrossEntropyLoss.
+        checkpoint_name: Имя файла чекпоинта (генерируется автоматически, если не задано).
+
+    Example:
+        ```python
+        config = TrainingConfig(
+            experiment_name="unet_baseline",
+            model_type="unet_smp",
+            augmentation_level="medium",
+            epochs=100,
+            lr=1e-4,
+        )
+        print(config.checkpoint_name)  # "unet_smp_medium_20240101_120000.pth"
+        ```
+    """
 
     def __init__(
         self,
         experiment_name: str,
         model_type: str,
-        augmentation_level: str = "none",
+        augmentation_level: AugmentationLevel = "none",
         epochs: int = 20,
         batch_size: int = 4,
         lr: float = 1e-4,
-        encoder_name: str = "resnet34",
-        variant: str = "b5",  # Для MiT encoder
+        encoder_name: EncoderName = "resnet34",
+        variant: str = "b5",
         subset_fraction: float = 0.05,
         early_stop_patience: int = 200,
         checkpoint_name: Optional[str] = None,
         use_class_weights: bool = False,
     ) -> None:
-        self.experiment_name = experiment_name
-        self.model_type = model_type
-        self.augmentation_level = augmentation_level
-        self.epochs = epochs
-        self.batch_size = batch_size
-        self.lr = lr
-        self.encoder_name = encoder_name
-        self.variant = variant
-        self.subset_fraction = subset_fraction
-        self.early_stop_patience = early_stop_patience
-        self.use_class_weights = use_class_weights
+        """
+        Инициализация конфигурации обучения.
+
+        Args:
+            experiment_name: Уникальное имя эксперимента для логирования.
+            model_type: Тип модели (должен быть в ModelType).
+            augmentation_level: Уровень аугментаций данных.
+            epochs: Количество эпох обучения.
+            batch_size: Размер батча для DataLoader.
+            lr: Начальный learning rate.
+            encoder_name: Название encoder'а (для SMP-моделей).
+            variant: Вариант модели (например, "b5" для MiT, "fcn_resnet50" для FCN).
+            subset_fraction: Доля данных для использования (1.0 = все данные).
+            early_stop_patience: Эпох без улучшения mIoU для early stopping.
+            checkpoint_name: Имя файла чекпоинта (опционально).
+            use_class_weights: Использовать ли взвешенный лосс для дисбаланса классов.
+        """
+        self.experiment_name: str = experiment_name
+        self.model_type: str = model_type
+        self.augmentation_level: AugmentationLevel = augmentation_level
+        self.epochs: int = epochs
+        self.batch_size: int = batch_size
+        self.lr: float = lr
+        self.encoder_name: EncoderName = encoder_name
+        self.variant: str = variant
+        self.subset_fraction: float = subset_fraction
+        self.early_stop_patience: int = early_stop_patience
+        self.use_class_weights: bool = use_class_weights
 
         # Генерируем уникальное имя чекпоинта
         if checkpoint_name is None:
             timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.checkpoint_name = f"{model_type}_{augmentation_level}_{timestamp}.pth"
+            self.checkpoint_name: str = (
+                f"{model_type}_{augmentation_level}_{timestamp}.pth"
+            )
         else:
             self.checkpoint_name = checkpoint_name
 
@@ -138,8 +239,29 @@ class TrainingConfig:
 
 class ModelTrainer:
     """
-    Универсальный трейнер для обучения моделей сегментации
-    с поддержкой сравнения аугментаций
+    Универсальный трейнер для обучения моделей семантической сегментации.
+
+    Поддерживает:
+    - Множество архитектур: U-Net, FPN, PSPNet, DeepLabV3+, FCN, SegNet (через SMP/torchvision).
+    - Гибкую настройку аугментаций данных (4 уровня: none/basic/medium/aggressive).
+    - Обучение с правильным ignore_index для каждого типа модели.
+    - Взвешенный CrossEntropyLoss для борьбы с дисбалансом классов.
+    - Early stopping по валидационному mIoU.
+    - Сравнение обученных моделей на валидационном наборе.
+    - Визуализацию learning curves и сводных результатов.
+
+    Workflow:
+    1. Создать экземпляр с путями к данным и чекпоинтам.
+    2. Создать TrainingConfig с гиперпараметрами.
+    3. Вызвать train_experiment(config) для обучения.
+    4. (Опционально) Сравнить модели через compare_trained_models().
+    5. (Опционально) Визуализировать результаты через plot_experiment_comparison().
+
+    Attributes:
+        checkpoint_dir (Path): Директория для сохранения чекпоинтов.
+        root_dir (Path): Корневая директория датасета (ADE20K).
+        device (torch.device): Устройство для вычислений (cuda/cpu).
+        experiment_results (List[TrainingResult]): История результатов всех экспериментов.
     """
 
     def __init__(
@@ -148,22 +270,64 @@ class ModelTrainer:
         root_dir: str = DEFAULT_ROOT_DIR,
         device: str = "cuda",
     ) -> None:
-        self.checkpoint_dir = checkpoint_dir
-        self.root_dir = root_dir
-        self.device = torch.device(device if torch.cuda.is_available() else "cpu")
-        self.experiment_results: List = []
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        """
+        Инициализация трейнера.
+
+        Args:
+            checkpoint_dir: Директория для сохранения чекпоинтов моделей.
+            root_dir: Корневая директория датасета (поддиректории: images/, annotations/).
+            device: Предпочтительное устройство ("cuda" или "cpu").
+        """
+        self.checkpoint_dir: Path = Path(checkpoint_dir)
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        self.root_dir: Path = Path(root_dir)
+        self.device: torch.device = torch.device(
+            device if torch.cuda.is_available() else "cpu"
+        )
+        self.experiment_results: List[TrainingResult] = []
 
     def create_model(
         self,
-        model_type: str,
-        encoder_name: str = "resnet34",
+        model_type: ModelType,
+        encoder_name: EncoderName = "resnet34",
         variant: str = "b5",
         for_training: bool = True,
     ) -> torch.nn.Module:
-        """Создание модели по типу"""
+        """
+        Создаёт экземпляр модели сегментации по указанному типу.
 
-        # ========== SMP МОДЕЛИ ==========
+        Поддерживаемые архитектуры:
+        - SMP: U-Net, FPN, PSPNet (с encoder'ами ResNet, MiT, EfficientNet).
+        - Torchvision: DeepLabV3+, FCN (с предобученными бэкбонами).
+        - Custom: SegNet (через U-Net proxy или кастомную реализацию).
+
+        Для torchvision-моделей:
+        - Заменяет последний классификатор на NUM_CLASSES выходных каналов.
+        - Инициализирует веса нового слоя (normal для weight, zero для bias).
+        - Опционально замораживает бэкбон для начального обучения (for_training=True).
+
+        Args:
+            model_type: Тип архитектуры из ModelType.
+            encoder_name: Название encoder'а (для SMP-моделей).
+            variant: Вариант модели (например, "b5" для MiT, "fcn_resnet50" для FCN).
+            for_training: Если `True`, замораживает бэкбон для torchvision-моделей.
+
+        Returns:
+            nn.Module: Инициализированная модель в режиме eval() (для инференса) или train() (для обучения).
+
+        Raises:
+            ValueError: Если model_type не поддерживается.
+
+        Example:
+            ```python
+            trainer = ModelTrainer()
+            model = trainer.create_model("unet_smp", encoder_name="resnet34")
+            print(f"Model params: {sum(p.numel() for p in model.parameters()):,}")
+            ```
+        """
+        # ──────────────────────────────────────────────────────────────
+        # SMP МОДЕЛИ
+        # ──────────────────────────────────────────────────────────────
         if model_type == "unet_smp":
             print("🔹 Creating U-Net (SMP)...")
             return smp.Unet(
@@ -196,7 +360,9 @@ class ModelTrainer:
                 psp_size=psp_size,
             )
 
-        # ========== TORCHVISION МОДЕЛИ ==========
+        # ──────────────────────────────────────────────────────────────
+        # TORCHVISION МОДЕЛИ
+        # ──────────────────────────────────────────────────────────────
         elif model_type == "deeplab_tv":
             print("🔹 Creating DeepLabV3+ (Torchvision)...")
             model = tv_seg.deeplabv3_resnet101(weights="COCO_WITH_VOC_LABELS_V1")
@@ -215,13 +381,13 @@ class ModelTrainer:
                 for param in model.backbone.parameters():
                     param.requires_grad = False
                 print("   🔒 Backbone frozen for initial training")
-            if hasattr(model, "aux_classifier") and model.aux_classifier is not None:
-                aux_in_ch = model.aux_classifier[4].in_channels
-                model.aux_classifier[4] = nn.Conv2d(
-                    aux_in_ch, NUM_CLASSES, kernel_size=1
-                )
-                nn.init.normal_(model.aux_classifier[4].weight, 0, 0.01)
-                nn.init.constant_(model.aux_classifier[4].bias, 0)
+            # if hasattr(model, "aux_classifier") and model.aux_classifier is not None:
+            #     aux_in_ch = model.aux_classifier[4].in_channels
+            #     model.aux_classifier[4] = nn.Conv2d(
+            #         aux_in_ch, NUM_CLASSES, kernel_size=1
+            #     )
+            #     nn.init.normal_(model.aux_classifier[4].weight, 0, 0.01)
+            #     nn.init.constant_(model.aux_classifier[4].bias, 0)
 
             return model
         elif model_type == "fcn_tv":
@@ -247,13 +413,13 @@ class ModelTrainer:
                 for param in model.backbone.parameters():
                     param.requires_grad = False
                 print("   🔒 Backbone frozen for initial training")
-            if hasattr(model, "aux_classifier") and model.aux_classifier is not None:
-                aux_in_ch = model.aux_classifier[4].in_channels
-                model.aux_classifier[4] = nn.Conv2d(
-                    aux_in_ch, NUM_CLASSES, kernel_size=1
-                )
-                nn.init.normal_(model.aux_classifier[4].weight, 0, 0.01)
-                nn.init.constant_(model.aux_classifier[4].bias, 0)
+            # if hasattr(model, "aux_classifier") and model.aux_classifier is not None:
+            #     aux_in_ch = model.aux_classifier[4].in_channels
+            #     model.aux_classifier[4] = nn.Conv2d(
+            #         aux_in_ch, NUM_CLASSES, kernel_size=1
+            #     )
+            #     nn.init.normal_(model.aux_classifier[4].weight, 0, 0.01)
+            #     nn.init.constant_(model.aux_classifier[4].bias, 0)
             return model
         elif model_type == "segnet":
             print("🔹 Creating SegNet (U-Net proxy)...")
@@ -285,7 +451,7 @@ class ModelTrainer:
             return model
         else:
             raise ValueError(
-                f"Unknown model_type: {model_type}. Available: unet_smp, fpn_smp, psp_smp, deeplab_tv, fcn_tv, segnet"
+                f"Unknown model_type: {model_type}. Available: {list(ModelType.__args__)}"  # type: ignore[attr-defined]
             )
 
     # ──────────────────────────────────────────────────────────────────────
@@ -293,12 +459,29 @@ class ModelTrainer:
     # ──────────────────────────────────────────────────────────────────────
     def create_dataloaders(
         self,
-        augmentation_level: str,
+        augmentation_level: AugmentationLevel,
         batch_size: int = 4,
         subset_fraction: float = 0.05,
         ignore_index: int = 255,
     ) -> Tuple[DataLoader, DataLoader]:
-        """Создание DataLoader с нужным уровнем аугментаций"""
+        """
+        Создаёт DataLoader для тренировочного и валидационного наборов.
+
+        Аугментации применяются только к тренировочному набору и зависят от уровня:
+        - "none": только ресайз и нормализация.
+        - "basic": горизонтальный флип.
+        - "medium": + ротация, color jitter, небольшое масштабирование.
+        - "aggressive": + вертикальный флип, более агрессивные трансформации.
+
+        Args:
+            augmentation_level: Уровень аугментаций для тренировочного набора.
+            batch_size: Размер батча для обоих DataLoader.
+            subset_fraction: Доля данных для использования (для быстрых тестов).
+            ignore_index: Индекс пикселей для игнорирования в лоссе.
+
+        Returns:
+            Tuple[DataLoader, DataLoader]: (train_loader, val_loader).
+        """
 
         print(f"   Augmentation level: {augmentation_level}")
         # Train с аугментациями
@@ -357,7 +540,23 @@ class ModelTrainer:
     ) -> torch.Tensor:
         """
         Считает инвертированные частоты классов для борьбы с дисбалансом.
-        Используется при создании CrossEntropyLoss(weight=...).
+
+        Использует median frequency balancing:
+        ```
+        weight[c] = median_freq / freq[c]
+        ```
+        где `freq[c]` — количество пикселей класса `c` в тренировочном наборе.
+
+        Результат нормируется так, чтобы сумма весов равнялась `num_classes`.
+
+        Args:
+            train_loader: DataLoader с тренировочными данными.
+            num_classes: Общее количество классов.
+            ignore_index: Индекс игнорируемых пикселей.
+            max_batches: Максимальное количество батчей для подсчёта (для скорости).
+
+        Returns:
+            torch.Tensor: Вектор весов размера `[num_classes]`, dtype float32.
         """
         class_counts = torch.zeros(num_classes, dtype=torch.float64)
         for idx, batch in enumerate(train_loader):
@@ -380,15 +579,28 @@ class ModelTrainer:
     # ──────────────────────────────────────────────────────────────────────
     # Основной метод обучения
     # ──────────────────────────────────────────────────────────────────────
-    def train_experiment(self, config: "TrainingConfig") -> Dict[str, Any]:
+    def train_experiment(self, config: TrainingConfig) -> TrainingResult:
         """
-        Обучение одного эксперимента.
+        Обучает один эксперимент с заданной конфигурацией.
 
-        Ключевые исправления:
-        - ignore_index берётся из IGNORE_INDEX_BY_MODEL (0 для DeepLab/FCN!)
-        - mask_fill_value для аугментаций = 255 (не 0)
-        - LR scheduler не прерывается при разморозке backbone
-        - aux_loss для DeepLab/FCN учитывается в лоссе
+        Ключевые особенности:
+        - Автоматический выбор ignore_index из `IGNORE_INDEX_BY_MODEL`.
+        - Правильная инициализация критерия с учётом class weights.
+        - Разморозка бэкбона для torchvision-моделей на эпохе 5.
+        - Early stopping по валидационному mIoU.
+        - Сохранение лучшего чекпоинта по mIoU.
+
+        Args:
+            config: Конфигурация эксперимента.
+
+        Returns:
+            TrainingResult: Словарь с результатами обучения (см. TypedDict выше).
+
+        Note:
+            - Для torchvision-моделей бэкбон замораживается на первые 5 эпох,
+              затем размораживается с уменьшенным LR (lr / 10).
+            - Scheduler CosineAnnealingLR создаётся на всё обучение и не сбрасывается
+              при разморозке (чтобы избежать скачков LR).
         """
         print(f"\n{'=' * 70}")
         print(f"ЭКСПЕРИМЕНТ: {config.experiment_name}")
@@ -443,7 +655,6 @@ class ModelTrainer:
                 "   Эти пиксели будут пропущены в loss — модель не научится предсказывать стены!"
             )
 
-        print("\n5.1. Обучение с разными уровнями аугментаций...")
         print(f"✅ ignore_index: {ignore_index}")
         print(f"   Unique mask values (sample): {torch.unique(masks)[:20]}")
         print(f"   Mask range: [{masks.min()}, {masks.max()}]")
@@ -502,7 +713,6 @@ class ModelTrainer:
         trainer.best_miou = 0.0
         trainer.aux_loss_weight = 0.0
         trainer.verbose_first_batch = False
-        # trainer.aux_loss_weight = 0.0
         trainer.history = {"train_loss": [], "val_loss": [], "val_miou": []}
         print(f"Criterion ignore_index: {trainer.criterion.ignore_index}")
         print(
@@ -515,8 +725,24 @@ class ModelTrainer:
         print(f"   Optimizer param groups: {len(trainer.optimizer.param_groups)}")
 
         checkpoint_path = os.path.join(self.checkpoint_dir, config.checkpoint_name)
+        print(f"🔍 DEBUG FCN training setup:")
+        print(f"   ignore_index: {ignore_index}")
+        print(f"   aux_loss_weight: {trainer.aux_loss_weight}")
+        print(f"   model.training: {model.training}")
+        print(
+            f"   backbone frozen: {all(not p.requires_grad for p in model.backbone.parameters())}"
+        )
+        print(f"   has aux_classifier: {hasattr(model, 'aux_classifier')}")
+        if hasattr(model, "aux_classifier") and model.aux_classifier is not None:
+            print(
+                f"   aux_classifier[4].out_channels: {model.aux_classifier[4].out_channels}"
+            )
+        print(f"   classifier[4].out_channels: {model.classifier[4].out_channels}")
         print("🎯 Starting training...")
 
+        # ──────────────────────────────────────────────────────────────
+        # ЦИКЛ ОБУЧЕНИЯ
+        # ──────────────────────────────────────────────────────────────
         for epoch in range(config.epochs):
             # ── FIX 3: разморозка backbone без пересоздания scheduler ──
             if is_tv_model and epoch == 5:
@@ -596,7 +822,10 @@ class ModelTrainer:
             torch.cuda.empty_cache()
             gc.collect()
 
-        result = {
+        # ──────────────────────────────────────────────────────────────
+        # ФОРМИРОВАНИЕ РЕЗУЛЬТАТА
+        # ──────────────────────────────────────────────────────────────
+        result: TrainingResult = {
             "experiment_name": config.experiment_name,
             "augmentation_level": config.augmentation_level,
             "model_type": config.model_type,
@@ -625,18 +854,26 @@ class ModelTrainer:
         self,
         augmentation_level: str = "medium",
         checkpoint_paths: Optional[Dict[str, str]] = None,
-        model_types: Optional[List[str]] = None,
+        model_types: Optional[List[ModelType]] = None,
     ) -> Dict[str, float]:
         """
-        Сравнение обученных моделей на валидационном наборе
+        Сравнивает обученные модели на валидационном наборе ADE20K.
+
+        Автоматически ищет чекпоинты по шаблону `{model_type}_{augmentation_level}_*.pth`,
+        если `checkpoint_paths` не задан явно.
+
+        Для каждой модели:
+        1. Загружает веса из чекпоинта.
+        2. Выполняет инференс на валидационном наборе (без аугментаций).
+        3. Рассчитывает weighted mIoU через `sklearn.metrics.jaccard_score`.
 
         Args:
-            augmentation_level: Уровень аугментаций для поиска чекпоинтов
-            checkpoint_paths: Список путей к чекпоинтам (если None, ищет по умолчанию)
-            model_types: Список типов моделей для оценки
+            augmentation_level: Уровень аугментаций для поиска чекпоинтов.
+            checkpoint_paths: Словарь `{имя_модели: путь_к_чекпоинту}` (опционально).
+            model_types: Список типов моделей для оценки (по умолчанию все поддерживаемые).
 
         Returns:
-            Dict с mIoU для каждой модели
+            Dict[str, float]: Словарь `{имя_модели: mIoU}`.
         """
         print("\n" + "=" * 60)
         print("📊 COMPARING TRAINED MODELS ON ADE20K VALIDATION")
@@ -682,7 +919,7 @@ class ModelTrainer:
                     print(f"   ⚠️  {name}: чекпоинт не найден ({pattern})")
 
         # Загружаем модели
-        models = {}
+        models: Dict[str, nn.Module] = {}
         if checkpoint_paths is not None:
             for name, path in checkpoint_paths.items():
                 if not os.path.exists(path):
@@ -690,7 +927,7 @@ class ModelTrainer:
                     continue
 
                 # Определяем тип модели по имени
-                model_type: Optional[str] = None
+                model_type: Optional[ModelType] = None
                 for mt in model_types:
                     if mt in path.lower() or mt in name.lower():
                         model_type = mt
@@ -709,7 +946,7 @@ class ModelTrainer:
                 # Загружаем веса
                 checkpoint = torch.load(path, map_location=self.device)
 
-                if "model_state_dict" in checkpoint:
+                if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
                     state_dict = checkpoint["model_state_dict"]
                 else:
                     state_dict = checkpoint
@@ -748,11 +985,11 @@ class ModelTrainer:
         val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=0)
 
         # Оценка каждой модели
-        results = {}
+        results: Dict[str, float] = {}
         for name, model in models.items():
             print(f"\n🔹 Evaluating {name}...")
-            all_preds = []
-            all_targets = []
+            all_preds: List[int] = []
+            all_targets: List[int] = []
 
             with torch.no_grad():
                 for batch_idx, batch in enumerate(val_loader):
@@ -795,29 +1032,24 @@ class ModelTrainer:
         self,
         checkpoints: Dict[str, str],
         val_fraction: float = 0.05,
-        model_types: Optional[List[str]] = None,
+        model_types: Optional[List[ModelType]] = None,
     ) -> Dict[str, float]:
         """
-        Оценка обученных моделей на валидационном наборе
+        Оценивает обученные модели на валидационном наборе.
+
+        Аналогично `compare_trained_models()`, но принимает явный словарь чекпоинтов.
 
         Args:
-            checkpoints: Dict {model_name: checkpoint_path}
-            val_fraction: Доля валидационного набора для оценки
-            model_types: Список типов моделей для оценки
+            checkpoints: Dict `{model_name: checkpoint_path}`.
+            val_fraction: Доля валидационного набора для оценки.
+            model_types: Список типов моделей для оценки.
 
         Returns:
-            Dict с mIoU для каждой модели
+            Dict[str, float]: Словарь `{имя_модели: mIoU}`.
         """
         # Валидационный датасет
         if model_types is None:
-            model_types = [
-                "unet_smp",
-                "deeplab_tv",
-                "fpn_smp",
-                "psp_smp",
-                "fcn_tv",
-                "segnet",
-            ]
+            model_types = list(ModelType.__args__)  # type: ignore[attr-defined]
 
         val_dataset = ADE20KDataset(
             root_dir=self.root_dir,
@@ -829,7 +1061,7 @@ class ModelTrainer:
         )
         val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=0)
 
-        results = {}
+        results: Dict[str, float] = {}
 
         for model_name, checkpoint_path in checkpoints.items():
             print(f"\n🔹 Evaluating {model_name}...")
@@ -837,26 +1069,26 @@ class ModelTrainer:
                 print(f"   ⚠️  Checkpoint not found: {checkpoint_path}")
                 continue
             # Создаём модель
-            model_type = None
+            model_type: Optional[ModelType] = None
             for mt in model_types:
                 if mt in checkpoint_path.lower() or mt in model_name.lower():
                     model_type = mt
                     break
 
             if model_type is None:
-                # Пытаемся определить по ключевым словам
-                if "unet" in model_name.lower():
-                    model_type = "unet_smp"
-                elif "deeplab" in model_name.lower():
-                    model_type = "deeplab_tv"
-                elif "fpn" in model_name.lower():
-                    model_type = "fpn_smp"
-                elif "psp" in model_name.lower():
-                    model_type = "psp_smp"
-                elif "fcn" in model_name.lower():
-                    model_type = "fcn_tv"
-                elif "segnet" in model_name.lower():
-                    model_type = "segnet"
+                # Попытка определить по ключевым словам
+                keyword_map = {
+                    "unet": "unet_smp",
+                    "deeplab": "deeplab_tv",
+                    "fpn": "fpn_smp",
+                    "psp": "psp_smp",
+                    "fcn": "fcn_tv",
+                    "segnet": "segnet",
+                }
+                for kw, mt in keyword_map.items():
+                    if kw in model_name.lower():
+                        model_type = mt  # type: ignore[assignment]
+                        break
 
             if model_type is None:
                 print(f"   ⚠️  Unknown model type: {model_name}. Skipping...")
@@ -866,8 +1098,9 @@ class ModelTrainer:
 
             # Загружаем веса
             checkpoint = torch.load(checkpoint_path, map_location=self.device)
+            # checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
 
-            if "model_state_dict" in checkpoint:
+            if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
                 state_dict = checkpoint["model_state_dict"]
             else:
                 state_dict = checkpoint
@@ -889,8 +1122,8 @@ class ModelTrainer:
                 model = model.to(self.device).train()
             else:
                 model = model.to(self.device).eval()
-            all_preds = []
-            all_targets = []
+            all_preds: List[int] = []
+            all_targets: List[int] = []
             with torch.no_grad():
                 for batch_idx, batch in enumerate(val_loader):
                     images = batch["image"].to(self.device)
@@ -937,12 +1170,26 @@ class ModelTrainer:
     # ──────────────────────────────────────────────────────────────────────
     def compare_augmentations(
         self,
-        model_type: str = "unet_smp",
-        augmentation_levels: Optional[List[str]] = None,
+        model_type: ModelType = "unet_smp",
+        augmentation_levels: Optional[List[AugmentationLevel]] = None,
         base_config: Optional[Dict[str, Any]] = None,
     ) -> pd.DataFrame:
         """
-        Сравнение обучения с разными уровнями аугментаций
+        Сравнивает обучение с разными уровнями аугментаций данных.
+
+        Для каждого уровня:
+        1. Создаёт TrainingConfig с одинаковыми гиперпараметрами.
+        2. Запускает train_experiment().
+        3. Агрегирует результаты в сравнительную таблицу.
+
+        Args:
+            model_type: Тип модели для сравнения.
+            augmentation_levels: Список уровней аугментаций (по умолчанию все 4).
+            base_config: Базовые гиперпараметры (переопределяются для каждого эксперимента).
+
+        Returns:
+            pd.DataFrame: Таблица с колонками:
+            - Augmentation, Model Type, Best mIoU (%), Epochs, Final Train/Val Loss, Checkpoint.
         """
         if augmentation_levels is None:
             augmentation_levels = ["none", "basic", "medium", "aggressive"]
@@ -962,7 +1209,7 @@ class ModelTrainer:
         print(f"Модель: {model_type}")
         print(f"{'=' * 70}")
 
-        results = []
+        results: List[TrainingResult] = []
 
         for aug_level in augmentation_levels:
             config = TrainingConfig(
@@ -1014,7 +1261,18 @@ class ModelTrainer:
     # Визуализация
     # ──────────────────────────────────────────────────────────────────────
     def plot_experiment_comparison(self, output_path: Optional[str] = None) -> None:
-        """Визуализация сравнения экспериментов"""
+        """
+        Визуализирует сравнение проведённых экспериментов.
+
+        Строит 2×2 grid:
+        1. Bar-чарт Best mIoU по уровням аугментаций.
+        2. Learning curves (Val mIoU по эпохам).
+        3. Train vs Val Loss для первых двух экспериментов.
+        4. Сводная таблица результатов.
+
+        Args:
+            output_path: Путь для сохранения графика (опционально).
+        """
         if len(self.experiment_results) < 2:
             print("⚠️ Нужно минимум 2 эксперимента для сравнения")
             return
@@ -1023,12 +1281,8 @@ class ModelTrainer:
 
         # 1. mIoU по уровням аугментаций
         ax1 = axes[0, 0]
-        miou_values = []
-        aug_labels = []
-
-        for result in self.experiment_results:
-            aug_labels.append(result["augmentation_level"])
-            miou_values.append(result["best_miou"] * 100)
+        miou_values = [r["best_miou"] * 100 for r in self.experiment_results]
+        aug_labels = [r["augmentation_level"] for r in self.experiment_results]
 
         cmap: Colormap = plt.get_cmap("viridis")
         colors = cmap(np.linspace(0, 1, len(miou_values)))
@@ -1139,16 +1393,26 @@ class ModelTrainer:
     # ──────────────────────────────────────────────────────────────────────
     def train_all_models(
         self,
-        augmentation_level: str = "medium",
+        augmentation_level: AugmentationLevel = "medium",
         epochs: int = 20,
         batch_size: int = 4,
         lr: float = 1e-4,
         subset_fraction: float = 0.05,
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, TrainingResult]:
         """
-        Обучение всех поддерживаемых моделей
+        Обучает все поддерживаемые модели с одинаковыми гиперпараметрами.
+
+        Удобно для быстрого бенчмарка архитектур перед углублённой настройкой.
+
+        Args:
+            augmentation_level: Уровень аугментаций для всех экспериментов.
+            epochs: Количество эпох обучения.
+            batch_size: Размер батча.
+            lr: Learning rate.
+            subset_fraction: Доля данных для использования.
+
         Returns:
-            Dict с результатами по каждой модели
+            Dict[str, TrainingResult]: Результаты по каждой модели `{model_type: result}`.
         """
         model_configs: List[ModelConfig] = [
             {"model_type": "unet_smp", "encoder_name": "resnet34", "variant": "b5"},
@@ -1174,7 +1438,7 @@ class ModelTrainer:
             },
         ]
 
-        all_results: Dict[str, Any] = {}
+        all_results: Dict[str, TrainingResult] = {}
 
         for config in model_configs:
             experiment_config = TrainingConfig(
@@ -1226,12 +1490,23 @@ class ModelTrainer:
     def evaluate_checkpoints(
         self,
         checkpoint_paths: List[str],
-        model_type: str,
-        encoder_name: str = "resnet34",
+        model_type: ModelType,
+        encoder_name: EncoderName = "resnet34",
         variant: str = "b5",
     ) -> pd.DataFrame:
         """
-        Оценка обученных чекпоинтов на валидационном наборе
+        Оценивает список чекпоинтов на валидационном наборе.
+
+        Полезно для сравнения разных эпох или конфигураций одной архитектуры.
+
+        Args:
+            checkpoint_paths: Список путей к чекпоинтам.
+            model_type: Тип модели для всех чекпоинтов.
+            encoder_name: Название encoder'а (для SMP-моделей).
+            variant: Вариант модели.
+
+        Returns:
+            pd.DataFrame: Таблица с колонками: Checkpoint, mIoU (%), Path.
         """
         print(f"\n{'=' * 70}")
         print("ОЦЕНКА ЧЕКПОИНТОВ")
@@ -1248,7 +1523,7 @@ class ModelTrainer:
         )
         val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=0)
 
-        results = []
+        results: List[Dict[str, Any]] = []
         for checkpoint_path in checkpoint_paths:
             if not os.path.exists(checkpoint_path):
                 print(f"⚠️ Чекпоинт не найден: {checkpoint_path}")
@@ -1264,7 +1539,7 @@ class ModelTrainer:
 
             # Загрузка весов
             checkpoint = torch.load(checkpoint_path, map_location=self.device)
-            if "model_state_dict" in checkpoint:
+            if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
                 state_dict = checkpoint["model_state_dict"]
             else:
                 state_dict = checkpoint
@@ -1284,8 +1559,8 @@ class ModelTrainer:
             model.eval()
 
             # Оценка
-            all_preds = []
-            all_targets = []
+            all_preds: List[int] = []
+            all_targets: List[int] = []
 
             with torch.no_grad():
                 for batch in val_loader:

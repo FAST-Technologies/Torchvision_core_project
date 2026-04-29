@@ -1,18 +1,13 @@
 # testing/SegmentationTester.py
 
 # Импорт основных библиотек
-
 import os
 import sys
-
-from segmenters.BaseSegmenter import BaseSegmenter
-from metrics.SegmentationMetrics import SegmentationMetrics
-from utils.warmup import SegmentationWarmUp
-
-import time
 import json
+import time
+import traceback
+from pathlib import Path
 from datetime import datetime
-from PIL import Image
 from typing import (
     List,
     Union,
@@ -20,35 +15,90 @@ from typing import (
     Dict,
     Any,
     Optional,
+    Callable,
 )
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
+from PIL import Image
 import cv2
 
+# Локальные импорты
+from segmenters.BaseSegmenter import BaseSegmenter
+from metrics.SegmentationMetrics import SegmentationMetrics
+from utils.warmup import SegmentationWarmUp
+
+# Настройка путей проекта
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES
+# ──────────────────────────────────────────────────────────────────────
+ArrayLike = Union[np.ndarray, List[Any]]
+ImageInput = Union[str, np.ndarray, Image.Image]
+MaskArray = np.ndarray  # Binary mask: HxW, dtype uint8/bool
+ImageArray = np.ndarray  # RGB/Grayscale: HxW or HxWxC
+MetricDict = Dict[str, float]
+PathLike = Union[str, Path]
+StatsList = List[Dict[str, Any]]
+
 
 class SegmentationTester:
-    """Класс для тестирования и сравнения методов сегментации"""
+    """
+    Универсальный класс для тестирования, сравнения и бенчмаркинга методов сегментации.
+
+    Основные возможности:
+    - Регистрация произвольных сегментеров, наследующих `BaseSegmenter`.
+    - Поочерёдное тестирование с замером времени и сохранением артефактов.
+    - Автоматический расчёт метрик качества (IoU, Dice, F1, Hausdorff) при наличии GT.
+    - Пакетное сравнение методов с визуализацией в grid-формате.
+    - Бенчмарк с многократными прогонами, warm-up и статистикой (mean/std/min/max).
+    - Экспорт результатов: изображения, маски, overlay, JSON, CSV, TXT, HTML-отчёты.
+    - Управление памятью: очистка временных файлов, кэширование результатов.
+
+    Workflow:
+    1. Создать экземпляр → 2. Добавить методы через `add_method()` → 3. Загрузить GT (опционально)
+       → 4. Вызвать `compare_methods()` / `benchmark_methods()` → 5. Экспортировать отчёт.
+
+    Attributes:
+        methods (Dict[str, BaseSegmenter]): Реестр зарегистрированных сегментеров.
+        results (Dict[str, Dict]): Кэш результатов по тестам.
+        base_output_dir (Path): Базовая директория для сохранения артефактов.
+        current_test_id (Optional[str]): ID последнего запущенного теста.
+        ground_truth_mask (Optional[MaskArray]): Загруженная маска для расчёта метрик.
+        enable_warmup (bool): Флаг включения предварительного "прогрева" моделей.
+        n_warmup_runs (int): Количество warm-up прогонов перед основным бенчмарком.
+        warmup_utility (SegmentationWarmUp): Утилита для выполнения warm-up.
+        warmup_completed (Dict[str, bool]): Трекер выполненных warm-up по методам.
+    """
 
     def __init__(
         self,
-        base_output_dir: str = "./../data/segmentation_results",
-        ground_truth_path: Optional[str] = None,
+        base_output_dir: PathLike = "./../data/segmentation_results",
+        ground_truth_path: Optional[PathLike] = None,
         enable_warmup: bool = True,
         n_warmup_runs: int = 3,
     ) -> None:
-        self.methods: dict = {}
-        self.results: dict = {}
-        self.base_output_dir: str = base_output_dir
+        """
+        Инициализация тестера с настройками путей и параметров тестирования.
+
+        Args:
+            base_output_dir: Базовая директория для сохранения результатов.
+            ground_truth_path: Путь к ground truth маске (опционально).
+            enable_warmup: Если `True`, выполняет warm-up перед первым прогоном каждого метода.
+            n_warmup_runs: Количество "разогревочных" итераций для стабилизации производительности.
+        """
+        self.methods: Dict[str, BaseSegmenter] = {}
+        self.results: Dict[str, Dict[str, Any]] = {}
+        self.base_output_dir: str = str(base_output_dir)
         self.current_test_id: Optional[str] = None
-        self.ground_truth_path: Optional[str] = ground_truth_path
-        self.ground_truth_mask: Optional[np.ndarray] = None
+        self.ground_truth_path: Optional[str] = (
+            str(ground_truth_path) if ground_truth_path else None
+        )
+        self.ground_truth_mask: Optional[MaskArray] = None
         self.enable_warmup: bool = enable_warmup
         self.n_warmup_runs: int = n_warmup_runs
         self.warmup_utility = SegmentationWarmUp(n_warmup_runs=n_warmup_runs)
@@ -56,28 +106,49 @@ class SegmentationTester:
         if ground_truth_path:
             self.load_ground_truth(ground_truth_path)
 
-    def load_ground_truth(self, gt_path: str) -> None:
-        """Загрузка ground truth маски"""
+    def load_ground_truth(self, gt_path: PathLike) -> None:
+        """
+        Загружает ground truth маску из файла.
+
+        Поддерживаемые форматы:
+        - Изображения: `.png`, `.jpg`, `.jpeg`, `.bmp` (читаются через OpenCV в grayscale).
+        - NumPy-массивы: `.npy` (загружаются через `np.load`).
+
+        Args:
+            gt_path: Путь к файлу с маской.
+
+        Note:
+            - Если загрузка не удалась, `self.ground_truth_mask` остаётся `None`,
+              и метрики качества не будут рассчитываться.
+            - Для цветных GT-масок предполагается, что они уже бинаризованы или
+              будут обработаны внешним кодом перед передачей в метрики.
+        """
         try:
-            if gt_path.endswith((".png", ".jpg", ".jpeg", ".bmp")):
-                self.ground_truth_mask = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
-                print(f"✅ Ground truth загружен: {gt_path}")
-            elif gt_path.endswith(".npy"):
-                self.ground_truth_mask = np.load(gt_path)
-                print(f"✅ Ground truth загружен: {gt_path}")
+            gt_path_str = str(gt_path)
+            if gt_path_str.endswith((".png", ".jpg", ".jpeg", ".bmp")):
+                self.ground_truth_mask = cv2.imread(gt_path_str, cv2.IMREAD_GRAYSCALE)
+            elif gt_path_str.endswith(".npy"):
+                self.ground_truth_mask = np.load(gt_path_str)
             else:
-                raise ValueError(f"Неизвестный формат ground truth: {gt_path}")
+                raise ValueError(f"Неизвестный формат ground truth: {gt_path_str}")
+
             if self.ground_truth_mask is None:
                 raise ValueError("Не удалось прочитать файл (возвращён None)")
+            print(f"✅ Ground truth загружен: {gt_path_str}")
         except Exception as e:
             print(f"❌ Ошибка загрузки ground truth: {e}")
             self.ground_truth_mask = None
 
     def _ensure_warmup(
-        self, method_name: str, segmenter: Any, image: np.ndarray
+        self, method_name: str, segmenter: BaseSegmenter, image: ImageArray
     ) -> None:
         """
         Гарантирует выполнение warm-up перед бенчмарком метода.
+
+        Args:
+            method_name: Идентификатор метода в реестре.
+            segmenter: Экземпляр сегментера для "прогрева".
+            image: Реальное изображение для инициализации кэшей/памяти модели.
         """
         if not self.enable_warmup:
             return
@@ -97,7 +168,24 @@ class SegmentationTester:
             self.warmup_completed[method_name] = True
 
     def _create_test_directory(self, test_name: Optional[str] = None) -> str:
-        """Создает уникальную директорию для теста"""
+        """
+        Создаёт уникальную иерархию директорий для хранения результатов теста.
+
+        Структура:
+        ```
+        {base_output_dir}/{test_name}_{timestamp}/
+        ├── images/          # Оригиналы, результаты, overlay
+        ├── masks/           # Бинарные маски
+        ├── comparisons/     # Сводные графики сравнения
+        └── statistics/      # JSON/CSV/TXT отчёты
+        ```
+
+        Args:
+            test_name: Префикс имени теста. Если `None`, используется `"test"`.
+
+        Returns:
+            str: Полный путь к созданной директории.
+        """
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         test_dir: str
         if test_name:
@@ -111,36 +199,67 @@ class SegmentationTester:
         os.makedirs(os.path.join(full_path, "masks"), exist_ok=True)
         os.makedirs(os.path.join(full_path, "comparisons"), exist_ok=True)
         os.makedirs(os.path.join(full_path, "statistics"), exist_ok=True)
+        # for subdir in ["images", "masks", "comparisons", "statistics"]:
+        #     (full_path / subdir).mkdir(parents=True, exist_ok=True)
 
         self.current_test_id = test_dir
         print(f"📁 Создана директория для теста: {full_path}")
-        return full_path
+        return str(full_path)
 
     def add_method(self, name: str, segmenter: BaseSegmenter) -> None:
-        """Добавление метода сегментации"""
+        """
+        Регистрирует новый метод сегментации в тестере.
+
+        Args:
+            name: Уникальное имя метода для доступа в отчётах.
+            segmenter: Экземпляр класса, наследующего `BaseSegmenter`.
+        """
         self.methods[name] = segmenter
 
     def test_single_method(
         self,
-        image: Union[str, np.ndarray, Image.Image],
+        image: ImageInput,
         method_name: str,
-        save_path: Optional[str] = None,
-        output_dir: Optional[str] = None,
+        save_path: Optional[PathLike] = None,
+        output_dir: Optional[PathLike] = None,
     ) -> Dict[str, Any]:
-        """Тестирование одного метода с сохранением результатов"""
+        """
+        Выполняет тестирование одного метода с сохранением результатов.
+
+        Логика:
+        1. Замер времени выполнения `segment_with_mask()`.
+        2. Конвертация входного изображения в `PIL.Image` для сохранения.
+        3. Расчёт базовой статистики маски (площадь, процент покрытия).
+        4. Сохранение артефактов: оригинал, результат, маска, overlay (если `output_dir` указан).
+
+        Args:
+            image: Входное изображение (путь, `np.ndarray` или `PIL.Image`).
+            method_name: Ключ метода из реестра `self.methods`.
+            save_path: Путь для сохранения только результата (если `output_dir` не указан).
+            output_dir: Директория для сохранения полного набора артефактов.
+
+        Returns:
+            Dict[str, Any]: Словарь с результатами:
+            - `method`, `result`, `mask`, `time`
+            - `mask_area`, `mask_percentage`, `image_shape`, `timestamp`
+            - Опционально: `result_path`, `mask_path`, `overlay_path`, `original_path`
+
+        Raises:
+            ValueError: Если `method_name` отсутствует в реестре.
+        """
         if method_name not in self.methods:
             raise ValueError(f"Метод {method_name} не найден")
 
         segmenter = self.methods[method_name]
 
-        # Измеряем время выполнения
-        start_time: float = time.time()
+        # Замер времени
+        start_time: float = time.perf_counter()
         result: np.ndarray
         mask: np.ndarray
         result, mask = segmenter.segment_with_mask(image)
-        execution_time: float = time.time() - start_time
+        execution_time: float = time.perf_counter() - start_time
 
-        # Получаем оригинальное изображение для сохранения
+        # Конвертация изображения для сохранения
         original_img: Image.Image
         img_array: np.ndarray
         if isinstance(image, str):
@@ -153,9 +272,9 @@ class SegmentationTester:
             img_array = image
             original_img = Image.fromarray(image.astype(np.uint8))
 
-        # Статистика
-        mask_area = np.sum(mask > 0)
-        total_pixels = mask.shape[0] * mask.shape[1]
+        # Статистика маски
+        mask_area: int = int(np.sum(mask > 0))
+        total_pixels: int = int(mask.shape[0] * mask.shape[1])
 
         result_data: Dict[str, Any] = {
             "method": method_name,
@@ -202,8 +321,8 @@ class SegmentationTester:
                 )
                 overlay_pil: Image.Image = Image.fromarray(overlay)
                 overlay_pil.save(overlay_path)
-
                 result_data["overlay_path"] = overlay_path
+
                 bright_overlay = cv2.addWeighted(img_array, 0.1, result, 0.9, 0)
                 bright_overlay_path: str = os.path.join(
                     output_dir, "images", f"{method_name}_bright_overlay.jpg"
@@ -215,9 +334,13 @@ class SegmentationTester:
                 print(f"⚠️ Ошибка создания overlay для {method_name}: {e}")
                 pass
 
-            result_data["result_path"] = result_path
-            result_data["mask_path"] = mask_path
-            result_data["original_path"] = orig_path
+            result_data.update(
+                {
+                    "result_path": str(result_path),
+                    "mask_path": str(mask_path),
+                    "original_path": str(orig_path),
+                }
+            )
             print(f"✅ {method_name}: сохранено в {output_dir}")
         elif save_path:
             result_pil = Image.fromarray(result.astype(np.uint8))
@@ -229,10 +352,15 @@ class SegmentationTester:
         return result_data
 
     def _save_overlay_image(
-        self, result_data: Dict[str, Any], method_dir: str, method_name: str
+        self, result_data: Dict[str, Any], method_dir: PathLike, method_name: str
     ) -> None:
         """
-        Сохраняет наложение маски на оригинальное изображение.
+        Сохраняет наложение маски на оригинальное изображение (красный цвет для объекта).
+
+        Args:
+            result_data: Словарь с результатами `test_single_method()`.
+            method_dir: Директория для сохранения.
+            method_name: Имя метода (для именования файлов).
         """
         try:
             mask = result_data.get("mask")
@@ -293,10 +421,15 @@ class SegmentationTester:
             print(f"    ⚠️ Ошибка создания overlay для {method_name}: {e}")
 
     def _save_metrics_file(
-        self, result_data: Dict[str, Any], method_dir: str, method_name: str
+        self, result_data: Dict[str, Any], method_dir: PathLike, method_name: str
     ) -> None:
         """
         Сохраняет метрики в JSON и текстовый файл.
+
+        Args:
+            result_data: Результаты с ключом `"metrics"`.
+            method_dir: Директория для сохранения.
+            method_name: Имя метода.
         """
         metrics = result_data.get("metrics", {})
         if not metrics:
@@ -319,7 +452,7 @@ class SegmentationTester:
             )
             f.write(f"Время выполнения: {result_data.get('time', 0):.3f} секунд\n\n")
 
-            if "has_ground_truth" in result_data and result_data["has_ground_truth"]:
+            if result_data.get("has_ground_truth"):
                 f.write("Метрики качества (с Ground Truth):\n")
                 f.write("-" * 50 + "\n")
 
@@ -346,7 +479,12 @@ class SegmentationTester:
         self, result_data: Dict[str, Any], method_dir: str, method_name: str
     ) -> None:
         """
-        Сохраняет информацию о методе и параметрах.
+        Сохраняет информацию о методе и его параметрах.
+
+        Args:
+            result_data: Результаты тестирования.
+            method_dir: Директория для сохранения.
+            method_name: Имя метода.
         """
         try:
             segmenter = self.methods.get(method_name)
@@ -357,9 +495,9 @@ class SegmentationTester:
             info_path = os.path.join(method_dir, "method_info.txt")
 
             with open(info_path, "w", encoding="utf-8") as f:
-                f.write("=" * 50 + "\n")
-                f.write(f"ИНФОРМАЦИЯ О МЕТОДЕ: {method_name}\n")
-                f.write("=" * 50 + "\n\n")
+                f.write(
+                    f"{'=' * 50}\nИНФОРМАЦИЯ О МЕТОДЕ: {method_name}\n{'=' * 50}\n\n"
+                )
 
                 # Основная информация
                 f.write(f"Имя метода: {method_name}\n")
@@ -373,37 +511,28 @@ class SegmentationTester:
                     f.write(f"Алгоритм: {segmenter.method}\n")
 
                 if hasattr(segmenter, "params") and segmenter.params:
-                    f.write("\nПараметры метода:\n")
-                    f.write("-" * 30 + "\n")
+                    f.write("\nПараметры:\n" + "-" * 30 + "\n")
                     for key, value in segmenter.params.items():
                         f.write(f"{key}: {value}\n")
 
                 # Информация о маске
                 mask = result_data.get("mask")
-                if mask is not None:
+                if mask is not None and isinstance(mask, np.ndarray):
                     f.write("\nИнформация о маске:\n")
                     f.write("-" * 30 + "\n")
                     f.write(f"Размер: {mask.shape}\n")
                     f.write(f"Тип данных: {mask.dtype}\n")
                     f.write(f"Min значение: {mask.min()}\n")
                     f.write(f"Max значение: {mask.max()}\n")
-
-                    if hasattr(mask, "size"):
-                        mask_binary = mask > 127 if mask.max() > 1 else mask > 0.5
-                        f.write(f"Площадь: {np.sum(mask_binary):,} пикселей\n")
-                        f.write(
-                            f"Покрытие: {np.sum(mask_binary) / mask.size * 100:.3f}%\n"
-                        )
+                    mask_binary = mask > (127 if mask.max() > 1 else 0.5)
+                    f.write(
+                        f"Площадь: {np.sum(mask_binary):,} пикселей, Покрытие: {np.sum(mask_binary) / mask.size * 100:.3f}%\n"
+                    )
 
                 # Информация о ground truth
-                if result_data.get("has_ground_truth", False):
-                    f.write("\nGround Truth:\n")
-                    f.write("-" * 30 + "\n")
-                    f.write("Метрики качества доступны в metrics.txt\n")
-                else:
-                    f.write("\nGround Truth:\n")
-                    f.write("-" * 30 + "\n")
-                    f.write("Отсутствует\n")
+                f.write(
+                    f"\nGround Truth: {'Доступен' if result_data.get('has_ground_truth') else 'Отсутствует'}\n"
+                )
         except Exception as e:
             print(f"    ⚠️ Ошибка сохранения информации о методе {method_name}: {e}")
 
@@ -414,9 +543,9 @@ class SegmentationTester:
         Сохраняет результаты одного метода в указанную директорию.
 
         Args:
-            result_data: Данные результатов
-            output_dir: Базовая директория для сохранения
-            method_name: Имя метода (для имен файлов)
+            result_data: Результаты `test_single_method_with_metrics()`.
+            output_dir: Базовая директория для сохранения.
+            method_name: Имя метода.
         """
         # Создаем поддиректории
         method_dir = os.path.join(output_dir, method_name)
@@ -450,10 +579,11 @@ class SegmentationTester:
 
             Image.fromarray(mask).save(mask_path)
 
+        # Overlay, метрики, информация
         self._save_overlay_image(result_data, method_dir, method_name)
 
         # Сохраняем метрики
-        if result_data.get("has_ground_truth", False):
+        if result_data.get("has_ground_truth"):
             self._save_metrics_file(result_data, method_dir, method_name)
 
         # Сохраняем информацию о методе
@@ -461,24 +591,27 @@ class SegmentationTester:
 
     def test_single_method_with_metrics(
         self,
-        image: Union[str, np.ndarray, Image.Image],
+        image: ImageInput,
         method_name: str,
-        ground_truth: Optional[np.ndarray] = None,
+        ground_truth: Optional[MaskArray] = None,
         threshold: float = 0.5,
-        output_dir: Optional[str] = None,
+        output_dir: Optional[PathLike] = None,
     ) -> Dict[str, Any]:
         """
-        Тестирование метода с расчётом метрик
+        Тестирование метода с расчётом метрик качества.
 
         Args:
-            image: Входное изображение
-            method_name: Название метода
-            ground_truth: Ground truth маска (если None, используется загруженная)
-            threshold: Порог для метрик
-            output_dir: Директория для сохранения
+            image: Входное изображение.
+            method_name: Ключ метода в реестре.
+            ground_truth: GT-маска. Если `None`, используется `self.ground_truth_mask`.
+            threshold: Порог бинаризации для метрик.
+            output_dir: Директория для сохранения артефактов.
 
         Returns:
-            Результаты с метриками
+            Dict[str, Any]: Результаты с ключами:
+            - `method`, `result`, `mask`, `time`
+            - `metrics` (если есть GT), `has_ground_truth`
+            - Базовая статистика маски (если нет GT)
         """
         if method_name not in self.methods:
             raise ValueError(f"Метод {method_name} не найден")
@@ -489,18 +622,16 @@ class SegmentationTester:
         segmenter = self.methods[method_name]
 
         # Измеряем время выполнения
-        start_time = time.time()
+        start_time = time.perf_counter()
+        result_img, pred_mask = segmenter.segment_with_mask(image)
+        execution_time = time.perf_counter() - start_time
 
         if gt_mask is not None:
-            # Одна операция сегментации: визуализация + маска
-            result_img, pred_mask = segmenter.segment_with_mask(image)
-            execution_time = time.time() - start_time
-            # Вычисляем метрики отдельно (без повторной сегментации)
-            from metrics.SegmentationMetrics import SegmentationMetrics as _SM
+            metrics = SegmentationMetrics.calculate_all_metrics(
+                pred_mask, gt_mask, threshold=threshold
+            )
 
-            metrics = _SM.calculate_all_metrics(pred_mask, gt_mask, threshold=threshold)
-
-            result_data = {
+            result_data: Dict[str, Any] = {
                 "method": method_name,
                 "result": result_img,
                 "mask": pred_mask,
@@ -509,19 +640,16 @@ class SegmentationTester:
                 "has_ground_truth": True,
             }
         else:
-            result_img, pred_mask = segmenter.segment_with_mask(image)
-            execution_time = time.time() - start_time
+            mask_area: int = int(np.sum(pred_mask > 0))
+            total_pixels: int = int(pred_mask.shape[0] * pred_mask.shape[1])
 
-            mask_area = np.sum(pred_mask > 0)
-            total_pixels = pred_mask.shape[0] * pred_mask.shape[1]
-
-            result_data = {
+            result_data: Dict[str, Any] = {
                 "method": method_name,
                 "result": result_img,
                 "mask": pred_mask,
                 "time": execution_time,
                 "mask_area": mask_area,
-                "mask_percentage": (mask_area / total_pixels) * 100,
+                "mask_percentage": (mask_area / total_pixels) * 100.0,
                 "has_ground_truth": False,
             }
         if output_dir:
@@ -530,19 +658,35 @@ class SegmentationTester:
 
     def compare_methods(
         self,
-        image: Union[str, np.ndarray, Image.Image],
+        image: ImageInput,
         method_names: Optional[List[str]] = None,
         figsize: Tuple[int, int] = (20, 15),
         save_comparison: bool = True,
         test_name: Optional[str] = None,
         show_plots: bool = True,
-    ) -> Dict[str, Any]:
-        """Сравнение нескольких методов"""
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Визуальное сравнение нескольких методов в одном графике.
+
+        Строит grid-визуализацию: [Оригинал] + [Результаты методов] с подписями
+        (время выполнения, процент покрытия). Сохраняет сводный график и статистику.
+
+        Args:
+            image: Входное изображение.
+            method_names: Список методов для сравнения. Если `None`, все зарегистрированные.
+            figsize: Размер фигуры matplotlib.
+            save_comparison: Сохранять ли сводный график.
+            test_name: Префикс имени теста.
+            show_plots: Показывать ли график через `plt.show()`.
+
+        Returns:
+            Dict[str, Dict]: Результаты по каждому методу (из `test_single_method()`).
+        """
         if method_names is None:
             method_names = list(self.methods.keys())
 
         test_dir: str = self._create_test_directory(test_name)
-        results = {}
+        results: Dict[str, Dict[str, Any]] = {}
 
         original_img: Image.Image
 
@@ -560,6 +704,7 @@ class SegmentationTester:
         original_img.save(orig_save_path)
         print(f"📸 Оригинальное изображение сохранено: {orig_save_path}")
 
+        # Grid-визуализация
         n_methods: int = len(method_names)
         n_cols: int = min(4, n_methods + 1)
         n_rows: int = (n_methods + n_cols) // n_cols
@@ -571,7 +716,7 @@ class SegmentationTester:
         axes[0].set_title("Original Image")
         axes[0].axis("off")
 
-        all_stats = []
+        all_stats: StatsList = []
         for i, method_name in enumerate(method_names, 1):
             if i >= len(axes):
                 break
@@ -667,42 +812,46 @@ class SegmentationTester:
 
     def compare_methods_with_metrics(
         self,
-        image: Union[str, np.ndarray, Image.Image],
+        image: ImageInput,
         method_names: Optional[List[str]] = None,
-        ground_truth: Optional[np.ndarray] = None,
+        ground_truth: Optional[MaskArray] = None,
         threshold: float = 0.5,
         figsize: Tuple[int, int] = (20, 15),
         test_name: Optional[str] = None,
         show_plots: bool = True,
     ) -> Dict[str, Dict[str, Any]]:
         """
-        Сравнение методов с метриками качества
+        Сравнение методов с отображением метрик качества на графике.
+
+        В отличие от `compare_methods()`, добавляет ground truth и подписи
+        с метриками (IoU, Dice, F1, Accuracy) под каждым методом.
 
         Args:
-            image: Входное изображение
-            method_names: Список методов для сравнения
-            ground_truth: Ground truth маска
-            threshold: Порог для метрик
-            figsize: Размер фигуры
-            test_name: Имя теста
-            show_plots: Показывать графики
+            image: Входное изображение.
+            method_names: Список методов.
+            ground_truth: GT-маска. Если `None`, используется загруженная.
+            threshold: Порог для метрик.
+            figsize: Размер фигуры.
+            test_name: Префикс теста.
+            show_plots: Показывать ли график.
 
         Returns:
-            Результаты всех методов с метриками
+            Dict[str, Dict]: Результаты с метриками (если есть GT).
         """
         if method_names is None:
             method_names = list(self.methods.keys())
 
         test_dir = self._create_test_directory(test_name)
-        results = {}
+        results: Dict[str, Dict[str, Any]] = {}
 
         gt_mask = ground_truth if ground_truth is not None else self.ground_truth_mask
         has_gt = gt_mask is not None
 
         print(f"Сравнение методов {'с' if has_gt else 'без'} ground truth")
 
+        # Grid-визуализация
         n_methods = len(method_names)
-        n_cols = min(4, n_methods + 1)
+        n_cols = min(4, n_methods + 2 if has_gt else n_methods + 1)
         n_rows = (n_methods + n_cols) // n_cols
 
         fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
@@ -716,15 +865,14 @@ class SegmentationTester:
         axes[0].set_title("Original Image")
         axes[0].axis("off")
 
+        start_idx = 1
         if has_gt:
             axes[1].imshow(gt_mask, cmap="gray")
             axes[1].set_title("Ground Truth")
             axes[1].axis("off")
             start_idx = 2
-        else:
-            start_idx = 1
 
-        all_metrics_data = []
+        all_metrics_data: List[MetricDict] = []
 
         for i, method_name in enumerate(method_names, start_idx):
             if i >= len(axes):
@@ -756,8 +904,7 @@ class SegmentationTester:
 
                 if has_gt:
                     metrics = result_data["metrics"].copy()
-                    metrics["method"] = method_name
-                    metrics["time"] = result_data["time"]
+                    metrics.update({"method": method_name, "time": result_data["time"]})
                     all_metrics_data.append(metrics)
 
                 print(
@@ -789,9 +936,8 @@ class SegmentationTester:
         )
         plt.tight_layout(rect=(0, 0.03, 1, 0.95))
 
-        comparison_path = os.path.join(
-            test_dir, "comparisons", "methods_comparison.jpg"
-        )
+        comparison_path = Path(test_dir, "comparisons", "methods_comparison.jpg")
+        comparison_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(comparison_path, dpi=150, bbox_inches="tight")
 
         if show_plots:
@@ -804,8 +950,14 @@ class SegmentationTester:
         self.results[test_dir] = results
         return results
 
-    def _save_statistics(self, stats: List[Dict], output_dir: str) -> None:
-        """Сохраняет статистику тестирования"""
+    def _save_statistics(self, stats: StatsList, output_dir: PathLike) -> None:
+        """
+        Сохраняет статистику тестирования в JSON, CSV и TXT форматах.
+
+        Args:
+            stats: Список словарей со статистикой по методам.
+            output_dir: Директория для сохранения.
+        """
 
         # Функция для конвертации numpy типов в стандартные Python типы
         def convert_numpy_types(obj):
@@ -941,21 +1093,25 @@ class SegmentationTester:
         print(f"📋 Текстовый отчет сохранен: {report_path}")
 
     def _save_metrics_comparison(
-        self, metrics_data: List[Dict[str, float]], output_dir: str
+        self, metrics_data: List[MetricDict], output_dir: PathLike
     ) -> None:
         """
-        Сохраняет сравнение метрик в различных форматах
+        Сохраняет сравнение метрик в различных форматах.
+
+        Args:
+            metrics_data: Список словарей с метриками по методам.
+            output_dir: Базовая директория для сохранения.
         """
         metrics_dir = os.path.join(output_dir, "metrics")
         os.makedirs(metrics_dir, exist_ok=True)
 
-        # Сохраняем как JSON
+        # JSON
         json_path = os.path.join(metrics_dir, "metrics_comparison.json")
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(metrics_data, f, indent=2, ensure_ascii=False)
         print(f"📊 Метрики сохранены (JSON): {json_path}")
 
-        # Сохраняем как CSV
+        # CSV + таблица-изображение
         try:
             df = pd.DataFrame(metrics_data)
             df = df.sort_values("iou", ascending=False)
@@ -964,21 +1120,23 @@ class SegmentationTester:
             print(f"📊 Метрики сохранены (CSV): {csv_path}")
 
             self._create_metrics_table_image(df, metrics_dir)
+        except ImportError as e:
+            print(f"⚠️ Ошибка сохранения CSV/таблицы: {e}")
 
-            # Создаем графики сравнения метрик
-            # self._create_metrics_plots(df, metrics_dir)
+    def _create_metrics_table_image(self, df: pd.DataFrame, metrics_dir: str) -> None:
+        """
+        Создаёт изображение со сводной таблицей метрик для отчётов.
 
-        except ImportError:
-            print("⚠️ Pandas не установлен. Пропускаем создание CSV и графиков.")
-
-    def _create_metrics_table_image(self, df: pd.DataFrame, metrics_dir: str):
-        """Создает изображение со сводной таблицей метрик"""
+        Args:
+            df: DataFrame с метриками.
+            metrics_dir: Директория для сохранения.
+        """
         try:
             fig, ax = plt.subplots(figsize=(12, len(df) * 0.4 + 2))
             ax.axis("tight")
             ax.axis("off")
 
-            table_columns = [
+            table_columns: List[str] = [
                 "method",
                 "iou",
                 "dice",
@@ -990,8 +1148,10 @@ class SegmentationTester:
                 "time",
             ]
 
-            available_columns = [col for col in table_columns if col in df.columns]
-            table_data = df[available_columns].copy()
+            available_columns: List[str] = [
+                col for col in table_columns if col in df.columns
+            ]
+            table_data: pd.DataFrame = df[available_columns].copy()
             for col in table_data.columns:
                 if col != "method":
                     table_data[col] = table_data[col].apply(lambda x: f"{x:.4f}")
@@ -1019,8 +1179,16 @@ class SegmentationTester:
         except Exception as e:
             print(f"⚠️ Ошибка создания таблицы метрик: {e}")
 
-    def _save_results_summary(self, results: Dict, output_dir: str) -> None:
-        """Сохраняет сводку результатов с конвертацией numpy типов"""
+    def _save_results_summary(
+        self, results: Dict[str, Dict], output_dir: PathLike
+    ) -> None:
+        """
+        Сохраняет сводку результатов с конвертацией numpy-типов.
+
+        Args:
+            results: Результаты по методам.
+            output_dir: Базовая директория.
+        """
         summary_path: str = os.path.join(
             output_dir, "statistics", "results_summary.json"
         )
@@ -1052,7 +1220,7 @@ class SegmentationTester:
         for method_name, result in results.items():
             method_data: Dict[str, Any] = {}
             for key, value in result.items():
-                if key == "result" or key == "mask":
+                if key in ("result", "mask"):
                     continue
                 elif key == "image_shape":
                     if isinstance(value, np.ndarray):
@@ -1088,34 +1256,40 @@ class SegmentationTester:
 
     def benchmark_methods(
         self,
-        image: Union[str, np.ndarray, Image.Image],
+        image: ImageInput,
         n_runs: int = 3,
         save_benchmark: bool = True,
         test_name: Optional[str] = None,
         save_results: bool = True,
         force_warmup: bool = False,
-        ground_truth: Optional[np.ndarray] = None,
+        ground_truth: Optional[MaskArray] = None,
     ) -> pd.DataFrame:
-        """Бенчмарк методов (требует pandas) с сохранением результатов и warm-up"""
-        original_img: Image.Image = (
-            Image.fromarray(image.astype(np.uint8))
-            if isinstance(image, np.ndarray)
-            else (
-                Image.open(image).convert("RGB")
-                if isinstance(image, str)
-                else image.convert("RGB")
-            )
-        )
-        benchmark_results = []
+        """
+        Бенчмарк методов с многократными прогонами, warm-up и метриками.
 
-        bench_dir: str
-        if test_name:
-            bench_dir = self._create_test_directory(f"benchmark_{test_name}")
-        else:
-            bench_dir = self._create_test_directory("benchmark")
+        Для каждого метода:
+        1. Выполняет warm-up (если включён).
+        2. Запускает `n_runs` итераций, замеряя время.
+        3. Сохраняет результат первого прогона.
+        4. Рассчитывает метрики качества (если есть GT).
+        5. Агрегирует статистику: mean, std, min, max времени.
 
-        image_array: np.ndarray
-        orig_path: str
+        Args:
+            image: Входное изображение.
+            n_runs: Количество прогонов для стабильного замера времени.
+            save_benchmark: Сохранять ли отчёт бенчмарка.
+            test_name: Префикс имени теста.
+            save_results: Сохранять ли артефакты (маски, overlay).
+            force_warmup: Выполнить warm-up для всех методов принудительно.
+            ground_truth: GT-маска для расчёта метрик.
+
+        Returns:
+            pd.DataFrame: Сводная таблица с колонками:
+            - `Method`, `Mean_Time_s`, `Std_Time_s`, `Time_String`
+            - `Mask_Area`, `Mask_Percentage`, `Min_Time_s`, `Max_Time_s`, `Num_Runs`
+            - Если есть GT: `IoU`, `Dice`, `F1_Score`, `Precision`, `Recall`, `Accuracy`, `Hausdorff`, `MAE`, `Area_Difference`
+        """
+        # Конвертация изображения
         if isinstance(image, str):
             original_img = Image.open(image).convert("RGB")
             image_array = np.array(original_img)
@@ -1127,6 +1301,13 @@ class SegmentationTester:
             image_array = image
         else:
             raise ValueError(f"Unsupported image type: {type(image)}")
+        benchmark_results = []
+
+        bench_dir: str = self._create_test_directory(
+            f"benchmark_{test_name}" if test_name else "benchmark"
+        )
+        Path(bench_dir, "images").mkdir(parents=True, exist_ok=True)
+        Path(bench_dir, "masks").mkdir(parents=True, exist_ok=True)
 
         # Сохраняем оригинальное изображение
         orig_path = os.path.join(bench_dir, "images", "original.jpg")
@@ -1134,9 +1315,7 @@ class SegmentationTester:
         print(f"📸 Оригинальное изображение сохранено: {orig_path}")
 
         if force_warmup and self.enable_warmup:
-            print("\n" + "=" * 60)
-            print("🔥 ЗАПУСК WARM-UP ПЕРЕД БЕНЧМАРКОМ")
-            print("=" * 60)
+            print("\n" + "=" * 60 + "\n🔥 ЗАПУСК WARM-UP ПЕРЕД БЕНЧМАРКОМ\n" + "=" * 60)
 
             for method_name, segmenter in self.methods.items():
                 self._ensure_warmup(method_name, segmenter, image_array)
@@ -1145,19 +1324,20 @@ class SegmentationTester:
             ground_truth if ground_truth is not None else self.ground_truth_mask
         )
         has_gt = gt_mask_to_use is not None
-        gt_binary = None
+        gt_binary: Optional[MaskArray] = None
 
-        if has_gt:
-            assert gt_mask_to_use is not None
+        if has_gt and gt_mask_to_use is not None:
             print("🎯 Обнаружен Ground Truth. Будет выполнен расчет метрик качества.")
-            if gt_mask_to_use.max() <= 1.0:
-                gt_binary = (gt_mask_to_use * 255).astype(np.uint8)
-            else:
-                gt_binary = gt_mask_to_use.astype(np.uint8)
+            gt_binary = (
+                (gt_mask_to_use * 255).astype(np.uint8)
+                if gt_mask_to_use.max() <= 1.0
+                else gt_mask_to_use.astype(np.uint8)
+            )
         else:
             print("⚠️ Ground Truth не найден. Метрики качества рассчитываться не будут.")
 
         print(f"🏃 Запуск бенчмарка ({n_runs} прогонов)...")
+        benchmark_results: List[Dict[str, Any]] = []
 
         for method_name in self.methods.keys():
             print(f"  📊 Тестируем {method_name}...")
@@ -1169,7 +1349,7 @@ class SegmentationTester:
 
             times: List[float] = []
             results_list: List[np.ndarray] = []
-            masks_list: List[np.ndarray] = []
+            masks_list: List[MaskArray] = []
 
             is_neural = (
                 "neural" in method_name.lower()
@@ -1196,14 +1376,14 @@ class SegmentationTester:
                 input_arg_for_method = image_array
 
             for run in range(n_runs):
-                start_time: float = time.time()
+                start_time = time.perf_counter()
                 result: np.ndarray
                 mask: np.ndarray
                 try:
                     result, mask = self.methods[method_name].segment_with_mask(
                         input_arg_for_method
                     )
-                    times.append(time.time() - start_time)
+                    times.append(time.perf_counter() - start_time)
                     if run == 0:
                         masks_list.append(mask)
                         results_list.append(result)
@@ -1236,7 +1416,6 @@ class SegmentationTester:
                         else:
                             gt_resized = gt_binary
 
-                        # Расчет метрик
                         metrics_dict = SegmentationMetrics.calculate_all_metrics(
                             pred_mask=mask,
                             gt_mask=gt_resized,
@@ -1327,9 +1506,7 @@ class SegmentationTester:
         elif "Mean_Time_s (s)" in df.columns:
             df = df.sort_values("Mean_Time_s (s)")
 
-        print("\n" + "=" * 80)
-        print("РЕЗУЛЬТАТЫ БЕНЧМАРКА:")
-        print("=" * 80)
+        print("\n" + "=" * 80 + "\nРЕЗУЛЬТАТЫ БЕНЧМАРКА:\n" + "=" * 80)
         pd.set_option("display.max_columns", None)
         pd.set_option("display.width", 1000)
         print(df.to_string(index=False))
@@ -1339,8 +1516,14 @@ class SegmentationTester:
 
         return df
 
-    def _save_benchmark_results(self, df: pd.DataFrame, output_dir: str) -> None:
-        """Сохраняет результаты бенчмарка"""
+    def _save_benchmark_results(self, df: pd.DataFrame, output_dir: PathLike) -> None:
+        """
+        Сохраняет результаты бенчмарка в CSV, Excel и текстовый отчёт.
+
+        Args:
+            df: DataFrame с результатами `benchmark_methods()`.
+            output_dir: Базовая директория для сохранения.
+        """
         bench_stats_dir: str = os.path.join(output_dir, "statistics")
         os.makedirs(bench_stats_dir, exist_ok=True)
 
@@ -1356,7 +1539,7 @@ class SegmentationTester:
         except Exception:
             pass
 
-        # Создаем текстовый отчет
+        # TXT-отчёт
         report_path: str = os.path.join(bench_stats_dir, "benchmark_report.txt")
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("=" * 80 + "\n")
@@ -1393,19 +1576,21 @@ class SegmentationTester:
                             f"{row['Method']:<30} {row['Time_String']:<20} {iou}     {dice}     {f1}\n"
                         )
             else:
-                f.write("Режим: Только производительность (без Ground Truth)\n")
-                f.write("-" * 80 + "\n")
+                f.write(
+                    "Режим: Только производительность (без Ground Truth)\n"
+                    + "-" * 80
+                    + "\n"
+                )
                 f.write(
                     f"{'Метод':<30} {'Время (с)':<20} {'Площадь маски':<15} {'Процент':<10}\n"
+                    + "-" * 80
+                    + "\n"
                 )
-                f.write("-" * 80 + "\n")
                 for _, row in df.iterrows():
                     f.write(
                         f"{row['Method']:<30} {row['Time_String']:<20} {int(row['Mask_Area']):<15,} {row['Mask_Percentage']:.3f}%\n"
                     )
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("СВОДКА:\n")
-            f.write("-" * 80 + "\n")
+            f.write("\n" + "=" * 80 + "\nСВОДКА:\n" + "-" * 80 + "\n")
             if not df.empty:
                 fastest = df.iloc[0]
                 slowest = df.iloc[-1]
@@ -1428,8 +1613,14 @@ class SegmentationTester:
         print(f"📊 CSV с результатами: {csv_path}")
         self._plot_benchmark_results(df, output_dir)
 
-    def _plot_benchmark_results(self, df: pd.DataFrame, output_dir: str) -> None:
-        """Создает графики результатов бенчмарка"""
+    def _plot_benchmark_results(self, df: pd.DataFrame, output_dir: PathLike) -> None:
+        """
+        Строит графики результатов бенчмарка: время, площадь, IoU vs время.
+
+        Args:
+            df: DataFrame с результатами.
+            output_dir: Базовая директория для сохранения.
+        """
 
         if df.empty:
             return
@@ -1536,12 +1727,15 @@ class SegmentationTester:
             print(f"📈 График IoU vs Time сохранен в {comp_dir}/iou_vs_time.png")
 
         # График 4: Сравнительная визуализация результатов (маленькие превью)
-        self._create_benchmark_preview(df, output_dir, comp_dir)
+        self._create_benchmark_preview(df, output_dir, str(comp_dir))
+        print(f"📈 Графики бенчмарка сохранены в {comp_dir}/")
 
-        print(f"📈 Графики бенчмарка сохранены в {output_dir}/comparisons/")
+    def _create_metrics_plots(self, df: pd.DataFrame, metrics_dir: PathLike) -> None:
+        """
+        Создаёт графики сравнения метрик (бар-чарты, scatter IoU vs время).
 
-    def _create_metrics_plots(self, df: pd.DataFrame, metrics_dir: str) -> None:
-        """Создает графики сравнения метрик"""
+        Примечание: Метод закомментирован в оригинальном коде — оставлен для совместимости.
+        """
         try:
             # График 1: Барчарт основных метрик
             fig, axes = plt.subplots(2, 2, figsize=(15, 12))
@@ -1627,9 +1821,16 @@ class SegmentationTester:
             print(f"⚠️ Ошибка создания графиков метрик: {e}")
 
     def _create_benchmark_preview(
-        self, df: pd.DataFrame, output_dir: str, comp_dir: str
+        self, df: pd.DataFrame, output_dir: PathLike, comp_dir: str
     ) -> None:
-        """Создает превью результатов всех методов"""
+        """
+        Создаёт превью-галерею результатов всех методов, отсортированных по скорости.
+
+        Args:
+            df: DataFrame с результатами.
+            output_dir: Базовая директория.
+            comp_dir: Директория для сохранения превью.
+        """
         images_dir: str = os.path.join(output_dir, "images")
         result_files: List[str] = [
             f for f in os.listdir(images_dir) if f.endswith("_result.jpg")
@@ -1684,24 +1885,24 @@ class SegmentationTester:
 
     def benchmark_all_methods(
         self,
-        image,
-        method_names=None,
+        image: ImageInput,
+        method_names: Optional[List[str]] = None,
         n_runs: int = 3,
         test_name: str = "benchmark",
-        ground_truth=None,
-    ) -> "pd.DataFrame":
+        ground_truth: Optional[MaskArray] = None,
+    ) -> pd.DataFrame:
         """
-        Бенчмарк всех зарегистрированных методов: время + метрики качества.
+        Упрощённый бенчмарк всех зарегистрированных методов: время + метрики.
 
         Args:
-            image: Входное изображение
-            method_names: Список методов (None = все)
-            n_runs: Количество прогонов для стабильного измерения времени
-            test_name: Имя теста для сохранения
-            ground_truth: Ground truth маска (опционально)
+            image: Входное изображение.
+            method_names: Список методов. Если `None`, все зарегистрированные.
+            n_runs: Количество прогонов.
+            test_name: Префикс имени теста.
+            ground_truth: GT-маска для метрик.
 
         Returns:
-            pd.DataFrame со сводными результатами
+            pd.DataFrame: Сводная таблица с метриками и временем.
         """
         if method_names is None:
             method_names = list(self.methods.keys())
@@ -1721,10 +1922,10 @@ class SegmentationTester:
             times = []
             last_result = None
             for _ in range(n_runs):
-                t0 = time.time()
+                t0 = time.perf_counter()
                 try:
                     result_img, mask = segmenter.segment_with_mask(image)
-                    times.append(time.time() - t0)
+                    times.append(time.perf_counter() - t0)
                     last_result = (result_img, mask)
                 except Exception as e:
                     print(f"⚠️ {method_name}: {e}")
@@ -1749,9 +1950,9 @@ class SegmentationTester:
 
             if ground_truth is not None:
                 try:
-                    from metrics.SegmentationMetrics import SegmentationMetrics as _SM
-
-                    m = _SM.calculate_all_metrics(mask, ground_truth, threshold=0.5)
+                    m = SegmentationMetrics.calculate_all_metrics(
+                        mask, ground_truth, threshold=0.5
+                    )
                     record.update(
                         {
                             "iou": m.get("iou", float("nan")),
@@ -1780,10 +1981,21 @@ class SegmentationTester:
         results: Dict[str, Dict],
         show_masks: bool = True,
         save_visualization: bool = True,
-        output_dir: Optional[str] = None,
+        output_dir: Optional[PathLike] = None,
         show_plots: bool = True,
     ) -> None:
-        """Визуализация сравнения результатов с сохранением"""
+        """
+        Визуализация сравнения результатов с сохранением.
+
+        Строит 1 или 2 ряда: [Результаты] + [Маски] (если `show_masks=True`).
+
+        Args:
+            results: Результаты `compare_methods()` или `test_single_method()`.
+            show_masks: Показывать ли бинарные маски отдельно.
+            save_visualization: Сохранять ли итоговую визуализацию.
+            output_dir: Директория для сохранения.
+            show_plots: Показывать ли через `plt.show()`.
+        """
         if output_dir is None and self.current_test_id:
             output_dir = os.path.join(self.base_output_dir, self.current_test_id)
         elif output_dir is None:
@@ -1857,9 +2069,15 @@ class SegmentationTester:
     def save_results(
         self,
         results: Dict[str, Dict],
-        output_dir: str = "./../data/segmentation_results",
+        output_dir: Optional[PathLike] = "./../data/segmentation_results",
     ) -> None:
-        """Сохранение результатов всех методов"""
+        """
+        Сохранение результатов всех методов в указанную директорию.
+
+        Args:
+            results: Результаты тестирования.
+            output_dir: Директория для сохранения. Если `None`, создаётся новая.
+        """
 
         if output_dir is None:
             output_dir = self._create_test_directory("./../data/results_save")

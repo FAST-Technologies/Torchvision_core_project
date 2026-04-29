@@ -1,52 +1,122 @@
 # utils/threshold_warmup.py
 
 # Импорт основных библиотек
+import time
 import numpy as np
 from typing import (
     TypedDict,
     List,
     Dict,
     Any,
+    Tuple,
+    Union,
 )
-import time
+
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES & TYPEDDICTS
+# ──────────────────────────────────────────────────────────────────────
+SegmenterLike = Any  # Объект с методом .segment(image) -> np.ndarray
 
 
 class WarmupMetrics(TypedDict):
+    """
+    Структура метрик warm-up для одного теста.
+
+    Attributes:
+        mean_ms: Среднее время выполнения в миллисекундах.
+        std_ms: Стандартное отклонение времени в миллисекундах.
+        n_runs: Количество успешных прогонов.
+    """
+
     mean_ms: float
     std_ms: float
-    n_runs: int  # или total: int
+    n_runs: int
 
 
 class SizeResults(TypedDict):
+    """
+    Результаты warm-up по различным размерам изображений.
+
+    Attributes:
+        sizes: Словарь `{размер_строкой: WarmupMetrics}`.
+    """
+
     sizes: Dict[str, WarmupMetrics]
 
 
 class PatternResults(TypedDict):
+    """
+    Результаты warm-up по различным паттернам изображений.
+
+    Attributes:
+        patterns: Словарь `{имя_паттерна: WarmupMetrics}`.
+    """
+
     patterns: Dict[str, WarmupMetrics]
 
 
 class ThresholdWarmUp:
     """
-    Специализированный warm-up для пороговых и граничных методов.
+    Специализированный warm-up для пороговых и граничных методов сегментации.
     Оптимизирует кэширование гистограмм и свёрток.
+
+    Предназначен для:
+    - Прогрева кэшей гистограмм и свёрточных ядер перед бенчмарком.
+    - Оценки стабильности производительности на разных размерах/паттернах.
+    - Выявления методов с аномальным временем первого запуска (JIT, CUDA init).
+
+    Особенности:
+    - Использует `time.perf_counter()` для точных замеров.
+    - Обрабатывает исключения: сбойный прогон не останавливает весь warm-up.
+    - Возвращает типизированные результаты для дальнейшего анализа.
+
+    Example:
+        ```python
+        results = ThresholdWarmUp.warmup_threshold_methods(
+            segmenters_dict={"otsu": otsu_segmenter},
+            image_sizes=[(256, 256), (512, 512)],
+            n_runs_per_size=3,
+        )
+        print(results["otsu"]["sizes"]["(256, 256)"]["mean_ms"])  # 12.34
+        ```
     """
 
     @staticmethod
+    @staticmethod
     def warmup_threshold_methods(
-        segmenters_dict: Dict[str, Any],
-        image_sizes: List[tuple] = [(128, 128), (256, 256), (512, 512)],
+        segmenters_dict: Dict[str, SegmenterLike],
+        image_sizes: List[Tuple[int, int]] = [(128, 128), (256, 256), (512, 512)],
         n_runs_per_size: int = 2,
     ) -> Dict[str, SizeResults]:
         """
         Прогрев пороговых методов на изображениях разного размера.
 
+        Для каждого метода, содержащего ключевые слова ("global_threshold", "otsu", ...):
+        1. Генерирует случайное изображение указанного размера.
+        2. Выполняет `n_runs_per_size` прогонов с замером времени.
+        3. Рассчитывает среднее и стандартное отклонение времени выполнения.
+
         Args:
-            segmenters_dict: {name: segmenter}
-            image_sizes: Список размеров для тестирования
-            n_runs_per_size: Количество прогонов на каждый размер
+            segmenters_dict: Словарь `{имя_метода: экземпляр_сегментера}`.
+            image_sizes: Список кортежей `(высота, ширина)` для тестирования.
+            n_runs_per_size: Количество прогонов на каждый размер изображения.
 
         Returns:
-            Dict со статистикой warm-up
+            Dict[str, SizeResults]: Результаты по методам:
+            ```python
+            {
+                "otsu_method": {
+                    "sizes": {
+                        "(256, 256)": {"mean_ms": 12.34, "std_ms": 1.23, "n_runs": 2},
+                        "(512, 512)": {"mean_ms": 45.67, "std_ms": 3.45, "n_runs": 2},
+                    }
+                }
+            }
+            ```
+
+        Note:
+            - Методы фильтруются по наличию ключевых слов в имени (регистронезависимо).
+            - При ошибке в прогоне время записывается как `inf`, но цикл продолжается.
         """
         threshold_methods: List[str] = [
             "global_threshold",
@@ -91,11 +161,39 @@ class ThresholdWarmUp:
 
     @staticmethod
     def warmup_edge_methods(
-        segmenters_dict: Dict[str, Any],
+        segmenters_dict: Dict[str, SegmenterLike],
         edge_patterns: List[str] = ["horizontal", "vertical", "diagonal", "noise"],
+        n_runs_per_pattern: int = 3,
     ) -> Dict[str, PatternResults]:
         """
-        Прогрев граничных методов на различных паттернах.
+        Прогрев граничных методов на различных тестовых паттернах.
+
+        Для каждого метода, содержащего ключевые слова ("sobel", "canny", ...):
+        1. Генерирует изображение с указанным паттерном границ.
+        2. Выполняет `n_runs_per_pattern` прогонов с замером времени.
+        3. Рассчитывает статистику выполнения.
+
+        Args:
+            segmenters_dict: Словарь `{имя_метода: экземпляр_сегментера}`.
+            edge_patterns: Список имён паттернов для генерации тестовых изображений.
+            n_runs_per_pattern: Количество прогонов на каждый паттерн.
+
+        Returns:
+            Dict[str, PatternResults]: Результаты по методам:
+            ```python
+            {
+                "sobel_method": {
+                    "patterns": {
+                        "horizontal": {"mean_ms": 8.12, "std_ms": 0.45, "n_runs": 3},
+                        "vertical": {"mean_ms": 8.34, "std_ms": 0.52, "n_runs": 3},
+                    }
+                }
+            }
+            ```
+
+        Note:
+            - Паттерны генерируются через `_create_edge_pattern()`.
+            - Для паттерна "noise" создаётся цветное изображение (H×W×3), остальные — градации серого (H×W).
         """
         edge_methods = ["sobel", "canny", "laplacian", "prewitt"]
         results: Dict[str, PatternResults] = {}
@@ -116,7 +214,7 @@ class ThresholdWarmUp:
                 )
 
                 times: List[float] = []
-                for _ in range(3):
+                for _ in range(n_runs_per_pattern):
                     start = time.perf_counter()
                     try:
                         if hasattr(segmenter, "segment"):
@@ -138,7 +236,26 @@ class ThresholdWarmUp:
 
     @staticmethod
     def _create_edge_pattern(h: int, w: int, pattern: str) -> np.ndarray:
-        """Создаёт тестовые паттерны для граничных методов."""
+        """
+        Создаёт тестовые паттерны для граничных методов.
+
+        Поддерживаемые паттерны:
+        - `"horizontal"`: Горизонтальная белая полоса по центру.
+        - `"vertical"`: Вертикальная белая полоса по центру.
+        - `"diagonal"`: Диагональная линия из единичных пикселей.
+        - `"noise"`: Случайный цветной шум (для тестирования устойчивости).
+        - Другие значения: Шахматная доска (черно-белая).
+
+        Args:
+            h: Высота изображения.
+            w: Ширина изображения.
+            pattern: Имя паттерна.
+
+        Returns:
+            np.ndarray:
+            - Для `"noise"`: массив формы `(h, w, 3)`, dtype `uint8`.
+            - Для остальных: массив формы `(h, w)`, dtype `uint8` (градации серого).
+        """
         img: np.ndarray = np.zeros((h, w), dtype=np.uint8)
 
         if pattern == "horizontal":

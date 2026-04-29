@@ -2,29 +2,98 @@
 
 """
 Вспомогательный скрипт для проверки влияния аугментаций на качество обучения сегментационных моделей.
+
+Workflow:
+1. Поиск чекпоинтов по шаблону `{model_type}_{augmentation_level}_*.pth`.
+2. Загрузка тестового изображения и GT-маски из HuggingFace Hub.
+3. Оценка каждой модели: предсказание → расчёт mIoU, Dice, F1, ... → сохранение overlay.
+4. Визуализация: бар-чарты, heatmaps, сравнение времени инференса.
+5. Экспорт: CSV, Markdown-отчёт, PNG-графики.
+
+Example:
+    ```bash
+    python analyze.py
+    ```
 """
 
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 # Импорт основных библиотек
 import glob
 import os
 import gc
+import time
+import warnings
+from pathlib import Path
+from typing import (
+    List,
+    Tuple,
+    Dict,
+    Any,
+    Optional,
+    Union,
+)
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
+import torch
+from PIL import Image
+from huggingface_hub import hf_hub_download
+from scipy.ndimage import zoom
+
+# Локальные импорты
 from segmenters.NeuralSegmenter import NeuralSegmenter
 from metrics.SegmentationMetrics import SegmentationMetrics
-import numpy as np
-from PIL import Image
-import torch
-from huggingface_hub import hf_hub_download
-import time
-from typing import Tuple, Dict, Any
+
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES & CONSTANTS
+# ──────────────────────────────────────────────────────────────────────
+MaskArray = np.ndarray
+ImageArray = np.ndarray
+MetricValue = float
+MetricsDict = Dict[str, MetricValue]
+PathLike = Union[str, Path]
+
+# Маппинг имён чекпоинтов на ModelType enum (для NeuralSegmenter)
+MODEL_TYPE_MAPPING: Dict[str, str] = {
+    "unet_smp": "unet_smp",
+    "fpn_smp": "fpn_smp",
+    "psp_smp": "pspnet_smp",  # 🔧 Исправлено: psp_smp → pspnet_smp
+    "deeplab_tv": "deeplab_tv",
+    "fcn_tv": "fcn_tv",
+    "segnet": "segnet",
+}
 
 
-def analyze_augmentation_impact() -> Tuple[pd.DataFrame, Dict[str, Any]]:
+def analyze_augmentation_impact() -> (
+    Tuple[Optional[pd.DataFrame], Optional[Dict[str, Image.Image]]]
+):
     """
-    Исследование влияния аугментаций на качество сегментации
-    Исправленная версия с поддержкой всех моделей и корректными метриками
+    Исследование влияния аугментаций на качество сегментации.
+
+    Исправленная версия с поддержкой всех моделей и корректными метриками.
+
+    Логика:
+    1. Поиск чекпоинтов по шаблону в `./models/`.
+    2. Загрузка тестового изображения и маски из `hf-internal-testing/fixtures_ade20k`.
+    3. Для каждой модели:
+       - Загрузка через `NeuralSegmenter`.
+       - Предсказание + ресайз к размеру GT.
+       - Расчёт mIoU (многоклассовый) и бинарных метрик.
+       - Сохранение overlay-визуализации.
+       - Очистка CUDA-памяти.
+    4. Агрегация результатов в DataFrame.
+    5. Визуализация: бар-чарты, heatmaps, сравнение времени.
+    6. Экспорт: CSV, Markdown-отчёт.
+
+    Returns:
+        Tuple[Optional[pd.DataFrame], Optional[Dict[str, PIL.Image]]]:
+        - DataFrame с метриками по моделям и аугментациям.
+        - Словарь `{key: overlay_image}` для дальнейшего использования.
+        Если результаты пусты — возвращает `(None, None)`.
     """
 
     print("=" * 80)
@@ -42,17 +111,7 @@ def analyze_augmentation_impact() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     ]
     augmentation_levels: List[str] = ["none", "basic", "medium"]
 
-    # Маппинг имён чекпоинтов на ModelType enum
-    MODEL_TYPE_MAPPING: Dict[str, str] = {
-        "unet_smp": "unet_smp",
-        "fpn_smp": "fpn_smp",
-        "psp_smp": "pspnet_smp",
-        "deeplab_tv": "deeplab_tv",
-        "fcn_tv": "fcn_tv",
-        "segnet": "segnet",
-    }
-
-    checkpoints: dict = {}
+    checkpoints: Dict[str, Dict[str, Any]] = {}
 
     print("\n🔍 Поиск чекпоинтов...")
     for model_type in model_types:
@@ -84,7 +143,7 @@ def analyze_augmentation_impact() -> Tuple[pd.DataFrame, Dict[str, Any]]:
 
     test_image: Image.Image = Image.open(img_path).convert("RGB")
     gt_mask_pil: Image.Image = Image.open(mask_path)
-    gt_mask: np.ndarray = np.array(gt_mask_pil)
+    gt_mask: MaskArray = np.array(gt_mask_pil)
     if gt_mask.ndim == 3 and gt_mask.shape[2] == 3:
         # RGB маска → берём первый канал или конвертируем
         gt_mask = gt_mask[:, :, 0]
@@ -93,8 +152,8 @@ def analyze_augmentation_impact() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     print(f"   ✅ Маска: {gt_mask.shape}, unique values: {len(np.unique(gt_mask))}")
 
     print("\n🧪 Оценка моделей...")
-    results = []
-    overlay_images = {}
+    results: List[Dict[str, Any]] = []
+    overlay_images: Dict[str, Image.Image] = {}
 
     for key, checkpoint_info in checkpoints.items():
         try:
@@ -114,29 +173,32 @@ def analyze_augmentation_impact() -> Tuple[pd.DataFrame, Dict[str, Any]]:
             )
 
             # Предсказание
-            start_time = time.time()
+            start_time = time.perf_counter()
+            pred_mask: MaskArray
+            pred_info: Dict[str, Any]
             pred_mask, pred_info = segmenter.predict_segmentation_map(
                 test_image, verbose=False, gt_mask=gt_mask
             )
-            inference_time = time.time() - start_time
+            inference_time = time.perf_counter() - start_time
 
-            pred_mask_2 = segmenter.segment(np.array(test_image))
+            # Бинарная сегментация для совместимости
+            pred_mask_2: MaskArray = segmenter.segment(np.array(test_image))
 
+            # Ресайз предсказания под размер GT
             if gt_mask.shape != pred_mask.shape:
-                # Ресайз предсказания под размер GT
-                from scipy.ndimage import zoom
-
                 sh, sw = (
                     gt_mask.shape[0] / pred_mask.shape[0],
                     gt_mask.shape[1] / pred_mask.shape[1],
                 )
-                pred_mask_resized = zoom(pred_mask, (sh, sw), order=0)
+                pred_mask_resized: MaskArray = zoom(pred_mask, (sh, sw), order=0)
             else:
-                pred_mask_resized = pred_mask
+                pred_mask_resized = pred_maskk
 
-            # Рассчитываем mIoU
+            # ──────────────────────────────────────────────────────────────
+            # Расчёт mIoU (многоклассовый)
+            # ──────────────────────────────────────────────────────────────
             classes = np.unique(np.concatenate([gt_mask, pred_mask_resized]))
-            iou_per_class = []
+            iou_per_class: List[float] = []
 
             for cls in classes:
                 if cls == 255:  # ignore index
@@ -144,27 +206,31 @@ def analyze_augmentation_impact() -> Tuple[pd.DataFrame, Dict[str, Any]]:
                 pred_cls = (pred_mask_resized == cls).astype(np.uint8)
                 gt_cls = (gt_mask == cls).astype(np.uint8)
 
-                intersection = np.logical_and(pred_cls, gt_cls).sum()
-                union = np.logical_or(pred_cls, gt_cls).sum()
+                intersection = int(np.logical_and(pred_cls, gt_cls).sum())
+                union = int(np.logical_or(pred_cls, gt_cls).sum())
 
                 if union > 0:
                     iou_per_class.append(intersection / union)
 
-            m_iou = np.mean(iou_per_class) if iou_per_class else 0.0
+            m_iou: MetricValue = float(np.mean(iou_per_class)) if iou_per_class else 0.0
 
+            # ──────────────────────────────────────────────────────────────
             # Бинарные метрики (объект vs фон)
+            # ──────────────────────────────────────────────────────────────
             pred_binary = (pred_mask_resized > 0).astype(np.uint8)
             gt_binary = (gt_mask > 0).astype(np.uint8)
 
-            metrics = SegmentationMetrics.calculate_all_metrics(
+            metrics: MetricsDict = SegmentationMetrics.calculate_all_metrics(
                 pred_mask=pred_binary,
                 gt_mask=gt_binary,
                 threshold=0.5,
                 include_hausdorff=True,
             )
 
-            # Сохраняем результаты
-            result = {
+            # ──────────────────────────────────────────────────────────────
+            # Сохранение результатов
+            # ──────────────────────────────────────────────────────────────
+            result: Dict[str, Any] = {
                 "model": display_name,
                 "augmentation": aug_level,
                 "checkpoint": os.path.basename(checkpoint_path),
@@ -192,6 +258,9 @@ def analyze_augmentation_impact() -> Tuple[pd.DataFrame, Dict[str, Any]]:
             os.makedirs(output_dir, exist_ok=True)
             overlay_path: str = f"{output_dir}/overlay_{display_name}_{aug_level}.jpg"
             overlay.save(overlay_path)
+
+            # overlay_path: Path = output_dir / f"overlay_{display_name}_{aug_level}.jpg"
+            # overlay.save(overlay_path)
 
             print(
                 f"      ✅ IoU (mIoU): {m_iou:.4f}, Dice: {metrics.get('dice', 0):.4f}"
@@ -414,6 +483,9 @@ def analyze_augmentation_impact() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     print(f"   ✅ График прироста сохранен: {output_dir}/augmentation_gain.png")
     plt.close()
 
+    # ──────────────────────────────────────────────────────────────
+    # СОХРАНЕНИЕ СРАВНЕНИЯ ВИЗУАЛИЗАЦИЙ
+    # ──────────────────────────────────────────────────────────────
     print("\n🖼️ Сохранение сравнения визуализаций...")
 
     for model in df["model"].unique():
@@ -445,6 +517,9 @@ def analyze_augmentation_impact() -> Tuple[pd.DataFrame, Dict[str, Any]]:
         plt.close()
         print(f"   ✅ Сравнение для {model}: {output_dir}/comparison_{model}.png")
 
+    # ──────────────────────────────────────────────────────────────
+    # СТАТИСТИЧЕСКИЙ АНАЛИЗ
+    # ──────────────────────────────────────────────────────────────
     print("\n" + "=" * 80)
     print("СТАТИСТИЧЕСКИЙ АНАЛИЗ")
     print("=" * 80)
@@ -494,16 +569,27 @@ def analyze_augmentation_impact() -> Tuple[pd.DataFrame, Dict[str, Any]]:
 
 
 def save_augmentation_comparison_grid(
-    overlay_images, output_dir="./data/augmentation_analysis", model_names=None
+    overlay_images: Dict[str, Image.Image],
+    output_dir: PathLike = "./data/augmentation_analysis",
+    model_names: Optional[List[str]] = None,
 ) -> None:
     """
     Создаёт единую сетку сравнения всех моделей.
 
+    Макет:
+    ```
+    [Модель 1] [none] [basic] [medium]
+    [Модель 2] [none] [basic] [medium]
+    ...
+    ```
+
     Args:
-        overlay_images: dict {key: PIL.Image}
-        output_dir: папка для сохранения
-        model_names: опциональный список имён моделей (если None, извлекается из ключей)
+        overlay_images: Словарь `{key: PIL.Image}` с визуализациями.
+        output_dir: Директория для сохранения.
+        model_names: Опциональный список имён моделей (если `None`, извлекается из ключей).
     """
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
     if model_names is None:
 
         def extract_model_name(key):
@@ -589,21 +675,23 @@ if __name__ == "__main__":
             f"   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB"
         )
     results_df, overlay_images_result = analyze_augmentation_impact()
-    print("\n🔍 DEBUG: overlay_images keys:")
-    for k in sorted(overlay_images_result.keys())[:10]:
-        print(f"   {k}")
+    if overlay_images_result:
+        print("\n🔍 DEBUG: overlay_images keys:")
+        for k in sorted(overlay_images_result.keys())[:10]:
+            print(f"   {k}")
 
-    print(f"\n🔍 DEBUG: извлечённые модели:")
+        print(f"\n🔍 DEBUG: извлечённые модели:")
 
-    def extract_model_name(key):
-        parts = key.rsplit("_", 1)
-        return parts[0] if len(parts) > 1 else key
+        def extract_model_name(key: str) -> str:
+            parts = key.rsplit("_", 1)
+            return parts[0] if len(parts) > 1 else key
 
-    models = list(set(extract_model_name(k) for k in overlay_images_result.keys()))
-    print(f"   {models}")
-    if results_df is not None:
-        model_names = results_df["model"].unique().tolist()
-        save_augmentation_comparison_grid(
-            overlay_images_result, model_names=model_names
-        )
-        print("\n✅ Анализ завершён!")
+        models = list(set(extract_model_name(k) for k in overlay_images_result.keys()))
+        print(f"   {models}")
+
+        if results_df is not None:
+            model_names = results_df["model"].unique().tolist()
+            save_augmentation_comparison_grid(
+                overlay_images_result, model_names=model_names
+            )
+            print("\n✅ Анализ завершён!")

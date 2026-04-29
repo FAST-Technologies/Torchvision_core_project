@@ -3,25 +3,26 @@
 # Импорт основных библиотек
 import sys
 import os
+import json
+import time
+import gc
+import asyncio
 from typing import (
     List,
-    Union,
     Dict,
     Any,
     Optional,
     Callable,
+    Union,
+    Tuple,
 )
-import time
-import gc
-from PIL import Image
+from pathlib import Path
 
-import json
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-import asyncio
-
+from PIL import Image
 import torch
 
 from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType
@@ -29,11 +30,16 @@ from utils.palettes import ade_palette
 from utils.utils import compute_metrics
 from utils.strategies import segment_image_unified
 
+# Настройка путей проекта
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 num_classes_custom: int = 150
+
+# Alias для удобства
+ImageInput = Union[str, Image.Image]
+PaletteType = Optional[Union[List[List[int]], Callable[[], List[List[int]]]]]
 
 
 class SegmentationBenchmark:
@@ -49,15 +55,17 @@ class SegmentationBenchmark:
         palette: Optional[Union[List[List[int]], Callable[[], List[List[int]]]]] = None,
     ) -> None:
         """
-        Инициализация бенчмарка для сравнения моделей сегментации.
+        Полноценный бенчмарк для сравнения архитектур сегментации изображений.
 
-        Args:
-            device: Устройство для вычислений ("cuda" или "cpu")
-            num_classes: Количество классов сегментации (по умолчанию 150 для ADE20K)
-            ignore_index: Индекс игнорируемых пикселей (по умолчанию 255)
-            class_names: Список имён классов для визуализации
-            gt_mask: Ground truth маска для вычисления метрик
-            palette: Цветовая палитра для визуализации масок
+        Поддерживает:
+        - Загрузку обученных и предобученных моделей (CNN, Transformers, Universal)
+        - Поочередный и асинхронный инференс с управлением VRAM
+        - Расчёт метрик (mIoU, Pixel Accuracy, F1, Per-Class IoU, Confusion Matrix)
+        - Визуализацию результатов (бар-чарты, heatmaps, наложенные маски)
+        - Экспорт отчётов в CSV, JSON, Markdown и LaTeX
+
+        Workflow:
+        1. Инициализация -> 2. Загрузка моделей (chainable) -> 3. Запуск compare() -> 4. Экспорт/визуализация.
         """
         if callable(palette):
             resolved_palette = palette()
@@ -79,6 +87,9 @@ class SegmentationBenchmark:
         ]
         self.gt_mask: Optional[Union[np.ndarray, Image.Image]] = gt_mask
 
+    # ──────────────────────────────────────────────────────────────────────
+    # ЗАГРУЗКА МОДЕЛЕЙ (Fluent Interface)
+    # ──────────────────────────────────────────────────────────────────────
     def load_trained_model(
         self, key: str, model_type: ModelType, checkpoint_path: str, **kwargs
     ) -> "SegmentationBenchmark":
@@ -86,12 +97,13 @@ class SegmentationBenchmark:
         Регистрация загруженной модели из чекпоинта для бенчмарка.
 
         Args:
-            key: Уникальный ключ модели для доступа к результатам
-            model_type: Тип модели для выбора правильного инференса
-            checkpoint_path: Путь до чекпоинта
+            key: Уникальный идентификатор модели для доступа к результатам.
+            model_type: Enum-тип модели для выбора правильного инференс-пайплайна.
+            checkpoint_path: Путь к файлу `.pth` / `.pt`.
+            **kwargs: Дополнительные аргументы для `NeuralModelFactory` (encoder_name, variant и т.д.).
 
         Returns:
-            self: Для цепочки вызовов
+            self: Для цепочки вызовов.
         """
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=model_type,
@@ -112,36 +124,40 @@ class SegmentationBenchmark:
     def load_all_trained_models(
         self, checkpoint_dir: str = "./../models"
     ) -> "SegmentationBenchmark":
-        """Загрузка всех обученных моделей для бенчмарка"""
-        checkpoints = {
+        """
+        Пакетная загрузка всех обученных моделей из директории.
+
+        Args:
+            checkpoint_dir: Базовая директория с `.pth` файлами.
+
+        Returns:
+            self: Для цепочки вызовов.
+        """
+        checkpoints: Dict[str, Tuple[ModelType, str, Dict[str, Any]]] = {
             "unet_trained": (
                 ModelType.UNET_SMP,
-                "./../models/unet_ade20k_best.pth",
+                "unet_ade20k_best.pth",
                 {"encoder_name": "resnet34"},
             ),
-            "deeplab_trained": (
-                ModelType.DEEPLAB_TV,
-                "./../models/deeplab_ade20k_best.pth",
-                {},
-            ),
+            "deeplab_trained": (ModelType.DEEPLAB_TV, "deeplab_ade20k_best.pth", {}),
             "fpn_mit_b5_trained": (
                 ModelType.FPN_SMP,
-                "./../models/fpn_mit_b5_ade20k_best.pth",
+                "fpn_mit_b5_ade20k_best.pth",
                 {"encoder_name": "mit_b5"},
             ),
             "psp_mit_b5_trained": (
                 ModelType.PSPNET_SMP,
-                "./../models/psp_mit_b5_ade20k_best.pth",
+                "psp_mit_b5_ade20k_best.pth",
                 {"encoder_name": "mit_b5"},
             ),
             "fcn_resnet50_trained": (
                 ModelType.FCN_TV,
-                "./../models/fcn_resnet50_ade20k_best.pth",
+                "fcn_resnet50_ade20k_best.pth",
                 {"variant": "fcn_resnet50"},
             ),
             "segnet_trained": (
                 ModelType.SEGNET,
-                "./../models/segnet_ade20k_best.pth",
+                "segnet_ade20k_best.pth",
                 {"encoder_name": "resnet34"},
             ),
         }
@@ -153,9 +169,11 @@ class SegmentationBenchmark:
                 print(f"⚠️ Checkpoint not found: {checkpoint_path}")
         return self
 
-    # ============ ЗАГРУЗКА ПРЕДОБУЧЕННЫХ МОДЕЛЕЙ ============
+    # ──────────────────────────────────────────────────────────────────────
+    # ЗАГРУЗКА ПРЕДОБУЧЕННЫХ МОДЕЛЕЙ
+    # ──────────────────────────────────────────────────────────────────────
     def load_segformer(self, path: str) -> "SegmentationBenchmark":
-        """Загрузка SegFormer модели"""
+        """Загрузка кастомного SegFormer из локального пути."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.SEGFORMER,
             local_path=path,
@@ -175,13 +193,13 @@ class SegmentationBenchmark:
         Загрузка разных версий SegFormer для сравнения.
 
         Args:
-            variant: Версия модели ("b0", "b1", "b2", "b3", "b4", "b5")
+            variant: Архитектура / Версия модели (`"b0"`, `"b1"`, `"b2"`, `"b3"`, `"b4"`, `"b5"`).
 
         Returns:
-            self: Для цепочки вызовов
+            self: Для цепочки вызовов.
 
         Raises:
-            ValueError: Если указана неизвестная версия
+            ValueError: Если указана неподдерживаемая версия.
         """
         model, processor, model_type_str = NeuralModelFactory.load_segformer_variant(
             variant=variant, device=self.device
@@ -268,7 +286,7 @@ class SegmentationBenchmark:
         return self
 
     def load_sam(self, model_name: str = "mobile_sam.pt") -> "SegmentationBenchmark":
-        """Загрузка SAM-моделей"""
+        """Загрузка SAM / SAM2 (Segment Anything)."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.SAM,
             model_name=model_name,
@@ -287,7 +305,7 @@ class SegmentationBenchmark:
     def load_fpn_mit_pretrained(
         self, variant: str = "b5", checkpoint_path: Optional[str] = None
     ) -> "SegmentationBenchmark":
-        """Загрузка FPN + MiT"""
+        """Загрузка FPN + MiT (pretrained weights или custom checkpoint)."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.FPN_SMP,
             device=self.device,
@@ -329,7 +347,7 @@ class SegmentationBenchmark:
     def load_fcn_resnet50_pretrained(
         self, variant: str = "fcn_resnet50", checkpoint_path: str = "fcn_resnet50_none"
     ) -> "SegmentationBenchmark":
-        """Загрузка FCN"""
+        """Загрузка FCN."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.FCN_TV,
             device=self.device,
@@ -350,7 +368,7 @@ class SegmentationBenchmark:
     def load_segnet_pretrained(
         self, encoder_name: str = "resnet34", checkpoint_path: str = "segnet_none"
     ) -> "SegmentationBenchmark":
-        """Загрузка SegNet"""
+        """Загрузка SegNet."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.SEGNET,
             device=self.device,
@@ -371,7 +389,7 @@ class SegmentationBenchmark:
     def load_mask_rcnn_pretrained(
         self, variant: str = "maskrcnn_resnet50_fpn"
     ) -> "SegmentationBenchmark":
-        """Загрузка Mask R-CNN"""
+        """Загрузка Mask R-CNN (Instance Segmentation)."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.MASKRCNN_TV,
             device=self.device,
@@ -451,7 +469,7 @@ class SegmentationBenchmark:
     def load_maskformer(
         self, name: str = "facebook/maskformer-resnet50-ade20k-full"
     ) -> "SegmentationBenchmark":
-        """Загрузка MaskFormer модели"""
+        """Загрузка MaskFormer модели."""
         from transformers import (
             MaskFormerImageProcessor,
             MaskFormerForInstanceSegmentation,
@@ -475,7 +493,7 @@ class SegmentationBenchmark:
     def load_yolov8(
         self, model_name: str = "yolov8n-seg.pt"
     ) -> "SegmentationBenchmark":
-        """Загрузка YOLOv8 модели"""
+        """Загрузка YOLOv8 Segment модели."""
         from ultralytics import YOLO
 
         model = YOLO(model_name)
@@ -492,7 +510,7 @@ class SegmentationBenchmark:
     def load_all_pretrained_cnn(
         self, checkpoint_dir: str = "./checkpoints"
     ) -> "SegmentationBenchmark":
-        """Загрузка всех CNN-моделей"""
+        """Пакетная загрузка всех CNN-бэкендов."""
         print("\n" + "=" * 60)
         print("📦 Loading all pre-trained CNN models for benchmark")
         print("=" * 60)
@@ -507,6 +525,9 @@ class SegmentationBenchmark:
         print(f"   Total models in benchmark: {len(self.models)}")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
+    # ИНФЕРЕНС И СБОР РЕЗУЛЬТАТОВ
+    # ──────────────────────────────────────────────────────────────────────
     def run_single(
         self,
         image_input: Union[str, Image.Image],
@@ -515,20 +536,25 @@ class SegmentationBenchmark:
         log_logits: bool = True,
     ) -> Dict[str, Any]:
         """
-        Запуск одной модели с сбором метрик.
+        Запуск одной модели с замером времени и расчётом метрик.
 
         Args:
-            image_input: Путь к изображению или PIL.Image объект
-            model_key: Ключ загруженной модели
-            alpha: Прозрачность наложения маски (0.0–1.0)
-            log_logits: Логировать информацию о логитах
+            image_input: Путь к изображению или `PIL.Image`.
+            model_key: Ключ загруженной модели.
+            alpha: Прозрачность наложения маски (0.0–1.0).
+            log_logits: Флаг логирования промежуточных тензоров.
 
         Returns:
-            result: Словарь с результатами (overlay, mask, metrics, time_ms, etc.)
+            dict: Ключи `overlay`, `mask`, `inference_time_ms`, `metrics`, `image_size`, `output_shape`, `unique_classes`.
 
         Raises:
-            ValueError: Если модель с указанным ключом не загружена
+            ValueError: Если `model_key` отсутствует в реестре.
         """
+        if model_key not in self.models:
+            raise ValueError(
+                f"Model '{model_key}' not loaded. Available: {list(self.models.keys())}"
+            )
+
         if isinstance(image_input, str):
             image = Image.open(image_input).convert("RGB")
         elif isinstance(image_input, Image.Image):
@@ -578,7 +604,7 @@ class SegmentationBenchmark:
         mask = resd["mask"]
 
         # 📊 Метрики (если есть ground truth)
-        metrics = {}
+        metrics: Dict[str, Any] = {}
         print(f"gt_maske: {self.gt_mask}")
         if self.gt_mask is not None:
             gt_np = (
@@ -589,7 +615,7 @@ class SegmentationBenchmark:
             metrics = compute_metrics(mask, gt_np, self.num_classes, self.ignore_index)
 
         print(f"Метрики {metrics}")
-        result = {
+        result: Dict[str, Any] = {
             "model": model_type,
             "overlay": overlay,
             "mask": mask,
@@ -613,28 +639,28 @@ class SegmentationBenchmark:
         Предсказание сегментации для одного изображения.
 
         Args:
-            image_input: Путь к изображению или PIL.Image объект
-            model_key: Ключ загруженной модели
-            alpha: Прозрачность наложения маски
-            gt_mask: Ground truth маска для метрик (опционально)
+            image_input: Путь к изображению или PIL.Image объект.
+            model_key: Ключ загруженной модели.
+            alpha: Прозрачность наложения маски.
+            gt_mask: Ground truth маска для метрик (опционально).
 
         Returns:
-            overlay: Изображение с наложенной маской
+            overlay: Изображение с наложенной маской.
 
         Raises:
-            ValueError: Если модель с указанным ключом не загружена
+            ValueError: Если модель с указанным ключом не загружена.
         """
         if model_key not in self.models:
             raise ValueError(
                 f"Model {model_key} not loaded. Available: {list(self.models.keys())}"
             )
-        model, processor = self.models[model_key]
+        model_info = self.models[model_key]
         n_classes = self.get_model_num_classes(model_key)
         return segment_image_unified(
-            model,
-            processor,
+            model_info["model"],
+            model_info["processor"],
             image_input,
-            model_key,
+            model_info["type"],
             alpha=alpha,
             palette=self.palette,
             device=self.device,
@@ -646,14 +672,17 @@ class SegmentationBenchmark:
         self, image_input: Union[str, Image.Image], alpha: float = 0.6
     ) -> Dict[str, Dict[str, Any]]:
         """
-        Запускает все загруженные модели и возвращает dict со сводными результатами.
+        Поочерёдный запуск всех загруженных моделей с управлением VRAM.
+
+        После каждой модели удаляет `.model` и `.processor` из памяти,
+        оставляя только ключи в `self.models` для совместимости с API.
 
         Args:
-            image_input: Путь к изображению или PIL.Image объект
-            alpha: Прозрачность наложения маски
+            image_input: Путь к изображению или PIL.Image объект.
+            alpha: Прозрачность наложения маски.
 
         Returns:
-            summary: Сводная таблица метрик по всем моделям
+            dict: Сводная таблица метрик по всем моделям `{model_key: {mIoU, pixel_acc, ...}}`.
         """
         print(f"🚀 Starting benchmark on {len(self.models)} models...")
         model_keys = list(self.models.keys())
@@ -670,12 +699,12 @@ class SegmentationBenchmark:
 
     def get_summary(self) -> Dict[str, Dict[str, Any]]:
         """
-        Возвращает сводную таблицу метрик.
+        Извлекает агрегированные метрики из выполненных тестов.
 
         Returns:
-            summary: Словарь {model_key: {mIoU, pixel_acc, f1_weighted, time_ms, unique_classes}}
+            dict: `{model_key: {"mIoU": float, "pixel_acc": float, "f1_weighted": float, "time_ms": float, "unique_classes": int}}`
         """
-        summary = {}
+        summary: Dict[str, Dict[str, Any]] = {}
         for key, res in self.results.items():
             summary[key] = {
                 "mIoU": res["metrics"].get("mIoU", np.nan),
@@ -688,13 +717,19 @@ class SegmentationBenchmark:
 
     def get_model_num_classes(self, model_key: str) -> int:
         """
-        Определяет число классов для модели по ключу.
+        Эвристическое определение количества выходных каналов модели.
+
+        Проверяет:
+        1. HF `config.id2label`
+        2. Torchvision `classifier[-1].out_channels`
+        3. Последний `torch.nn.Conv2d` в архитектуре
+        4. Fallback на `self.num_classes`
 
         Args:
-            model_key: Ключ загруженной модели
+            model_key: Ключ загруженной модели.
 
         Returns:
-            num_classes: Количество выходных классов модели
+            num_classes (int): Количество выходных классов модели.
         """
         cfg = self.models[model_key]
         model = cfg["model"]
@@ -717,7 +752,9 @@ class SegmentationBenchmark:
         # Fallback
         return self.num_classes
 
-    # ============ ВИЗУАЛИЗАЦИЯ ============
+    # ──────────────────────────────────────────────────────────────────────
+    # ВИЗУАЛИЗАЦИЯ
+    # ──────────────────────────────────────────────────────────────────────
     def plot_comparison_chart(
         self,
         metric_name: str,
@@ -727,7 +764,7 @@ class SegmentationBenchmark:
         path: str = "./data/ade20k_test_trained/plot_comparison_chart.jpg",
     ) -> None:
         """
-        Строит бар-чарт сравнения одной метрики.
+        Строит бар-чарт сравнения одной метрики с автоформатированием.
 
         - Корректное масштабирование для маленьких значений
         - Автоматический выбор формата (проценты или десятичные)
@@ -748,8 +785,7 @@ class SegmentationBenchmark:
             print(f"⚠️ No valid data for metric '{metric_name}'")
             return
 
-        models = [m for m, _ in valid]
-        values = [v for _, v in valid]
+        models, values = zip(*[(m, v[metric_name]) for m, v in valid])
 
         is_percentage = metric_name in ["mIoU", "pixel_acc", "f1_weighted"]
         multiplier = 100 if is_percentage else 1
@@ -820,6 +856,7 @@ class SegmentationBenchmark:
         plt.tight_layout(rect=(0, 0.03, 1, 0.95))
         plt.savefig(path, dpi=300, bbox_inches="tight", facecolor="white", format="png")
         plt.show()
+        plt.close()
 
     def plot_per_class_iou(
         self,
@@ -889,6 +926,7 @@ class SegmentationBenchmark:
         plt.tight_layout()
         plt.savefig(path, dpi=300, bbox_inches="tight", facecolor="white", format="png")
         plt.show()
+        plt.close()
         print("\n📊 Per-class IoU Statistics:")
         print(f"  Total classes in dataset: {self.num_classes}")
         print(f"  Classes present in GT: {len(class_indices)}")
@@ -903,9 +941,7 @@ class SegmentationBenchmark:
         show_values: bool = True,
         path: str = "./data/ade20k_test_trained/plot_confusion_matrix.jpg",
     ) -> None:
-        """
-        Строит матрицу ошибок с отображением значений.
-        """
+        """Визуализация матрицы ошибок с нормализацией."""
         if model_key not in self.results:
             print(f"⚠️  Model '{model_key}' not found.")
             return
@@ -955,6 +991,7 @@ class SegmentationBenchmark:
         plt.tight_layout()
         plt.savefig(path, dpi=300, bbox_inches="tight", facecolor="white", format="png")
         plt.show()
+        plt.close()
 
     def plot_all_metrics(
         self,
@@ -1054,6 +1091,7 @@ class SegmentationBenchmark:
         plt.tight_layout(rect=(0, 0, 1, 0.95))
         plt.savefig(path, dpi=300, bbox_inches="tight", facecolor="white", format="png")
         plt.show()
+        plt.close()
 
     def plot_summary(
         self,
@@ -1082,10 +1120,14 @@ class SegmentationBenchmark:
                 path, dpi=300, bbox_inches="tight", facecolor="white", format="png"
             )
             plt.show()
+            plt.close()
 
+    # ──────────────────────────────────────────────────────────────────────
+    # ЭКСПОРТ РЕЗУЛЬТАТОВ
+    # ──────────────────────────────────────────────────────────────────────
     def save_results(self, output_dir: str = "benchmark_results") -> None:
         """
-        Сохранение всех результатов с корректной сериализацией numpy-типов.
+        Сохранение всех результатов с корректной сериализацией numpy-типов (масок, оверлеев, сводки и детальных метрик).
 
         Args:
             output_dir: Директория для сохранения результатов
@@ -1140,10 +1182,10 @@ class SegmentationBenchmark:
         Генерирует LaTeX-код таблицы для публикации.
 
         Args:
-            caption: Заголовок таблицы для LaTeX
+            caption: Заголовок таблицы для LaTeX.
 
         Returns:
-            latex_code: Строка с LaTeX кодом таблицы
+            latex_code: Строка с LaTeX кодом таблицы.
         """
         summary: Dict[str, Dict[str, Any]] = self.get_summary()
         if not summary:
@@ -1183,13 +1225,16 @@ class SegmentationBenchmark:
         benchmark_tasks: Optional[Dict] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """
-        Пошаговое выполнение бенчмарка с обновлением прогресса.
+        Асинхронный запуск бенчмарка с обновлением прогресса в реальном времени.
 
         Args:
-            image_input: Изображение для инференса
-            alpha: Прозрачность наложения
-            task_id: ID задачи для обновления статуса
-            benchmark_tasks: Словарь задач (для обновления)
+            image_input: Изображение для инференса.
+            alpha: Прозрачность наложения.
+            task_id: ID задачи для внешнего трекера.
+            benchmark_tasks: Словарь состояния задач (мутация in-place).
+
+        Returns:
+            dict: Сводная таблица метрик.
         """
         print(f"🚀 Starting step-by-step benchmark on {len(self.models)} models...")
         model_keys = list(self.models.keys())
@@ -1235,7 +1280,16 @@ class SegmentationBenchmark:
 def export_comparison_table(
     bench: SegmentationBenchmark, output_file: str = "./../reports/model_comparison.md"
 ) -> pd.DataFrame:
-    """Экспорт сравнительной таблицы всех моделей"""
+    """
+    Экспорт сравнительной таблицы всех моделей в Markdown.
+
+    Args:
+        bench: Инициализированный и запущенный бенчмарк.
+        output_file: Путь для сохранения `.md` файла.
+
+    Returns:
+        pd.DataFrame: Отформатированная таблица результатов.
+    """
     df: pd.DataFrame = pd.DataFrame(bench.get_summary()).T.sort_values(
         "mIoU", ascending=False
     )
@@ -1264,7 +1318,7 @@ def export_comparison_table(
     df["Params (M)"] = df.get("params", pd.Series([0] * len(df))).round(1)
 
     # Markdown таблица
-    md_table = df[
+    md_table: str = df[
         ["Category", "mIoU (%)", "pixel_acc", "Time (ms)", "unique_classes"]
     ].to_markdown()
 

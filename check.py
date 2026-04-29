@@ -139,11 +139,23 @@ def train_deeplab_ade20k(
     print("🔹 Training DeepLabV3+ (Torchvision) on ADE20K...")
 
     # DataLoader'ы (те же)
+    augmentation_level = "none"
+    is_augmented = augmentation_level != "none"
     train_dataset = ADE20KDataset(
         root_dir="./data/ade20k",
         split="training",
         image_size=(512, 512),
-        augment=True,
+        augment=is_augmented,
+        augmentation_level=augmentation_level,
+        hflip_prob=0.5,
+        # vflip_prob=0.1 if augmentation_level == "aggressive" else 0.0,
+        rotation_prob=(0.3 if augmentation_level in ["medium", "aggressive"] else 0.0),
+        color_jitter_prob=(
+            0.3 if augmentation_level in ["medium", "aggressive"] else 0.0
+        ),
+        scale_range=(
+            (0.9, 1.1) if augmentation_level in ["medium", "aggressive"] else (1.0, 1.0)
+        ),
         subset_fraction=subset_fraction,
     )
     val_dataset = ADE20KDataset(
@@ -151,6 +163,7 @@ def train_deeplab_ade20k(
         split="validation",
         image_size=(512, 512),
         augment=False,
+        augmentation_level="none",
         subset_fraction=subset_fraction,
     )
 
@@ -183,12 +196,15 @@ def train_deeplab_ade20k(
         [p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=1e-4
     )
 
-    trainer = NeuralTrainer.__new__(NeuralTrainer)  # Создаём без __init__
+    trainer = NeuralTrainer.__new__(NeuralTrainer)
     trainer.model = model
     trainer.train_loader = train_loader
     trainer.val_loader = val_loader
     trainer.num_classes = 150
-    trainer.criterion = nn.CrossEntropyLoss(ignore_index=0)
+    trainer.device = device
+    trainer.ignore_index = 255
+    trainer.aux_loss_weight = 0.0
+    trainer.criterion = nn.CrossEntropyLoss(ignore_index=255)
     trainer.optimizer = optimizer
     trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=len(train_loader) * epochs
@@ -229,7 +245,9 @@ def train_deeplab_ade20k(
 
         if val_miou > trainer.best_miou:
             trainer.best_miou = val_miou
-            torch.save(model.state_dict(), "./models/deeplab_ade20k_best.pth")
+            torch.save(
+                model.state_dict(), "./models/deeplab_ade20k_best_201_epochs.pth"
+            )
             print(f"   💾 Saved best model (mIoU: {val_miou:.4f})")
 
         torch.cuda.empty_cache()
@@ -384,11 +402,23 @@ def train_fcn_resnet50_ade20k(
     print(f"🔹 Training {variant} on ADE20K...")
 
     # DataLoader'ы
+    augmentation_level = "medium"
+    is_augmented = augmentation_level != "none"
     train_dataset = ADE20KDataset(
         root_dir="./data/ade20k",
         split="training",
         image_size=(512, 512),
-        augment=True,
+        augment=is_augmented,
+        augmentation_level=augmentation_level,
+        hflip_prob=0.5,
+        # vflip_prob=0.1 if augmentation_level == "aggressive" else 0.0,
+        rotation_prob=(0.3 if augmentation_level in ["medium", "aggressive"] else 0.0),
+        color_jitter_prob=(
+            0.3 if augmentation_level in ["medium", "aggressive"] else 0.0
+        ),
+        scale_range=(
+            (0.9, 1.1) if augmentation_level in ["medium", "aggressive"] else (1.0, 1.0)
+        ),
         subset_fraction=subset_fraction,
     )
     val_dataset = ADE20KDataset(
@@ -396,6 +426,7 @@ def train_fcn_resnet50_ade20k(
         split="validation",
         image_size=(512, 512),
         augment=False,
+        augmentation_level="none",
         subset_fraction=subset_fraction,
     )
 
@@ -677,7 +708,10 @@ def compare_trained_models():
         checkpoint = torch.load(
             "./models/fcn_resnet50_ade20k_best.pth", map_location=device
         )
-        fcn.load_state_dict(checkpoint, strict=False)
+        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+            fcn.load_state_dict(checkpoint["model_state_dict"], strict=False)
+        else:
+            fcn.load_state_dict(checkpoint, strict=False)
         models["FCN ResNet-50"] = fcn.to(device).eval()
         print("✅ Loaded FCN ResNet-50")
 
@@ -862,7 +896,10 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
             model = tv_seg.fcn_resnet50(weights=None)
             model.classifier[4] = nn.Conv2d(512, 150, kernel_size=1)
             checkpoint = torch.load(checkpoint_path, map_location=device)
-            model.load_state_dict(checkpoint, strict=False)
+            if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+            else:
+                model.load_state_dict(checkpoint, strict=False)
             print(f"   ✅ Loaded FCN from {checkpoint_path}")
 
         # 🔥 SegNet
@@ -947,7 +984,7 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
 # train_unet_ade20k(epochs=50, batch_size=8, subset_fraction=1.0, lr=1e-4)
 
 # Запуск (для теста)
-# deeplab_model, deeplab_history = train_deeplab_ade20k(epochs=20, subset_fraction=0.05)
+deeplab_model, deeplab_history = train_deeplab_ade20k(epochs=200, subset_fraction=0.05)
 
 # Пример теста: DeepLab: 5 эпох, 5% данных
 # deeplab_model, _ = train_deeplab_ade20k(epochs=5, batch_size=2, subset_fraction=0.05, lr=1e-5)
@@ -960,7 +997,7 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
 # psp_model, psp_history = train_psp_mit_ade20k(epochs=20, subset_fraction=0.05, variant="b5")
 
 # Запуск (для теста)
-fcn_model, fcn_history = train_fcn_resnet50_ade20k(epochs=200, subset_fraction=0.05)
+# fcn_model, fcn_history = train_fcn_resnet50_ade20k(epochs=200, subset_fraction=0.05)
 
 # Запуск (для теста)
 # segnet_model, segnet_history = train_segnet_ade20k(epochs=20, subset_fraction=0.05)

@@ -54,8 +54,8 @@ num_classes: int = 150
 
 
 def main():
-    test_neural_logic: bool = True
-    test_classic_logic: bool = False
+    test_neural_logic: bool = False
+    test_classic_logic: bool = True
     print(f"📍 CWD: {os.getcwd()}")
     print(f"📍 __file__: {__file__}")
     print(f"📍 sys.path: {sys.path[:3]}...")
@@ -345,48 +345,48 @@ def main():
     if test_neural_logic:
         neural_models_config = [
             # Предобученные
-            # {
-            #     "name": "SegFormer_B5",
-            #     "type": "segformer",
-            #     "model_name": "nvidia/segformer-b5-finetuned-ade-640-640",
-            #     "local_path": "/home/yamshchikov/models/segformer-b5-ready",
-            # },
-            # {
-            #     "name": "Mask2Former",
-            #     "type": "mask2former",
-            #     "model_name": "facebook/mask2former-swin-base-ade-semantic",
-            # },
+            {
+                "name": "SegFormer_B5",
+                "type": "segformer",
+                "model_name": "nvidia/segformer-b5-finetuned-ade-640-640",
+                "local_path": "/home/yamshchikov/models/segformer-b5-ready",
+            },
+            {
+                "name": "Mask2Former",
+                "type": "mask2former",
+                "model_name": "facebook/mask2former-swin-base-ade-semantic",
+            },
             # Обученные
-            # {
-            #     "name": "DeepLabV3+_Trained",
-            #     "type": "deeplab_tv",
-            #     "checkpoint_path": "./models/deeplab_ade20k_best_200_epochs.pth",
-            # },
-            # {
-            #     "name": "U-Net_Trained",
-            #     "type": "unet_smp",
-            #     "checkpoint_path": "./models/unet_ade20k_best_200_epochs.pth",
-            # },
-            # {
-            #     "name": "FPN_MiT-B5_Trained",
-            #     "type": "fpn_smp",
-            #     "checkpoint_path": "./models/fpn_mit_b5_ade20k_best_200_epochs.pth",
-            # },
-            # {
-            #     "name": "PSPNet_MiT-B5_Trained",
-            #     "type": "pspnet_smp",
-            #     "checkpoint_path": "./models/psp_mit_b5_ade20k_best_200_epochs.pth",
-            # },
+            {
+                "name": "DeepLabV3+_Trained",
+                "type": "deeplab_tv",
+                "checkpoint_path": "./models/deeplab_ade20k_best_200_epochs.pth",
+            },
+            {
+                "name": "U-Net_Trained",
+                "type": "unet_smp",
+                "checkpoint_path": "./models/unet_ade20k_best_200_epochs.pth",
+            },
+            {
+                "name": "FPN_MiT-B5_Trained",
+                "type": "fpn_smp",
+                "checkpoint_path": "./models/fpn_mit_b5_ade20k_best_200_epochs.pth",
+            },
+            {
+                "name": "PSPNet_MiT-B5_Trained",
+                "type": "pspnet_smp",
+                "checkpoint_path": "./models/psp_mit_b5_ade20k_best_200_epochs.pth",
+            },
             {
                 "name": "FCN_ResNet50_Trained",
                 "type": "fcn_tv",
                 "checkpoint_path": "./models/fcn_resnet50_ade20k_best_200_epochs.pth",
             },
-            # {
-            #     "name": "SegNet_Trained",
-            #     "type": "segnet",
-            #     "checkpoint_path": "./models/segnet_ade20k_best_200_epochs.pth",
-            # },
+            {
+                "name": "SegNet_Trained",
+                "type": "segnet",
+                "checkpoint_path": "./models/segnet_ade20k_best_200_epochs.pth",
+            },
         ]
         print("\n4. Загрузка нейросетевых методов...")
         for config in neural_models_config:
@@ -429,55 +429,55 @@ def main():
         print(f"\nВсего методов загружено: {len(tester.methods)}")
 
         # # ========== ВАРИАНТ 2: Через YAML конфиг ==========
-        # print("\n=== ВАРИАНТ 2: Через YAML конфиг ===")
-        # _ = NeuralSegmenter(
-        #     model_type="segformer",
-        #     variant="b5",  # ← Берётся из configs/neural_models.yaml
-        #     num_classes=num_classes,
-        # )
+        print("\n=== ВАРИАНТ 2: Через YAML конфиг ===")
+        _ = NeuralSegmenter(
+            model_type="segformer",
+            variant="b5",  # ← Берётся из configs/neural_models.yaml
+            num_classes=num_classes,
+        )
 
         # # ========== ВАРИАНТ 3: Factory + конфиг ==========
-        # print("\n=== ВАРИАНТ 3: Factory метод ===")
-        # _, _, model_type = NeuralModelFactory.create_model_from_config(
-        #     model_type="segformer", variant="b2", device="cuda"  # ← Берётся из конфига
-        # )
+        print("\n=== ВАРИАНТ 3: Factory метод ===")
+        _, _, model_type = NeuralModelFactory.create_model_from_config(
+            model_type="segformer", variant="b2", device="cuda"  # ← Берётся из конфига
+        )
 
         # # ========== ВАРИАНТ 4: Обученная модель с чекпоинтом ==========
-        # print("\n=== ВАРИАНТ 4: Обученная модель ===")
-        # _ = NeuralSegmenter(
-        #     model_type="unet_smp",
-        #     encoder_name="resnet34",  # ← Можно из конфига
-        #     checkpoint_path="./models/unet_ade20k_best.pth",
-        #     num_classes=num_classes,
-        # )
+        print("\n=== ВАРИАНТ 4: Обученная модель ===")
+        _ = NeuralSegmenter(
+            model_type="unet_smp",
+            encoder_name="resnet34",  # ← Можно из конфига
+            checkpoint_path="./models/unet_ade20k_best.pth",
+            num_classes=num_classes,
+        )
 
         # # ========== ВАРИАНТ 5: Конфиг обучения ==========
-        # print("\n=== ВАРИАНТ 5: Конфиг обучения ===")
-        # training_config = NeuralModelFactory.get_training_config("ade20k")
-        # print(f"Batch size: {training_config['batch_size']}")
-        # print(f"Epochs: {training_config['epochs']}")
-        # print(f"LR: {training_config['lr']}")
+        print("\n=== ВАРИАНТ 5: Конфиг обучения ===")
+        training_config = NeuralModelFactory.get_training_config("ade20k")
+        print(f"Batch size: {training_config['batch_size']}")
+        print(f"Epochs: {training_config['epochs']}")
+        print(f"LR: {training_config['lr']}")
 
         # # ========== ВАРИАНТ 6: Конфиг метрик ==========
-        # print("\n=== ВАРИАНТ 6: Конфиг метрик ===")
-        # metrics_config = NeuralModelFactory.get_metrics_config()
-        # print(f"Threshold: {metrics_config['threshold']}")
-        # print(f"Include Hausdorff: {metrics_config['include_hausdorff']}")
+        print("\n=== ВАРИАНТ 6: Конфиг метрик ===")
+        metrics_config = NeuralModelFactory.get_metrics_config()
+        print(f"Threshold: {metrics_config['threshold']}")
+        print(f"Include Hausdorff: {metrics_config['include_hausdorff']}")
 
         # # ========== ВАРИАНТ 7: Массовая загрузка из конфига ==========
-        # print("\n=== ВАРИАНТ 7: Массовая загрузка ===")
-        # neural_models_config = [
-        #     {"name": "SegFormer_B5", "type": "segformer", "variant": "b5"},
-        #     {"name": "SegFormer_B2", "type": "segformer", "variant": "b2"},
-        #     {"name": "Mask2Former", "type": "mask2former", "variant": "swin_base"},
-        #     {"name": "U-Net", "type": "unet_smp", "encoder_name": "resnet34"},
-        #     {
-        #         "name": "FPN_MiT",
-        #         "type": "fpn_smp",
-        #         "encoder_name": "mit_b5",
-        #         "checkpoint_path": "./models/fpn_mit_b5_ade20k_best_200_epochs.pth",
-        #     },
-        # ]
+        print("\n=== ВАРИАНТ 7: Массовая загрузка ===")
+        neural_models_config = [
+            {"name": "SegFormer_B5", "type": "segformer", "variant": "b5"},
+            {"name": "SegFormer_B2", "type": "segformer", "variant": "b2"},
+            {"name": "Mask2Former", "type": "mask2former", "variant": "swin_base"},
+            {"name": "U-Net", "type": "unet_smp", "encoder_name": "resnet34"},
+            {
+                "name": "FPN_MiT",
+                "type": "fpn_smp",
+                "encoder_name": "mit_b5",
+                "checkpoint_path": "./models/fpn_mit_b5_ade20k_best_200_epochs.pth",
+            },
+        ]
 
         for config in neural_models_config:
             try:
@@ -509,107 +509,118 @@ def main():
                 print(f"   ❌ {config['name']} - {e}")
 
     # ============ 3. БЕНЧМАРК ============
-    # print("\n3. Бенчмарк производительности и оценка качества перед warm up...")
-    # first_img_array = None
-    # all_comparisons = []
-    # for img_name, (img_path, img_pil, gt_mask) in test_images.items():
-    #     print(f"\n--- Обработка изображения: {img_name} ---")
-    #     img_array = np.array(img_pil)
-    #     if first_img_array is None:
-    #         first_img_array = img_array.copy()
-    #     df_benchmark_before_warm_up = tester.benchmark_methods(
-    #         img_array,
-    #         n_runs=10,
-    #         test_name=f"benchmark_{img_name}_cold_before_warm_up",
-    #         save_results=True,
-    #         force_warmup=False,
-    #         ground_truth=gt_mask
-    #     )
-    #     print(f"   ✅ Бенчмарк для {img_name} завершён")
+    print("\n3. Бенчмарк производительности и оценка качества перед warm up...")
+    first_img_array = None
+    all_comparisons = []
+    for img_name, (img_path, img_pil, gt_mask) in test_images.items():
+        print(f"\n--- Обработка изображения: {img_name} ---")
+        img_array = np.array(img_pil)
+        if first_img_array is None:
+            first_img_array = img_array.copy()
+        df_benchmark_before_warm_up = tester.benchmark_methods(
+            img_array,
+            n_runs=10,
+            test_name=f"benchmark_{img_name}_cold_before_warm_up",
+            save_results=True,
+            force_warmup=False,
+            ground_truth=gt_mask,
+        )
+        print(f"   ✅ Бенчмарк для {img_name} завершён")
 
     # # # ============ 🔥 ЗАПУСК WARM-UP ============
-    # print("\n" + "="*60)
-    # print("ЗАПУСК WARM-UP ПЕРЕД БЕНЧМАРКОМ")
-    # print("="*60)
+    print("\n" + "=" * 60)
+    print("ЗАПУСК WARM-UP ПЕРЕД БЕНЧМАРКОМ")
+    print("=" * 60)
 
-    # if first_img_array is not None:
-    #     warmup_utility = SegmentationWarmUp(n_warmup_runs=10)
+    if first_img_array is not None:
+        warmup_utility = SegmentationWarmUp(n_warmup_runs=10)
 
-    #     warmup_results = warmup_utility.warmup_all_segmenters(
-    #         segmenters_dict=tester.methods,
-    #         image=first_img_array,  # ← Используем сохранённое
-    #         verbose=True
-    #     )
+        warmup_results = warmup_utility.warmup_all_segmenters(
+            segmenters_dict=tester.methods,
+            image=first_img_array,  # ← Используем сохранённое
+            verbose=True,
+        )
 
-    #     threshold_warmup = ThresholdWarmUp.warmup_threshold_methods(
-    #         segmenters_dict=tester.methods,
-    #         image_sizes=[(128, 128), (256, 256)]
-    #     )
+        threshold_warmup = ThresholdWarmUp.warmup_threshold_methods(
+            segmenters_dict=tester.methods, image_sizes=[(128, 128), (256, 256)]
+        )
 
-    #     edge_warmup = ThresholdWarmUp.warmup_edge_methods(
-    #         segmenters_dict=tester.methods
-    #     )
+        edge_warmup = ThresholdWarmUp.warmup_edge_methods(
+            segmenters_dict=tester.methods
+        )
 
-    #     with open(f"./data/warmup_report.txt", "w") as f:
-    #         f.write("WARM-UP ОТЧЁТ\n")
-    #         f.write("="*60 + "\n\n")
-    #         f.write(warmup_utility.get_warmup_summary())
-    #         f.write("\n\nПороговые методы:\n")
-    #         f.write(str(threshold_warmup))
-    #         f.write("\n\nГраничные методы:\n")
-    #         f.write(str(edge_warmup))
+        with open(f"./data/warmup_report.txt", "w") as f:
+            f.write("WARM-UP ОТЧЁТ\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(warmup_utility.get_warmup_summary())
+            f.write("\n\nПороговые методы:\n")
+            f.write(str(threshold_warmup))
+            f.write("\n\nГраничные методы:\n")
+            f.write(str(edge_warmup))
 
-    #     print(f"\n✅ Отчёт о warm-up сохранён в ./data/warmup_report.txt")
+        print(f"\n✅ Отчёт о warm-up сохранён в ./data/warmup_report.txt")
 
-    #     if torch.cuda.is_available():
-    #         torch.cuda.synchronize()  # Дождаться завершения всех ядер
-    #         # torch.cuda.empty_cache()  # Очистить кэш (опционально)
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()  # Дождаться завершения всех ядер
+            # torch.cuda.empty_cache()  # Очистить кэш (опционально)
 
     # # # ============ БЕНЧМАРК ПОСЛЕ WARM-UP ============
-    # print("\n3.1. Бенчмарк производительности после warm up...")
-    # for img_name, (img_path, img_pil, gt_mask) in test_images.items():
-    #     print(f"\n--- Обработка изображения: {img_name} ---")
-    #     img_array = np.array(img_pil)
+    print("\n3.1. Бенчмарк производительности после warm up...")
+    for img_name, (img_path, img_pil, gt_mask) in test_images.items():
+        print(f"\n--- Обработка изображения: {img_name} ---")
+        img_array = np.array(img_pil)
 
-    #     df_benchmark_after_warm_up = tester.benchmark_methods(
-    #         img_array,
-    #         n_runs=10,
-    #         test_name=f"benchmark_{img_name}_hot_after_warm_up",
-    #         save_results=True,
-    #         force_warmup=False,
-    #         ground_truth=gt_mask
-    #     )
+        df_benchmark_after_warm_up = tester.benchmark_methods(
+            img_array,
+            n_runs=10,
+            test_name=f"benchmark_{img_name}_hot_after_warm_up",
+            save_results=True,
+            force_warmup=False,
+            ground_truth=gt_mask,
+        )
 
-    #     # 🔥 Сравниваем cold vs hot
-    #     # df_before = pd.read_csv(f"./data/segmentation_tester_results/benchmark_{img_name}_cold_before_warm_up_*/statistics/benchmark_results.csv")
-    #     # df_after = pd.read_csv(f"./data/segmentation_tester_results/benchmark_{img_name}_hot_after_warm_up_*/statistics/benchmark_results.csv")
+        # 🔥 Сравниваем cold vs hot
+        # df_before = pd.read_csv(f"./data/segmentation_tester_results/benchmark_{img_name}_cold_before_warm_up_*/statistics/benchmark_results.csv")
+        # df_after = pd.read_csv(f"./data/segmentation_tester_results/benchmark_{img_name}_hot_after_warm_up_*/statistics/benchmark_results.csv")
 
-    #     comparison = pd.DataFrame({
-    #         'method': df_benchmark_before_warm_up['Method'],
-    #         'image': img_name,
-    #         'cold_mean_ms': df_benchmark_before_warm_up['Mean_Time_s'] * 1000,
-    #         'hot_mean_ms': df_benchmark_after_warm_up['Mean_Time_s'] * 1000,
-    #     })
-    #     comparison['speedup'] = comparison.apply(
-    #         lambda row: row['cold_mean_ms'] / row['hot_mean_ms'] if row['hot_mean_ms'] > 0 else float('inf'),
-    #         axis=1
-    #     )
-    #     all_comparisons.append(comparison)
+        comparison = pd.DataFrame(
+            {
+                "method": df_benchmark_before_warm_up["Method"],
+                "image": img_name,
+                "cold_mean_ms": df_benchmark_before_warm_up["Mean_Time_s"] * 1000,
+                "hot_mean_ms": df_benchmark_after_warm_up["Mean_Time_s"] * 1000,
+            }
+        )
+        comparison["speedup"] = comparison.apply(
+            lambda row: (
+                row["cold_mean_ms"] / row["hot_mean_ms"]
+                if row["hot_mean_ms"] > 0
+                else float("inf")
+            ),
+            axis=1,
+        )
+        all_comparisons.append(comparison)
 
-    #     comparison.to_csv(f"./data/cold_hot_comparison_{img_name}.csv", index=False)
-    #     print("\n" + "="*70)
-    #     print(f"🔥 COLD vs HOT BENCHMARK COMPARISON ({img_name})")
-    #     print("="*70)
-    #     print(comparison.sort_values('speedup', ascending=False).to_string(float_format=lambda x: f"{x:.2f}" if not np.isinf(x) else "∞"))
+        comparison.to_csv(f"./data/cold_hot_comparison_{img_name}.csv", index=False)
+        print("\n" + "=" * 70)
+        print(f"🔥 COLD vs HOT BENCHMARK COMPARISON ({img_name})")
+        print("=" * 70)
+        print(
+            comparison.sort_values("speedup", ascending=False).to_string(
+                float_format=lambda x: f"{x:.2f}" if not np.isinf(x) else "∞"
+            )
+        )
 
-    # if all_comparisons:
-    #     summary = pd.concat(all_comparisons)
-    #     summary.to_csv("./data/cold_hot_comparison_summary.csv")
-    #     print("\n" + "="*70)
-    #     print("🔥 СВОДНЫЙ COLD vs HOT BENCHMARK (все изображения)")
-    #     print("="*70)
-    #     avg_speedup = summary.groupby('method')['speedup'].mean().sort_values(ascending=False)
-    #     print(avg_speedup)
+    if all_comparisons:
+        summary = pd.concat(all_comparisons)
+        summary.to_csv("./data/cold_hot_comparison_summary.csv")
+        print("\n" + "=" * 70)
+        print("🔥 СВОДНЫЙ COLD vs HOT BENCHMARK (все изображения)")
+        print("=" * 70)
+        avg_speedup = (
+            summary.groupby("method")["speedup"].mean().sort_values(ascending=False)
+        )
+        print(avg_speedup)
 
     if test_neural_logic is True:
         # ============ 4. СЕГМЕНТАЦИОННЫЙ БЕНЧМАРК (опционально) ============
@@ -637,47 +648,47 @@ def main():
             palette=NeuralSegmenter.ade_palette(),
         )
 
-        # print("🔹 Запуск MaskFormer (Изолированный режим)...")
+        print("🔹 Запуск MaskFormer (Изолированный режим)...")
 
-        # model_name_maskformer = "facebook/maskformer-resnet50-ade20k-full"
-        # processor_maskformer = MaskFormerImageProcessor.from_pretrained(
-        #     model_name_maskformer
-        # )
-        # model_maskformer = (
-        #     MaskFormerForInstanceSegmentation.from_pretrained(model_name_maskformer)
-        #     .to(device)
-        #     .eval()
-        # )
-        # result_mf_ade, result_mf_ade_results = segment_image_unified(
-        #     model_maskformer,
-        #     processor_maskformer,
-        #     original_img_0,
-        #     "maskformer",
-        #     alpha=0.6,
-        #     palette=NeuralSegmenter.ade_palette,
-        #     num_classes=num_classes,
-        #     class_names=NeuralSegmenter.get_ade_class_names,
-        #     gt_mask=mask_2d_ade,
-        # )
-        # result_mf_ade.save("./data/ade20k_test_trained/segmented_maskformer_ade_0.jpg")
+        model_name_maskformer = "facebook/maskformer-resnet50-ade20k-full"
+        processor_maskformer = MaskFormerImageProcessor.from_pretrained(
+            model_name_maskformer
+        )
+        model_maskformer = (
+            MaskFormerForInstanceSegmentation.from_pretrained(model_name_maskformer)
+            .to(device)
+            .eval()
+        )
+        result_mf_ade, result_mf_ade_results = segment_image_unified(
+            model_maskformer,
+            processor_maskformer,
+            original_img_0,
+            "maskformer",
+            alpha=0.6,
+            palette=NeuralSegmenter.ade_palette,
+            num_classes=num_classes,
+            class_names=NeuralSegmenter.get_ade_class_names,
+            gt_mask=mask_2d_ade,
+        )
+        result_mf_ade.save("./data/ade20k_test_trained/segmented_maskformer_ade_0.jpg")
 
-        # maskformer_manual_ade_result = {
-        #     "model": "maskformer",
-        #     "overlay": result_mf_ade,
-        #     "mask": result_mf_ade_results.get("mask"),
-        #     "inference_time_ms": result_mf_ade_results.get("inference_time_ms", 0),
-        #     "metrics": result_mf_ade_results.get("metrics", {}),
-        #     "image_size": original_img_0.size[::-1],
-        #     "output_shape": result_mf_ade_results.get("mask", np.array([])).shape,
-        #     "unique_classes": len(
-        #         np.unique(result_mf_ade_results.get("mask", np.array([])))
-        #     ),
-        # }
+        maskformer_manual_ade_result = {
+            "model": "maskformer",
+            "overlay": result_mf_ade,
+            "mask": result_mf_ade_results.get("mask"),
+            "inference_time_ms": result_mf_ade_results.get("inference_time_ms", 0),
+            "metrics": result_mf_ade_results.get("metrics", {}),
+            "image_size": original_img_0.size[::-1],
+            "output_shape": result_mf_ade_results.get("mask", np.array([])).shape,
+            "unique_classes": len(
+                np.unique(result_mf_ade_results.get("mask", np.array([])))
+            ),
+        }
 
-        # del model_maskformer, processor_maskformer
-        # torch.cuda.empty_cache()
-        # torch.cuda.synchronize()
-        # gc.collect()
+        del model_maskformer, processor_maskformer
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        gc.collect()
 
         print(
             f"✅ MaskFormer готов. VRAM освобождена: {torch.cuda.memory_allocated() / 1024**2:.1f} MB"
@@ -691,36 +702,36 @@ def main():
             gt_mask=mask_2d_ade,
             palette=NeuralSegmenter.ade_palette,
         )
-        # benchmark.load_all_trained_models(checkpoint_dir="./../models")
-        # benchmark_ade.load_segformer("/home/yamshchikov/models/segformer-b5-ready")
-        # benchmark_ade.load_mask2former("facebook/mask2former-swin-base-ade-semantic")
-        # benchmark_ade.load_oneformer("shi-labs/oneformer_ade20k_swin_large")
-        # benchmark_ade.load_unet_trained(
-        #     checkpoint_path="models/unet_ade20k_best_200_epochs.pth"
-        # )
-        # benchmark_ade.load_deeplab_trained(
-        #     checkpoint_path="models/deeplab_ade20k_best_200_epochs.pth"
-        # )
-        # benchmark_ade.load_sam("models/mobile_sam.pt")
-        # benchmark_ade.load_sam("models/sam2_t.pt")
-        # benchmark_ade.load_dpt("Intel/dpt-large-ade")
-        # benchmark_ade.load_upernet("openmmlab/upernet-convnext-small")
-        # benchmark_ade.load_segformer_variant("b2")
-        # benchmark_ade.load_mask_rcnn_pretrained(variant="maskrcnn_resnet50_fpn")
-        # benchmark_ade.load_fpn_mit_pretrained(
-        #     variant="b5", checkpoint_path="models/fpn_mit_b5_ade20k_best_200_epochs.pth"
-        # )
-        # benchmark_ade.load_psp_mit_pretrained(
-        #     variant="b5", checkpoint_path="models/psp_mit_b5_ade20k_best_200_epochs.pth"
-        # )
+        benchmark.load_all_trained_models(checkpoint_dir="./../models")
+        benchmark_ade.load_segformer("/home/yamshchikov/models/segformer-b5-ready")
+        benchmark_ade.load_mask2former("facebook/mask2former-swin-base-ade-semantic")
+        benchmark_ade.load_oneformer("shi-labs/oneformer_ade20k_swin_large")
+        benchmark_ade.load_unet_trained(
+            checkpoint_path="models/unet_ade20k_best_200_epochs.pth"
+        )
+        benchmark_ade.load_deeplab_trained(
+            checkpoint_path="models/deeplab_ade20k_best_200_epochs.pth"
+        )
+        benchmark_ade.load_sam("models/mobile_sam.pt")
+        benchmark_ade.load_sam("models/sam2_t.pt")
+        benchmark_ade.load_dpt("Intel/dpt-large-ade")
+        benchmark_ade.load_upernet("openmmlab/upernet-convnext-small")
+        benchmark_ade.load_segformer_variant("b2")
+        benchmark_ade.load_mask_rcnn_pretrained(variant="maskrcnn_resnet50_fpn")
+        benchmark_ade.load_fpn_mit_pretrained(
+            variant="b5", checkpoint_path="models/fpn_mit_b5_ade20k_best_200_epochs.pth"
+        )
+        benchmark_ade.load_psp_mit_pretrained(
+            variant="b5", checkpoint_path="models/psp_mit_b5_ade20k_best_200_epochs.pth"
+        )
         benchmark_ade.load_fcn_resnet50_pretrained(
             variant="fcn_resnet50",
             checkpoint_path="models/fcn_resnet50_ade20k_best_200_epochs.pth",
         )
-        # benchmark_ade.load_segnet_pretrained(
-        #     encoder_name="resnet34",
-        #     checkpoint_path="models/segnet_ade20k_best_200_epochs.pth",
-        # )
+        benchmark_ade.load_segnet_pretrained(
+            encoder_name="resnet34",
+            checkpoint_path="models/segnet_ade20k_best_200_epochs.pth",
+        )
 
         print("=" * 50)
         print("CUDA DIAGNOSTICS")
@@ -743,24 +754,24 @@ def main():
         print("\n🚀 Running benchmark (this may take 10-15 minutes)...")
         benchmark_ade.compare(image_input=original_img_0, alpha=0.6)
 
-        # benchmark_ade.results["maskformer"] = maskformer_manual_ade_result
+        benchmark_ade.results["maskformer"] = maskformer_manual_ade_result
         results_map_ade = {
-            # "segformer": benchmark_ade.results["segformer"]["overlay"],
-            # "mask2former": benchmark_ade.results["mask2former"]["overlay"],
-            # "oneformer": benchmark_ade.results["oneformer"]["overlay"],
-            # "unet_smp": benchmark_ade.results["unet_pretrained"]["overlay"],
-            # "deeplab_tv": benchmark_ade.results["deeplab_pretrained"]["overlay"],
-            # "sam": benchmark_ade.results["sam"]["overlay"],
-            # "sam2": benchmark_ade.results["sam2"]["overlay"],
-            # "dpt": benchmark_ade.results["dpt"]["overlay"],
-            # "upernet": benchmark_ade.results["upernet"]["overlay"],
-            # "segformer_b2": benchmark_ade.results["segformer_b2"]["overlay"],
-            # "maskformer": benchmark_ade.results["maskformer"]["overlay"],
-            # "fpn_mit": benchmark_ade.results["fpn_mit_b5_pretrained"]["overlay"],
-            # "psp_mit": benchmark_ade.results["psp_mit_b5_pretrained"]["overlay"],
+            "segformer": benchmark_ade.results["segformer"]["overlay"],
+            "mask2former": benchmark_ade.results["mask2former"]["overlay"],
+            "oneformer": benchmark_ade.results["oneformer"]["overlay"],
+            "unet_smp": benchmark_ade.results["unet_pretrained"]["overlay"],
+            "deeplab_tv": benchmark_ade.results["deeplab_pretrained"]["overlay"],
+            "sam": benchmark_ade.results["sam"]["overlay"],
+            "sam2": benchmark_ade.results["sam2"]["overlay"],
+            "dpt": benchmark_ade.results["dpt"]["overlay"],
+            "upernet": benchmark_ade.results["upernet"]["overlay"],
+            "segformer_b2": benchmark_ade.results["segformer_b2"]["overlay"],
+            "maskformer": benchmark_ade.results["maskformer"]["overlay"],
+            "fpn_mit": benchmark_ade.results["fpn_mit_b5_pretrained"]["overlay"],
+            "psp_mit": benchmark_ade.results["psp_mit_b5_pretrained"]["overlay"],
             "fcn_tv": benchmark_ade.results["fcn_resnet50_pretrained"]["overlay"],
-            # "maskrcnn_tv": benchmark_ade.results["maskrcnn_pretrained"]["overlay"],
-            # "segnet": benchmark_ade.results["segnet_resnet34_pretrained"]["overlay"],
+            "maskrcnn_tv": benchmark_ade.results["maskrcnn_pretrained"]["overlay"],
+            "segnet": benchmark_ade.results["segnet_resnet34_pretrained"]["overlay"],
         }
 
         for model_key, overlay in results_map_ade.items():
@@ -839,44 +850,44 @@ def main():
         plt.figure(figsize=(20, 10))
         titles = [
             "Original",
-            # "SegFormer",
-            # "Mask2Former",
-            # "OneFormer",
-            # "U_Net",
-            # "DeepLabV3+",
-            # "MobileSAM",
-            # "SAM2",
-            # "DPT-Large",
-            # "UPerNet",
-            # "SegFormer-B2",
-            # "FPN + MiT-B5",
-            # "PSPNet + MiT-B5",
-            # "MaskFormer",
+            "SegFormer",
+            "Mask2Former",
+            "OneFormer",
+            "U_Net",
+            "DeepLabV3+",
+            "MobileSAM",
+            "SAM2",
+            "DPT-Large",
+            "UPerNet",
+            "SegFormer-B2",
+            "FPN + MiT-B5",
+            "PSPNet + MiT-B5",
+            "MaskFormer",
             "FCN ResNet-50",
-            # "Mask R-CNN",
-            # "SegNet",
+            "Mask R-CNN",
+            "SegNet",
             "Ground_Truth",
             "Orig_Mask",
         ]
 
         images = [
             original_img_0,  # Original
-            # results_map_ade["segformer"],  # SegFormer
-            # results_map_ade["mask2former"],  # Mask2Former
-            # results_map_ade["oneformer"],  # OneFormer
-            # results_map_ade["unet_smp"],  # U_Net
-            # results_map_ade["deeplab_tv"],  # DeepLabV3+
-            # results_map_ade["sam"],  # MobileSAM
-            # results_map_ade["sam2"],  # SAM2
-            # results_map_ade["dpt"],  # DPT-Large
-            # results_map_ade["upernet"],  # UPerNet
-            # results_map_ade["segformer_b2"],  # SegFormer-B2
-            # results_map_ade["fpn_mit"],  # FPN + MiT-B5
-            # results_map_ade["psp_mit"],  # PSPNet + MiT-B5
-            # results_map_ade["maskformer"],  # MaskFormer
+            results_map_ade["segformer"],  # SegFormer
+            results_map_ade["mask2former"],  # Mask2Former
+            results_map_ade["oneformer"],  # OneFormer
+            results_map_ade["unet_smp"],  # U_Net
+            results_map_ade["deeplab_tv"],  # DeepLabV3+
+            results_map_ade["sam"],  # MobileSAM
+            results_map_ade["sam2"],  # SAM2
+            results_map_ade["dpt"],  # DPT-Large
+            results_map_ade["upernet"],  # UPerNet
+            results_map_ade["segformer_b2"],  # SegFormer-B2
+            results_map_ade["fpn_mit"],  # FPN + MiT-B5
+            results_map_ade["psp_mit"],  # PSPNet + MiT-B5
+            results_map_ade["maskformer"],  # MaskFormer
             results_map_ade["fcn_tv"],  # FCN ResNet-50
-            # results_map_ade["maskrcnn_tv"],  # Mask R-CNN
-            # results_map_ade["segnet"],  # SegNet
+            results_map_ade["maskrcnn_tv"],  # Mask R-CNN
+            results_map_ade["segnet"],  # SegNet
             infer_res_ade,  # Ground_Truth
             segmentation_map,  # Orig_Mask
         ]
@@ -1166,9 +1177,9 @@ def main():
         )
 
         # Конфигурации для сравнения
-        augmentation_configs = [
-            # {"level": "none", "epochs": 200, "lr": 1e-4, "subset_fraction": 0.05},
-            {"level": "basic", "epochs": 200, "lr": 1e-4, "subset_fraction": 0.05},
+        augmentation_configs: List[Dict[str, Any]] = [
+            # {"level": "none", "epochs": 200, "lr": 1e-5, "subset_fraction": 0.05},
+            {"level": "basic", "epochs": 200, "lr": 1e-5, "subset_fraction": 0.05},
             # {"level": "medium", "epochs": 200, "lr": 1e-5, "subset_fraction": 0.05},
             # {'level': 'aggressive', 'epochs': 50, 'lr': 5e-5},
         ]
@@ -1176,8 +1187,8 @@ def main():
             # "unet_smp",  # U-Net
             # "fpn_smp",  # FPN + MiT-B5
             # "psp_smp",  # PSPNet + MiT-B5
-            # "deeplab_tv",  # DeepLabV3+
-            "fcn_tv",  # FCN ResNet-50
+            "deeplab_tv",  # DeepLabV3+
+            # "fcn_tv",  # FCN ResNet-50
             # "segnet",  # SegNet
         ]
         results_by_model_and_aug: Dict[str, Dict[str, Any]] = {
@@ -1391,7 +1402,7 @@ def main():
             eval_results = trainer.evaluate_checkpoints(
                 checkpoint_paths=list(checkpoints.values()),
                 model_type="unet_smp",  # 🔥 Нужно указать тип модели или сделать универсально
-                val_fraction=0.05,
+                # val_fraction=0.05,
             )
 
         # ====================================================================

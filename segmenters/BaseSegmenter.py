@@ -21,6 +21,9 @@ from typing import (
 from typing_extensions import TypeAlias
 from metrics.SegmentationMetrics import SegmentationMetrics
 
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES
+# ──────────────────────────────────────────────────────────────────────
 # Определение типов для изображений
 ImagePath: TypeAlias = str
 NumpyImage: TypeAlias = np.ndarray
@@ -44,40 +47,87 @@ MetricsDict: TypeAlias = Dict[str, float]
 
 @runtime_checkable
 class SegmentationMetricsProtocol(Protocol):
-    """Протокол для класса метрик сегментации"""
+    """
+    Протокол для класса метрик сегментации.
+
+    Гарантирует наличие статического метода `calculate_all_metrics`.
+    """
 
     @staticmethod
     def calculate_all_metrics(
         pred_mask: BinaryMask, gt_mask: BinaryMask, threshold: float
-    ) -> MetricsDict: ...
+    ) -> MetricsDict:
+        """
+        Рассчитывает все метрики сегментации.
+
+        Args:
+            pred_mask: Предсказанная бинарная маска.
+            gt_mask: Ground truth бинарная маска.
+            threshold: Порог бинаризации.
+
+        Returns:
+            MetricsDict: Словарь с метриками.
+        """
+        ...
 
 
 T = TypeVar("T", bound="BaseSegmenter")
 
 
 class BaseSegmenter(ABC):
-    """Базовый класс для всех методов сегментации"""
+    """
+    Абстрактный базовый класс для всех методов сегментации.
+
+    Определяет единый интерфейс для:
+    - Сегментации (`segment()`, `segment_with_mask()`).
+    - Предобработки изображений (`preprocess_image()`).
+    - Визуализации результатов (`visualize()`).
+    - Оценки качества (`evaluate_metrics()`, `segment_and_evaluate()`).
+
+    Поддерживаемые форматы входных данных:
+    - Строка: путь к файлу или URL.
+    - `PIL.Image`: любое изображение.
+    - `np.ndarray`: массив формы `(H, W)` или `(H, W, C)`.
+    - `torch.Tensor`: тензор формы `(C, H, W)` или `(H, W, C)`.
+
+    Attributes:
+        name (str): Имя класса-наследника.
+        metrics_calculator (SegmentationMetricsProtocol): Экземпляр для расчёта метрик.
+
+    Example:
+        ```python
+        class MySegmenter(BaseSegmenter):
+            def segment(self, image, **kwargs):
+                # Реализация сегментации
+                return binary_mask
+
+            def segment_with_mask(self, image, **kwargs):
+                # Реализация с возвратом маски
+                return binary_mask, prob_mask
+        ```
+    """
 
     def __init__(self) -> None:
+        """Инициализация базового сегментатора."""
         self.name: str = self.__class__.__name__
         self.metrics_calculator: SegmentationMetricsProtocol = SegmentationMetrics
 
     @abstractmethod
     def segment(self, image: ImageInput, **kwargs: Any) -> BinaryMask:
         """
-        Основной метод сегментации
+        Основной метод сегментации.
 
         Args:
-            image: Входное изображение в любом поддерживаемом формате
-            *args: Дополнительные позиционные аргументы
-            **kwargs: Дополнительные именованные аргументы
+            image: Входное изображение в любом поддерживаемом формате.
+            *args: Дополнительные позиционные аргументы.
+            **kwargs: Дополнительные именованные аргументы.
 
         Returns:
-            Бинарная маска сегментации (uint8, значения 0 или 255)
+            BinaryMask: Бинарная маска формы `(H, W)`, dtype `uint8`, значения {0, 255}.
 
         Raises:
-            ValueError: Если не удалось загрузить или обработать изображение
-            TypeError: Если передан неподдерживаемый тип изображения
+            ValueError: Если не удалось загрузить или обработать изображение.
+            TypeError: Если передан неподдерживаемый тип изображения.
         """
         pass
 
@@ -86,15 +136,19 @@ class BaseSegmenter(ABC):
         self, image: ImageInput, **kwargs: Any
     ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
         """
-        Сегментация с возвратом маски и вероятностей (если доступно)
+        Сегментация с возвратом бинарной и вероятностной масок.
+
+        Вероятностная маска может быть `None`, если метод не поддерживает
+        вывод вероятностей.
 
         Args:
-            image: Входное изображение в любом поддерживаемом формате
-            *args: Дополнительные позиционные аргументы
-            **kwargs: Дополнительные именованные аргументы
+            image: Входное изображение.
+            **kwargs: Дополнительные параметры.
 
         Returns:
-            Кортеж (бинарная маска, вероятностная маска)
+            Tuple[BinaryMask, Optional[ProbabilityMask]]:
+            - Бинарная маска: значения {0, 255}.
+            - Вероятностная маска: значения [0, 1] или `None`.
         """
         pass
 
@@ -106,20 +160,29 @@ class BaseSegmenter(ABC):
         normalize: bool = False,
     ) -> NumpyImage:
         """
-        Предобработка изображения
+        Предобработка изображения к единому формату `np.ndarray`.
+
+        Поддерживает:
+        - Загрузку из файла/URL.
+        - Конвертацию форматов (PIL → numpy, torch → numpy).
+        - Конвертацию цветовых пространств (RGB/GRAY).
+        - Ресайз к `target_size`.
+        - Нормализацию значений в [0, 1].
 
         Args:
-            image: Входное изображение
-            as_gray: Конвертировать в оттенки серого
-            target_size: Целевой размер (ширина, высота)
-            normalize: Нормализовать значения пикселей в [0, 1]
+            image: Входное изображение.
+            as_gray: Если `True`, конвертирует в оттенки серого.
+            target_size: Целевой размер `(ширина, высота)`. Если `None`, размер не меняется.
+            normalize: Если `True`, нормализует значения в [0, 1] (dtype float32).
 
         Returns:
-            Предобработанное изображение в формате numpy array
+            NumpyImage: Предобработанное изображение.
+            - Если `normalize=False`: dtype `uint8`, диапазон [0, 255].
+            - Если `normalize=True`: dtype `float32`, диапазон [0, 1].
 
         Raises:
-            ValueError: Если не удалось загрузить изображение
-            TypeError: Если передан неподдерживаемый тип изображения
+            ValueError: Если не удалось загрузить изображение по пути/URL.
+            TypeError: Если тип входных данных не поддерживается.
         """
         result: NumpyImage
         if isinstance(image, str):
@@ -174,16 +237,12 @@ class BaseSegmenter(ABC):
                 f"Ожидается один из: {ImageInput.__args__}"
             )
         if target_size is not None:
-            result = cv2.resize(
-                result,
-                target_size,
-                interpolation=(
-                    cv2.INTER_AREA
-                    if result.shape[0] * result.shape[1]
-                    > target_size[0] * target_size[1]
-                    else cv2.INTER_LINEAR
-                ),
+            interpolation = (
+                cv2.INTER_AREA
+                if result.shape[0] * result.shape[1] > target_size[0] * target_size[1]
+                else cv2.INTER_LINEAR
             )
+            result = cv2.resize(result, target_size, interpolation=interpolation)
 
         if normalize:
             if result.dtype != np.float32:
@@ -200,17 +259,24 @@ class BaseSegmenter(ABC):
         return_numpy: bool = False,
     ) -> Union[PILImage, NumpyImage]:
         """
-        Визуализация результата сегментации
+        Визуализация результата сегментации: наложение маски на оригинал.
+
+        Алгоритм:
+        1. Создаёт цветную маску (`overlay_color` для объекта, чёрный для фона).
+        2. Блендит оригинал и цветную маску с коэффициентом `alpha`.
 
         Args:
-            image: Исходное изображение (RGB)
-            mask: Бинарная маска сегментации
-            alpha: Прозрачность наложения (0-1)
-            overlay_color: Цвет наложения (RGB)
-            return_numpy: Вернуть результат как numpy array вместо PIL Image
+            image: Исходное изображение в формате `(H, W, 3)`, RGB, dtype `uint8`.
+            mask: Бинарная маска формы `(H, W)`, значения {0, 255}.
+            alpha: Прозрачность наложения (0.0 = только фото, 1.0 = только маска).
+            overlay_color: Цвет объекта в формате `(R, G, B)`.
+            return_numpy: Если `True`, возвращает `np.ndarray`, иначе `PIL.Image`.
 
         Returns:
-            Изображение с визуализацией сегментации
+            Union[PILImage, NumpyImage]: Изображение с наложенной маской.
+
+        Raises:
+            ValueError: Если размеры изображения и маски не совпадают.
         """
         # Проверка размеров
         if image.shape[:2] != mask.shape[:2]:
@@ -226,19 +292,22 @@ class BaseSegmenter(ABC):
 
     def evaluate_metrics(
         self, pred_mask: BinaryMask, gt_mask: BinaryMask, threshold: float = 0.5
-    ) -> Dict[str, float]:
+    ) -> MetricsDict:
         """
-        Оценка качества сегментации с помощью различных метрик
+        Оценка качества сегментации с помощью различных метрик.
+
+        Делегирует расчёт `SegmentationMetrics.calculate_all_metrics`.
 
         Args:
-            pred_mask: Предсказанная маска
-            gt_mask: Ground truth маска
-            threshold: Порог для бинаризации
+            pred_mask: Предсказанная маска.
+            gt_mask: Ground truth маска.
+            threshold: Порог для бинаризации (если маски не бинарные).
 
         Returns:
-            Словарь с метриками сегментации
+            MetricsDict: Словарь с метриками:
+            - `iou`, `dice`, `f1_score`, `precision`, `recall`, `pixel_accuracy`, ...
         """
-        # Приведение масок к общему формату
+        # Приведение масок к бинарному формат
         pred_binary: BinaryMask = self._ensure_binary_mask(pred_mask, threshold)
         gt_binary: BinaryMask = self._ensure_binary_mask(gt_mask, threshold)
 
@@ -254,16 +323,20 @@ class BaseSegmenter(ABC):
         **segment_kwargs: Any,
     ) -> Tuple[MetricsDict, BinaryMask]:
         """
-        Выполняет сегментацию и сразу оценивает результат
+        Выполняет сегментацию и сразу оценивает результат.
+
+        Удобно для быстрого тестирования метода на одном изображении.
 
         Args:
-            image: Входное изображение
-            gt_mask: Ground truth маска
-            threshold: Порог для бинаризации
-            **segment_kwargs: Дополнительные аргументы для метода segment
+            image: Входное изображение.
+            gt_mask: Ground truth маска.
+            threshold: Порог для бинаризации.
+            **segment_kwargs: Дополнительные аргументы для `segment()`.
 
         Returns:
-            Кортеж (метрики, предсказанная маска)
+            Tuple[MetricsDict, BinaryMask]:
+            - Метрики качества.
+            - Предсказанная бинарная маска.
         """
         pred_mask: BinaryMask = self.segment(image, **segment_kwargs)
         pred_binary = self._ensure_binary_mask(pred_mask, threshold)
@@ -271,6 +344,9 @@ class BaseSegmenter(ABC):
         metrics: MetricsDict = self.evaluate_metrics(pred_binary, gt_binary, threshold)
         return metrics, pred_binary
 
+    # ──────────────────────────────────────────────────────────────────────
+    # OVERLOAD ДЛЯ __call__
+    # ──────────────────────────────────────────────────────────────────────
     @overload
     def __call__(
         self, image: ImageInput, return_mask: Literal[False] = False, **kwargs: Any
@@ -293,8 +369,8 @@ class BaseSegmenter(ABC):
             **kwargs: Дополнительные аргументы для метода сегментации
 
         Returns:
-            Если return_mask=False: бинарная маска
-            Если return_mask=True: кортеж (бинарная маска, вероятностная маска)
+            - Если `return_mask=False`: `BinaryMask`.
+            - Если `return_mask=True`: `Tuple[BinaryMask, Optional[ProbabilityMask]]`.
         """
         if return_mask:
             return self.segment_with_mask(image, **kwargs)
@@ -304,14 +380,20 @@ class BaseSegmenter(ABC):
         self, mask: Union[BinaryMask, ProbabilityMask], threshold: float = 0.5
     ) -> BinaryMask:
         """
-        Приведение маски к бинарному формату
+        Приведение маски к бинарному формату {0, 255}.
+
+        Обрабатывает:
+        - `uint8` с диапазоном [0, 1] → умножение на 255.
+        - `uint8` с диапазоном [0, 255] → пороговая бинаризация.
+        - `float32/64` с диапазоном [0, 1] → пороговая бинаризация.
+        - `float32/64` с произвольным диапазоном → нормализация + бинаризация.
 
         Args:
-            mask: Входная маска
-            threshold: Порог бинаризации
+            mask: Входная маска.
+            threshold: Порог бинаризации (для вероятностных масок).
 
         Returns:
-            Бинарная маска (uint8, 0 или 255)
+            BinaryMask: Бинарная маска формы `(H, W)`, dtype `uint8`, значения {0, 255}.
         """
         if mask.dtype == np.uint8:
             if mask.max() == 1:
@@ -328,10 +410,17 @@ class BaseSegmenter(ABC):
 
     def get_info(self) -> Dict[str, Any]:
         """
-        Возвращает информацию о сегментаторе
+        Возвращает мета-информацию о сегментаторе.
 
         Returns:
-            Словарь с информацией о классе
+            Dict[str, Any]:
+            ```python
+            {
+                "name": str,           # Имя экземпляра
+                "class": str,          # Имя класса
+                "module": str,         # Модуль класса
+            }
+            ```
         """
         return {
             "name": self.name,

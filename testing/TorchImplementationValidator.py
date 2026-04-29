@@ -1,41 +1,80 @@
 # testing/TorchImplementationValidator.py
 
 # Импорт основных библиотек
+import os
+import time
+import json
+import traceback
+from pathlib import Path
+from datetime import datetime
+from typing import List, Dict, Any, Optional, Tuple, Union, Type, Literal
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from PIL import Image
+import torch
+
+# Локальные импорты
 from segmenters.TorchSegmenter import TorchSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from metrics.SegmentationMetrics import SegmentationMetrics
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
-import os
-import traceback
-import time
-from datetime import datetime
-import pandas as pd
-from typing import (
-    Optional,
-    List,
-    Tuple,
-    Dict,
-    Any,
-)
-from PIL import Image
-import seaborn as sns
 
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES
+# ──────────────────────────────────────────────────────────────────────
 MethodConfig = Tuple[str, Dict[str, Any]]
+MaskArray = np.ndarray  # Binary mask: HxW, dtype uint8/bool
+ImageArray = np.ndarray  # RGB/Grayscale: HxW or HxWxC
+ImageInput = Union[str, np.ndarray, Image.Image]
+MetricDict = Dict[str, float]
+PathLike = Union[str, Path]
+SegmenterClass = Type[Union[TorchSegmenter, SklearnSegmenter, OpenCVSegmenter]]
+ValidationStatus = Literal[
+    "PASS", "WARNING", "FAIL"
+]  # Requires: from typing import Literal
 
 
 class TorchImplementationValidator:
     """
-    Класс для валидации кастомных PyTorch реализаций
-    против оригинальных реализаций из библиотек
+    Класс для валидации кастомных PyTorch-реализаций методов сегментации
+    против эталонных реализаций из библиотек (OpenCV, Scikit-learn).
+
+    Основные возможности:
+    - Попарное сравнение масок от TorchSegmenter vs SklearnSegmenter/OpenCVSegmenter.
+    - Расчёт метрик соответствия: IoU, Dice, F1, Precision, Recall, MAE, Hausdorff.
+    - Автоматическая классификация результатов: PASS / WARNING / FAIL на основе порогов.
+    - Визуализация различий: оригинал, две маски, heatmap разности.
+    - Генерация сводных отчётов: TXT, CSV, JSON, PNG-графики.
+    - Поддержка пакетной валидации всех категорий методов (пороговые, граничные, кластеризация и т.д.).
+
+    Workflow:
+    1. Создать экземпляр → 2. Вызвать `validate_all_methods(image_path)` → 3. Получить Dict с результатами
+       → 4. Сгенерировать отчёт через `generate_validation_report()` или `generate_benchmark_report_from_validation()`.
+
+    Attributes:
+        output_dir (Path): Директория для сохранения результатов валидации.
+        validation_results (Dict[str, Any]): Кэш последних результатов.
+        threshold_methods, edge_methods, ... (List[MethodConfig]): Предустановленные конфигурации методов по категориям.
+        success_thresholds (Dict[str, float]): Пороговые значения метрик для классификации статуса валидации.
     """
 
-    def __init__(self, output_dir: str = "./data/validation_results") -> None:
+    def __init__(self, output_dir: PathLike = "./data/validation_results") -> None:
+        """
+        Инициализация валидатора с настройками путей и порогов успешности.
+
+        Args:
+            output_dir: Базовая директория для сохранения артефактов (маски, метрики, графики).
+        """
         self.output_dir: str = output_dir
         os.makedirs(output_dir, exist_ok=True)
         self.validation_results: Dict[str, Any] = {}
+
+        # ──────────────────────────────────────────────────────────────
+        # КОНФИГУРАЦИИ МЕТОДОВ ПО КАТЕГОРИЯМ
+        # ──────────────────────────────────────────────────────────────
         self.threshold_methods: List[MethodConfig] = [
             ("global_thresholding", {"threshold": 0.5}),
             ("otsu_thresholding", {}),
@@ -173,7 +212,9 @@ class TorchImplementationValidator:
             ("grabcut", {"num_iterations": 5}),
         ]
 
-        # Пороги успешности кросс-библиотечной валидации.
+        # ──────────────────────────────────────────────────────────────
+        # ПОРОГИ УСПЕШНОСТИ ВАЛИДАЦИИ
+        # ──────────────────────────────────────────────────────────────
         # Разные реализации одного алгоритма дают близкие, но не идентичные результаты
         # из-за различий в padding, численной точности и порядка операций.
         self.success_thresholds: Dict[str, float] = {
@@ -186,14 +227,21 @@ class TorchImplementationValidator:
             "mae": 0.15,  # MAE < 0.15
         }
 
-    def _load_image(self, image_path: str) -> np.ndarray:
+    def _load_image(self, image_path: ImageInput) -> ImageArray:
         """
         Универсальная загрузка изображения для всех сегментаторов.
-        Возвращает numpy array в формате RGB.
+
+        Args:
+            image_path: Путь к файлу, `np.ndarray` или `PIL.Image`.
+
+        Returns:
+            np.ndarray: Изображение в формате RGB (H×W×3), dtype uint8.
+
+        Raises:
+            ValueError: Если тип входных данных не поддерживается.
         """
-        if isinstance(image_path, str) and os.path.exists(image_path):
-            img = Image.open(image_path).convert("RGB")
-            return np.array(img)
+        if isinstance(image_path, str) and Path(image_path).exists():
+            return np.array(Image.open(image_path).convert("RGB"))
         elif isinstance(image_path, np.ndarray):
             return image_path
         elif isinstance(image_path, Image.Image):
@@ -203,10 +251,10 @@ class TorchImplementationValidator:
 
     def validate_segmentation_methods(
         self,
-        image_path: str,
+        image_path: ImageInput,
         methods_list: List[MethodConfig],
-        torch_segmenter_class: type = TorchSegmenter,
-        reference_segmenter_class: type = SklearnSegmenter,
+        torch_segmenter_class: SegmenterClass = TorchSegmenter,
+        reference_segmenter_class: SegmenterClass = SklearnSegmenter,
         reference: str = "sklearn",
         status_message: str = "ВАЛИДАЦИЯ ПОРОГОВЫХ МЕТОДОВ",
         prefix: str = "threshold_validation",
@@ -228,48 +276,107 @@ class TorchImplementationValidator:
 
         Returns:
             Dict с результатами валидации по каждому методу
+        """ """
+        Универсальная функция валидации методов сегментации против эталонной реализации.
+
+        Для каждого метода из `methods_list`:
+        1. Запускает сегментацию через `torch_segmenter_class` и `reference_segmenter_class`.
+        2. Замеряет время выполнения обоих методов.
+        3. Рассчитывает метрики соответствия масок через `SegmentationMetrics`.
+        4. Определяет статус валидации (PASS / WARNING / FAIL) на основе порогов.
+        5. Сохраняет маски, метрики и визуализации.
+
+        Args:
+            image_path: Входное изображение (путь, массив или PIL-объект).
+            methods_list: Список кортежей `(имя_метода, параметры)` для тестирования.
+            torch_segmenter_class: Класс сегментера для тестируемой PyTorch-реализации.
+            reference_segmenter_class: Класс сегментера для эталонной реализации.
+            reference: Название референсной библиотеки (для отчётов: "sklearn", "opencv").
+            status_message: Заголовок для вывода в консоль.
+            prefix: Префикс для имён файлов и директорий.
+            validation_type: Тип валидации для категоризации в отчётах ("threshold", "edge", ...).
+            additional_method: Идентификатор тестируемой реализации ("Torch", "OpenCV").
+
+        Returns:
+            Dict[str, Any]: Словарь результатов по методам:
+            ```python
+            {
+                method_name: {
+                    "torch_mask": np.ndarray,
+                    "reference_mask": np.ndarray,
+                    "metrics": Dict[str, float],  # IoU, Dice, F1, ...
+                    "parameters": Dict[str, Any],
+                    "validation_status": "PASS" | "WARNING" | "FAIL",
+                    "success": bool,
+                    "reference_library": str,
+                    "first_method_time": float,
+                    "second_method_time": float,
+                    "methods_time_difference": float,
+                }
+            }
+            ```
+
+        Note:
+            - Для референсного сегментера автоматически добавляется параметр `postprocess=False`,
+              чтобы сравнение было максимально честным (без постобработки).
+            - Метрики рассчитываются между двумя предсказаниями, а не против ground truth —
+              это проверка консистентности реализаций, а не качества сегментации.
         """
-        print(f"\n{'=' * 60}")
-        print(f"{status_message}")
-        print(f"Референс: {reference.upper()}")
-        print(f"{'=' * 60}")
-        results = {}
-        img_array: np.ndarray = self._load_image(image_path)
+        print(
+            f"\n{'=' * 60}\n{status_message}\nРеференс: {reference.upper()}\n{'=' * 60}"
+        )
+        results: Dict[str, Any] = {}
+        img_array: ImageArray = self._load_image(image_path)
 
         for method_name, params in methods_list:
             print(f"\n📊 Метод: {method_name}")
             try:
-                # Torch реализация
-                start_method_1_time = time.time()
+                # ──────────────────────────────────────────────────────
+                # Torch / тестируемая реализация
+                # ──────────────────────────────────────────────────────
+                start_method_1_time = time.perf_counter()
                 torch_segmenter = torch_segmenter_class(method=method_name, **params)
-                torch_mask = torch_segmenter.segment(img_array, **params)
-                execution_method_1_time = time.time() - start_method_1_time
+                torch_mask: MaskArray = torch_segmenter.segment(img_array, **params)
+                execution_method_1_time = time.perf_counter() - start_method_1_time
 
+                # ──────────────────────────────────────────────────────
                 # Референсная реализация
-                start_method_2_time = time.time()
+                # ──────────────────────────────────────────────────────
+                start_method_2_time = time.perf_counter()
                 ref_params = params.copy()
-                ref_params["postprocess"] = False
+                ref_params["postprocess"] = (
+                    False  # 🔧 Отключаем постобработку для честного сравнения
+                )
                 ref_segmenter = reference_segmenter_class(
                     method=method_name, **ref_params
                 )
-                ref_mask = ref_segmenter.segment(img_array, **ref_params)
-                execution_method_2_time = time.time() - start_method_2_time
+                ref_mask: MaskArray = ref_segmenter.segment(img_array, **ref_params)
+                execution_method_2_time = time.perf_counter() - start_method_2_time
 
                 difference_methods_time = abs(
                     execution_method_2_time - execution_method_1_time
                 )
 
-                # Вычисляем метрики соответствия
-                metrics = SegmentationMetrics.calculate_all_metrics(
+                # ──────────────────────────────────────────────────────
+                # Метрики соответствия
+                # ──────────────────────────────────────────────────────
+                metrics: MetricDict = SegmentationMetrics.calculate_all_metrics(
                     torch_mask, ref_mask, threshold=0.5, include_hausdorff=True
                 )
+                metrics.update(
+                    {
+                        "first_method_time": execution_method_1_time,
+                        "second_method_time": execution_method_2_time,
+                        "methods_time_difference": difference_methods_time,
+                    }
+                )
 
-                metrics["first_method_time"] = execution_method_1_time
-                metrics["second_method_time"] = execution_method_2_time
-                metrics["methods_time_difference"] = difference_methods_time
-
-                # Определяем статус валидации
-                validation_status = self._check_validation_status(metrics)
+                # ──────────────────────────────────────────────────────
+                # Статус валидации
+                # ──────────────────────────────────────────────────────
+                validation_status: ValidationStatus = self._check_validation_status(
+                    metrics
+                )
 
                 results[method_name] = {
                     "torch_mask": torch_mask,
@@ -284,7 +391,9 @@ class TorchImplementationValidator:
                     "methods_time_difference": difference_methods_time,
                 }
 
-                # Вывод результатов
+                # ──────────────────────────────────────────────────────
+                # Вывод в консоль
+                # ──────────────────────────────────────────────────────
                 status_icon = "✅" if validation_status == "PASS" else "⚠️"
                 print(f"   {status_icon} IoU: {metrics['iou']:.4f}")
                 print(f"   {status_icon} Dice: {metrics['dice']:.4f}")
@@ -314,6 +423,9 @@ class TorchImplementationValidator:
                     "error": str(e),
                     "reference_library": reference,
                 }
+        # ──────────────────────────────────────────────────────
+        # Сохранение и визуализация
+        # ──────────────────────────────────────────────────────
         if additional_method == "Torch":
             self._save_validation_results(results, prefix, reference, flag_torch=True)
         else:
@@ -323,10 +435,24 @@ class TorchImplementationValidator:
         )
         return results
 
-    def _check_validation_status(self, metrics: Dict[str, float]) -> str:
-        """Определяет статус валидации на основе метрик"""
-        passed = 0
-        total = 7
+    def _check_validation_status(self, metrics: MetricDict) -> ValidationStatus:
+        """
+        Определяет статус валидации на основе пороговых значений метрик.
+
+        Логика:
+        - Проверяет 7 ключевых метрик: IoU, Dice, Pixel Accuracy, Precision, Recall, F1, MAE.
+        - PASS: все 7 метрик проходят пороги.
+        - WARNING: ≥ 4 из 7 метрик проходят.
+        - FAIL: < 4 метрик проходят.
+
+        Args:
+            metrics: Словарь с рассчитанными метриками.
+
+        Returns:
+            ValidationStatus: Один из "PASS", "WARNING", "FAIL".
+        """
+        passed: int = 0
+        total: int = 7
 
         if metrics["iou"] >= self.success_thresholds["iou"]:
             passed += 1
@@ -357,7 +483,24 @@ class TorchImplementationValidator:
         reference: str,
         flag_torch: bool = True,
     ) -> None:
-        """Сохранение результатов валидации"""
+        """
+        Сохраняет результаты валидации: маски (.npy) и метрики (.txt).
+
+        Структура директории:
+        ```
+        {output_dir}/{prefix}_{reference}_{timestamp}/
+        └── {method_name}/
+            ├── torch_mask.npy (или opencv_mask.npy)
+            ├── reference_mask.npy
+            └── metrics.txt
+        ```
+
+        Args:
+            results: Результаты `validate_segmentation_methods()`.
+            prefix: Префикс имени директории.
+            reference: Название референсной библиотеки.
+            flag_torch: Если `True`, сохраняет маску как `torch_mask.npy`, иначе `opencv_mask.npy`.
+        """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         results_dir = os.path.join(self.output_dir, f"{prefix}_{reference}_{timestamp}")
         os.makedirs(results_dir, exist_ok=True)
@@ -399,14 +542,25 @@ class TorchImplementationValidator:
     def _visualize_validation(
         self,
         results: Dict[str, Any],
-        image_array: np.ndarray,
+        image_array: ImageArray,
         validation_type: str,
         reference: str,
         additional_method: str = "Torch",
     ) -> None:
-        """Визуализация результатов валидации"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        """
+        Строит визуализацию сравнения: оригинал, две маски, heatmap разности.
 
+        Макет (на строку метода):
+        [Original] | [Tested Mask] | [Reference Mask] | [Difference Heatmap]
+
+        Args:
+            results: Результаты валидации.
+            image_array: Исходное изображение для отображения.
+            validation_type: Категория методов ("threshold", "edge", ...) для заголовка.
+            reference: Название референсной библиотеки.
+            additional_method: Идентификатор тестируемой реализации.
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         original = image_array
 
         n_methods = len([r for r in results.values() if r.get("success")])
@@ -425,19 +579,16 @@ class TorchImplementationValidator:
 
             torch_mask = data["torch_mask"]
             ref_mask = data["reference_mask"]
-            if isinstance(torch_mask, torch.Tensor):
-                torch_mask_np = torch_mask.cpu().numpy()
-            else:
-                torch_mask_np = torch_mask
-
-            # Удаляем все оси размером 1, чтобы получить (H, W)
-            torch_mask_np = np.squeeze(torch_mask_np)
-
-            if isinstance(ref_mask, torch.Tensor):
-                ref_mask_np = ref_mask.cpu().numpy()
-            else:
-                ref_mask_np = ref_mask
-            ref_mask_np = np.squeeze(ref_mask_np)
+            torch_mask_np = np.squeeze(
+                torch_mask.cpu().numpy()
+                if isinstance(torch_mask, torch.Tensor)
+                else torch_mask
+            )
+            ref_mask_np = np.squeeze(
+                ref_mask.cpu().numpy()
+                if isinstance(ref_mask, torch.Tensor)
+                else ref_mask
+            )
 
             metrics = data["metrics"]
             status = data["validation_status"]
@@ -449,10 +600,10 @@ class TorchImplementationValidator:
 
             # Torch маска
             axes[row, 1].imshow(torch_mask_np, cmap="gray")
-            if additional_method == "Torch":
-                axes[row, 1].set_title(f"Torch {method}\nIoU: {metrics['iou']:.3f}")
-            else:
-                axes[row, 1].set_title(f"OpenCV {method}\nIoU: {metrics['iou']:.3f}")
+            title_suffix = "Torch" if additional_method == "Torch" else "OpenCV"
+            axes[row, 1].set_title(
+                f"{title_suffix} {method}\nIoU: {metrics['iou']:.3f}"
+            )
             axes[row, 1].axis("off")
 
             # Reference маска
@@ -460,13 +611,11 @@ class TorchImplementationValidator:
             axes[row, 2].set_title(f"{reference.upper()} {method}")
             axes[row, 2].axis("off")
 
-            # Разность
+            # Heatmap разности
             diff = np.abs(torch_mask_np.astype(float) - ref_mask_np.astype(float))
             im = axes[row, 3].imshow(diff, cmap="hot")
-            status_color = (
-                "green"
-                if status == "PASS"
-                else "orange" if status == "WARNING" else "red"
+            status_color = {"PASS": "green", "WARNING": "orange", "FAIL": "red"}.get(
+                status, "red"
             )
             axes[row, 3].set_title(f"Difference\nStatus: {status}", color=status_color)
             axes[row, 3].axis("off")
@@ -488,18 +637,31 @@ class TorchImplementationValidator:
         print(f"📊 Визуализация: {viz_path}")
 
     def generate_validation_report(self, all_results: Dict[str, Any]) -> str:
-        """Генерация сводного отчёта по валидации"""
-        report_lines = []
+        """
+        Генерирует текстовый сводный отчёт по всем типам валидации.
+
+        Включает:
+        - Статистику PASS / WARNING / FAIL по категориям методов.
+        - Детальные метрики для каждого метода.
+        - Сводные проценты успешности.
+
+        Args:
+            all_results: Результаты `validate_all_methods()` — Dict по категориям.
+
+        Returns:
+            str: Текст отчёта (также сохраняется в файл).
+        """
+        report_lines: List[str] = []
         report_lines.append("=" * 60)
         report_lines.append("ОТЧЁТ ПО ВАЛИДАЦИИ TORCH РЕАЛИЗАЦИЙ")
         report_lines.append("=" * 60)
         report_lines.append(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         report_lines.append("")
 
-        total_methods = 0
-        passed_methods = 0
-        warning_methods = 0
-        failed_methods = 0
+        total_methods: int = 0
+        passed_methods: int = 0
+        warning_methods: int = 0
+        failed_methods: int = 0
 
         for validation_type, results in all_results.items():
             report_lines.append(f"\n{validation_type.upper()}")
@@ -536,10 +698,8 @@ class TorchImplementationValidator:
                     f"Hausdorf_distance={metrics.get('hausdorff_distance', float('nan')):.3f} "
                     f"Area_ratio={metrics['area_ratio']:.3f} "
                     f"Area_difference={metrics['area_difference']:.3f} "
-                    f"Segmenter_1_time={metrics['first_method_time']:.3f} "
-                    f"Segmenter_2_time={metrics['second_method_time']:.3f} "
-                    f"Segmenter_difference_time={metrics['methods_time_difference']:.3f} "
-                    f"[{status}]"
+                    f"T1={metrics['first_method_time']:.3f}s, T2={metrics['second_method_time']:.3f}s, "
+                    f"ΔT={metrics['methods_time_difference']:.3f}s [{status}]"
                 )
 
         report_lines.append("")
@@ -572,10 +732,41 @@ class TorchImplementationValidator:
         print("\n" + report)
         return report
 
-    def validate_all_methods(self, image_path: str) -> Dict:
-        """Валидация всех методов одним вызовом"""
-        all_results = {}
-        validation_configs = [
+    def validate_all_methods(self, image_path: ImageInput) -> Dict[str, Any]:
+        """
+        Запускает валидацию всех предустановленных категорий методов.
+
+        Выполняет 6 основных конфигураций сравнения:
+        1. Threshold: Torch vs Sklearn
+        2. Threshold: Torch vs OpenCV
+        3. Threshold: OpenCV vs Sklearn
+        4. Edge: Torch vs Sklearn
+        5. Edge: Torch vs OpenCV
+        6. Edge: OpenCV vs Sklearn
+
+        Остальные категории (region, clustering, active_contour, ...) закомментированы
+        и могут быть активированы при необходимости.
+
+        Args:
+            image_path: Входное изображение для всех тестов.
+
+        Returns:
+            Dict[str, Any]: Результаты по ключам:
+            `"threshold_sklearn"`, `"threshold_opencv"`, `"edge_sklearn"`, ...
+        """
+        all_results: Dict[str, Any] = {}
+        validation_configs: List[
+            Tuple[
+                str,
+                List[MethodConfig],
+                SegmenterClass,
+                SegmenterClass,
+                str,
+                str,
+                str,
+                str,
+            ]
+        ] = [
             (
                 "threshold_sklearn",
                 self.threshold_methods,
@@ -680,23 +871,30 @@ class TorchImplementationValidator:
         return all_results
 
     def generate_benchmark_report_from_validation(
-        self, all_results: Dict[str, Any], output_dir: Optional[str] = None
+        self, all_results: Dict[str, Any], output_dir: Optional[PathLike] = None
     ) -> pd.DataFrame:
         """
-        Генерирует бенчмарк-отчет на основе результатов валидации.
+        Генерирует бенчмарк-отчёт на основе результатов валидации.
+
+        Агрегирует данные по всем типам валидации, рассчитывает:
+        - Среднее время выполнения по библиотекам.
+        - Распределение метрик качества (IoU, Dice, ...).
+        - Покрытие масок (% пикселей объекта).
+        - Статистику PASS / WARNING / FAIL.
 
         Args:
-            all_results: Результаты валидации из validate_all_methods()
-            output_dir: Директория для сохранения графиков
+            all_results: Результаты `validate_all_methods()`.
+            output_dir: Директория для сохранения графиков и CSV. Если `None`, создаётся внутри `self.output_dir`.
 
         Returns:
-            DataFrame с бенчмарк-статистикой
+            pd.DataFrame: Сводная таблица с колонками:
+            `method`, `validation_type`, `torch_time`, `reference_time`, `iou`, `dice`, ..., `validation_status`.
         """
         if output_dir is None:
             output_dir = os.path.join(self.output_dir, "benchmark_from_validation")
         os.makedirs(output_dir, exist_ok=True)
 
-        benchmark_data = []
+        benchmark_data: List[Dict[str, Any]] = []
 
         # Извлекаем данные из всех типов валидации
         for validation_type, results in all_results.items():
@@ -704,7 +902,7 @@ class TorchImplementationValidator:
                 if not data.get("success", False):
                     continue
 
-                row = {
+                row: Dict[str, Any] = {
                     "method": method_name,
                     "validation_type": validation_type,
                     "torch_time": data.get("first_method_time", 0),
@@ -752,7 +950,7 @@ class TorchImplementationValidator:
 
                 benchmark_data.append(row)
 
-        df = pd.DataFrame(benchmark_data)
+        df: pd.DataFrame = pd.DataFrame(benchmark_data)
 
         if not df.empty:
             # Сохраняем raw данные
@@ -774,12 +972,24 @@ class TorchImplementationValidator:
         self, df: pd.DataFrame, output_dir: str
     ) -> None:
         """
-        Строит графики бенчмарка на основе данных валидации.
+        Строит 6 типов графиков для бенчмарк-анализа:
+        1. Bar-чарт времени выполнения (Torch).
+        2. Scatter: Torch time vs Reference time.
+        3. Bar-чарт IoU с цветовой индикацией статуса.
+        4. Покрытие масок (%).
+        5. Heatmap метрик качества.
+        6. Trade-off: время vs IoU.
+
+        Args:
+            df: DataFrame с агрегированными данными.
+            output_dir: Директория для сохранения графиков.
         """
         charts_dir = os.path.join(output_dir, "charts")
         os.makedirs(charts_dir, exist_ok=True)
 
-        # ===== График 1: Время выполнения (Torch реализации) =====
+        # ──────────────────────────────────────────────────────
+        # График 1: Время выполнения (Torch)
+        # ──────────────────────────────────────────────────────
         plt.figure(figsize=(14, 8))
 
         # Группируем по методам и берем среднее время
@@ -827,7 +1037,9 @@ class TorchImplementationValidator:
             )
             plt.close()
 
-        # ===== График 2: Сравнение времени Torch vs Reference =====
+        # ──────────────────────────────────────────────────────
+        # График 2: Scatter Torch vs Reference time
+        # ──────────────────────────────────────────────────────
         if "torch_time" in df.columns and "reference_time" in df.columns:
             # Берем только методы где есть оба времени
             df_compare = df[(df["torch_time"] > 0) & (df["reference_time"] > 0)].copy()
@@ -869,7 +1081,7 @@ class TorchImplementationValidator:
                 plt.grid(True, alpha=0.3)
 
                 # Подписываем выбросы
-                for i, row in df_compare.iterrows():
+                for _, row in df_compare.iterrows():
                     ratio = (
                         row["torch_time"] / row["reference_time"]
                         if row["reference_time"] > 0
@@ -891,7 +1103,9 @@ class TorchImplementationValidator:
                 )
                 plt.close()
 
-        # ===== График 3: IoU по методам (если есть метрики) =====
+        # ──────────────────────────────────────────────────────
+        # График 3: IoU по методам
+        # ──────────────────────────────────────────────────────
         if "iou" in df.columns:
             df_iou = df[df["iou"] > 0].sort_values("iou", ascending=True)
 
@@ -900,17 +1114,12 @@ class TorchImplementationValidator:
                 n_methods = len(df_iou)
                 fig_height = max(8, n_methods * 0.35)
                 plt.figure(figsize=(14, fig_height))
-
-                # Цвет по статусу валидации
-                colors = []
-                for _, row in df_iou.iterrows():
-                    status = row.get("validation_status", "UNKNOWN")
-                    if status == "PASS":
-                        colors.append("green")
-                    elif status == "WARNING":
-                        colors.append("orange")
-                    else:
-                        colors.append("red")
+                colors = [
+                    {"PASS": "green", "WARNING": "orange", "FAIL": "red"}.get(
+                        row.get("validation_status", "UNKNOWN"), "red"
+                    )
+                    for _, row in df_iou.iterrows()
+                ]
 
                 bars = plt.barh(
                     df_iou["method"],
@@ -950,7 +1159,9 @@ class TorchImplementationValidator:
                 )
                 plt.close()
 
-        # ===== График 4: Покрытие масок (Coverage) =====
+        # ──────────────────────────────────────────────────────
+        # График 4: Покрытие масок (Coverage)
+        # ──────────────────────────────────────────────────────
         if "torch_mask_coverage" in df.columns:
             df_coverage = df.sort_values("torch_mask_coverage", ascending=True)
 
@@ -995,7 +1206,9 @@ class TorchImplementationValidator:
             )
             plt.close()
 
-        # ===== График 5: Heatmap метрик =====
+        # ──────────────────────────────────────────────────────
+        # График 5: Heatmap метрик
+        # ──────────────────────────────────────────────────────
         metric_cols = ["iou", "dice", "precision", "recall", "f1_score"]
         available_metrics = [m for m in metric_cols if m in df.columns]
 
@@ -1030,7 +1243,9 @@ class TorchImplementationValidator:
             )
             plt.close()
 
-        # ===== График 6: Время vs IoU (Trade-off) =====
+        # ──────────────────────────────────────────────────────
+        # График 6: Trade-off время vs IoU
+        # ──────────────────────────────────────────────────────
         if "torch_time" in df.columns and "iou" in df.columns:
             df_tradeoff = df[(df["torch_time"] > 0) & (df["iou"] > 0)]
 
@@ -1055,7 +1270,7 @@ class TorchImplementationValidator:
                 plt.grid(True, alpha=0.3)
 
                 # Подписываем лучшие компромиссы
-                for i, row in df_tradeoff.iterrows():
+                for _, row in df_tradeoff.iterrows():
                     # Подписываем top-5 по IoU и top-5 по скорости
                     if (
                         row["iou"] in df_tradeoff["iou"].nlargest(5).values
@@ -1085,7 +1300,17 @@ class TorchImplementationValidator:
         self, df: pd.DataFrame, output_dir: str
     ) -> None:
         """
-        Генерирует текстовый сводный отчет по бенчмарку.
+        Генерирует текстовый сводный отчёт по бенчмарку.
+
+        Включает:
+        - Топ-10 самых быстрых и точных методов.
+        - Лучшие компромиссы (IoU / время).
+        - Статистику по библиотекам и статусам.
+        - Анализ покрытия масок.
+
+        Args:
+            df: DataFrame с агрегированными данными.
+            output_dir: Директория для сохранения `benchmark_summary.txt`.
         """
         summary_path = os.path.join(output_dir, "benchmark_summary.txt")
 
@@ -1097,9 +1322,9 @@ class TorchImplementationValidator:
             f.write(f"Всего методов: {len(df)}\n\n")
 
             # ===== Быстрые методы =====
-            f.write("=" * 80 + "\n")
-            f.write("ТОП-10 САМЫХ БЫСТРЫХ МЕТОДОВ (Torch)\n")
-            f.write("=" * 80 + "\n")
+            f.write(
+                "=" * 80 + "\nТОП-10 САМЫХ БЫСТРЫХ МЕТОДОВ (Torch)\n" + "=" * 80 + "\n"
+            )
             if "torch_time" in df.columns:
                 df_fast = df.nsmallest(10, "torch_time")
                 for i, (_, row) in enumerate(df_fast.iterrows(), 1):
@@ -1108,9 +1333,12 @@ class TorchImplementationValidator:
 
             # ===== Точные методы =====
             if "iou" in df.columns:
-                f.write("=" * 80 + "\n")
-                f.write("ТОП-10 САМЫХ ТОЧНЫХ МЕТОДОВ (по IoU)\n")
-                f.write("=" * 80 + "\n")
+                f.write(
+                    "=" * 80
+                    + "\nТОП-10 САМЫХ ТОЧНЫХ МЕТОДОВ (по IoU)\n"
+                    + "=" * 80
+                    + "\n"
+                )
                 df_accurate = df.nlargest(10, "iou")
                 for i, (_, row) in enumerate(df_accurate.iterrows(), 1):
                     f.write(f"{i:2d}. {row['method']:<40} IoU: {row['iou']:.4f}\n")
@@ -1118,9 +1346,12 @@ class TorchImplementationValidator:
 
             # ===== Лучшие компромиссы =====
             if "torch_time" in df.columns and "iou" in df.columns:
-                f.write("=" * 80 + "\n")
-                f.write("ЛУЧШИЕ КОМПРОМИССЫ (скорость × точность)\n")
-                f.write("=" * 80 + "\n")
+                f.write(
+                    "=" * 80
+                    + "\nЛУЧШИЕ КОМПРОМИССЫ (скорость × точность)\n"
+                    + "=" * 80
+                    + "\n"
+                )
                 # Вычисляем score = IoU / time (чем больше, тем лучше)
                 df_compromise = df.copy()
                 df_compromise["efficiency_score"] = df_compromise["iou"] / (
@@ -1137,9 +1368,7 @@ class TorchImplementationValidator:
 
             # ===== Статистика по библиотекам =====
             if "reference_library" in df.columns:
-                f.write("=" * 80 + "\n")
-                f.write("СРАВНЕНИЕ ПО БИБЛИОТЕКАМ\n")
-                f.write("=" * 80 + "\n")
+                f.write("=" * 80 + "\nСРАВНЕНИЕ ПО БИБЛИОТЕКАМ\n" + "=" * 80 + "\n")
                 for lib in df["reference_library"].unique():
                     df_lib = df[df["reference_library"] == lib]
                     f.write(f"\n{lib.upper()}:\n")
@@ -1156,9 +1385,12 @@ class TorchImplementationValidator:
 
             # ===== Распределение по статусам =====
             if "validation_status" in df.columns:
-                f.write("=" * 80 + "\n")
-                f.write("РАСПРЕДЕЛЕНИЕ ПО СТАТУСАМ ВАЛИДАЦИИ\n")
-                f.write("=" * 80 + "\n")
+                f.write(
+                    "=" * 80
+                    + "\nРАСПРЕДЕЛЕНИЕ ПО СТАТУСАМ ВАЛИДАЦИИ\n"
+                    + "=" * 80
+                    + "\n"
+                )
                 status_counts = df["validation_status"].value_counts()
                 for status, count in status_counts.items():
                     percentage = (count / len(df)) * 100
@@ -1167,9 +1399,7 @@ class TorchImplementationValidator:
 
             # ===== Покрытие масок =====
             if "torch_mask_coverage" in df.columns:
-                f.write("=" * 80 + "\n")
-                f.write("СТАТИСТИКА ПОКРЫТИЯ МАСОК\n")
-                f.write("=" * 80 + "\n")
+                f.write("=" * 80 + "\nСТАТИСТИКА ПОКРЫТИЯ МАСОК\n" + "=" * 80 + "\n")
                 f.write(f"Среднее покрытие: {df['torch_mask_coverage'].mean():.2f}%\n")
                 f.write(f"Min покрытие: {df['torch_mask_coverage'].min():.2f}%\n")
                 f.write(f"Max покрытие: {df['torch_mask_coverage'].max():.2f}%\n")

@@ -8,8 +8,17 @@ from typing import (
     Optional,
     Dict,
     Any,
+    Union,
+    List,
 )
 from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
+
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES
+# ──────────────────────────────────────────────────────────────────────
+MaskArray = np.ndarray  # Semantic mask: H×W, dtype int/uint8
+LogitsTensor = Union[torch.Tensor, Dict[str, torch.Tensor], Tuple[torch.Tensor, ...]]
+ClassNamesDict = Optional[Dict[Union[int, str], str]]
 
 
 def compute_metrics(
@@ -21,16 +30,45 @@ def compute_metrics(
     """
     Вычисляет основные метрики семантической сегментации.
 
+    Поддерживаемые метрики:
+    - Pixel Accuracy: Доля правильно классифицированных пикселей.
+    - Mean IoU: Среднее пересечение-над-объединением по классам.
+    - Weighted F1-Score: F1-мера с учётом дисбаланса классов.
+    - Per-class IoU: IoU для каждого класса отдельно.
+    - Confusion Matrix: Матрица ошибок размера `num_classes × num_classes`.
+
     Args:
-        pred_mask: [H, W] предсказанные метки классов
-        gt_mask: [H, W] ground truth метки
-        num_classes: общее число классов
-        ignore_index: индекс для игнорируемых пикселей (фон/неизвестно)
+        pred_mask: Предсказанная маска `[H, W]` с целочисленными метками классов.
+        gt_mask: Ground truth маска `[H, W]` с целочисленными метками.
+        num_classes: Общее количество классов в задаче.
+        ignore_index: Индекс пикселей, которые следует игнорировать при расчёте (обычно 255).
 
     Returns:
-        dict с метриками
+        Dict[str, Any]: Словарь с метриками:
+        ```python
+        {
+            "mIoU": float,                    # Mean IoU (nan если нет валидных пикселей)
+            "pixel_acc": float,               # Pixel Accuracy
+            "f1_weighted": float,             # Weighted F1-Score
+            "per_class_iou": np.ndarray,      # Array[num_classes] с IoU по классам
+            "confusion_matrix": np.ndarray,   # Matrix[num_classes, num_classes]
+            "unique_pred_classes": int,       # Количество уникальных классов в предсказании
+            "valid_pixels": int,              # Количество неигнорируемых пикселей
+        }
+        ```
+
+    Note:
+        - Ground truth значения автоматически обрезаются до `[0, num_classes-1]` с предупреждением при выходе за диапазон.
+        - Если все пиксели игнорируются, возвращается `nan` для числовых метрик.
+        - `per_class_iou` содержит `nan` для классов, не представленных в предсказании или GT.
+
+    Example:
+        ```python
+        metrics = compute_metrics(pred, gt, num_classes=150, ignore_index=255)
+        print(f"IoU: {metrics['mIoU']:.3f}, Acc: {metrics['pixel_acc']:.3f}")
+        ```
     """
-    # Маска валидных пикселей
+    # Маска валидных пикселей (исключаем ignore_index)
     valid = gt_mask != ignore_index
     if not np.any(valid):
         return {
@@ -55,13 +93,15 @@ def compute_metrics(
         gt_valid = np.clip(gt_valid, 0, num_classes - 1)
 
     # Pixel Accuracy
-    pixel_acc = accuracy_score(gt_valid, pred_valid)
+    pixel_acc: float = accuracy_score(gt_valid, pred_valid)
 
     # Confusion matrix
-    cm = confusion_matrix(gt_valid, pred_valid, labels=range(num_classes))
+    cm: np.ndarray = confusion_matrix(
+        gt_valid, pred_valid, labels=list(range(num_classes))
+    )
 
     # Per-class IoU
-    iou_per_class = []
+    iou_per_class: List[float] = []
     for c in range(num_classes):
         tp = cm[c, c]
         fp = cm[:, c].sum() - tp
@@ -72,14 +112,14 @@ def compute_metrics(
             iou_per_class.append(tp / (tp + fp + fn))
 
     # Mean IoU
-    mIoU = np.nanmean(iou_per_class)
+    mIoU: float = np.nanmean(iou_per_class)
 
     # Weighted F1-score
-    f1 = f1_score(
+    f1: float = f1_score(
         gt_valid,
         pred_valid,
         average="weighted",
-        labels=range(num_classes),
+        labels=list(range(num_classes)),
         zero_division=0,
     )
 
@@ -94,14 +134,48 @@ def compute_metrics(
     }
 
 
-def extract_logits_info(outputs, model_type: str) -> Dict[str, Any]:
+def extract_logits_info(
+    outputs: LogitsTensor,
+    model_type: str,
+) -> Dict[str, Any]:
     """
-    Извлекает информацию о логитах из outputs модели.
+    Извлекает статистику о логитах из выходных данных модели.
+
+    Поддерживаемые типы моделей:
+    - HuggingFace Transformers: `segformer`, `mask2former`, `oneformer`, `dpt`, `upernet`
+    - Torchvision: `deeplab_tv`, `fcn_tv`, `maskrcnn_tv`
+    - SMP/Custom: `unet_smp`, `fpn_mit`, `psp_mit`, `segnet`, ...
+    - Instance segmentation: `sam`, `mobile_sam`, `sam2` (возвращает metadata без статистики)
+
+    Args:
+        outputs: Выходные данные модели (Tensor, Dict, Tuple или специфичная структура).
+        model_type: Строковый идентификатор типа модели.
 
     Returns:
-        dict с информацией: shape, min, max, mean, std
+        Dict[str, Any]: Словарь с информацией:
+        ```python
+        {
+            "type": str,              # Тип объекта логов
+            "shape": Tuple[int, ...], # Форма тензора логов (если применимо)
+            "min": float,             # Минимальное значение
+            "max": float,             # Максимальное значение
+            "mean": float,            # Среднее значение
+            "std": float,             # Стандартное отклонение
+            "device": str,            # Устройство тензора ("cuda:0", "cpu")
+            "num_classes": Optional[int],  # Количество выходных каналов (если определено)
+        }
+        ```
+        Для instance-сегментации (SAM, Mask R-CNN) возвращается metadata без числовой статистики.
+
+    Note:
+        - Все вычисления выполняются на CPU после `.cpu().float()`.
+        - Для защиты от `nan` используется `np.nanmin`/`nanmax` и fallback для старых версий PyTorch.
     """
     try:
+        # ──────────────────────────────────────────────────────────────
+        # Извлечение логов в зависимости от типа модели
+        # ──────────────────────────────────────────────────────────────
+        logits: Optional[torch.Tensor] = None
         # === HuggingFace модели ===
         if model_type in [
             "segformer",
@@ -123,6 +197,7 @@ def extract_logits_info(outputs, model_type: str) -> Dict[str, Any]:
             )
         # === Torchvision DeepLab / FCN ===
         elif model_type in ["deeplab_tv", "fcn_tv"]:
+            # Torchvision: dict["out"][0] или tensor[0]
             logits = (
                 outputs["out"][0]
                 if isinstance(outputs, dict) and "out" in outputs
@@ -151,20 +226,26 @@ def extract_logits_info(outputs, model_type: str) -> Dict[str, Any]:
             "segnet",
             "segnet_custom",
         ]:
+            # SMP/Custom: ожидаем Tensor формы [B, C, H, W]
             logits = (
                 outputs
                 if isinstance(outputs, torch.Tensor) and outputs.dim() == 4
                 else None
             )
         else:
+            # Fallback: если outputs — Tensor, используем его
             logits = outputs if isinstance(outputs, torch.Tensor) else None
 
         if logits is None:
             return {"type": "None", "note": "logits not found"}
 
+        # ──────────────────────────────────────────────────────────────
+        # Статистика логов
+        # ──────────────────────────────────────────────────────────────
         logits_cpu = logits.cpu().float()
         logits_np = logits_cpu.numpy()
         try:
+            # PyTorch >= 1.9 с поддержкой nan-статистик
             min_val = float(np.nanmin(logits_np))
             max_val = float(np.nanmax(logits_np))
             mean_val = float(np.nanmean(logits_np))
@@ -192,19 +273,39 @@ def extract_logits_info(outputs, model_type: str) -> Dict[str, Any]:
 
 
 def analyze_prediction(
-    mask: np.ndarray,
-    class_names: Optional[Dict[str, Any]] = None,
+    mask: MaskArray,
+    class_names: ClassNamesDict = None,
     ignore_index: int = 255,
     top_k: int = 10,
 ) -> Dict[str, Any]:
     """
-    Детальный анализ предсказанной маски.
+    Детальный анализ предсказанной маски сегментации.
+
+    Выводит в консоль:
+    - Количество валидных пикселей и процент покрытия.
+    - Топ-K классов по количеству пикселей с именами (если заданы).
+    - Предупреждение о доминирующем классе (>50% пикселей).
 
     Args:
-        mask: np.ndarray [H, W] с метками классов
-        class_names: dict {class_id: name} для отображения имён
-        ignore_index: индекс для игнорируемых пикселей
-        top_k: показать топ-K классов по количеству пикселей
+        mask: Предсказанная маска `[H, W]` с целочисленными метками.
+        class_names: Словарь `{класс: имя}` для отображения человекочитаемых названий.
+        ignore_index: Индекс пикселей для исключения из анализа.
+        top_k: Количество топ-классов для вывода.
+
+    Returns:
+        Dict[str, Any]: Словарь с результатами анализа:
+        ```python
+        {
+            "total_pixels": int,           # Количество валидных пикселей
+            "unique_classes": int,         # Количество уникальных классов
+            "class_counts": Dict[int, int],  # {класс: количество_пикселей}
+            "dominant_class": Optional[int],  # Класс с максимальным покрытием (если >50%)
+        }
+        ```
+
+    Note:
+        - Если все пиксели игнорируются, возвращается пустой словарь и выводится предупреждение.
+        - Имена классов берутся из `class_names` или генерируются как `"Class_{id}"`.
     """
     # Фильтрация ignore_index
     valid_mask = mask != ignore_index
@@ -236,8 +337,10 @@ def analyze_prediction(
         print(f"     {cls:3d}: {name:25s} {cnt:7,} px ({pct:5.3f}%)")
 
     # Проверка на доминирующий класс
+    dominant_class: Optional[int] = None
     if len(counts) > 0 and counts[0] / total > 0.5:
-        dominant_cls = unique[np.argmax(counts)]
+        dominant_cls = int(unique[np.argmax(counts)])
+        dominant_class = dominant_cls
         print(
             f"\n   ⚠️  Dominant class: {dominant_cls} ({100 * counts.max() / total:.3f}% of pixels)"
         )
@@ -247,21 +350,44 @@ def analyze_prediction(
         "total_pixels": int(total),
         "unique_classes": len(unique),
         "class_counts": {int(c): int(n) for c, n in zip(unique, counts)},
-        "dominant_class": int(unique[np.argmax(counts)]) if len(counts) > 0 else None,
+        "dominant_class": dominant_class,
     }
 
 
 def generate_class_report(
-    mask: np.ndarray,
-    class_names: Optional[Dict[str, Any]] = None,
+    mask: MaskArray,
+    class_names: ClassNamesDict = None,
     ignore_index: int = 255,
     min_pixels: int = 100,
 ) -> Dict[str, Any]:
     """
-    Генерирует детальный отчёт по предсказанным классам.
+    Генерирует детальный отчёт по предсказанным классам для экспорта.
+
+    Фильтрует шумовые классы (< `min_pixels` пикселей) и сортирует по убыванию покрытия.
+
+    Args:
+        mask: Предсказанная маска `[H, W]`.
+        class_names: Словарь `{класс: имя}` для человекочитаемых названий.
+        ignore_index: Индекс игнорируемых пикселей.
+        min_pixels: Минимальное количество пикселей для включения класса в отчёт.
 
     Returns:
-        dict со статистикой для дальнейшего анализа
+        Dict[str, Any]: Словарь с отчётом:
+        ```python
+        {
+            "total_valid_pixels": int,     # Количество валидных пикселей
+            "total_image_pixels": int,     # Общее количество пикселей в изображении
+            "coverage_pct": float,         # Процент покрытия валидными пикселями
+            "unique_classes": int,         # Количество классов в отчёте (после фильтрации)
+            "top_class": Optional[str],    # Имя класса с максимальным покрытием
+            "top_class_pct": Optional[float],  # Процент покрытия топ-класса
+            "dataframe": pd.DataFrame,     # DataFrame с детальной статистикой по классам
+        }
+        ```
+
+    Note:
+        - Если нет валидных пикселей, возвращается `{"error": "⚠️ No valid pixels"}`.
+        - DataFrame содержит колонки: `class_id`, `class_name`, `pixel_count`, `percentage`, `rank`.
     """
     # Фильтрация
     valid = mask != ignore_index
@@ -275,7 +401,7 @@ def generate_class_report(
     total = len(mask_valid)
 
     # Сбор данных
-    rows = []
+    rows: List[Dict[str, Any]] = []
     for cls, cnt in zip(unique, counts):
         if cnt >= min_pixels:  # Фильтрация шума
             name = (
@@ -306,8 +432,36 @@ def generate_class_report(
     return summary
 
 
-def export_class_report(report: dict, output_file: str, format: str = "csv") -> None:
-    """Экспорт отчёта по классам в файл"""
+def export_class_report(
+    report: Dict[str, Any],
+    output_file: str,
+    format: str = "csv",
+) -> None:
+    """
+    Экспортирует отчёт по классам в файл.
+
+    Поддерживаемые форматы:
+    - `"csv"`: Таблица в формате CSV (UTF-8).
+    - `"markdown"`: Markdown-таблица с заголовком и сводкой.
+    - `"json"`: JSON с разделением сводки и детальных данных.
+
+    Args:
+        report: Отчёт из `generate_class_report()`.
+        output_file: Путь к файлу для сохранения.
+        format: Формат экспорта (`"csv"`, `"markdown"` или `"json"`).
+
+    Raises:
+        KeyError: Если в `report` отсутствует ключ `"dataframe"`.
+
+    Example:
+        ```python
+        report = generate_class_report(pred_mask, class_names=ade_classes)
+        export_class_report(report, "report.md", format="markdown")
+        ```
+    """
+    if "dataframe" not in report:
+        print(f"⚠️ Invalid report structure: missing 'dataframe' key")
+        return
     df = report["dataframe"]
     if format == "csv":
         df.to_csv(output_file, index=False, encoding="utf-8")
@@ -322,14 +476,19 @@ def export_class_report(report: dict, output_file: str, format: str = "csv") -> 
     elif format == "json":
         import json
 
+        export_data: Dict[str, Any] = {
+            "summary": {k: v for k, v in report.items() if k != "dataframe"},
+            "classes": report["dataframe"].to_dict(orient="records"),
+        }
+
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(
-                {
-                    "summary": {k: v for k, v in report.items() if k != "dataframe"},
-                    "classes": report["dataframe"].to_dict(orient="records"),
-                },
+                export_data,
                 f,
                 indent=2,
                 ensure_ascii=False,
             )
+    else:
+        print(f"⚠️ Unsupported format: {format}. Use 'csv', 'markdown', or 'json'.")
+        return
     print(f"✅ Report exported to {output_file}")

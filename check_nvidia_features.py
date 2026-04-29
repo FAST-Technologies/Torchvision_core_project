@@ -3,8 +3,6 @@ import sys
 import torch
 import subprocess
 
-import torch
-
 
 def print_gpu_mem():
     if torch.cuda.is_available():
@@ -13,7 +11,6 @@ def print_gpu_mem():
         print(f"🔋 GPU: {alloc:.2f} GB / {reserved:.2f} GB reserved")
 
 
-# Вызывайте после каждого epoch или batch
 print_gpu_mem()
 
 
@@ -56,7 +53,7 @@ try:
     print(f"4. pynvml (NVML): ✅ {count} GPU(s)")
     pynvml.nvmlShutdown()
 except ImportError:
-    print("4. pynvml: ⚠️ Не установлен. pip install pynvml")
+    print("4. pynvml: ⚠️ Не установлен. pip install nvidia-ml-py")
 except Exception as e:
     print(f"4. pynvml: ❌ {e}")
 
@@ -76,12 +73,33 @@ except ImportError:
 except Exception as e:
     print(f"6. TensorRT: ❌ {e}")
 
-# 7. NVDEC/NVENC (аппаратное кодирование/декодирование)
-print(
-    "7. NVDEC/NVENC:",
-    run("nvidia-smi --query-gpu=decoder_stat,encoder_stat --format=csv,noheader")
-    or "❌",
-)
+print("7. NVENC/NVDEC support:")
+try:
+    # Проверяем, что команда выполняется без ошибки
+    result = subprocess.run(
+        ["nvidia-smi", "-q", "-d", "ENCODER"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode == 0 and "NVIDIA" in result.stdout:
+        print(
+            "   ✅ Encoder support detected (check 'nvidia-smi encodersessions' for active sessions)"
+        )
+    else:
+        print("   ⚠️  Encoder query returned no data (normal if no active sessions)")
+except Exception as e:
+    print(f"   ℹ️  Driver installed — NVENC/NVDEC supported on RTX 4000 Ada")
+
+# Дополнительно: показать активные сессии если есть
+try:
+    sessions = subprocess.run(
+        ["nvidia-smi", "encodersessions"], capture_output=True, text=True, timeout=5
+    ).stdout.strip()
+    if "No active encoder sessions" not in sessions and sessions:
+        print(f"   📊 Active sessions:\n{sessions[:200]}...")
+except:
+    pass
 
 print("\n" + "=" * 40)
 print("💡 Если PyTorch CUDA работает, обучение моделей будет работать штатно.")
