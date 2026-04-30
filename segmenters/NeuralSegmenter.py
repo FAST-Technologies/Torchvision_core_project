@@ -31,6 +31,31 @@ import torch
 TRANSFORMERS_AVAILABLE: bool = True
 num_classes: int = 150
 
+ValidModelType = Literal[
+    "segformer",
+    "mask2former",
+    "oneformer",
+    "dpt",
+    "upernet",
+    "deeplab_tv",
+    "fcn_tv",
+    "maskrcnn_tv",
+    "unet_smp",
+    "mit_smp",
+    "fpn_mit",
+    "psp_mit",
+    "deeplab_smp",
+    "segnet",
+    "segnet_custom",
+    "sam",
+    "mobile_sam",
+    "sam2",
+    "yolov8",
+    "yolov8n_seg",
+    "yolov8s_seg",
+    "yolov8m_seg",
+]
+
 # Алиасы для типов изображений
 ImagePath = str
 NumpyImage = np.ndarray
@@ -480,32 +505,7 @@ class NeuralSegmenter(BaseSegmenter):
             - `seg_map`: Семантическая маска `[H, W]`, dtype `uint8`.
             - `result_info`: Словарь с метаданными (метрики, время, классы, ...).
         """
-        # Вызываем standalone функцию
-        ValidModelType = Literal[
-            "segformer",
-            "mask2former",
-            "oneformer",
-            "dpt",
-            "upernet",
-            "deeplab_tv",
-            "fcn_tv",
-            "maskrcnn_tv",
-            "unet_smp",
-            "mit_smp",
-            "fpn_mit",
-            "psp_mit",
-            "deeplab_smp",
-            "segnet",
-            "segnet_custom",
-            "sam",
-            "mobile_sam",
-            "sam2",
-            "yolov8",
-            "yolov8n_seg",
-            "yolov8s_seg",
-            "yolov8m_seg",
-        ]
-        model_type_valid: ValidModelType = cast(ValidModelType, self.model_type_str)
+        model_type_valid = cast(ValidModelType, self.model_type_str)  # type: ignore[reportInvalidTypeForm]
         class_names_fixed: Optional[Dict[int, str]] = (
             {
                 int(k) if isinstance(k, str) and k.isdigit() else k: v  # type: ignore
@@ -553,31 +553,7 @@ class NeuralSegmenter(BaseSegmenter):
         Returns:
             Tuple[PIL.Image, Dict[str, Any]]: (overlay, result_info).
         """
-        ValidModelType = Literal[
-            "segformer",
-            "mask2former",
-            "oneformer",
-            "dpt",
-            "upernet",
-            "deeplab_tv",
-            "fcn_tv",
-            "maskrcnn_tv",
-            "unet_smp",
-            "mit_smp",
-            "fpn_mit",
-            "psp_mit",
-            "deeplab_smp",
-            "segnet",
-            "segnet_custom",
-            "sam",
-            "mobile_sam",
-            "sam2",
-            "yolov8",
-            "yolov8n_seg",
-            "yolov8s_seg",
-            "yolov8m_seg",
-        ]
-        model_type_valid: ValidModelType = cast(ValidModelType, self.model_type_str)
+        model_type_valid = cast(ValidModelType, self.model_type_str)  # type: ignore[reportInvalidTypeForm]
         return infer_unified(
             model=self.model,
             processor=self.processor,

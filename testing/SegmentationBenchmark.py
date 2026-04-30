@@ -479,7 +479,7 @@ class SegmentationBenchmark:
 
         processor = MaskFormerImageProcessor.from_pretrained(name)
         model = cast(PreTrainedModel, MaskFormerForInstanceSegmentation.from_pretrained(name))  # type: ignore[arg-type]
-        model = model.to(self.device).eval()
+        model = model.to(self.device).eval() # type: ignore[arg-type]
 
         self.models["maskformer"] = {
             "model": model,

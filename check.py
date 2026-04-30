@@ -26,7 +26,6 @@ import torchvision.models.detection as tv_det
 from sklearn.metrics import jaccard_score
 
 
-
 import segmentation_models_pytorch as smp
 
 device = "cuda"
