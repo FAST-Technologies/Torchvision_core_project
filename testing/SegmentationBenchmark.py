@@ -29,6 +29,7 @@ from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType
 from utils.palettes import ade_palette
 from utils.utils import compute_metrics
 from utils.strategies import segment_image_unified
+from transformers import PreTrainedModel
 
 # Настройка путей проекта
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -477,11 +478,8 @@ class SegmentationBenchmark:
         )
 
         processor = MaskFormerImageProcessor.from_pretrained(name)
-        model: Any = (
-            MaskFormerForInstanceSegmentation.from_pretrained(name)  # type: ignore[arg-type]
-            .to(self.device)
-            .eval()
-        )
+        model: PreTrainedModel = MaskFormerForInstanceSegmentation.from_pretrained(name)  # type: ignore[arg-type]
+        model = model.to(self.device).eval()
 
         self.models["maskformer"] = {
             "model": model,

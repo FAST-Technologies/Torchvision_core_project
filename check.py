@@ -17,6 +17,7 @@ import time
 import gc
 
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 
 import torchvision.models.segmentation as tv_seg
