@@ -1,7 +1,7 @@
 # utils/function_tracker.py
 import logging
 from functools import wraps
-from typing import Callable, TypeVar, ParamSpec, Any, cast
+from typing import Callable, TypeVar, ParamSpec, cast
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & GENERICS

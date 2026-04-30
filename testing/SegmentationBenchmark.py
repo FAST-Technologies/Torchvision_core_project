@@ -17,7 +17,6 @@ from typing import (
     Tuple,
 )
 from typing import Literal, cast
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -478,8 +477,8 @@ class SegmentationBenchmark:
         )
 
         processor = MaskFormerImageProcessor.from_pretrained(name)
-        model = (
-            MaskFormerForInstanceSegmentation.from_pretrained(name)
+        model: Any = (
+            MaskFormerForInstanceSegmentation.from_pretrained(name)  # type: ignore[arg-type]
             .to(self.device)
             .eval()
         )
@@ -1255,7 +1254,7 @@ class SegmentationBenchmark:
         progress_range = 49
 
         for i, key in enumerate(model_keys):
-            print(f"\n🔹 Running {key} ({i+1}/{len(model_keys)})...")
+            print(f"\n🔹 Running {key} ({i + 1}/{len(model_keys)})...")
 
             # 🔹 Обновляем прогресс ПЕРЕД запуском модели
             if task_id and benchmark_tasks:
@@ -1263,7 +1262,7 @@ class SegmentationBenchmark:
                 benchmark_tasks[task_id]["progress"] = progress
                 benchmark_tasks[task_id][
                     "message"
-                ] = f"🔍 Инференс {key} ({i+1}/{len(model_keys)})..."
+                ] = f"🔍 Инференс {key} ({i + 1}/{len(model_keys)})..."
                 await asyncio.sleep(0)
 
             # Запускаем инференс одной модели (синхронно)

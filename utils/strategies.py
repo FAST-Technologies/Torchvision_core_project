@@ -2,7 +2,6 @@
 
 # Импорт основных библиотек
 import sys
-import os
 import time
 
 import requests

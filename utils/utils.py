@@ -460,7 +460,7 @@ def export_class_report(
         ```
     """
     if "dataframe" not in report:
-        print(f"⚠️ Invalid report structure: missing 'dataframe' key")
+        print("⚠️ Invalid report structure: missing 'dataframe' key")
         return
     df = report["dataframe"]
     if format == "csv":

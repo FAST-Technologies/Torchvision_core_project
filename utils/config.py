@@ -9,7 +9,7 @@ from typing import Union
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from utils.paths import PROJECT_ROOT, MODELS_DIR, ADE20K_DIR
+from utils.paths import MODELS_DIR, ADE20K_DIR  # PROJECT_ROOT
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES

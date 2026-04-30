@@ -36,7 +36,6 @@ import zipfile
 import tarfile
 import shutil
 import requests
-import logging
 from typing import (
     List,
     Tuple,

@@ -182,9 +182,9 @@ class BatchClassicTester:
             if seconds < 60:
                 return f"{seconds:.0f}с"
             elif seconds < 3600:
-                return f"{seconds/60:.1f}м"
+                return f"{seconds / 60:.1f}м"
             else:
-                return f"{seconds/3600:.1f}ч"
+                return f"{seconds / 3600:.1f}ч"
 
         total_errors = sum(len(errs) for errs in self.errors.values())
         error_rate = total_errors / current_count if current_count > 0 else 0
@@ -195,8 +195,8 @@ class BatchClassicTester:
                 "method": method_name.split("_")[0],
                 "elapsed": fmt_time(elapsed),
                 "eta": fmt_time(remaining),
-                "rate": f"{rate*60:.1f}/мин",
-                "errors": f"{total_errors}({error_rate*100:.1f}%)",
+                "rate": f"{rate * 60:.1f}/мин",
+                "errors": f"{total_errors}({error_rate * 100:.1f}%)",
             }
         )
 
@@ -539,7 +539,7 @@ class BatchClassicTester:
                 for method_idx, (method_name, segmenter) in enumerate(methods.items()):
 
                     # Пропуск если уже выполнено (при resume)
-                    test_key = f"{img_name}:{method_name}"
+                    # test_key = f"{img_name}:{method_name}"
                     if self.resume and self._processed_count > 0:
                         # Простая эвристика: если счётчик больше — пропускаем
                         if self._processed_count >= (

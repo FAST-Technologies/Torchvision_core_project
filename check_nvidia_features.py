@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import sys
 import torch
 import subprocess
 
@@ -21,8 +20,8 @@ def run(cmd):
             .decode()
             .strip()
         )
-    except:
-        return "❌ Ошибка"
+    except Exception as e:
+        return f"❌ Ошибка: {e}"
 
 
 print("🔍 NVIDIA Feature Check\n" + "=" * 40)
@@ -40,7 +39,7 @@ if torch.cuda.is_available():
     print("3. PyTorch CUDA: ✅")
     print(f"   Device: {torch.cuda.get_device_name(0)}")
     print(f"   CUDA Version: {torch.version.cuda}")
-    print(f"   VRAM: {torch.cuda.get_device_properties(0).total_memory/1e9:.2f} GB")
+    print(f"   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
 else:
     print("3. PyTorch CUDA: ❌")
 
@@ -60,8 +59,8 @@ except Exception as e:
 # 5. cuDNN (проверка через PyTorch)
 try:
     print(f"5. cuDNN: ✅ v{torch.backends.cudnn.version()}")
-except:
-    print("5. cuDNN: ❌ Не активна")
+except Exception as e:
+    print(f"5. cuDNN: ❌ Не активна: {e}")
 
 # 6. TensorRT (если установлен)
 try:
@@ -89,7 +88,7 @@ try:
     else:
         print("   ⚠️  Encoder query returned no data (normal if no active sessions)")
 except Exception as e:
-    print(f"   ℹ️  Driver installed — NVENC/NVDEC supported on RTX 4000 Ada")
+    print(f"   ℹ️  Driver installed — NVENC/NVDEC supported on RTX 4000 Ada: {e}")
 
 # Дополнительно: показать активные сессии если есть
 try:
@@ -98,7 +97,7 @@ try:
     ).stdout.strip()
     if "No active encoder sessions" not in sessions and sessions:
         print(f"   📊 Active sessions:\n{sessions[:200]}...")
-except:
+except Exception:
     pass
 
 print("\n" + "=" * 40)

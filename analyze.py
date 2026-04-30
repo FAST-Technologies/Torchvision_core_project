@@ -24,7 +24,6 @@ import glob
 import os
 import gc
 import time
-import warnings
 from pathlib import Path
 from typing import (
     List,
@@ -183,6 +182,7 @@ def analyze_augmentation_impact() -> (
 
             # Бинарная сегментация для совместимости
             pred_mask_2: MaskArray = segmenter.segment(np.array(test_image))
+            print(pred_mask_2)
 
             # Ресайз предсказания под размер GT
             if gt_mask.shape != pred_mask.shape:
@@ -529,16 +529,18 @@ def analyze_augmentation_impact() -> (
     avg_basic = df[df["augmentation"] == "basic"]["iou"].mean()
     avg_medium = df[df["augmentation"] == "medium"]["iou"].mean()
 
-    print(f"\n📊 Средний mIoU по уровням аугментаций:")
+    print("\n📊 Средний mIoU по уровням аугментаций:")
     print(f"   None:   {avg_none:.4f}")
-    print(f"   Basic:  {avg_basic:.4f} (прирост: {(avg_basic-avg_none)*100:+.2f}%)")
-    print(f"   Medium: {avg_medium:.4f} (прирост: {(avg_medium-avg_none)*100:+.2f}%)")
+    print(f"   Basic:  {avg_basic:.4f} (прирост: {(avg_basic - avg_none) * 100:+.2f}%)")
+    print(
+        f"   Medium: {avg_medium:.4f} (прирост: {(avg_medium - avg_none) * 100:+.2f}%)"
+    )
 
     # Лучшая комбинация
     best_idx = df["iou"].idxmax()
     best_row = df.loc[best_idx]
 
-    print(f"\n🏆 Лучшая комбинация:")
+    print("\n🏆 Лучшая комбинация:")
     print(f"   Модель: {best_row['model']}")
     print(f"   Аугментации: {best_row['augmentation']}")
     print(f"   mIoU: {best_row['iou']:.4f}")
@@ -680,7 +682,7 @@ if __name__ == "__main__":
         for k in sorted(overlay_images_result.keys())[:10]:
             print(f"   {k}")
 
-        print(f"\n🔍 DEBUG: извлечённые модели:")
+        print("\n🔍 DEBUG: извлечённые модели:")
 
         def extract_model_name(key: str) -> str:
             parts = key.rsplit("_", 1)

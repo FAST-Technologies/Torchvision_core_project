@@ -20,7 +20,6 @@ from typing import (
     Union,
     cast,
 )
-from dataclasses import dataclass
 from matplotlib.colors import Colormap
 
 import numpy as np
@@ -621,7 +620,7 @@ class ModelTrainer:
             print("Strating train mode")
         print(f"🔍 Model training mode: {model.training}")
 
-        print(f"✅ Pre-training checks:")
+        print("✅ Pre-training checks:")
         print(f"   Model training mode: {model.training}")
         backbone: nn.Module = cast(nn.Module, model.backbone)
         print(
@@ -666,7 +665,7 @@ class ModelTrainer:
         if (masks == 0).sum() > 0:
             print(f"   ✅ Class 0 (wall) found: {(masks == 0).sum()} pixels")
         else:
-            print(f"   ❌ Class 0 NOT FOUND - check your ignore_index!")
+            print("   ❌ Class 0 NOT FOUND - check your ignore_index!")
 
         # ── Веса классов (опционально) ──
         class_weights = None
@@ -728,7 +727,7 @@ class ModelTrainer:
         print(f"   Optimizer param groups: {len(trainer.optimizer.param_groups)}")
 
         checkpoint_path = os.path.join(self.checkpoint_dir, config.checkpoint_name)
-        print(f"🔍 DEBUG FCN training setup:")
+        print("🔍 DEBUG FCN training setup:")
         print(f"   ignore_index: {ignore_index}")
         print(f"   aux_loss_weight: {trainer.aux_loss_weight}")
         print(f"   model.training: {model.training}")
@@ -777,7 +776,7 @@ class ModelTrainer:
                         eta_min=config.lr / 10 * 0.01,
                     )
                     print(
-                        f"   🔓 Unfroze backbone, new optimizer + scheduler (LR={config.lr/10:.1e})"
+                        f"   🔓 Unfroze backbone, new optimizer + scheduler (LR={config.lr / 10:.1e})"
                     )
                 else:
                     print(f"   ⚠️  Cannot unfreeze backbone: {type(backbone)}")

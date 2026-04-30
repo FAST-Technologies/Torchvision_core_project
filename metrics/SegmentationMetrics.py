@@ -20,7 +20,6 @@ from typing import (
     Tuple,
     Dict,
     Any,
-    Union,
     Optional,
 )
 
@@ -109,7 +108,6 @@ class SegmentationMetrics:
         else:
             gt_binary = (gt_mask > threshold).astype(np.uint8)
         return pred_binary, gt_binary
-        # return pred_binary.ravel(), gt_binary.ravel()
 
     @staticmethod
     def calculate_iou(
@@ -167,7 +165,7 @@ class SegmentationMetrics:
         )
 
         try:
-            score: MetricValue = accuracy_score(gt_binary, pred_binary)
+            score: MetricValue = accuracy_score(gt_binary.ravel(), pred_binary.ravel())
             return float(score)
         except ValueError as e:
             warnings.warn(f"Ошибка вычисления accuracy_score: {e}. Возвращаем 0.0")
@@ -196,7 +194,7 @@ class SegmentationMetrics:
 
         try:
             score: MetricValue = jaccard_score(
-                gt_binary, pred_binary, zero_division=0.0
+                gt_binary.ravel(), pred_binary.ravel(), zero_division=0.0
             )
             return float(score)
         except ValueError as e:
@@ -267,12 +265,16 @@ class SegmentationMetrics:
 
         # Sklearn (Эталон)
         p_sklearn: MetricValue = precision_score(
-            gt_binary, pred_binary, zero_division=0
+            gt_binary.ravel(), pred_binary.ravel(), zero_division=0
         )
-        r_sklearn: MetricValue = recall_score(gt_binary, pred_binary, zero_division=0)
+        r_sklearn: MetricValue = recall_score(
+            gt_binary.ravel(), pred_binary.ravel(), zero_division=0
+        )
 
-        # Кастомный через confusion matrix
-        tn, fp, fn, tp = confusion_matrix(gt_binary, pred_binary, labels=[0, 1]).ravel()
+        # Confusion matrix также требует 1D
+        tn, fp, fn, tp = confusion_matrix(
+            gt_binary.ravel(), pred_binary.ravel(), labels=[0, 1]
+        ).ravel()
 
         p_custom: MetricValue = tp / (tp + fp + 1e-8)
         r_custom: MetricValue = tp / (tp + fn + 1e-8)
@@ -634,9 +636,6 @@ class SegmentationMetrics:
             metrics["false_positive"] = int(fp)
             metrics["false_negative"] = int(fn)
             metrics["true_positive"] = int(tp)
-
-            if verbose_comparison:
-                print(f"Confusion Matrix: TP={tp}, FP={fp}, FN={fn}, TN={tn}")
         except ValueError as e:
             warnings.warn(f"Не удалось вычислить матрицу ошибок: {e}")
             metrics["true_negative"] = 0

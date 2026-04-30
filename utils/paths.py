@@ -1,8 +1,7 @@
 # utils/paths.py
 
-import os
 from pathlib import Path
-from typing import List, Union
+from typing import Union
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES

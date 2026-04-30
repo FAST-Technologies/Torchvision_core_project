@@ -45,9 +45,15 @@ except ImportError:
     print("⚠️ Warning: transformers not installed")
 
 try:
-    from ultralytics import SAM, YOLO
+    from ultralytics import SAM
 
     SAM_AVAILABLE = True
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        raise ImportError(
+            "ultralytics library required for YOLOv8. Install with: pip install ultralytics"
+        )
 except ImportError:
     SAM_AVAILABLE = False
     print("⚠️ Warning: ultralytics not installed")
@@ -1145,12 +1151,6 @@ class NeuralModelFactory:
         cls, model_name: Optional[str], device: DeviceStr = "cuda"
     ) -> ModelTuple:
         """Загрузка YOLOv8 для сегментации"""
-        try:
-            from ultralytics import YOLO
-        except ImportError:
-            raise ImportError(
-                "ultralytics library required for YOLOv8. Install with: pip install ultralytics"
-            )
         if model_name is None:
             model_name = "yolov8n-seg.pt"
         model = YOLO(model_name)  # type: ignore[call-arg]

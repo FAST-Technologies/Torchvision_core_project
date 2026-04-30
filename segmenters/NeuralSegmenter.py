@@ -15,11 +15,10 @@ from utils.palettes import (
     cityscapes_palette,
 )
 
-from typing import List, Union, Tuple, Dict, Any, Optional, Callable, Literal, cast
+from typing import List, Union, Tuple, Dict, Any, Optional, Literal, cast
 import time
 import requests
 from io import BytesIO
-from pathlib import Path
 
 from PIL import Image
 import numpy as np

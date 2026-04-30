@@ -11,7 +11,8 @@ from testing.SegmentationTester import SegmentationTester
 from testing.SegmentationComparator import SegmentationComparator
 from testing.SegmentationBenchmark import SegmentationBenchmark, export_comparison_table
 from testing.TorchImplementationValidator import TorchImplementationValidator
-from metrics.SegmentationMetrics import SegmentationMetrics
+
+# from metrics.SegmentationMetrics import SegmentationMetrics
 from utils.warmup import SegmentationWarmUp
 from utils.threshold_warmup import ThresholdWarmUp
 from testing.BatchClassicTester import BatchClassicTester
@@ -31,7 +32,8 @@ import os
 import sys
 import traceback
 import warnings
-import time
+
+# import time
 import requests
 from io import BytesIO
 from PIL import Image
@@ -82,7 +84,7 @@ def main():
     test_images = load_test_images(use_image_with_mask=False)
     print(f"⚠️ Количество изображений ({len(test_images)})")
 
-    gt_results_summary = {}
+    # gt_results_summary = {}
 
     # ============ 2. ДОБАВЛЕНИЕ МЕТОДОВ ============
     print("=" * 60)
@@ -540,6 +542,7 @@ def main():
             image=first_img_array,  # ← Используем сохранённое
             verbose=True,
         )
+        print(warmup_results)
 
         threshold_warmup = ThresholdWarmUp.warmup_threshold_methods(
             segmenters_dict=tester.methods, image_sizes=[(128, 128), (256, 256)]
@@ -549,7 +552,7 @@ def main():
             segmenters_dict=tester.methods
         )
 
-        with open(f"./data/warmup_report.txt", "w") as f:
+        with open("./data/warmup_report.txt", "w") as f:
             f.write("WARM-UP ОТЧЁТ\n")
             f.write("=" * 60 + "\n\n")
             f.write(warmup_utility.get_warmup_summary())
@@ -558,7 +561,7 @@ def main():
             f.write("\n\nГраничные методы:\n")
             f.write(str(edge_warmup))
 
-        print(f"\n✅ Отчёт о warm-up сохранён в ./data/warmup_report.txt")
+        print("\n✅ Отчёт о warm-up сохранён в ./data/warmup_report.txt")
 
         if torch.cuda.is_available():
             torch.cuda.synchronize()  # Дождаться завершения всех ядер
@@ -1594,20 +1597,20 @@ def main():
         print("📊 СВОДКА ПО МАССОВОМУ ТЕСТИРОВАНИЮ")
         print("=" * 80)
 
-        print(f"\n🏆 Топ-5 методов по IoU:")
+        print("\n🏆 Топ-5 методов по IoU:")
         for i, row in results_df.head(5).iterrows():
             print(
-                f"   {i+1}. {row['Method']}: IoU={row['iou_mean']:.4f} ± {row['iou_std']:.4f}"
+                f"   {i + 1}. {row['Method']}: IoU={row['iou_mean']:.4f} ± {row['iou_std']:.4f}"
             )
 
-        print(f"\n⚡ Топ-5 самых быстрых методов:")
+        print("\n⚡ Топ-5 самых быстрых методов:")
         fast_df = (
             results_df.dropna(subset=["time_mean_s"]).sort_values("time_mean_s").head(5)
         )
         for i, row in fast_df.iterrows():
-            print(f"   {i+1}. {row['Method']}: {row['time_mean_s']*1000:.1f} мс")
+            print(f"   {i + 1}. {row['Method']}: {row['time_mean_s'] * 1000:.1f} мс")
 
-        print(f"\n❌ Методы с наибольшим числом ошибок:")
+        print("\n❌ Методы с наибольшим числом ошибок:")
         error_df = (
             results_df[results_df["error_count"] > 0]
             .sort_values("error_count", ascending=False)
@@ -1616,7 +1619,7 @@ def main():
         if not error_df.empty:
             for i, row in error_df.iterrows():
                 print(
-                    f"   {row['Method']}: {row['error_count']} ошибок ({row['error_rate']*100:.1f}%)"
+                    f"   {row['Method']}: {row['error_count']} ошибок ({row['error_rate'] * 100:.1f}%)"
                 )
         else:
             print("   Нет ошибок!")

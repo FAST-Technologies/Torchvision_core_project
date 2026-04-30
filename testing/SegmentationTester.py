@@ -5,7 +5,6 @@ import os
 import sys
 import json
 import time
-import traceback
 from pathlib import Path
 from datetime import datetime
 from typing import (
@@ -15,7 +14,6 @@ from typing import (
     Dict,
     Any,
     Optional,
-    Callable,
 )
 
 import numpy as np
@@ -1974,7 +1972,7 @@ class SegmentationTester:
                             mask, ground_truth, threshold=0.5
                         )
                     else:
-                        print(f"⚠️ Cannot compute metrics: mask or ground_truth is None")
+                        print("⚠️ Cannot compute metrics: mask or ground_truth is None")
                         m = {}
                     record.update(
                         {

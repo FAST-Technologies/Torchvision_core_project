@@ -9,56 +9,22 @@ if project_root not in sys.path:
 # Теперь импорт сработает
 from dataseters.ADE20KDataset import ADE20KDataset
 from segmenters.NeuralTrainer import NeuralTrainer
-import utils.utils
 from utils.strategies import SegNet
 
 import os
-from typing import List, Optional, Set, Dict, List, Tuple, Any
+from typing import List, Dict, Tuple, Any
 import time
-import zipfile
-from tqdm import tqdm
-import shutil
-import requests
 import gc
 
-from io import BytesIO
-from PIL import Image
-
-from huggingface_hub import hf_hub_download, list_repo_files
-
-import json
-import numpy as np
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-from scipy.ndimage import zoom
-import tabulate
-
 import torch
-import torch.nn.functional as F
-from torch import nn
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-from torch.distributions import MultivariateNormal
+from torch.utils.data import DataLoader
 
-import torchvision
-from torchvision import transforms
-import torchvision.transforms as T
-from torchvision.ops import boxes as box_ops
 import torchvision.models.segmentation as tv_seg
 import torchvision.models.detection as tv_det
 
-from sklearn.cluster import MeanShift as SkMeanShift
-from sklearn.metrics import confusion_matrix, f1_score, accuracy_score, jaccard_score
+from sklearn.metrics import jaccard_score
 
-from ultralytics import SAM
-
-from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
-from transformers import Mask2FormerImageProcessor, Mask2FormerForUniversalSegmentation
-from transformers import MaskFormerImageProcessor, MaskFormerForInstanceSegmentation
-from transformers import OneFormerProcessor, OneFormerForUniversalSegmentation
-from transformers import DPTImageProcessor, DPTForSemanticSegmentation
-from transformers import AutoImageProcessor, AutoModelForSemanticSegmentation
+from transformers import SegformerForSemanticSegmentation
 
 import segmentation_models_pytorch as smp
 
