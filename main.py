@@ -702,7 +702,7 @@ def main():
             gt_mask=mask_2d_ade,
             palette=NeuralSegmenter.ade_palette,
         )
-        benchmark.load_all_trained_models(checkpoint_dir="./../models")
+        # benchmark_ade.load_all_trained_models(checkpoint_dir="./../models")
         benchmark_ade.load_segformer("/home/yamshchikov/models/segformer-b5-ready")
         benchmark_ade.load_mask2former("facebook/mask2former-swin-base-ade-semantic")
         benchmark_ade.load_oneformer("shi-labs/oneformer_ade20k_swin_large")

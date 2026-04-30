@@ -424,7 +424,7 @@ class DatasetManager:
         self._registry["ade20k"] = DatasetConfig(
             name="ade20k",
             dataset_type=DatasetType.SEMANTIC,
-            source_type="zip",
+            source_type=SourceType.ZIP,
             source_url="http://data.csail.mit.edu/places/ADEchallenge/ADEChallengeData2016.zip",
             root_dir=str(self.base_dir),
             num_classes=150,
@@ -444,7 +444,7 @@ class DatasetManager:
         self._registry["cityscapes"] = DatasetConfig(
             name="cityscapes",
             dataset_type=DatasetType.SEMANTIC,
-            source_type="hf",
+            source_type=SourceType.HF,
             source_url="Chris1/cityscapes",
             root_dir=str(self.base_dir),
             num_classes=19,
@@ -463,7 +463,7 @@ class DatasetManager:
         self._registry["coco"] = DatasetConfig(
             name="coco",
             dataset_type=DatasetType.INSTANCE,
-            source_type="hf",
+            source_type=SourceType.HF,
             source_url="detection-datasets/coco",
             root_dir=str(self.base_dir),
             num_classes=80,
@@ -478,7 +478,7 @@ class DatasetManager:
         self._registry["isic2018"] = MedicalConfig(
             name="isic2018",
             dataset_type=DatasetType.MEDICAL_BINARY,
-            source_type="hf",
+            source_type=SourceType.HF,
             source_url="researchjyotsna/isic2018_10",
             root_dir=str(self.base_dir),
             num_classes=2,  # background / lesion
@@ -502,7 +502,7 @@ class DatasetManager:
         self._registry["chexpert"] = MedicalConfig(
             name="chexpert",
             dataset_type=DatasetType.MEDICAL_BINARY,
-            source_type="hf",
+            source_type=SourceType.HF,
             source_url="stanfordmlgroup/chexpert",
             root_dir=str(self.base_dir),
             num_classes=2,  # background / lung
@@ -801,7 +801,7 @@ class DatasetManager:
             zip_size: float = os.path.getsize(zip_path) / (1024 * 1024 * 1024)
             print(f"✅ Скачивание завершено! Размер: {zip_size:.2f} GB")
         else:
-            zip_size: float = os.path.getsize(zip_path) / (1024 * 1024 * 1024)
+            zip_size = os.path.getsize(zip_path) / (1024 * 1024 * 1024)
             print(f"✅ Архив уже существует: {zip_path} ({zip_size:.2f} GB)")
 
         extract_dir: Path = config.full_path / "temp_extract"
@@ -1722,34 +1722,36 @@ class DatasetManager:
 
             def __getitem__(self, idx: int) -> Dict[str, Any]:
                 img_path: Path = self.images[idx]
-                img: Image.Image = Image.open(img_path).convert("RGB")
+                img_pil: Image.Image = Image.open(img_path).convert("RGB")
 
                 mask_path: Path = self.ann_dir / (img_path.stem + self.config.mask_ext)
                 if not mask_path.exists():
                     mask_path = self.ann_dir / img_path.stem / self.config.mask_ext
 
+                mask_np: np.ndarray
                 if mask_path.exists():
-                    mask = Image.open(mask_path)
+                    mask_pil = Image.open(mask_path)
                     if self.config.num_classes == 2:
-                        mask = np.array(mask) > 0
+                        mask_np = (np.array(mask_pil) > 0).astype(np.uint8)
                     else:
-                        mask = np.array(mask)
+                        mask_np = np.array(mask_pil, dtype=np.uint8)
                 else:
-                    mask = np.zeros((img.size[1], img.size[0]), dtype=np.uint8)
+                    mask_np = np.zeros(
+                        (img_pil.size[1], img_pil.size[0]), dtype=np.uint8
+                    )
 
                 if self.transform:
-                    augmented = self.transform(image=np.array(img), mask=mask)
-                    img = Image.fromarray(augmented["image"])
-                    mask = augmented["mask"]
+                    augmented = self.transform(image=np.array(img_pil), mask=mask_np)
+                    img_np: np.ndarray = augmented["image"]
+                    mask_np = augmented["mask"]  # type: ignore[assignment]
+                    img_pil = Image.fromarray(img_np)
+                else:
+                    img_np = np.array(img_pil)
 
                 from torchvision import transforms as T
 
-                img_tensor: torch.Tensor = T.ToTensor()(img)
-                mask_tensor: torch.Tensor = (
-                    torch.from_numpy(mask).long()
-                    if isinstance(mask, np.ndarray)
-                    else mask
-                )
+                img_tensor: torch.Tensor = T.ToTensor()(img_pil)
+                mask_tensor: torch.Tensor = torch.from_numpy(mask_np).long()
                 return {
                     "image": img_tensor,
                     "mask": mask_tensor,

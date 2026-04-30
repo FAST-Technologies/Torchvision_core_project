@@ -1,14 +1,14 @@
 # utils/function_tracker.py
 import logging
 from functools import wraps
-from typing import Callable, TypeVar, ParamSpec, Any
+from typing import Callable, TypeVar, ParamSpec, Any, cast
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & GENERICS
 # ──────────────────────────────────────────────────────────────────────
 P = ParamSpec("P")  # Параметры функции
 R = TypeVar("R")  # Возвращаемое значение
-FuncT = Callable[P, R]  # Тип произвольной функции
+# FuncT = Callable[P, R]  # Тип произвольной функции
 
 # Настройка логгера
 logger: logging.Logger = logging.getLogger("function_calls")
@@ -22,7 +22,7 @@ if not logger.handlers:
     logger.addHandler(handler)
 
 
-def track_calls(func: FuncT) -> FuncT:
+def track_calls(func: Callable[P, R]) -> Callable[P, R]:
     """
     Декоратор для логирования вызовов функции и обработки исключений.
 
@@ -35,7 +35,7 @@ def track_calls(func: FuncT) -> FuncT:
         func: Декорируемая функция.
 
     Returns:
-        Callable: Обёртка с логированием, сохраняющая сигнатуру оригинала.
+        Callable[P, R]: Обёртка с логированием, сохраняющая сигнатуру оригинала.
 
     Example:
         ```python
@@ -67,10 +67,10 @@ def track_calls(func: FuncT) -> FuncT:
             )
             raise
 
-    return wrapper  # type: ignore[return-value]
+    return cast(Callable[P, R], wrapper)  # type: ignore[return-value]
 
 
-def track_calls_verbose(func: FuncT) -> FuncT:
+def track_calls_verbose(func: Callable[P, R]) -> Callable[P, R]:
     """
     Расширенная версия декоратора: логирует аргументы и результат даже на INFO-уровне.
 
@@ -80,7 +80,7 @@ def track_calls_verbose(func: FuncT) -> FuncT:
         func: Декорируемая функция.
 
     Returns:
-        Callable: Обёртка с подробным логированием.
+        Callable[P, R]: Обёртка с подробным логированием.
     """
 
     @wraps(func)
@@ -110,4 +110,4 @@ def track_calls_verbose(func: FuncT) -> FuncT:
             )
             raise
 
-    return wrapper  # type: ignore[return-value]
+    return cast(Callable[P, R], wrapper)  # type: ignore[return-value]

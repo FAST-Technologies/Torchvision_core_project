@@ -319,7 +319,7 @@ class ADE20KDataset(Dataset):
             and self.augmentation_level == "aggressive"
             and random.random() < 0.3
         ):
-            angle: float = random.uniform(-15, 15)
+            angle = random.uniform(-15, 15)
             translate: Tuple[float, float] = (
                 random.uniform(-0.1, 0.1),
                 random.uniform(-0.1, 0.1),

@@ -18,6 +18,7 @@ from typing import (
     TypedDict,
     NotRequired,
     Union,
+    cast,
 )
 from dataclasses import dataclass
 from matplotlib.colors import Colormap
@@ -611,8 +612,9 @@ class ModelTrainer:
         ignore_index: int = IGNORE_INDEX_BY_MODEL.get(config.model_type, 255)
         print(f"   ignore_index: {ignore_index} (для {config.model_type})")
 
+        model_type: ModelType = cast(ModelType, config.model_type)
         model = self.create_model(
-            config.model_type, config.encoder_name, config.variant, for_training=True
+            model_type, config.encoder_name, config.variant, for_training=True
         ).to(self.device)
         if config.model_type in ["deeplab_tv", "fcn_tv", "segnet"]:
             model.train()
@@ -621,8 +623,9 @@ class ModelTrainer:
 
         print(f"✅ Pre-training checks:")
         print(f"   Model training mode: {model.training}")
+        backbone: nn.Module = cast(nn.Module, model.backbone)
         print(
-            f"   Backbone frozen: {all(not p.requires_grad for p in model.backbone.parameters())}"
+            f"   Backbone frozen: {all(not p.requires_grad for p in backbone.parameters())}"
         )
 
         # ── FIX 2: mask_fill_value=255 при аугментациях ──
@@ -729,15 +732,17 @@ class ModelTrainer:
         print(f"   ignore_index: {ignore_index}")
         print(f"   aux_loss_weight: {trainer.aux_loss_weight}")
         print(f"   model.training: {model.training}")
+        backbone = cast(nn.Module, model.backbone)
         print(
-            f"   backbone frozen: {all(not p.requires_grad for p in model.backbone.parameters())}"
+            f"   Backbone frozen: {all(not p.requires_grad for p in backbone.parameters())}"
         )
         print(f"   has aux_classifier: {hasattr(model, 'aux_classifier')}")
         if hasattr(model, "aux_classifier") and model.aux_classifier is not None:
-            print(
-                f"   aux_classifier[4].out_channels: {model.aux_classifier[4].out_channels}"
-            )
-        print(f"   classifier[4].out_channels: {model.classifier[4].out_channels}")
+            aux_cls = cast(nn.Sequential, model.aux_classifier)
+            print(f"   aux_classifier[4].out_channels: {aux_cls[4].out_channels}")  # type: ignore[index, union-attr]
+
+        cls_layer = cast(nn.Sequential, model.classifier)
+        print(f"   classifier[4].out_channels: {cls_layer[4].out_channels}")  # type: ignore[index, union-attr]
         print("🎯 Starting training...")
 
         # ──────────────────────────────────────────────────────────────
@@ -746,12 +751,12 @@ class ModelTrainer:
         for epoch in range(config.epochs):
             # ── FIX 3: разморозка backbone без пересоздания scheduler ──
             if is_tv_model and epoch == 5:
-                backbone = getattr(model, "backbone", None)
-                if backbone is not None and isinstance(backbone, nn.Module):
-                    for param in backbone.parameters():
+                backbone_opt: Optional[nn.Module] = getattr(model, "backbone", None)
+                if isinstance(backbone_opt, nn.Module):
+                    for param in backbone_opt.parameters():
                         param.requires_grad = True
                     frozen_count = sum(
-                        1 for p in backbone.parameters() if not p.requires_grad
+                        1 for p in backbone_opt.parameters() if not p.requires_grad
                     )
                     print(f"   🔓 Unfroze backbone: {frozen_count} params still frozen")
                     # Добавляем backbone-параметры в существующий optimizer
@@ -1077,7 +1082,7 @@ class ModelTrainer:
 
             if model_type is None:
                 # Попытка определить по ключевым словам
-                keyword_map = {
+                keyword_map: Dict[str, ModelType] = {
                     "unet": "unet_smp",
                     "deeplab": "deeplab_tv",
                     "fpn": "fpn_smp",
@@ -1195,7 +1200,7 @@ class ModelTrainer:
             augmentation_levels = ["none", "basic", "medium", "aggressive"]
 
         if base_config is None:
-            base_config: Dict[str, Any] = {
+            base_config = {
                 "epochs": 20,
                 "batch_size": 4,
                 "lr": 1e-4,
@@ -1214,9 +1219,9 @@ class ModelTrainer:
         for aug_level in augmentation_levels:
             config = TrainingConfig(
                 experiment_name=f"aug_comparison_{model_type}",
-                model_type=model_type,
+                model_type=str(model_type),
                 augmentation_level=aug_level,
-                **base_config,
+                **(base_config or {}),
             )
             result = self.train_experiment(config)
             results.append(result)
@@ -1238,9 +1243,7 @@ class ModelTrainer:
         )
 
         # Сортировка по mIoU
-        comparison_df: pd.DataFrame = comparison_df.sort_values(
-            "Best mIoU (%)", ascending=False
-        )
+        comparison_df = comparison_df.sort_values("Best mIoU (%)", ascending=False)
 
         # Сохранение
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1448,12 +1451,12 @@ class ModelTrainer:
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=config.get("lr", lr),
-                encoder_name=config["encoder_name"],
-                variant=config["variant"],
+                encoder_name=cast(EncoderName, config.get("encoder_name", "resnet34")),
+                variant=str(config.get("variant", "b5")),
                 subset_fraction=subset_fraction,
             )
-            result: Dict[str, Any] = self.train_experiment(experiment_config)
-            all_results[config["model_type"]] = result
+            result: TrainingResult = self.train_experiment(experiment_config)
+            all_results[str(config["model_type"])] = result
 
         # Сводная таблица
         summary_df: pd.DataFrame = pd.DataFrame(
@@ -1469,9 +1472,7 @@ class ModelTrainer:
             ]
         )
 
-        summary_df: pd.DataFrame = summary_df.sort_values(
-            "Best mIoU (%)", ascending=False
-        )
+        summary_df = summary_df.sort_values("Best mIoU (%)", ascending=False)
 
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         summary_path: str = os.path.join(

@@ -418,7 +418,7 @@ class BatchClassicTester:
         Returns:
             Словарь `{имя_метода: экземпляр_сегментатора}`.
         """
-        methods = {}
+        methods: Dict[str, Any] = {}
         # === OpenCV методы ===
         methods.update(
             {
@@ -607,9 +607,10 @@ class BatchClassicTester:
         rows = []
 
         for method_name in self.results:
-            row = {
+            images_tested: int = len(self.results[method_name].get("iou", []))
+            row: Dict[str, Any] = {
                 "Method": method_name,
-                "Images_Tested": len(self.results[method_name].get("iou", [])),
+                "Images_Tested": images_tested,
             }
 
             # Средние значения метрик

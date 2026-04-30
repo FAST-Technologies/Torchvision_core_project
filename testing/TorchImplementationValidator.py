@@ -61,7 +61,7 @@ class TorchImplementationValidator:
         success_thresholds (Dict[str, float]): Пороговые значения метрик для классификации статуса валидации.
     """
 
-    def __init__(self, output_dir: PathLike = "./data/validation_results") -> None:
+    def __init__(self, output_dir: str = "./data/validation_results") -> None:
         """
         Инициализация валидатора с настройками путей и порогов успешности.
 
@@ -871,7 +871,7 @@ class TorchImplementationValidator:
         return all_results
 
     def generate_benchmark_report_from_validation(
-        self, all_results: Dict[str, Any], output_dir: Optional[PathLike] = None
+        self, all_results: Dict[str, Any], output_dir: Optional[str] = None
     ) -> pd.DataFrame:
         """
         Генерирует бенчмарк-отчёт на основе результатов валидации.

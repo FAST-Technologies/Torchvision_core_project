@@ -16,6 +16,7 @@ from typing import (
     Union,
     Tuple,
 )
+from typing import Literal, cast
 from pathlib import Path
 
 import numpy as np
@@ -108,7 +109,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=model_type,
             checkpoint_path=checkpoint_path,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
             **kwargs,
         )
@@ -177,7 +178,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.SEGFORMER,
             local_path=path,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
         )
         self.models["segformer"] = {
@@ -202,7 +203,8 @@ class SegmentationBenchmark:
             ValueError: Если указана неподдерживаемая версия.
         """
         model, processor, model_type_str = NeuralModelFactory.load_segformer_variant(
-            variant=variant, device=self.device
+            variant=variant,
+            device=cast(Literal["cuda", "cpu"], self.device),
         )
         key = f"segformer_{variant}"
         self.models[key] = {
@@ -220,7 +222,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.MASK2FORMER,
             model_name=name,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
         )
         self.models["mask2former"] = {
@@ -238,7 +240,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.ONEFORMER,
             model_name=name,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
         )
         self.models["oneformer"] = {
@@ -256,7 +258,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.DPT,
             model_name=model_name,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
         )
         self.models["dpt"] = {
@@ -274,7 +276,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.UPERNET,
             model_name=model_name,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
         )
         self.models["upernet"] = {
@@ -290,7 +292,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.SAM,
             model_name=model_name,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
         )
         model_key = "sam2" if "sam2" in model_name.lower() else "sam"
@@ -308,7 +310,7 @@ class SegmentationBenchmark:
         """Загрузка FPN + MiT (pretrained weights или custom checkpoint)."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.FPN_SMP,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
             encoder_name=f"mit_{variant}",
             checkpoint_path=checkpoint_path,
@@ -329,7 +331,7 @@ class SegmentationBenchmark:
         """Загрузка PSPNet + MiT"""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.PSPNET_SMP,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
             encoder_name=f"mit_{variant}",
             checkpoint_path=checkpoint_path,
@@ -350,7 +352,7 @@ class SegmentationBenchmark:
         """Загрузка FCN."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.FCN_TV,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
             variant=variant,
             checkpoint_path=checkpoint_path,
@@ -371,7 +373,7 @@ class SegmentationBenchmark:
         """Загрузка SegNet."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.SEGNET,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
             encoder_name=encoder_name,
             checkpoint_path=checkpoint_path,
@@ -392,7 +394,7 @@ class SegmentationBenchmark:
         """Загрузка Mask R-CNN (Instance Segmentation)."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.MASKRCNN_TV,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
             variant=variant,
         )
@@ -421,7 +423,7 @@ class SegmentationBenchmark:
         """
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.UNET_SMP,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
             encoder_name=encoder_name,
             checkpoint_path=checkpoint_path,
@@ -451,7 +453,7 @@ class SegmentationBenchmark:
 
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.DEEPLAB_TV,
-            device=self.device,
+            device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
             encoder_name=None,
             checkpoint_path=checkpoint_path,
@@ -570,6 +572,14 @@ class SegmentationBenchmark:
         torch.cuda.empty_cache()
         gc.collect()
 
+        gt_mask_np: Optional[np.ndarray] = None
+        if self.gt_mask is not None:
+            gt_mask_np = (
+                np.array(self.gt_mask)
+                if isinstance(self.gt_mask, Image.Image)
+                else self.gt_mask
+            )
+
         # Замер времени + warm-up
         if model_type not in ["maskformer", "mask2former", "oneformer"]:
             for _ in range(2):
@@ -582,7 +592,7 @@ class SegmentationBenchmark:
                     palette=self.palette,
                     device=self.device,
                     num_classes=n_classes,
-                    gt_mask=self.gt_mask,
+                    gt_mask=gt_mask_np,
                 )
 
         torch.cuda.synchronize()
@@ -596,7 +606,7 @@ class SegmentationBenchmark:
             palette=self.palette,
             device=self.device,
             num_classes=n_classes,
-            gt_mask=self.gt_mask,
+            gt_mask=gt_mask_np,
         )
 
         torch.cuda.synchronize()
@@ -785,7 +795,8 @@ class SegmentationBenchmark:
             print(f"⚠️ No valid data for metric '{metric_name}'")
             return
 
-        models, values = zip(*[(m, v[metric_name]) for m, v in valid])
+        models = [m for m, _ in valid]
+        values = [v for _, v in valid]
 
         is_percentage = metric_name in ["mIoU", "pixel_acc", "f1_weighted"]
         multiplier = 100 if is_percentage else 1

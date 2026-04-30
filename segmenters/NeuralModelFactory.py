@@ -91,9 +91,6 @@ class ModelType(Enum):
     YOLOV8 = "yolov8"
 
 
-num_classes: int = 150
-
-
 class NeuralModelFactory:
     """
     Фабрика для создания и загрузки нейронных моделей сегментации.
@@ -1144,7 +1141,9 @@ class NeuralModelFactory:
         print(f"   Устройство: {device}")
 
     @classmethod
-    def _load_yolov8(cls, model_name: str, device: DeviceStr = "cuda") -> ModelTuple:
+    def _load_yolov8(
+        cls, model_name: Optional[str], device: DeviceStr = "cuda"
+    ) -> ModelTuple:
         """Загрузка YOLOv8 для сегментации"""
         try:
             from ultralytics import YOLO
@@ -1152,6 +1151,8 @@ class NeuralModelFactory:
             raise ImportError(
                 "ultralytics library required for YOLOv8. Install with: pip install ultralytics"
             )
+        if model_name is None:
+            model_name = "yolov8n-seg.pt"
         model = YOLO(model_name)  # type: ignore[call-arg]
         print(model)
         print("✅ YOLO загружена!")
@@ -1185,7 +1186,6 @@ class NeuralModelFactory:
         Returns:
             ModelTuple: (model, None, model_type_str).
         """
-        num_classes: int = int(num_classes)
         architectures: Dict[str, Any] = {
             "unet": smp.Unet,
             "fpn": smp.FPN,
@@ -1247,7 +1247,6 @@ class NeuralModelFactory:
         Returns:
             Dict[str, ModelTuple]: Словарь `{model_key: (model, processor, model_type)}`.
         """
-        num_classes: int = int(num_classes)
         models_dict: Dict[str, ModelTuple] = {}
         print("\n" + "=" * 60)
         print("📦 Loading all pre-trained CNN models for benchmark")

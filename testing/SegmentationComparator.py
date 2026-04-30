@@ -668,7 +668,7 @@ class SegmentationComparator:
                 df_comparisons,
                 masks,
                 method_infos,
-                output_dir,
+                str(output_dir),
                 comparison_type,
                 ref_name,
             )

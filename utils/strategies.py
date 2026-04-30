@@ -1051,8 +1051,13 @@ def _log_inference_details_standalone(
 
     # Анализ предсказания
     try:
-        analyze_prediction(seg_map, class_names=class_names)
-        report = generate_class_report(seg_map, class_names=class_names)
+        class_names_fixed: Optional[Dict[Union[int, str], str]] = (
+            class_names
+            if class_names is None
+            else {k: v for k, v in class_names.items()}
+        )
+        analyze_prediction(seg_map, class_names=class_names_fixed)
+        report = generate_class_report(seg_map, class_names=class_names_fixed)
         print(f"\n📊 Coverage: {report['coverage_pct']}% valid pixels")
         print(f"🏆 Top class: {report['top_class']} ({report['top_class_pct']}%)")
         export_class_report(
@@ -1163,21 +1168,24 @@ def _create_overlay_standalone(
         PIL.Image: Изображение с наложенной цветной маской, режим `"RGB"`.
     """
 
+    palette_resolved: Optional[List[List[int]]] = None
     if palette is None:
-        palette = ade_palette()
+        palette_resolved = ade_palette()
     elif callable(palette):
-        palette = palette()
+        palette_resolved = palette()
+    else:
+        palette_resolved = palette
 
-    palette = np.array(palette, dtype=np.uint8)
+    palette_array: np.ndarray = np.array(palette_resolved, dtype=np.uint8)
 
     h, w = mask.shape
     color_mask = np.zeros((h, w, 3), dtype=np.uint8)
 
     # Защита от выхода за пределы палитры
     max_label = int(mask.max())
-    safe_max = min(max_label + 1, len(palette))
+    safe_max = min(max_label + 1, len(palette_array))
     for label in range(safe_max):
-        color_mask[mask == label] = palette[label]
+        color_mask[mask == label] = palette_array[label]
 
     img_arr = np.array(image.convert("RGB"))
     overlay = (img_arr * (1 - alpha) + color_mask * alpha).astype(np.uint8)

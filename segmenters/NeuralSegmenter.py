@@ -15,15 +15,7 @@ from utils.palettes import (
     cityscapes_palette,
 )
 
-from typing import (
-    List,
-    Union,
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-    Callable,
-)
+from typing import List, Union, Tuple, Dict, Any, Optional, Callable, Literal, cast
 import time
 import requests
 from io import BytesIO
@@ -46,7 +38,7 @@ NumpyImage = np.ndarray
 PILImage = Image.Image
 TorchImage = torch.Tensor
 DeviceStr = Union[torch.device, str]
-ClassNamesDict = Optional[Dict[Union[int, str], str]]
+ClassNamesDict = Optional[Dict[int, str]]
 PaletteType = Optional[List[List[int]]]
 
 
@@ -145,7 +137,7 @@ class NeuralSegmenter(BaseSegmenter):
             model_tuple = NeuralModelFactory.create_model_from_config(
                 model_type=model_type,
                 variant=variant,
-                device=str(self.device),
+                device=cast(Literal["cuda", "cpu"], self.device),
                 checkpoint_path=cp_path,
                 **kwargs,
             )
@@ -156,7 +148,7 @@ class NeuralSegmenter(BaseSegmenter):
                 model_name=model_name,
                 local_path=local_path,
                 checkpoint_path=cp_path,
-                device=str(self.device),
+                device=cast(Literal["cuda", "cpu"], self.device),
                 num_classes=num_classes,
                 **kwargs,
             )
@@ -178,11 +170,14 @@ class NeuralSegmenter(BaseSegmenter):
         print(f"   Устройство: {self.device}")
         print(f"   Количество классов: {self.num_classes}")
 
-        if hasattr(self.model, "config") and hasattr(self.model.config, "id2label"):
-            print(f"   Количество классов: {len(self.model.config.id2label)}")
-            print("Текущие имена классов:")
-            for class_id, class_name in self.model.config.id2label.items():
-                print(f"{class_id}: {class_name}")
+        if hasattr(self.model, "config"):
+            config = self.model.config
+            if hasattr(config, "id2label") and isinstance(config.id2label, dict):
+                id2label: Dict[Union[int, str], str] = config.id2label  # type: ignore[assignment]
+                print(f"   Количество классов: {len(id2label)}")
+                print("Текущие имена классов:")
+                for class_id, class_name in id2label.items():
+                    print(f"{class_id}: {class_name}")
 
     def _get_default_palette(self) -> List[List[int]]:
         """
@@ -487,17 +482,50 @@ class NeuralSegmenter(BaseSegmenter):
             - `result_info`: Словарь с метаданными (метрики, время, классы, ...).
         """
         # Вызываем standalone функцию
-        overlay, result_info = infer_unified(
+        ValidModelType = Literal[
+            "segformer",
+            "mask2former",
+            "oneformer",
+            "dpt",
+            "upernet",
+            "deeplab_tv",
+            "fcn_tv",
+            "maskrcnn_tv",
+            "unet_smp",
+            "mit_smp",
+            "fpn_mit",
+            "psp_mit",
+            "deeplab_smp",
+            "segnet",
+            "segnet_custom",
+            "sam",
+            "mobile_sam",
+            "sam2",
+            "yolov8",
+            "yolov8n_seg",
+            "yolov8s_seg",
+            "yolov8m_seg",
+        ]
+        model_type_valid: ValidModelType = cast(ValidModelType, self.model_type_str)
+        class_names_fixed: Optional[Dict[int, str]] = (
+            {
+                int(k) if isinstance(k, str) and k.isdigit() else k: v  # type: ignore
+                for k, v in class_names.items()
+            }
+            if class_names is not None
+            else None
+        )
+        _, result_info = infer_unified(
             model=self.model,
             processor=self.processor,
             image_input=input_image,
-            model_type=self.model_type_str,
+            model_type=model_type_valid,
             alpha=0.5,
             palette=self.palette,
             device=str(self.device),
             verbose=verbose,
             num_classes=self.num_classes,
-            class_names=class_names,
+            class_names=class_names_fixed,
             gt_mask=gt_mask,
         )
         # Возвращаем маску + инфо
@@ -526,11 +554,36 @@ class NeuralSegmenter(BaseSegmenter):
         Returns:
             Tuple[PIL.Image, Dict[str, Any]]: (overlay, result_info).
         """
+        ValidModelType = Literal[
+            "segformer",
+            "mask2former",
+            "oneformer",
+            "dpt",
+            "upernet",
+            "deeplab_tv",
+            "fcn_tv",
+            "maskrcnn_tv",
+            "unet_smp",
+            "mit_smp",
+            "fpn_mit",
+            "psp_mit",
+            "deeplab_smp",
+            "segnet",
+            "segnet_custom",
+            "sam",
+            "mobile_sam",
+            "sam2",
+            "yolov8",
+            "yolov8n_seg",
+            "yolov8s_seg",
+            "yolov8m_seg",
+        ]
+        model_type_valid: ValidModelType = cast(ValidModelType, self.model_type_str)
         return infer_unified(
             model=self.model,
             processor=self.processor,
             image_input=input_image,
-            model_type=self.model_type_str,
+            model_type=model_type_valid,
             alpha=alpha,
             palette=self.palette,
             device=str(self.device),
@@ -750,7 +803,12 @@ class NeuralSegmenter(BaseSegmenter):
         class_distribution = {}
         total_pixels: int = seg_map.size
         for cls, count in zip(unique_classes, counts):
-            class_name: str = self.model.config.id2label.get(cls, f"Class_{cls}")
+            class_name: str = "Class_unknown"
+            if hasattr(self.model, "config"):
+                config = self.model.config
+                if hasattr(config, "id2label") and isinstance(config.id2label, dict):
+                    id2label: Dict[Union[int, str], str] = config.id2label  # type: ignore[assignment]
+                    class_name = id2label.get(cls, f"Class_{cls}")  # type: ignore[arg-type]
             percentage = (count / total_pixels) * 100
             class_distribution[class_name] = {
                 "class_id": int(cls),
@@ -789,11 +847,18 @@ class NeuralSegmenter(BaseSegmenter):
             return {"error": "Model not initialized"}
 
         # HuggingFace модели
-        if hasattr(self.model, "config"):
+        if hasattr(self.model, "config") and isinstance(self.model, torch.nn.Module):
             config = self.model.config
             if hasattr(config, "num_labels"):
+                num_labels_val = config.num_labels
+                if isinstance(num_labels_val, torch.Tensor):
+                    # 🔧 FIX: Явное игнорирование operator-ошибки для torch.Tensor.item()
+                    num_classes_val: int = int(num_labels_val.item())  # type: ignore[operator]
+                else:
+                    # Для int/float/numpy-scalar
+                    num_classes_val = int(num_labels_val)  # type: ignore[arg-type]
                 return {
-                    "num_classes": int(config.num_labels),
+                    "num_classes": num_classes_val,
                     "id2label": getattr(config, "id2label", {}),
                     "label2id": getattr(config, "label2id", {}),
                 }

@@ -1,13 +1,18 @@
 # segmenters/AutoSegmenter.py
 
 import os
+from typing import Callable, TypeVar, ParamSpec
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 if os.getenv("TRACK_FUNCTION_CALLS") == "1":
-    from utils.function_tracker import track_calls
+    from utils.function_tracker import track_calls  # type: ignore[assignment]
 else:
-
-    def track_calls(f):
-        return f
+    # Декоратор с правильной сигнатурой
+    def track_calls(func: Callable[P, R]) -> Callable[P, R]:
+        """Заглушка-декоратор без логирования"""
+        return func
 
 
 from typing import (
@@ -5225,16 +5230,15 @@ class AutoSegmenter:
             gray = image
 
         # Основные статистики
-        mean_intensity = float(np.mean(gray))
-        std_intensity = float(np.std(gray))
-        contrast = float((np.max(gray) - np.min(gray)) / (np.max(gray) + 1e-6))
+        gray_f: np.ndarray = gray.astype(np.float64)
+        mean_intensity = float(np.mean(gray_f))
+        std_intensity = float(np.std(gray_f))
+        contrast = float((np.max(gray_f) - np.min(gray_f)) / (np.max(gray_f) + 1e-6))
 
         # Оценка шума (через локальную дисперсию)
-        local_std = (
-            cv2.blur(gray.astype(float) ** 2, (3, 3))
-            - cv2.blur(gray.astype(float), (3, 3)) ** 2
-        )
-        noise_level = float(np.sqrt(np.mean(local_std)) / (std_intensity + 1e-6))
+        local_std = cv2.blur(gray_f**2, (3, 3)) - cv2.blur(gray_f, (3, 3)) ** 2
+        mean_local_std: float = float(np.mean(local_std))  # type: ignore[arg-type]
+        noise_level = float(np.sqrt(mean_local_std) / (std_intensity + 1e-6))
 
         # Плотность границ
         edges = cv2.Canny(gray, 50, 150)
@@ -5402,7 +5406,7 @@ class AutoSegmenter:
         memory_score: float = 1 - (profile.memory_mb / max_memory)
 
         # Базовый score
-        score: float = (
+        score = (
             weights["time"] * time_score
             + weights["accuracy"] * accuracy_score
             + weights["memory"] * memory_score
@@ -5480,10 +5484,19 @@ class AutoSegmenter:
         segmenter_class = self._get_segmenter_class(selected_method, selected_lib)
 
         # Создание сегментера
-        segmenter = segmenter_class(method=selected_method, **params)
+        segmenter = segmenter_class(**params)
 
         # Выполнение сегментации
-        _, mask = segmenter.segment_with_mask(image)
+        result = segmenter.segment_with_mask(image)
+        if isinstance(result, tuple) and len(result) == 2:
+            _, mask = result
+        else:
+            mask = result
+
+        if mask is None:
+            # Гарантированный возврат маски (создаём пустую при ошибке)
+            h, w = image.shape[:2] if image.ndim >= 2 else (256, 256)
+            mask = np.zeros((h, w), dtype=np.uint8)
 
         if return_metadata:
             characteristics = self.analyze_image(image)
@@ -5538,7 +5551,7 @@ class AutoSegmenter:
             List[RecommendationDict]: Список словарей с рангом, именем, скором и параметрами.
         """
         characteristics: ImageCharacteristics = self.analyze_image(image)
-        scores: List[Tuple[str, Dict[str, Any]]] = []
+        scores: Dict[str, Dict[str, Any]] = {}
 
         for method_name, profile in self.benchmark_data.items():
             score: float = self._calculate_method_score(

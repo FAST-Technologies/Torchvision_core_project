@@ -192,7 +192,7 @@ def analyze_augmentation_impact() -> (
                 )
                 pred_mask_resized: MaskArray = zoom(pred_mask, (sh, sw), order=0)
             else:
-                pred_mask_resized = pred_maskk
+                pred_mask_resized = pred_mask
 
             # ──────────────────────────────────────────────────────────────
             # Расчёт mIoU (многоклассовый)

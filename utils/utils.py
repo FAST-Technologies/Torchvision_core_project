@@ -106,7 +106,7 @@ def compute_metrics(
             iou_per_class.append(tp / (tp + fp + fn))
 
     # Mean IoU
-    mIoU: float = np.nanmean(iou_per_class)
+    mIoU: float = float(np.nanmean(iou_per_class))
 
     # Weighted F1-score
     f1: float = f1_score(
@@ -192,11 +192,17 @@ def extract_logits_info(
         # === Torchvision DeepLab / FCN ===
         elif model_type in ["deeplab_tv", "fcn_tv"]:
             # Torchvision: dict["out"][0] или tensor[0]
-            logits = (
-                outputs["out"][0]
-                if isinstance(outputs, dict) and "out" in outputs
-                else (outputs[0] if hasattr(outputs, "__getitem__") else outputs)
-            )
+            if isinstance(outputs, dict) and "out" in outputs:
+                out_val = outputs["out"]
+                logits = (
+                    out_val[0]
+                    if isinstance(out_val, (tuple, list)) and len(out_val) > 0
+                    else out_val
+                )
+            elif isinstance(outputs, (tuple, list)) and len(outputs) > 0:
+                logits = outputs[0] if isinstance(outputs[0], torch.Tensor) else None
+            elif isinstance(outputs, torch.Tensor):
+                logits = outputs
         # === Torchvision Mask R-CNN ===
         elif model_type == "maskrcnn_tv":
             return {

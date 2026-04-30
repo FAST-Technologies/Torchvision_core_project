@@ -254,9 +254,11 @@ class SegmentationTester:
 
         # Замер времени
         start_time: float = time.perf_counter()
-        result: np.ndarray
-        mask: np.ndarray
-        result, mask = segmenter.segment_with_mask(image)
+        result_opt, mask_opt = segmenter.segment_with_mask(image)
+        if result_opt is None or mask_opt is None:
+            raise ValueError(f"{method_name}.segment_with_mask() returned None")
+        result: np.ndarray = result_opt
+        mask: np.ndarray = mask_opt
         execution_time: float = time.perf_counter() - start_time
 
         # Конвертация изображения для сохранения
@@ -627,9 +629,12 @@ class SegmentationTester:
         execution_time = time.perf_counter() - start_time
 
         if gt_mask is not None:
-            metrics = SegmentationMetrics.calculate_all_metrics(
-                pred_mask, gt_mask, threshold=threshold
-            )
+            if pred_mask is not None and gt_mask is not None:
+                metrics = SegmentationMetrics.calculate_all_metrics(
+                    pred_mask, gt_mask, threshold=threshold
+                )
+            else:
+                metrics = {}
 
             result_data: Dict[str, Any] = {
                 "method": method_name,
@@ -640,10 +645,14 @@ class SegmentationTester:
                 "has_ground_truth": True,
             }
         else:
-            mask_area: int = int(np.sum(pred_mask > 0))
-            total_pixels: int = int(pred_mask.shape[0] * pred_mask.shape[1])
+            if pred_mask is not None:
+                mask_area: int = int(np.sum(pred_mask > 0))
+                total_pixels: int = int(pred_mask.shape[0] * pred_mask.shape[1])
+            else:
+                mask_area = 0
+                total_pixels = 1
 
-            result_data: Dict[str, Any] = {
+            result_data = {
                 "method": method_name,
                 "result": result_img,
                 "mask": pred_mask,
@@ -653,7 +662,7 @@ class SegmentationTester:
                 "has_ground_truth": False,
             }
         if output_dir:
-            self._save_method_results(result_data, output_dir, method_name)
+            self._save_method_results(result_data, str(output_dir), method_name)
         return result_data
 
     def compare_methods(
@@ -1301,8 +1310,6 @@ class SegmentationTester:
             image_array = image
         else:
             raise ValueError(f"Unsupported image type: {type(image)}")
-        benchmark_results = []
-
         bench_dir: str = self._create_test_directory(
             f"benchmark_{test_name}" if test_name else "benchmark"
         )
@@ -1380,9 +1387,16 @@ class SegmentationTester:
                 result: np.ndarray
                 mask: np.ndarray
                 try:
-                    result, mask = self.methods[method_name].segment_with_mask(
+                    result_opt, mask_opt = self.methods[method_name].segment_with_mask(
                         input_arg_for_method
                     )
+                    if result_opt is None or mask_opt is None:
+                        print(f"    ❌ {method_name} returned None")
+                        if run == 0:
+                            break
+                        continue
+                    result = result_opt
+                    mask = mask_opt
                     times.append(time.perf_counter() - start_time)
                     if run == 0:
                         masks_list.append(mask)
@@ -1907,7 +1921,7 @@ class SegmentationTester:
         if method_names is None:
             method_names = list(self.methods.keys())
 
-        records = []
+        records: List[Dict[str, Any]] = []
         for method_name in method_names:
             if method_name not in self.methods:
                 print(f"⚠️ Метод {method_name} не найден, пропускаем")
@@ -1936,23 +1950,32 @@ class SegmentationTester:
                 continue
 
             result_img, mask = last_result
-            mask_area = int(np.sum(mask > 0))
-            total_px = mask.shape[0] * mask.shape[1]
 
-            record = {
+            if mask is not None:
+                mask_area: int = int(np.sum(mask > 0))
+                total_px: int = int(mask.shape[0] * mask.shape[1])
+            else:
+                mask_area = 0
+                total_px = 1
+
+            record: Dict[str, Any] = {
                 "method": method_name,
                 "mean_time_s": float(np.mean(times)),
                 "std_time_s": float(np.std(times)),
                 "min_time_s": float(np.min(times)),
-                "mask_area_px": mask_area,
-                "mask_pct": 100.0 * mask_area / total_px,
+                "mask_area_px": int(mask_area),
+                "mask_pct": float(100.0 * mask_area / total_px),
             }
 
             if ground_truth is not None:
                 try:
-                    m = SegmentationMetrics.calculate_all_metrics(
-                        mask, ground_truth, threshold=0.5
-                    )
+                    if mask is not None and ground_truth is not None:
+                        m = SegmentationMetrics.calculate_all_metrics(
+                            mask, ground_truth, threshold=0.5
+                        )
+                    else:
+                        print(f"⚠️ Cannot compute metrics: mask or ground_truth is None")
+                        m = {}
                     record.update(
                         {
                             "iou": m.get("iou", float("nan")),
