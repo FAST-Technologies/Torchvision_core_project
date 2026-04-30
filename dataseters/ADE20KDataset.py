@@ -1,49 +1,130 @@
 # datasets/ADE20KDataset.py
 
-# Импорт основных библиотек
+"""
+Загрузчик датасета ADE20K с расширенными аугментациями.
+
+Особенности:
+- Все геометрические трансформации применяются одинаково к изображению и маске.
+- Для масок используется `fill=ignore_index` при поворотах/паддинге.
+- Поддержка 4 уровней аугментаций: none/basic/medium/aggressive.
+- Валидация соответствия размеров и диапазона значений масок.
+
+Example:
+    ```python
+    dataset = ADE20KDataset(
+        root_dir="./data/ade20k",
+        split="training",
+        image_size=(512, 512),
+        augment=True,
+        augmentation_level="medium",
+        ignore_index=255,
+    )
+    loader = DataLoader(dataset, batch_size=4, shuffle=True)
+    for batch in loader:
+        images, masks = batch["image"], batch["mask"]
+        # training loop...
+    ```
+"""
+
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import os
+import random
+import traceback
 from typing import (
     Optional,
     List,
     Tuple,
     Dict,
     Any,
+    Literal,
+    Union,
+    TypeAlias,
 )
-import random
-import traceback
-from PIL import Image
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import functional as TF
 from torchvision import transforms
+from PIL import Image
+
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES
+# ──────────────────────────────────────────────────────────────────────
+ImageSize: TypeAlias = Tuple[int, int]
+AugmentationLevel: TypeAlias = Literal["none", "basic", "medium", "aggressive"]
+ScaleRange: TypeAlias = Tuple[float, float]
+BatchDict: TypeAlias = Dict[str, Any]
+PathLike = Union[str, Path]
 
 
+# ──────────────────────────────────────────────────────────────────────
+# CLASS: ADE20KDataset
+# ──────────────────────────────────────────────────────────────────────
 class ADE20KDataset(Dataset):
     """
     Загрузчик датасета ADE20K с расширенными аугментациями.
+
     Все геометрические трансформации применяются одинаково к изображению и маске.
+    Для масок используется `fill=ignore_index` при поворотах/паддинге.
+
+    Поддерживаемые уровни аугментаций:
+    - `"none"`: только ресайз и нормализация.
+    - `"basic"`: горизонтальный флип.
+    - `"medium"`: + вертикальный флип, ротация, color jitter, масштабирование.
+    - `"aggressive"`: + affine-трансформации, gamma-коррекция, grayscale.
+
+    Attributes:
+        image_size (Tuple[int, int]): Целевой размер изображений (ширина, высота).
+        augment (bool): Применять ли аугментации.
+        augmentation_level (str): Уровень аугментаций.
+        ignore_index (int): Индекс пикселей для игнорирования в лоссе.
+        images_dir (Path): Директория с изображениями.
+        masks_dir (Path): Директория с масками.
+        image_files (List[str]): Список имён файлов изображений.
+        valid_indices (List[int]): Индексы валидных пар изображение-маска.
+        img_transform (transforms.Compose): Трансформации для нормализации изображений.
     """
 
     def __init__(
         self,
-        root_dir: str = "./data/ade20k",
+        root_dir: PathLike = "./data/ade20k",
         split: str = "training",
-        image_size: tuple = (512, 512),
+        image_size: ImageSize = (512, 512),
         augment: bool = False,
         subset_fraction: Optional[float] = None,
-        augmentation_level: str = "basic",  # 'none', 'basic', 'medium', 'aggressive'
+        augmentation_level: AugmentationLevel = "basic",  # 'none', 'basic', 'medium', 'aggressive'
         hflip_prob: float = 0.5,
         vflip_prob: float = 0.0,
         rotation_prob: float = 0.0,
         color_jitter_prob: float = 0.0,
-        scale_range: Tuple[float, float] = (0.8, 1.2),
+        scale_range: ScaleRange = (0.8, 1.2),
         ignore_index: int = 255,
     ) -> None:
-        self.image_size: tuple = image_size
+        """
+        Инициализация датасета ADE20K.
+
+        Args:
+            root_dir: Корневая директория датасета.
+            split: Название сплита ("training", "validation", "testing").
+            image_size: Целевой размер изображений (ширина, высота).
+            augment: Применять ли аугментации.
+            subset_fraction: Доля данных для использования (для быстрых тестов).
+            augmentation_level: Уровень аугментаций ("none", "basic", "medium", "aggressive").
+            hflip_prob: Вероятность горизонтального флипа.
+            vflip_prob: Вероятность вертикального флипа.
+            rotation_prob: Вероятность ротации.
+            color_jitter_prob: Вероятность color jitter.
+            scale_range: Диапазон масштабирования (мин, макс).
+            ignore_index: Индекс пикселей для игнорирования в лоссе.
+        """
+        self.image_size: ImageSize = image_size
         self.augment: bool = augment
-        self.augmentation_level: str = augmentation_level
+        self.augmentation_level: AugmentationLevel = augmentation_level
         self.ignore_index: int = ignore_index
 
         # Настройка уровня аугментаций
@@ -71,19 +152,19 @@ class ADE20KDataset(Dataset):
         )
         print(f"   Найдено {len(self.image_files)} изображений")
 
-        self.valid_indices: list = []
+        self.valid_indices: List[int] = []
         for i, img_file in enumerate(self.image_files):
-            mask_file = img_file.replace(".jpg", ".png")
+            mask_file: str = img_file.replace(".jpg", ".png")
             if os.path.exists(os.path.join(self.masks_dir, mask_file)):
                 self.valid_indices.append(i)
         print(f"   Валидных пар: {len(self.valid_indices)}")
 
         if subset_fraction is not None and subset_fraction < 1.0:
-            n = int(len(self.valid_indices) * subset_fraction)
+            n: int = int(len(self.valid_indices) * subset_fraction)
             self.valid_indices = self.valid_indices[:n]
             print(f"   Используем {n} образцов ({subset_fraction * 100:.0f}%)")
 
-        self.img_transform = transforms.Compose(
+        self.img_transform: transforms.Compose = transforms.Compose(
             [
                 transforms.ToTensor(),
                 transforms.Normalize(
@@ -99,9 +180,18 @@ class ADE20KDataset(Dataset):
         vflip_prob: float = 0.0,
         rotation_prob: float = 0.0,
         color_jitter_prob: float = 0.0,
-        scale_range: Tuple[float, float] = (0.8, 1.2),
+        scale_range: ScaleRange = (0.8, 1.2),
     ) -> None:
-        """Настройка параметров аугментаций в зависимости от уровня"""
+        """
+        Настраивает параметры аугментаций в зависимости от уровня.
+
+        Args:
+            hflip_prob: Вероятность горизонтального флипа.
+            vflip_prob: Вероятность вертикального флипа.
+            rotation_prob: Вероятность ротации.
+            color_jitter_prob: Вероятность color jitter.
+            scale_range: Диапазон масштабирования.
+        """
 
         if self.augmentation_level == "none":
             self.hflip_prob = 0.0
@@ -138,18 +228,35 @@ class ADE20KDataset(Dataset):
 
     # ──────────────────────────────────────────────────────────────────────
     def __len__(self) -> int:
+        """Возвращает количество валидных примеров в датасете."""
         return len(self.valid_indices)
 
     # ──────────────────────────────────────────────────────────────────────
     def _apply_geometric_augmentations(
-        self, img: Image.Image, mask: Image.Image
+        self,
+        img: Image.Image,
+        mask: Image.Image,
     ) -> Tuple[Image.Image, Image.Image]:
         """
-        Геометрические аугментации применяются ОДИНАКОВО к image и mask.
-        Для маски: fill = self.ignore_index (не 0, не 255 по умолчанию —
-        именно то значение, которое проигнорирует CrossEntropyLoss).
+        Применяет геометрические аугментации одинаково к изображению и маске.
+
+        Для маски используется `fill=ignore_index` при поворотах/паддинге.
+
+        Поддерживаемые трансформации:
+        - Random horizontal flip
+        - Random vertical flip
+        - Random rotation (±30°)
+        - Random scale + crop/pad
+        - Random affine (только для уровня "aggressive")
+
+        Args:
+            img: Изображение в режиме "RGB".
+            mask: Маска в режиме "L".
+
+        Returns:
+            Tuple[PIL.Image, PIL.Image]: (аугментированное изображение, маска).
         """
-        transforms_applied = []
+        transforms_applied: List[str] = []
 
         # 1. Random Horizontal Flip
         if self.augment and random.random() < self.hflip_prob:
@@ -165,17 +272,17 @@ class ADE20KDataset(Dataset):
 
         # 3. Random Rotation
         if self.augment and random.random() < self.rotation_prob:
-            angle = random.uniform(-30, 30)  # ±30 градусов
+            angle: float = random.uniform(-30, 30)  # ±30 градусов
             img = TF.rotate(img, angle, fill=(0, 0, 0))  # fill=0 для RGB
             mask = TF.rotate(mask, angle, fill=self.ignore_index)  # fill=255 для маски
             transforms_applied.append(f"rotate_{angle:.1f}°")
 
         # 4. Random Scale + Crop (если scale_range != (1.0, 1.0))
         if self.augment and self.scale_range != (1.0, 1.0):
-            scale = random.uniform(*self.scale_range)
+            scale: float = random.uniform(*self.scale_range)
             orig_w, orig_h = img.size
-            new_w = max(1, int(orig_w * scale))
-            new_h = max(1, int(orig_h * scale))
+            new_w: int = max(1, int(orig_w * scale))
+            new_h: int = max(1, int(orig_h * scale))
 
             # Ресайз
             img = TF.resize(
@@ -188,15 +295,15 @@ class ADE20KDataset(Dataset):
             # Crop/Pad к исходному размеру
             if new_w >= orig_w and new_h >= orig_h:
                 # Crop
-                left = random.randint(0, new_w - orig_w)
-                top = random.randint(0, new_h - orig_h)
+                left: int = random.randint(0, new_w - orig_w)
+                top: int = random.randint(0, new_h - orig_h)
                 img = TF.crop(img, top, left, orig_h, orig_w)
                 mask = TF.crop(mask, top, left, orig_h, orig_w)
             else:
                 # Pad
-                pad_w = max(0, orig_w - new_w)
-                pad_h = max(0, orig_h - new_h)
-                padding = [
+                pad_w: int = max(0, orig_w - new_w)
+                pad_h: int = max(0, orig_h - new_h)
+                padding: List[int] = [
                     pad_w // 2,
                     pad_h // 2,
                     pad_w - pad_w // 2,
@@ -212,10 +319,13 @@ class ADE20KDataset(Dataset):
             and self.augmentation_level == "aggressive"
             and random.random() < 0.3
         ):
-            angle = random.uniform(-15, 15)
-            translate = (random.uniform(-0.1, 0.1), random.uniform(-0.1, 0.1))
+            angle: float = random.uniform(-15, 15)
+            translate: Tuple[float, float] = (
+                random.uniform(-0.1, 0.1),
+                random.uniform(-0.1, 0.1),
+            )
             scale = random.uniform(0.9, 1.1)
-            shear = random.uniform(-10, 10)
+            shear: float = random.uniform(-10, 10)
 
             img = TF.affine(
                 img,
@@ -245,7 +355,19 @@ class ADE20KDataset(Dataset):
     def _apply_photometric_augmentations(self, img: Image.Image) -> Image.Image:
         """
         Применяет фотометрические аугментации только к изображению.
+
         Маска НЕ трансформируется!
+
+        Поддерживаемые трансформации:
+        - Color jitter (brightness, contrast, saturation)
+        - Random grayscale (только для "aggressive")
+        - Random gamma correction (только для "aggressive")
+
+        Args:
+            img: Изображение в режиме "RGB".
+
+        Returns:
+            PIL.Image: Аугментированное изображение.
         """
 
         if not self.augment:
@@ -266,17 +388,43 @@ class ADE20KDataset(Dataset):
 
         # 3. Random Gamma
         if self.augmentation_level == "aggressive" and random.random() < 0.2:
-            gamma = random.uniform(0.7, 1.5)
+            gamma: float = random.uniform(0.7, 1.5)
             img = TF.adjust_gamma(img, gamma)
 
         return img
 
     # ──────────────────────────────────────────────────────────────────────
-    def __getitem__(self, idx) -> Dict[str, Any]:
-        real_idx = self.valid_indices[idx]
-        img_file = self.image_files[real_idx]
-        img = Image.open(os.path.join(self.images_dir, img_file)).convert("RGB")
-        mask_pil = Image.open(
+    def __getitem__(self, idx: int) -> BatchDict:
+        """
+        Возвращает один пример из датасета.
+
+        Логика:
+        1. Загружает изображение и маску.
+        2. Применяет геометрические аугментации (к обоим).
+        3. Применяет фотометрические аугментации (только к изображению).
+        4. Ресайзит к `image_size`.
+        5. Конвертирует маску к `int64` и клиппирует значения (кроме `ignore_index`).
+        6. Нормализует изображение и конвертирует в тензоры.
+
+        Args:
+            idx: Индекс примера в `valid_indices`.
+
+        Returns:
+            Dict[str, Any]:
+            ```python
+            {
+                "image": torch.Tensor,  # [3, H, W], нормализованное
+                "mask": torch.Tensor,   # [H, W], dtype long, значения 0..149 или 255
+                "image_id": str,        # Имя файла изображения
+            }
+            ```
+        """
+        real_idx: int = self.valid_indices[idx]
+        img_file: str = self.image_files[real_idx]
+        img: Image.Image = Image.open(os.path.join(self.images_dir, img_file)).convert(
+            "RGB"
+        )
+        mask_pil: Image.Image = Image.open(
             os.path.join(self.masks_dir, img_file.replace(".jpg", ".png"))
         ).convert("L")
         # 1. Применяем геометрические аугментации
@@ -299,13 +447,9 @@ class ADE20KDataset(Dataset):
                 interpolation=TF.InterpolationMode.NEAREST,
             )
 
-        # 4. Маска → numpy int64
+        # 4. Маска → numpy int64 + клиппинг
         mask_np: np.ndarray = np.array(mask_pil, dtype=np.int64)
-
-        # FIX: clip только НЕ-ignore пикселей
-        # Было: np.clip(mask_np, 0, 149) — уничтожало ignore_index=255
-        # Теперь: ignore-пиксели остаются нетронутыми, остальные → [0, 149]
-        valid_mask = mask_np != self.ignore_index
+        valid_mask: np.ndarray = mask_np != self.ignore_index
         mask_np[valid_mask] = np.clip(mask_np[valid_mask], 0, 149)
 
         # 5. Нормализация изображения
@@ -318,14 +462,21 @@ class ADE20KDataset(Dataset):
 
     # ──────────────────────────────────────────────────────────────────────
     def test_augmentation_sync(self) -> bool:
-        """Простой unit-тест: image и mask одного размера после аугментаций."""
-        sample = self[0]
+        """
+        Простой unit-тест: проверяет, что image и mask одного размера после аугментаций.
+
+        Также проверяет, что значения маски в допустимом диапазоне (кроме `ignore_index`).
+
+        Returns:
+            bool: `True` если тест пройден, иначе выбрасывает `AssertionError`.
+        """
+        sample: BatchDict = self[0]
         h, w = sample["image"].shape[1], sample["image"].shape[2]
         mh, mw = sample["mask"].shape
         assert (h, w) == (mh, mw), f"Shape mismatch: image=({h},{w}) mask=({mh},{mw})"
-        # ignore-пиксели не должны менять диапазон
-        m = sample["mask"]
-        valid = m[m != self.ignore_index]
+
+        m: torch.Tensor = sample["mask"]
+        valid: torch.Tensor = m[m != self.ignore_index]
         if len(valid) > 0:
             assert (
                 valid.min() >= 0 and valid.max() <= 149
@@ -333,52 +484,54 @@ class ADE20KDataset(Dataset):
         return True
 
 
+# ──────────────────────────────────────────────────────────────────────
+# CLASS: ADE20KDatasetWithTransforms (альтернативная реализация)
+# ──────────────────────────────────────────────────────────────────────
 class ADE20KDatasetWithTransforms(Dataset):
     """
-    Версия с использованием Compose трансформаций.
-    Более чистая архитектура, но требует careful handling масок.
+    Альтернативная версия с использованием `transforms.Compose`.
+
+    Более чистая архитектура, но требует аккуратной обработки масок.
     """
 
     def __init__(
         self,
-        root_dir: str = "./data/ade20k",
+        root_dir: PathLike = "./data/ade20k",
         split: str = "training",
-        image_size: tuple = (512, 512),
+        image_size: ImageSize = (512, 512),
         augment: bool = False,
         subset_fraction: Optional[float] = None,
         ignore_index: int = 255,
     ) -> None:
-        self.image_size = image_size
-        self.augment = augment
-        self.ignore_index = ignore_index
+        self.image_size: ImageSize = image_size
+        self.augment: bool = augment
+        self.ignore_index: int = ignore_index
 
-        base_dir = os.path.join(root_dir, "ADEChallengeData2016")
-        self.images_dir = os.path.join(base_dir, "images", split)
-        self.masks_dir = os.path.join(base_dir, "annotations", split)
+        base_dir: Path = Path(root_dir) / "ADEChallengeData2016"
+        self.images_dir: Path = base_dir / "images" / split
+        self.masks_dir: Path = base_dir / "annotations" / split
 
-        # Раздельные трансформации для train/val
-        if augment and split == "training":
-            self.transform = self._get_train_transforms()
-        else:
-            self.transform = self._get_val_transforms()
+        self.transform: Dict[str, transforms.Compose] = (
+            self._get_train_transforms()
+            if augment and split == "training"
+            else self._get_val_transforms()
+        )
 
-        self.image_files = sorted(
+        self.image_files: List[str] = sorted(
             [f for f in os.listdir(self.images_dir) if f.endswith(".jpg")]
         )
-        self.valid_indices = []
+        self.valid_indices: List[int] = []
         for i, img_file in enumerate(self.image_files):
-            mask_file = img_file.replace(".jpg", ".png")
-            if os.path.exists(os.path.join(self.masks_dir, mask_file)):
+            mask_file: str = img_file.replace(".jpg", ".png")
+            if (self.masks_dir / mask_file).exists():
                 self.valid_indices.append(i)
 
         if subset_fraction is not None and subset_fraction < 1.0:
-            n = int(len(self.valid_indices) * subset_fraction)
+            n: int = int(len(self.valid_indices) * subset_fraction)
             self.valid_indices = self.valid_indices[:n]
 
-    def _get_train_transforms(
-        self,
-    ) -> Dict[str, transforms.Compose]:  # ✅ Добавлен метод
-        """Трансформации для обучения с аугментациями"""
+    def _get_train_transforms(self) -> Dict[str, transforms.Compose]:
+        """Возвращает трансформации для обучения с аугментациями."""
         return {
             "image": transforms.Compose(
                 [
@@ -389,16 +542,11 @@ class ADE20KDatasetWithTransforms(Dataset):
                     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
                 ]
             ),
-            "mask": transforms.Compose(
-                [
-                    # Только ToTensor для маски, без нормализации
-                    transforms.ToTensor(),
-                ]
-            ),
+            "mask": transforms.Compose([transforms.ToTensor()]),
         }
 
     def _get_val_transforms(self) -> Dict[str, transforms.Compose]:
-        """Трансформации для валидации"""
+        """Возвращает трансформации для валидации (без аугментаций)."""
         return {
             "image": transforms.Compose(
                 [
@@ -406,36 +554,28 @@ class ADE20KDatasetWithTransforms(Dataset):
                     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
                 ]
             ),
-            "mask": transforms.Compose(
-                [
-                    # Без аугментаций
-                ]
-            ),
+            "mask": transforms.Compose([]),
         }
 
     def __len__(self) -> int:
         return len(self.valid_indices)
 
-    def __getitem__(self, idx) -> Dict[str, Any]:
-        real_idx = self.valid_indices[idx]
-        img_file = self.image_files[real_idx]
+    def __getitem__(self, idx: int) -> BatchDict:
+        real_idx: int = self.valid_indices[idx]
+        img_file: str = self.image_files[real_idx]
 
-        # Загрузка
-        img = Image.open(os.path.join(self.images_dir, img_file)).convert("RGB")
-        mask = Image.open(
-            os.path.join(self.masks_dir, img_file.replace(".jpg", ".png"))
+        img: Image.Image = Image.open(self.images_dir / img_file).convert("RGB")
+        mask: Image.Image = Image.open(
+            self.masks_dir / img_file.replace(".jpg", ".png")
         ).convert("L")
 
-        # Применяем геометрические аугментации
+        # Геометрические аугментации
         if self.augment:
-            # RandomHorizontalFlip
             if random.random() > 0.5:
                 img = TF.hflip(img)
                 mask = TF.hflip(mask)
-
-            # RandomRotation
             if random.random() > 0.7:
-                angle = random.uniform(-15, 15)
+                angle: float = random.uniform(-15, 15)
                 img = TF.rotate(img, angle, fill=(0, 0, 0))
                 mask = TF.rotate(mask, angle, fill=self.ignore_index)
 
@@ -447,23 +587,26 @@ class ADE20KDatasetWithTransforms(Dataset):
             mask, self.image_size, interpolation=TF.InterpolationMode.NEAREST
         )
 
-        # Конвертация в tensor
-        # img_tensor: torch.Tensor = self.transform["image"](img)
-        # mask_tensor: torch.Tensor = self.transform["mask"](mask)
-
-        # # Для маски используем long для совместимости с loss функциями
-        # mask_tensor = mask_tensor.squeeze(0).long()  # (1, H, W) -> (H, W)
+        # Конвертация
         img_tensor: torch.Tensor = self.transform["image"](img)
-        mask_np = np.array(mask, dtype=np.int64)
-        valid = mask_np != self.ignore_index
+        mask_np: np.ndarray = np.array(mask, dtype=np.int64)
+        valid: np.ndarray = mask_np != self.ignore_index
         mask_np[valid] = np.clip(mask_np[valid], 0, 149)
-        mask_tensor = torch.from_numpy(mask_np).long()
+        mask_tensor: torch.Tensor = torch.from_numpy(mask_np).long()
 
         return {"image": img_tensor, "mask": mask_tensor, "image_id": img_file}
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────
+# UTILS: test_dataloader
+# ──────────────────────────────────────────────────────────────────────
 def test_dataloader() -> bool:
+    """
+    Тестирует загрузчик ADE20K: валидация данных и визуализация аугментаций.
+
+    Returns:
+        bool: `True` если все тесты пройдены, иначе `False`.
+    """
     print("\n" + "=" * 50)
     print("Тестирование загрузчика ADE20K")
     print("=" * 50)
@@ -492,8 +635,8 @@ def test_dataloader() -> bool:
         print(f"✅ DataLoader ready: {len(train_loader)} batches")
         print("\n📊 Проверка загрузки данных:")
         for batch_idx, batch in enumerate(train_loader):
-            images = batch["image"]
-            masks = batch["mask"]
+            images: torch.Tensor = batch["image"]
+            masks: torch.Tensor = batch["mask"]
             print(f"\nBatch {batch_idx + 1}:")
             print(
                 f"   Images: {images.shape}, dtype={images.dtype}, range=[{images.min():.3f}, {images.max():.3f}]"
@@ -505,7 +648,7 @@ def test_dataloader() -> bool:
             assert (
                 masks.min() >= 0 and masks.max() <= 150
             ), f"Mask out of range: [{masks.min()}, {masks.max()}]"
-            non_ignore = masks[masks != 0]
+            non_ignore: torch.Tensor = masks[masks != 0]
             if len(non_ignore) > 0:
                 assert (
                     non_ignore.min() >= 1 and non_ignore.max() <= 149
@@ -518,8 +661,8 @@ def test_dataloader() -> bool:
 
         for i in range(4):
             batch = next(iter(train_loader))
-            img = batch["image"][0].permute(1, 2, 0).numpy()
-            mask = batch["mask"][0].numpy()
+            img: np.ndarray = batch["image"][0].permute(1, 2, 0).numpy()
+            mask: np.ndarray = batch["mask"][0].numpy()
 
             # Denormalize image
             img = img * np.array([0.229, 0.224, 0.225]) + np.array(

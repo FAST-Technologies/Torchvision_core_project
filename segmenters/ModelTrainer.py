@@ -485,7 +485,7 @@ class ModelTrainer:
 
         print(f"   Augmentation level: {augmentation_level}")
         # Train с аугментациями
-        is_augmented = augmentation_level != "none"
+        is_augmented: bool = augmentation_level != "none"
         train_dataset = ADE20KDataset(
             root_dir=self.root_dir,
             split="training",
@@ -558,7 +558,7 @@ class ModelTrainer:
         Returns:
             torch.Tensor: Вектор весов размера `[num_classes]`, dtype float32.
         """
-        class_counts = torch.zeros(num_classes, dtype=torch.float64)
+        class_counts: torch.Tensor = torch.zeros(num_classes, dtype=torch.float64)
         for idx, batch in enumerate(train_loader):
             if idx >= max_batches:
                 break
@@ -567,8 +567,8 @@ class ModelTrainer:
                 class_counts[c] += (masks == c).sum().item()
         class_counts = class_counts.clamp(min=1.0)
         # median frequency balancing
-        median_freq = class_counts.median()
-        weights = median_freq / class_counts
+        median_freq: torch.Tensor = class_counts.median()
+        weights: torch.Tensor = median_freq / class_counts
         weights = weights / weights.sum() * num_classes
         print(
             f"   Class weights computed (top-5 highest): "
@@ -608,7 +608,7 @@ class ModelTrainer:
         print(f"{'=' * 70}")
 
         # ── FIX 1: правильный ignore_index для данного типа модели ──
-        ignore_index = IGNORE_INDEX_BY_MODEL.get(config.model_type, 255)
+        ignore_index: int = IGNORE_INDEX_BY_MODEL.get(config.model_type, 255)
         print(f"   ignore_index: {ignore_index} (для {config.model_type})")
 
         model = self.create_model(
@@ -680,7 +680,7 @@ class ModelTrainer:
         )
 
         # ── Optimizer: только unfrozen параметры ──
-        is_tv_model = config.model_type in ["deeplab_tv", "fcn_tv"]
+        is_tv_model: bool = config.model_type in ["deeplab_tv", "fcn_tv"]
         trainable_params = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.AdamW(trainable_params, lr=config.lr, weight_decay=1e-4)
         if is_tv_model:
@@ -693,7 +693,7 @@ class ModelTrainer:
         # ── FIX 3: единый CosineAnnealingLR на всё обучение ──
         # Больше НЕ создаём новый scheduler при разморозке.
         # T_max = полное число шагов батчей.
-        total_steps = len(train_loader) * config.epochs
+        total_steps: int = len(train_loader) * config.epochs
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=total_steps, eta_min=config.lr * 0.01
         )

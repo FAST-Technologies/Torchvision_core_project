@@ -1,15 +1,33 @@
 # datasets/load_datasets.py
 
 """
-Менеджер загрузки и подготовки датасетов для сегментации
-Поддержка: ADE20K, Cityscapes, COCO, ISIC, CheXpert + медицинские форматы
+Менеджер загрузки и подготовки датасетов для сегментации.
+
+Поддержка:
+- ADE20K, Cityscapes, COCO, ISIC, CheXpert
+- Медицинские форматы: DICOM, NIfTI, NPZ, HDF5
+- Источники: HuggingFace Hub, ZIP/TAR-архивы, прямые ссылки
+
+Workflow:
+1. Регистрация конфигураций датасетов (через код или YAML).
+2. Скачивание с валидацией контрольных сумм.
+3. Распаковка и реорганизация структуры.
+4. Пост-обработка (Parquet → файлы, медицинская нормализация).
+5. Создание индекса для быстрого доступа.
+
+Example:
+    ```python
+    manager = DatasetManager(base_dir="./data")
+    path = manager.download("ade20k", force=False)
+    img, mask = manager.load_sample("ade20k", split="val", idx=0)
+    dataset = manager.create_pytorch_dataset("ade20k", split="train")
+    ```
 """
 
-# Импорт основных библиотек
-from typing import List, Tuple, Dict, Optional, Literal, Callable, Any
-from dataclasses import dataclass, field
-from pathlib import Path
-from enum import Enum, auto
+
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ & TYPE ALIASES
+# ──────────────────────────────────────────────────────────────────────
 import os
 import sys
 import json
@@ -18,24 +36,50 @@ import zipfile
 import tarfile
 import shutil
 import requests
+import logging
+from typing import (
+    List,
+    Tuple,
+    Dict,
+    Optional,
+    Literal,
+    Callable,
+    Any,
+    Union,
+    TypeAlias,
+)
+from dataclasses import dataclass, field
+from pathlib import Path
+from enum import Enum, auto
 from datetime import datetime
 
 import torch
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
-import yaml
 
 try:
+    import yaml
     from huggingface_hub import hf_hub_download, list_repo_files, snapshot_download
-
-    # 🔥 Добавляем type: ignore для mypy
     from datasets import load_dataset  # type: ignore[attr-defined]
 
-    HF_AVAILABLE = True
+    HF_AVAILABLE: bool = True
 except ImportError:
     HF_AVAILABLE = False
     load_dataset = None  # type: ignore
+    yaml = None  # type: ignore
+
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES
+# ──────────────────────────────────────────────────────────────────────
+PathLike: TypeAlias = Union[str, Path]
+SplitDict: TypeAlias = Dict[str, str]
+PreprocessingDict: TypeAlias = Dict[str, Any]
+MetadataDict: TypeAlias = Dict[str, Any]
+ExpectedStructureDict: TypeAlias = Dict[str, List[str]]
+ImageDict: TypeAlias = Dict[str, Any]  # Для декодирования изображений из HF
+ParquetRow: TypeAlias = Dict[str, Any]
+DownloadProgressCallback: TypeAlias = Callable[[int, int], None]
 
 # ============================================================================
 # КОНФИГУРАЦИЯ И ТИПЫ ДАННЫХ
@@ -50,9 +94,23 @@ except ImportError:
 #     CUSTOM = auto()
 
 
-# Типы датасетов
+# ──────────────────────────────────────────────────────────────────────
+# ENUMS
+# ──────────────────────────────────────────────────────────────────────
 class DatasetType(Enum):
-    """Типы датасетов для сегментации"""
+    """
+    Типы датасетов для сегментации.
+
+    Attributes:
+        SEMANTIC: Семантическая сегментация (один класс на пиксель).
+        INSTANCE: Instance segmentation (отдельные объекты).
+        PANOPTIC: Паноптическая сегментация (семантика + инстансы).
+        MEDICAL: Общий медицинский датасет.
+        MEDICAL_BINARY: Бинарная медицинская сегментация (фон/объект).
+        MEDICAL_MULTICLASS: Многоклассовая медицинская сегментация.
+        BINARY: Бинарная сегментация (общий случай).
+        CUSTOM: Пользовательский датасет.
+    """
 
     SEMANTIC = "semantic"  # ADE20K, Cityscapes
     INSTANCE = "instance"  # COCO
@@ -64,8 +122,17 @@ class DatasetType(Enum):
     CUSTOM = auto()
 
 
-# Источник данных
 class SourceType(Enum):
+    """
+    Источники данных для загрузки.
+
+    Attributes:
+        HF: HuggingFace Hub.
+        ZIP: ZIP-архив.
+        TAR: TAR/GZ архив.
+        DIRECT: Прямая ссылка на файл/папку.
+    """
+
     HF = "hf"  # HuggingFace Hub
     ZIP = "zip"  # ZIP-архив
     TAR = "tar"  # TAR/GZ архив
@@ -73,7 +140,17 @@ class SourceType(Enum):
 
 
 class DataFormat(Enum):
-    """Поддерживаемые форматы данных"""
+    """
+    Поддерживаемые форматы данных.
+
+    Attributes:
+        JPG: JPEG изображения.
+        PNG: PNG изображения.
+        NIFTI: NIfTI для медицинских 3D-данных.
+        DICOM: DICOM серии.
+        NPZ: NumPy архивы.
+        HDF5: HDF5 для больших данных.
+    """
 
     JPG = "jpg"
     PNG = "png"
@@ -83,9 +160,32 @@ class DataFormat(Enum):
     HDF5 = "h5"  # HDF5 для больших данных
 
 
+# ──────────────────────────────────────────────────────────────────────
+# DATACLASSES
+# ──────────────────────────────────────────────────────────────────────
 @dataclass
 class DatasetConfig:
-    """Конфигурация одного датасета"""
+    """
+    Конфигурация одного датасета.
+
+    Attributes:
+        name: Уникальное имя датасета.
+        dataset_type: Тип сегментации (из DatasetType).
+        source_type: Источник данных (из SourceType).
+        source_url: URL или ID репозитория для загрузки.
+        root_dir: Базовая директория для сохранения.
+        num_classes: Количество классов сегментации.
+        ignore_index: Индекс пикселей для игнорирования в лоссе.
+        image_ext: Расширение файлов изображений.
+        mask_ext: Расширение файлов масок.
+        description: Человекочитаемое описание.
+        checksum: SHA256 хеш для валидации загрузки (опционально).
+        splits: Словарь `{split_name: directory_name}`.
+        preprocessing: Параметры предобработки (опционально).
+        metadata: Дополнительные метаданные (лицензия, ссылки, ...).
+        expected_structure: Ожидаемая структура файлов для валидации.
+        postprocess_script: Путь к скрипту пост-обработки (опционально).
+    """
 
     name: str
     dataset_type: DatasetType
@@ -98,26 +198,45 @@ class DatasetConfig:
     mask_ext: str = ".png"
     description: str = ""
     checksum: Optional[str] = None  # SHA256 для валидации
-    splits: Dict[str, str] = field(
+    splits: SplitDict = field(
         default_factory=lambda: {
             "train": "training",
             "val": "validation",
             "test": "testing",
         }
     )
-    preprocessing: Dict[str, Any] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    expected_structure: Dict[str, List[str]] = field(default_factory=dict)
+    preprocessing: PreprocessingDict = field(default_factory=dict)
+    metadata: MetadataDict = field(default_factory=dict)
+    expected_structure: ExpectedStructureDict = field(default_factory=dict)
     postprocess_script: Optional[str] = None
 
     @property
     def full_path(self) -> Path:
+        """
+        Возвращает полный путь к директории датасета.
+
+        Returns:
+            Path: `Path(root_dir) / name`.
+        """
         return Path(self.root_dir) / self.name
 
 
 @dataclass
 class MedicalConfig(DatasetConfig):
-    """Расширенная конфигурация для медицинских датасетов"""
+    """
+    Расширенная конфигурация для медицинских датасетов.
+
+    Наследует все поля `DatasetConfig` + добавляет медицинские специфичные.
+
+    Attributes:
+        modality: Тип медицинской модальности ("X-Ray", "CT", "MRI", ...).
+        pixel_spacing: Физический размер пикселя в мм (опционально).
+        intensity_normalization: Метод нормализации интенсивности.
+        anatomical_regions: Список анатомических областей в датасете.
+        privacy_compliant: Соответствует ли датасет требованиям приватности.
+        anatomy: Основная анатомическая область (опционально).
+        task_type: Тип задачи ("segmentation", "classification", "detection").
+    """
 
     modality: Literal["X-Ray", "CT", "MRI", "Ultrasound", "Dermoscopy"] = "X-Ray"
     pixel_spacing: Optional[Tuple[float, float]] = None  # мм/пиксель
@@ -129,29 +248,66 @@ class MedicalConfig(DatasetConfig):
 
 
 # ============================================================================
-# БАЗОВЫЙ МЕНЕДЖЕР ДАТАСЕТОВ
+# БАЗОВЫЙ МЕНЕДЖЕР ДАТАСЕТОВ (MAIN CLASS: DatasetManager)
 # ============================================================================
-
-
 class DatasetManager:
-    """Универсальный менеджер загрузки и валидации датасетов"""
+    """
+    Универсальный менеджер загрузки и валидации датасетов для сегментации.
+
+    Поддерживает:
+    - Загрузку из HuggingFace Hub, ZIP/TAR-архивов, прямых ссылок.
+    - Валидацию контрольных сумм (SHA256).
+    - Автоматическую реорганизацию структуры к стандартному формату.
+    - Пост-обработку: Parquet → файлы, медицинская нормализация.
+    - Создание индексных файлов для быстрого доступа.
+    - Загрузку примеров и создание PyTorch Dataset.
+
+    Attributes:
+        base_dir (Path): Базовая директория для всех датасетов.
+        verbose (bool): Если `True`, выводит подробные логи.
+        _registry (Dict[str, DatasetConfig]): Реестр зарегистрированных конфигураций.
+
+    Example:
+        ```python
+        manager = DatasetManager(base_dir="./data", verbose=True)
+        path = manager.download("ade20k", force=False)
+        img, mask = manager.load_sample("ade20k", split="val", idx=0)
+        dataset = manager.create_pytorch_dataset("ade20k", split="train")
+        ```
+    """
 
     # Глобальный реестр конфигураций
     _registry: Dict[str, DatasetConfig] = {}
 
-    def __init__(self, base_dir: str = "./data", verbose: bool = True):
-        self.base_dir = Path(base_dir)
+    def __init__(
+        self,
+        base_dir: PathLike = "./data",
+        verbose: bool = True,
+    ) -> None:
+        """
+        Инициализация менеджера датасетов.
+
+        Args:
+            base_dir: Базовая директория для сохранения датасетов.
+            verbose: Если `True`, выводит подробные логи с цветным форматированием.
+        """
+        self.base_dir: Path = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        self.verbose = verbose
+        self.verbose: bool = verbose
         self._register_default_datasets()
         self._load_configs()
 
-    def _load_configs(self):
-        """Загрузка конфигураций из YAML"""
-        config_path = Path("configs/datasets.yaml")
+    def _load_configs(self) -> None:
+        """
+        Загружает конфигурации датасетов из внешнего YAML-файла.
+
+        Если файл `configs/datasets.yaml` существует, парсит его и регистрирует
+        конфигурации. Медицинские датасеты автоматически используют `MedicalConfig`.
+        """
+        config_path: Path = Path("configs/datasets.yaml")
         if config_path.exists():
             with open(config_path, "r", encoding="utf-8") as f:
-                configs_data = yaml.safe_load(f)
+                configs_data: Dict[str, Dict[str, Any]] = yaml.safe_load(f)
                 for name, cfg in configs_data.items():
                     if cfg.get("modality"):  # Медицинский датасет
                         self._registry[name] = MedicalConfig(name=name, **cfg)
@@ -159,39 +315,70 @@ class DatasetManager:
                         self._registry[name] = DatasetConfig(name=name, **cfg)
 
     def get_config(self, dataset_name: str) -> DatasetConfig:
-        """Получение конфигурации датасета"""
+        """
+        Возвращает конфигурацию указанного датасета.
+
+        Args:
+            dataset_name: Имя датасета (ключ в `_registry`).
+
+        Returns:
+            DatasetConfig: Конфигурация датасета.
+
+        Raises:
+            ValueError: Если датасет не найден в реестре.
+        """
         if dataset_name not in self._registry:
-            raise ValueError(
-                f"Unknown dataset: {dataset_name}. "
-                f"Available: {list(self._registry.keys())}"
-            )
+            available = list(self._registry.keys())
+            raise ValueError(f"Unknown dataset: {dataset_name}. Available: {available}")
         return self._registry[dataset_name]
 
-    def _log(self, message: str, level: str = "info"):
-        """Логирование с цветным выводом"""
-        colors = {
+    def _log(
+        self,
+        message: str,
+        level: Literal["info", "success", "warning", "error"] = "info",
+    ) -> None:
+        """
+        Логирует сообщение с цветным форматированием и таймстампом.
+
+        Args:
+            message: Текст сообщения.
+            level: Уровень лога ("info", "success", "warning", "error").
+        """
+        if not self.verbose:
+            return
+        colors: Dict[str, str] = {
             "info": "\033[94m",
             "success": "\033[92m",
             "warning": "\033[93m",
             "error": "\033[91m",
             "reset": "\033[0m",
         }
-        if not self.verbose:
-            return
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        prefix = {"info": "ℹ️", "success": "✅", "warning": "⚠️", "error": "❌"}.get(
-            level, "•"
-        )
+        timestamp: str = datetime.now().strftime("%H:%M:%S")
+        prefix: Dict[str, str] = {
+            "info": "ℹ️",
+            "success": "✅",
+            "warning": "⚠️",
+            "error": "❌",
+        }
+
         print(
-            f"[{timestamp}] {colors.get(level, '')}{prefix} {message}{colors['reset']}"
+            f"[{timestamp}] {colors.get(level, '')}{prefix.get(level, '•')} {message}{colors['reset']}"
         )
 
     def _check_disk_space(self, path: Path, required_gb: float) -> bool:
-        """Проверка доступного места на диске"""
-        import shutil
+        """
+        Проверяет наличие достаточного свободного места на диске.
+
+        Args:
+            path: Путь для проверки.
+            required_gb: Требуемое пространство в ГБ.
+
+        Returns:
+            bool: `True` если места достаточно, иначе `False`.
+        """
 
         total, used, free = shutil.disk_usage(path)
-        free_gb = free / (1024**3)
+        free_gb: float = free / (1024**3)
 
         if free_gb < required_gb:
             self._log(
@@ -202,15 +389,32 @@ class DatasetManager:
         return True
 
     def _compute_sha256(self, filepath: Path) -> str:
-        """Вычисление SHA256 хеша файла"""
+        """
+        Вычисляет SHA256 хеш файла для валидации целостности.
+
+        Args:
+            filepath: Путь к файлу.
+
+        Returns:
+            str: SHA256 хеш в шестнадцатеричном формате.
+        """
         sha256_hash = hashlib.sha256()
         with open(filepath, "rb") as f:
             for byte_block in iter(lambda: f.read(4096), b""):
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
 
-    def _register_default_datasets(self):
-        """Регистрация стандартных датасетов"""
+    def _register_default_datasets(self) -> None:
+        """
+        Регистрирует стандартные датасеты в `_registry`.
+
+        Включает:
+        - ADE20K (семантическая, 150 классов)
+        - Cityscapes (городские сцены, 19 классов)
+        - COCO (instance segmentation, 80 классов)
+        - ISIC 2018 (медицинская, бинарная, дерматоскопия)
+        - CheXpert (медицинская, бинарная, рентген грудной клетки)
+        """
 
         # ============================================================================
         # 1. ADE20K (Большой датасет)
@@ -316,9 +520,32 @@ class DatasetManager:
         )
         self._log("✅ Готово! Датасеты зарегистрированы.", "success")
 
-    def download(self, dataset_name: str, force: bool = False) -> Path:
-        """Скачивание датасета с валидацией"""
-        config = self.get_config(dataset_name)
+    def download(
+        self,
+        dataset_name: str,
+        force: bool = False,
+    ) -> Path:
+        """
+        Скачивает и валидирует датасет.
+
+        Логика:
+        1. Проверяет наличие и валидность существующей копии.
+        2. В зависимости от `source_type` вызывает соответствующий метод загрузки.
+        3. Выполняет пост-обработку (Parquet → файлы, медицинская нормализация).
+        4. Валидирует структуру и создаёт индекс.
+
+        Args:
+            dataset_name: Имя датасета (ключ в `_registry`).
+            force: Если `True`, перезагрузить даже при наличии валидной копии.
+
+        Returns:
+            Path: Путь к директории датасета.
+
+        Raises:
+            ValueError: Если датасет не найден или источник не поддерживается.
+            Exception: При ошибке загрузки или валидации.
+        """
+        config: DatasetConfig = self.get_config(dataset_name)
 
         print(f"\n{'=' * 70}")
         print(
@@ -375,8 +602,13 @@ class DatasetManager:
             self._log(f"❌ Ошибка загрузки: {e}", "error")
             raise
 
-    def _print_dataset_summary(self, config: DatasetConfig):
-        """Печать сводной информации о датасете"""
+    def _print_dataset_summary(self, config: DatasetConfig) -> None:
+        """
+        Печатает сводную информацию о датасете.
+
+        Args:
+            config: Конфигурация датасета.
+        """
         print(f"\n📊 СВОДКА ПО ДАТАСЕТУ: {config.name.upper()}")
         print(f"{'=' * 50}")
         print(f"Тип: {config.dataset_type.value}")
@@ -400,10 +632,18 @@ class DatasetManager:
 
         print(f"{'-' * 50}")
 
-    def _download_huggingface(self, config: DatasetConfig):
-        """Загрузка из HuggingFace Hub"""
+    def _download_huggingface(self, config: DatasetConfig) -> None:
+        """
+        Загружает датасет из HuggingFace Hub.
+
+        Args:
+            config: Конфигурация датасета.
+
+        Raises:
+            ValueError: Для датасетов с ограниченным доступом (например, CheXpert).
+        """
         self._log(f"📥 Загрузка из HuggingFace Hub: {config.source_url}")
-        local_dir = config.full_path
+        local_dir: Path = config.full_path
 
         try:
             if config.name in ["coco", "cityscapes"]:
@@ -432,7 +672,7 @@ class DatasetManager:
             print("✅ Скачивание завершено")
 
         except Exception as e:
-            error_msg = str(e)
+            error_msg: str = str(e)
             if config.name == "chexpert" and (
                 "401" in error_msg or "Repository Not Found" in error_msg
             ):
@@ -452,19 +692,29 @@ class DatasetManager:
             self._log(f"⚠️ HF download failed, trying fallback: {error_msg}", "warning")
             self._hf_fallback_download(config)
 
-    def _hf_fallback_download(self, config: DatasetConfig, use_api: bool = False):
-        """Fallback для HF: пофайловая загрузка"""
+    def _hf_fallback_download(
+        self, config: DatasetConfig, use_api: bool = False
+    ) -> None:
+        """
+        Fallback-метод загрузки из HF: пофайловая загрузка.
+
+        Args:
+            config: Конфигурация датасета.
+            use_api: Если `True`, использовать экспериментальный API-метод.
+        """
         if use_api:
             return self._download_via_api(config)
-        local_dir = config.full_path
+        local_dir: Path = config.full_path
         local_dir.mkdir(parents=True, exist_ok=True)
 
-        repo_id = config.source_url
-        files = list_repo_files(repo_id, repo_type="dataset")
+        repo_id: str = config.source_url
+        files: List[str] = list_repo_files(repo_id, repo_type="dataset")
 
         # Фильтруем только нужные файлы
-        image_files = [f for f in files if f.endswith((".jpg", ".jpeg", ".png"))]
-        mask_files = [f for f in files if f.endswith((".png", ".nii.gz"))]
+        image_files: List[str] = [
+            f for f in files if f.endswith((".jpg", ".jpeg", ".png"))
+        ]
+        mask_files: List[str] = [f for f in files if f.endswith((".png", ".nii.gz"))]
 
         for file_list, desc in [
             (image_files, "🖼️  Изображения"),
@@ -476,39 +726,40 @@ class DatasetManager:
             for filename in tqdm(
                 file_list, desc=f"{config.name}/{desc.split()[1]}", unit="files"
             ):
-                local_path = local_dir / filename
+                local_path: Path = local_dir / filename
                 local_path.parent.mkdir(parents=True, exist_ok=True)
                 if not local_path.exists():
-                    hf_hub_download(
+                    hf_hub_download(  # type: ignore
                         repo_id=repo_id,
                         filename=filename,
                         repo_type="dataset",
                         local_dir=str(local_dir),
                     )
 
-    def _download_via_api(self, config: DatasetConfig):
-        """Экспериментальный метод через HF API"""
-        import requests
-        from huggingface_hub import hf_hub_download
+    def _download_via_api(self, config: DatasetConfig) -> None:
+        """
+        Экспериментальный метод загрузки через HF API.
 
-        repo_id = config.source_url
-        local_dir = config.full_path
+        Args:
+            config: Конфигурация датасета.
+        """
+        repo_id: str = config.source_url
+        local_dir: Path = config.full_path
 
         try:
-            # Получаем метаданные через API
-            api_url = f"https://huggingface.co/api/datasets/{repo_id}"
+            api_url: str = f"https://huggingface.co/api/datasets/{repo_id}"
             response = requests.get(api_url, timeout=30)
             response.raise_for_status()
 
-            files_info = response.json().get("siblings", [])
-            target_files = [
+            files_info: List[Dict[str, Any]] = response.json().get("siblings", [])
+            target_files: List[str] = [
                 f["rfilename"]
                 for f in files_info
                 if f["rfilename"].endswith((".jpg", ".png"))
             ]
 
             for filename in tqdm(target_files, desc=f"📥 {config.name}", unit="files"):
-                hf_hub_download(
+                hf_hub_download(  # type: ignore
                     repo_id=repo_id,
                     filename=filename,
                     repo_type="dataset",
@@ -521,9 +772,17 @@ class DatasetManager:
             # Fallback на стандартный метод
             return self._hf_fallback_download(config, use_api=False)
 
-    def _download_zip(self, config: DatasetConfig):
-        """Скачивание ZIP-архива с прогрессом и валидацией"""
-        zip_path = config.full_path.with_suffix(".zip")
+    def _download_zip(self, config: DatasetConfig) -> None:
+        """
+        Скачивает и распаковывает ZIP-архив с прогрессом и валидацией.
+
+        Args:
+            config: Конфигурация датасета.
+
+        Raises:
+            ValueError: При обнаружении небезопасных путей в архиве.
+        """
+        zip_path: Path = config.full_path.with_suffix(".zip")
         print(f"📦 ЗАГРУЗКА АРХИВА: {config.name}")
         print(f"{'-' * 50}")
 
@@ -534,28 +793,28 @@ class DatasetManager:
                 print(f"   SHA256: {config.checksum[:16]}...")
             try:
                 head = requests.head(config.source_url, allow_redirects=True)
-                size_bytes = int(head.headers.get("content-length", 0))
+                size_bytes: int = int(head.headers.get("content-length", 0))
                 print(f"   Размер: ~{size_bytes / (1024 * 1024 * 1024):.1f} GB")
             except Exception:
                 print("   Размер: неизвестен")
             self._streaming_download(config.source_url, zip_path, config.checksum)
-            zip_size = os.path.getsize(zip_path) / (1024 * 1024 * 1024)
+            zip_size: float = os.path.getsize(zip_path) / (1024 * 1024 * 1024)
             print(f"✅ Скачивание завершено! Размер: {zip_size:.2f} GB")
         else:
-            zip_size = os.path.getsize(zip_path) / (1024 * 1024 * 1024)
+            zip_size: float = os.path.getsize(zip_path) / (1024 * 1024 * 1024)
             print(f"✅ Архив уже существует: {zip_path} ({zip_size:.2f} GB)")
 
-        extract_dir = config.full_path / "temp_extract"
+        extract_dir: Path = config.full_path / "temp_extract"
         if not (config.full_path / "images").exists():
             self._log("\n📦 Распаковка архива...")
             extract_dir.mkdir(parents=True, exist_ok=True)
 
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                members = zip_ref.namelist()
+                members: List[str] = zip_ref.namelist()
                 print(f"   Всего файлов в архиве: {len(members)}")
                 for member in tqdm(members, desc="Распаковка", unit="files"):
                     # Безопасная распаковка (защита от path traversal)
-                    target_path = extract_dir / member
+                    target_path: Path = extract_dir / member
                     if not str(target_path.resolve()).startswith(
                         str(extract_dir.resolve())
                     ):
@@ -572,9 +831,17 @@ class DatasetManager:
         else:
             print(f"✅ Датасет уже распакован в {config.full_path}")
 
-    def _download_tar(self, config: DatasetConfig):
-        """Скачивание TAR/GZ архива"""
-        tar_path = config.full_path.with_suffix(".tar.gz")
+    def _download_tar(self, config: DatasetConfig) -> None:
+        """
+        Скачивает и распаковывает TAR/GZ архив.
+
+        Args:
+            config: Конфигурация датасета.
+
+        Raises:
+            ValueError: При обнаружении небезопасных путей в архиве.
+        """
+        tar_path: Path = config.full_path.with_suffix(".tar.gz")
         print(f"📦 ЗАГРУЗКА TAR-АРХИВА: {config.name}")
 
         if not tar_path.exists():
@@ -583,7 +850,7 @@ class DatasetManager:
             print("✅ Скачивание завершено")
 
         # Распаковка
-        extract_dir = config.full_path / "temp_extract"
+        extract_dir: Path = config.full_path / "temp_extract"
         if not (config.full_path / "images").exists():
             self._log("\n📦 Распаковка TAR-архива...")
             extract_dir.mkdir(parents=True, exist_ok=True)
@@ -606,16 +873,21 @@ class DatasetManager:
         else:
             print("✅ Датасет уже распакован")
 
-    def _download_direct(self, config: DatasetConfig):
-        """Прямая загрузка файлов"""
+    def _download_direct(self, config: DatasetConfig) -> None:
+        """
+        Прямая загрузка файлов по ссылке.
+
+        Args:
+            config: Конфигурация датасета.
+        """
         self._log(f"📥 Прямая загрузка: {config.source_url}")
-        target_dir = config.full_path
+        target_dir: Path = config.full_path
         target_dir.mkdir(parents=True, exist_ok=True)
 
         # Если ссылка на файл
         if config.source_url.endswith((".jpg", ".png", ".npy", ".zip")):
-            filename = config.source_url.split("/")[-1]
-            filepath = target_dir / filename
+            filename: str = config.source_url.split("/")[-1]
+            filepath: Path = target_dir / filename
             self._streaming_download(config.source_url, filepath, config.checksum)
         else:
             # Если ссылка на директорию (рекурсивное скачивание)
@@ -625,13 +897,26 @@ class DatasetManager:
             )
 
     def _streaming_download(
-        self, url: str, destination: Path, expected_checksum: Optional[str] = None
-    ):
-        """Потоковая загрузка с прогрессом и проверкой контрольной суммы"""
+        self,
+        url: str,
+        destination: Path,
+        expected_checksum: Optional[str] = None,
+    ) -> None:
+        """
+        Потоковая загрузка с прогрессом и проверкой контрольной суммы.
+
+        Args:
+            url: URL для загрузки.
+            destination: Путь для сохранения файла.
+            expected_checksum: Ожидаемый SHA256 хеш (опционально).
+
+        Raises:
+            ValueError: Если контрольная сумма не совпадает.
+        """
         response = requests.get(url, stream=True, timeout=30)
         response.raise_for_status()
 
-        total_size = int(response.headers.get("content-length", 0))
+        total_size: int = int(response.headers.get("content-length", 0))
         destination.parent.mkdir(parents=True, exist_ok=True)
         # sha256_hash = hashlib.sha256() if expected_checksum else None
 
@@ -649,7 +934,7 @@ class DatasetManager:
 
         # Валидация контрольной суммы
         if expected_checksum:
-            actual_checksum = self._compute_sha256(destination)
+            actual_checksum: str = self._compute_sha256(destination)
             if actual_checksum != expected_checksum:
                 destination.unlink()
                 raise ValueError(
@@ -660,30 +945,54 @@ class DatasetManager:
         self._log("✅ Контрольная сумма совпадает", "success")
 
     def _reorganize_ade_structure(
-        self, source: Path, target: Path, use_symlinks: bool = False
+        self,
+        source: Path,
+        target: Path,
+        use_symlinks: bool = False,
     ) -> None:
-        """Приведение структуры к стандартному формату"""
-        found_structure = False
+        """
+        Приводит структуру распакованного датасета к стандартному формату.
+
+        Ожидаемая структура:
+        ```
+        target/
+        ├── images/
+        │   ├── training/
+        │   └── validation/
+        └── annotations/
+            ├── training/
+            └── validation/
+        ```
+
+        Args:
+            source: Исходная директория с распакованными файлами.
+            target: Целевая директория для реорганизации.
+            use_symlinks: Если `True`, использовать символические ссылки (только Unix).
+
+        Raises:
+            ValueError: Если не найдена ожидаемая структура `images/annotations`.
+        """
+        found_structure: bool = False
         for root, dirs, _ in os.walk(source):
             if "images" in dirs and "annotations" in dirs:
-                src_images = Path(root) / "images"
-                src_annotations = Path(root) / "annotations"
+                src_images: Path = Path(root) / "images"
+                src_annotations: Path = Path(root) / "annotations"
                 print(f"✅ Найдена структура в: {root}")
                 found_structure = True
 
                 for split in ["training", "validation"]:
-                    src_img_split = src_images / split
-                    src_ann_split = src_annotations / split
+                    src_img_split: Path = src_images / split
+                    src_ann_split: Path = src_annotations / split
 
                     if src_img_split.exists():
-                        tgt_img_split = target / "images" / split
-                        tgt_ann_split = target / "annotations" / split
+                        tgt_img_split: Path = target / "images" / split
+                        tgt_ann_split: Path = target / "annotations" / split
                         tgt_img_split.mkdir(parents=True, exist_ok=True)
                         tgt_ann_split.mkdir(parents=True, exist_ok=True)
 
                         # Копирование с прогрессом
-                        img_files = list(src_img_split.glob("*.jpg"))
-                        ann_files = list(src_ann_split.glob("*.png"))
+                        img_files: List[Path] = list(src_img_split.glob("*.jpg"))
+                        ann_files: List[Path] = list(src_ann_split.glob("*.png"))
 
                         print(f"\n   📋 {split}:")
                         print(f"      Изображения: {len(img_files)} файлов")
@@ -708,10 +1017,10 @@ class DatasetManager:
             print("❌ Не удалось найти папки images и annotations")
             print("\n📂 Содержимое распакованной папки:")
             for root, dirs, files in os.walk(source):
-                level = root.replace(str(source), "").count(os.sep)
-                indent = " " * 2 * level
+                level: int = root.replace(str(source), "").count(os.sep)
+                indent: str = " " * 2 * level
                 print(f"{indent}{Path(root).name}/")
-                subindent = " " * 2 * (level + 1)
+                subindent: str = " " * 2 * (level + 1)
                 for d in dirs[:5]:
                     print(f"{subindent}📁 {d}/")
                 for f in files[:5]:
@@ -723,8 +1032,8 @@ class DatasetManager:
         ):  # Windows требует прав администратора
             try:
                 for split in ["training", "validation"]:
-                    src = target / split
-                    tgt = target / "images" / split
+                    src: Path = target / split
+                    tgt: Path = target / "images" / split
                     if src.exists() and not tgt.exists():
                         tgt.parent.mkdir(parents=True, exist_ok=True)
                         os.symlink(src.relative_to(tgt.parent), tgt)
@@ -732,11 +1041,21 @@ class DatasetManager:
             except (OSError, PermissionError) as e:
                 print(f"⚠️ Не удалось создать символические ссылки: {e}")
 
-    def _postprocess_dataset(self, config: DatasetConfig):
-        """Пост-обработка с поддержкой Parquet"""
+    def _postprocess_dataset(self, config: DatasetConfig) -> None:
+        """
+        Выполняет пост-обработку датасета.
+
+        Поддерживает:
+        - Конвертацию Parquet → файловая структура.
+        - Медицинскую пост-обработку (CLAHE, нормализация масок).
+        - Создание индексного файла.
+
+        Args:
+            config: Конфигурация датасета.
+        """
         self._log("\n🔧 Пост-обработка датасета...")
 
-        parquet_files = list(config.full_path.rglob("*.parquet"))
+        parquet_files: List[Path] = list(config.full_path.rglob("*.parquet"))
         if parquet_files:
             print(f"📊 Обнаружено Parquet-файлов: {len(parquet_files)}")
             self._convert_parquet_to_files(config)
@@ -749,10 +1068,25 @@ class DatasetManager:
         self._create_index(config)
         print("✅ Пост-обработка завершена")
 
-    def _decode_image_from_hf(self, data, convert_to_rgb: bool = True):
+    def _decode_image_from_hf(
+        self, data: Any, convert_to_rgb: bool = True
+    ) -> Optional[Image.Image]:
         """
         Универсальный декодер для данных из HuggingFace datasets.
-        Поддерживает: datasets.Image, bytes, dict{'bytes'}, base64, PIL.Image
+
+        Поддерживает форматы:
+        - `datasets.Image` объект
+        - `bytes` объект
+        - `dict` с ключами `"bytes"` или `"path"`
+        - base64 строка
+        - `PIL.Image`
+
+        Args:
+             Данные изображения в любом поддерживаемом формате.
+            convert_to_rgb: Если `True`, конвертировать в режим "RGB".
+
+        Returns:
+            Optional[PIL.Image]: Декодированное изображение или `None`.
         """
         if data is None:
             return None
@@ -827,8 +1161,18 @@ class DatasetManager:
 
         return None
 
-    def _convert_parquet_to_files(self, config: DatasetConfig):
-        """Конвертация Parquet → файловая структура с полной поддержкой HF форматов"""
+    def _convert_parquet_to_files(self, config: DatasetConfig) -> None:
+        """
+        Конвертирует Parquet-файлы в файловую структуру изображений/масок.
+
+        Поддерживает различные форматы данных из HF datasets:
+        - `datasets.Image` объекты
+        - `bytes`, `dict{"bytes": ...}`, base64 строки
+        - Пути к файлам
+
+        Args:
+            config: Конфигурация датасета.
+        """
         try:
             import pandas as pd
         except ImportError as e:
@@ -837,7 +1181,7 @@ class DatasetManager:
 
         self._log(f"\n🔄 Конвертация Parquet → файловая структура для {config.name}...")
 
-        parquet_files = list(config.full_path.rglob("*.parquet"))
+        parquet_files: List[Path] = list(config.full_path.rglob("*.parquet"))
         if not parquet_files:
             self._log("⚠️ Parquet-файлы не найдены", "warning")
             return
@@ -850,8 +1194,15 @@ class DatasetManager:
                 parents=True, exist_ok=True
             )
 
-        image_keys = ["image", "images", "img", "input", "pixel_values", "source"]
-        mask_keys = [
+        image_keys: List[str] = [
+            "image",
+            "images",
+            "img",
+            "input",
+            "pixel_values",
+            "source",
+        ]
+        mask_keys: List[str] = [
             "mask",
             "masks",
             "annotation",
@@ -860,20 +1211,26 @@ class DatasetManager:
             "ground_truth",
             "segmentation",
         ]
-        split_keys = ["split", "phase", "mode", "subset"]
+        split_keys: List[str] = ["split", "phase", "mode", "subset"]
 
-        converted_count = 0
-        error_count = 0
-        total_rows = 0
+        converted_count: int = 0
+        error_count: int = 0
+        total_rows: int = 0
 
         for pq_file in parquet_files:
             try:
-                df = pd.read_parquet(pq_file)
+                df: pd.DataFrame = pd.read_parquet(pq_file)
                 total_rows += len(df)
                 self._log(f"\n📊 Обработка {pq_file.name}: {len(df)} строк")
-                img_key = next((k for k in image_keys if k in df.columns), None)
-                mask_key = next((k for k in mask_keys if k in df.columns), None)
-                split_key = next((k for k in split_keys if k in df.columns), None)
+                img_key: Optional[str] = next(
+                    (k for k in image_keys if k in df.columns), None
+                )
+                mask_key: Optional[str] = next(
+                    (k for k in mask_keys if k in df.columns), None
+                )
+                split_key: Optional[str] = next(
+                    (k for k in split_keys if k in df.columns), None
+                )
 
                 if not img_key:
                     self._log(
@@ -896,7 +1253,7 @@ class DatasetManager:
 
                     try:
                         if split_key and split_key in row:
-                            split_val = str(row[split_key]).lower()
+                            split_val: str = str(row[split_key]).lower()
                             if split_val in ["train", "training"]:
                                 split = "training"
                             elif split_val in ["val", "validation", "valid"]:
@@ -906,7 +1263,7 @@ class DatasetManager:
                             else:
                                 split = "training"
                         else:
-                            fname = pq_file.name.lower()
+                            fname: str = pq_file.name.lower()
                             if "train" in fname:
                                 split = "training"
                             elif "val" in fname or "valid" in fname:
@@ -917,7 +1274,7 @@ class DatasetManager:
                                 split = "training"
 
                         # === Декодирование изображения ===
-                        img = self._decode_image_from_hf(
+                        img: Optional[Image.Image] = self._decode_image_from_hf(
                             row[img_key], convert_to_rgb=True
                         )
                         if img is None:
@@ -925,7 +1282,7 @@ class DatasetManager:
                             continue
 
                         # === Декодирование маски (если есть) ===
-                        mask = None
+                        mask: Optional[Image.Image] = None
                         if mask_key and mask_key in row and row[mask_key] is not None:
                             mask = self._decode_image_from_hf(
                                 row[mask_key], convert_to_rgb=False
@@ -934,8 +1291,8 @@ class DatasetManager:
                                 mask = mask.convert("L")
 
                         # === Сохранение ===
-                        filename = f"{config.name}_{split}_{idx:06d}"
-                        img_path = (
+                        filename: str = f"{config.name}_{split}_{idx:06d}"
+                        img_path: Path = (
                             config.full_path / "images" / split / f"{filename}.jpg"
                         )
                         img.save(img_path, quality=95)
@@ -975,14 +1332,23 @@ class DatasetManager:
         print(f"   ✅ Успешно конвертировано: {converted_count}")
         print(f"   ❌ Ошибок: {error_count}")
         if total_rows > 0:
-            success_rate = (converted_count / total_rows) * 100
+            success_rate: float = (converted_count / total_rows) * 100
             print(f"   📈 Успешность: {success_rate:.1f}%")
         print(f"{'-' * 50}")
         self._create_index(config)
         print("✅ Конвертация завершена")
 
-    def _medical_postprocess(self, config: MedicalConfig):
-        """Специальная обработка медицинских датасетов"""
+    def _medical_postprocess(self, config: MedicalConfig) -> None:
+        """
+        Специальная обработка медицинских датасетов.
+
+        Применяет:
+        - CLAHE для улучшения контраста рентгеновских снимков.
+        - Нормализацию масок к единому формату (0/1 для бинарных).
+
+        Args:
+            config: Конфигурация медицинского датасета.
+        """
         self._log(
             f"🏥 Применение медицинской пост-обработки: {config.intensity_normalization}"
         )
@@ -994,8 +1360,14 @@ class DatasetManager:
         # Конвертация масок к единому формату (0/1 или 0/255)
         self._normalize_masks(config.full_path / "annotations", config.num_classes)
 
-    def _apply_clahe(self, images_dir: Path, clip_limit: float = 2.0):
-        """Применение CLAHE для улучшения контраста рентгеновских снимков"""
+    def _apply_clahe(self, images_dir: Path, clip_limit: float = 2.0) -> None:
+        """
+        Применяет CLAHE для улучшения контраста рентгеновских снимков.
+
+        Args:
+            images_dir: Директория с изображениями.
+            clip_limit: Лимит клиппинга для CLAHE.
+        """
         try:
             import cv2
         except ImportError:
@@ -1016,12 +1388,20 @@ class DatasetManager:
             except Exception as e:
                 self._log(f"⚠️ Ошибка обработки {img_path.name}: {e}", "warning")
 
-    def _normalize_masks(self, masks_dir: Path, num_classes: int):
-        """Приведение масок к единому формату"""
+    def _normalize_masks(self, masks_dir: Path, num_classes: int) -> None:
+        """
+        Приводит маски к единому формату.
+
+        Для бинарных медицинских масок: всё кроме 0 → 1.
+
+        Args:
+            masks_dir: Директория с масками.
+            num_classes: Количество классов (2 для бинарных).
+        """
         print("🎭 Нормализация масок...")
         for mask_path in tqdm(list(masks_dir.rglob("*.png")), desc="Normalizing masks"):
             try:
-                mask = np.array(Image.open(mask_path))
+                mask: np.ndarray = np.array(Image.open(mask_path))
 
                 # Для бинарных медицинских масок: всё кроме 0 -> 1
                 if num_classes == 2:
@@ -1032,8 +1412,26 @@ class DatasetManager:
             except Exception as e:
                 self._log(f"⚠️ Failed to normalize {mask_path.name}: {e}", "warning")
 
-    def _create_index(self, config: DatasetConfig):
-        """Создание индексного файла для быстрого доступа"""
+    def _create_index(self, config: DatasetConfig) -> None:
+        """
+        Создаёт индексный файл для быстрого доступа к датасету.
+
+        Формат индекса:
+        ```json
+        {
+            "dataset": "ade20k",
+            "type": "SEMANTIC",
+            "created": "2024-01-01T12:00:00",
+            "splits": {
+                "train": {"count": 20000, "images": [...]},
+                "val": {"count": 2000, "images": [...]}
+            }
+        }
+        ```
+
+        Args:
+            config: Конфигурация датасета.
+        """
         index: Dict[str, Any] = {
             "dataset": config.name,
             "type": config.dataset_type.name,
@@ -1042,10 +1440,12 @@ class DatasetManager:
         }
 
         for split_name, split_dir in config.splits.items():
-            img_dir = config.full_path / "images" / split_dir
+            img_dir: Path = config.full_path / "images" / split_dir
             if img_dir.exists():
-                images = sorted([f.name for f in img_dir.glob(f"*{config.image_ext}")])
-                masks = sorted(
+                images: List[str] = sorted(
+                    [f.name for f in img_dir.glob(f"*{config.image_ext}")]
+                )
+                masks: List[str] = sorted(
                     [
                         f.name
                         for f in (config.full_path / "annotations" / split_dir).glob(
@@ -1066,15 +1466,29 @@ class DatasetManager:
                     "images": images[:10] + ["..."] if len(images) > 10 else images,
                 }
 
-        index_path = config.full_path / "index.json"
+        index_path: Path = config.full_path / "index.json"
         with open(index_path, "w") as f:
             json.dump(index, f, indent=2)
         self._log(f"📄 Создан индекс: {index_path}")
 
     def _validate_dataset(self, config: DatasetConfig) -> bool:
-        """Гибкая валидация с поддержкой разных форматов"""
+        """
+        Гибкая валидация структуры датасета.
+
+        Поддерживает:
+        - Проверку наличия обязательных директорий.
+        - Соответствие имён изображений и масок.
+        - Валидацию для медицинских датасетов.
+        - Проверку индексного файла от HF datasets.
+
+        Args:
+            config: Конфигурация датасета.
+
+        Returns:
+            bool: `True` если валидация пройдена, иначе `False`.
+        """
         self._log(f"\n🔍 Валидация датасета {config.name}...")
-        index_path = config.full_path / "index.json"
+        index_path: Path = config.full_path / "index.json"
         if index_path.exists():
             try:
                 with open(index_path, "r") as f:
@@ -1084,38 +1498,40 @@ class DatasetManager:
                     return True
             except Exception:
                 pass
-        required_dirs = [
+        required_dirs: List[str] = [
             "images/training",
             "images/validation",
             "annotations/training",
             "annotations/validation",
         ]
         if config.dataset_type == DatasetType.MEDICAL_BINARY:
-            has_images = any(
+            has_images: bool = any(
                 (config.full_path / "images").rglob(f"*{config.image_ext}")
             )
-            has_masks = any(
+            has_masks: bool = any(
                 (config.full_path / "annotations").rglob(f"*{config.mask_ext}")
             )
             if has_images and has_masks:
                 self._log("✅ Структура медицинского датасета валидирована", "success")
                 return True
 
-        missing = [d for d in required_dirs if not (config.full_path / d).exists()]
+        missing: List[str] = [
+            d for d in required_dirs if not (config.full_path / d).exists()
+        ]
         if missing:
             self._log(f"❌ Отсутствуют директории: {missing}", "error")
             return False
         for split in ["training", "validation"]:
-            img_dir = config.full_path / "images" / split
-            ann_dir = config.full_path / "annotations" / split
+            img_dir: Path = config.full_path / "images" / split
+            ann_dir: Path = config.full_path / "annotations" / split
             if not img_dir.exists() or not ann_dir.exists():
                 continue
-            img_files = {f.stem for f in img_dir.glob(f"*{config.image_ext}")}
-            ann_files = {f.stem for f in ann_dir.glob(f"*{config.mask_ext}")}
+            img_files: set[str] = {f.stem for f in img_dir.glob(f"*{config.image_ext}")}
+            ann_files: set[str] = {f.stem for f in ann_dir.glob(f"*{config.mask_ext}")}
 
             if img_files != ann_files:
-                missing_in_ann = img_files - ann_files
-                missing_in_img = ann_files - img_files
+                missing_in_ann: set[str] = img_files - ann_files
+                missing_in_img: set[str] = ann_files - img_files
                 if missing_in_ann:
                     self._log(
                         f"⚠️ {len(missing_in_ann)} изображений без масок в {split}",
@@ -1128,7 +1544,7 @@ class DatasetManager:
                     )
         if config.expected_structure:
             for key, expected_files in config.expected_structure.items():
-                actual_files = (
+                actual_files: List[Path] = (
                     list((config.full_path / key).glob("*"))
                     if (config.full_path / key).exists()
                     else []
@@ -1144,38 +1560,63 @@ class DatasetManager:
         return True
 
     def load_sample(
-        self, dataset_name: str, split: str = "val", idx: int = 0
+        self,
+        dataset_name: str,
+        split: str = "val",
+        idx: int = 0,
     ) -> Tuple[Image.Image, Optional[Image.Image]]:
-        """Загрузка одного примера из датасета"""
-        config = self.get_config(dataset_name)
+        """
+        Загружает один пример (изображение + маска) из датасета.
 
-        split_dir = config.splits.get(split, split)
-        img_dir = config.full_path / "images" / split_dir
-        ann_dir = config.full_path / "annotations" / split_dir
+        Args:
+            dataset_name: Имя датасета.
+            split: Название сплита ("train", "val", "test").
+            idx: Индекс примера в сплите.
+
+        Returns:
+            Tuple[PIL.Image, Optional[PIL.Image]]: (изображение, маска или None).
+
+        Raises:
+            ValueError: Если директория сплита не найдена.
+            IndexError: Если индекс выходит за границы.
+        """
+        config: DatasetConfig = self.get_config(dataset_name)
+
+        split_dir: str = config.splits.get(split, split)
+        img_dir: Path = config.full_path / "images" / split_dir
+        ann_dir: Path = config.full_path / "annotations" / split_dir
 
         if not img_dir.exists():
             raise ValueError(f"Split directory not found: {img_dir}")
 
-        images = sorted(list(img_dir.glob(f"*{config.image_ext}")))
+        images: List[Path] = sorted(list(img_dir.glob(f"*{config.image_ext}")))
         if not images or idx >= len(images):
             raise IndexError(f"Index {idx} out of range [0, {len(images)})")
 
-        img = Image.open(images[idx]).convert("RGB")
+        img: Image.Image = Image.open(images[idx]).convert("RGB")
 
         # Попытка загрузить соответствующую маску
-        mask = None
-        mask_path = ann_dir / images[idx].stem / config.mask_ext
+        mask: Optional[Image.Image] = None
+        mask_path: Path = ann_dir / images[idx].stem / config.mask_ext
         if mask_path.exists():
             mask = Image.open(mask_path)
         else:
-            alt_mask = ann_dir / (images[idx].stem + config.mask_ext)
+            alt_mask: Path = ann_dir / (images[idx].stem + config.mask_ext)
             if alt_mask.exists():
                 mask = Image.open(alt_mask)
         return img, mask
 
-    def _create_index_from_hf_dataset(self, config: DatasetConfig, hf_dataset):
-        """Создание index.json для датасета из datasets library"""
-        index_path = config.full_path / "index.json"
+    def _create_index_from_hf_dataset(
+        self, config: DatasetConfig, hf_dataset: Any
+    ) -> None:
+        """
+        Создаёт индексный файл для датасета, загруженного через `datasets` library.
+
+        Args:
+            config: Конфигурация датасета.
+            hf_dataset: Объект датасета из `datasets.load_dataset`.
+        """
+        index_path: Path = config.full_path / "index.json"
         index: Dict[str, Any] = {
             "dataset": config.name,
             "type": config.dataset_type.name,
@@ -1202,22 +1643,25 @@ class DatasetManager:
         self._log(f"📄 Создан HF индекс: {index_path}")
 
     def load_test_image_from_hf(
-        self, repo_id: str, filename: Optional[str] = None, split: str = "validation"
-    ) -> Optional[Image.Image | None]:
+        self,
+        repo_id: str,
+        filename: Optional[str] = None,
+        split: str = "validation",
+    ) -> Optional[Image.Image]:
         """
         Универсальная загрузка тестового изображения из HuggingFace.
 
         Args:
-            repo_id: ID репозитория (например, "cityscapes")
-            filename: конкретный файл (если None, берем первый из split)
-            split: split датасета
+            repo_id: ID репозитория (например, "cityscapes").
+            filename: Конкретный файл (если `None`, берётся первый из сплита).
+            split: Название сплита датасета.
 
         Returns:
-            PIL.Image или None
+            Optional[PIL.Image]: Изображение в режиме "RGB" или `None` при ошибке.
         """
         try:
             if filename:
-                path = hf_hub_download(repo_id, filename, repo_type="dataset")
+                path: str = hf_hub_download(repo_id, filename, repo_type="dataset")
                 return Image.open(path).convert("RGB")
             else:
                 dataset = load_dataset(repo_id, split=split)
@@ -1235,35 +1679,52 @@ class DatasetManager:
         dataset_name: str,
         split: str = "train",
         transform: Optional[Callable] = None,
-    ):
-        """Создание PyTorch Dataset для обучения"""
+    ) -> "torch.utils.data.Dataset":
+        """
+        Создаёт PyTorch Dataset для обучения на указанном датасете.
+
+        Args:
+            dataset_name: Имя датасета.
+            split: Название сплита ("train", "val", "test").
+            transform: Опциональная функция аугментаций (albumentations-style).
+
+        Returns:
+            torch.utils.data.Dataset: Dataset, возвращающий `(image_tensor, mask_tensor)`.
+        """
         from torch.utils.data import Dataset
 
-        config = self.get_config(dataset_name)
+        config: DatasetConfig = self.get_config(dataset_name)
 
         class SegmentationDataset(Dataset):
-            def __init__(self, config: DatasetConfig, split: str, transform=None):
-                self.config = config
-                self.split_dir = config.splits.get(split, split)
-                self.img_dir = config.full_path / "images" / self.split_dir
-                self.ann_dir = config.full_path / "annotations" / self.split_dir
-                self.transform = transform
+            def __init__(
+                self,
+                config: DatasetConfig,
+                split: str,
+                transform: Optional[Callable] = None,
+            ) -> None:
+                self.config: DatasetConfig = config
+                self.split_dir: str = config.splits.get(split, split)
+                self.img_dir: Path = config.full_path / "images" / self.split_dir
+                self.ann_dir: Path = config.full_path / "annotations" / self.split_dir
+                self.transform: Optional[Callable] = transform
 
-                self.images = sorted(list(self.img_dir.glob(f"*{config.image_ext}")))
+                self.images: List[Path] = sorted(
+                    list(self.img_dir.glob(f"*{config.image_ext}"))
+                )
                 self._log(f"Загружено {len(self.images)} образцов из {split}")
 
-            def _log(self, msg):
+            def _log(self, msg: str) -> None:
                 if getattr(self, "verbose", True):
                     print(f"[{self.config.name}/{self.split_dir}] {msg}")
 
-            def __len__(self):
+            def __len__(self) -> int:
                 return len(self.images)
 
-            def __getitem__(self, idx):
-                img_path = self.images[idx]
-                img = Image.open(img_path).convert("RGB")
+            def __getitem__(self, idx: int) -> Dict[str, Any]:
+                img_path: Path = self.images[idx]
+                img: Image.Image = Image.open(img_path).convert("RGB")
 
-                mask_path = self.ann_dir / (img_path.stem + self.config.mask_ext)
+                mask_path: Path = self.ann_dir / (img_path.stem + self.config.mask_ext)
                 if not mask_path.exists():
                     mask_path = self.ann_dir / img_path.stem / self.config.mask_ext
 
@@ -1281,16 +1742,19 @@ class DatasetManager:
                     img = Image.fromarray(augmented["image"])
                     mask = augmented["mask"]
 
-                # Конвертация к тензорам
                 from torchvision import transforms as T
 
-                img_tensor = T.ToTensor()(img)
-                mask_tensor = (
+                img_tensor: torch.Tensor = T.ToTensor()(img)
+                mask_tensor: torch.Tensor = (
                     torch.from_numpy(mask).long()
                     if isinstance(mask, np.ndarray)
                     else mask
                 )
-                return img_tensor, mask_tensor
+                return {
+                    "image": img_tensor,
+                    "mask": mask_tensor,
+                    "image_id": img_path.name,
+                }
 
         return SegmentationDataset(config, split, transform)
 

@@ -1,38 +1,29 @@
 # routers/benchmark.py
+
 import os
 import sys
 import uuid
 import asyncio
-from typing import Dict, Any, Optional
-from fastapi import (
-    APIRouter,
-    HTTPException,
-    BackgroundTasks,
-    Request,
-    Form,
-    File,
-    UploadFile,
-)
-from fastapi.responses import FileResponse
+import json
 import time
-from pydantic import BaseModel
-from typing import Dict
-import torch
 import gc
 import base64
-import json
-from fastapi.responses import JSONResponse
-import numpy as np
-
 import logging
+from typing import Dict, Any, Optional, Union, List, Tuple
+from pathlib import Path
+from pydantic import BaseModel
+
+import numpy as np
+import torch
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Form, File, UploadFile
+from fastapi.responses import JSONResponse
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.config import settings
+from utils.paths import ensure_dirs, ADE20K_DIR, MODELS_DIR, PROJECT_ROOT, DATA_DIR
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("benchmark")
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from utils.config import settings
-from utils.paths import ensure_dirs, ADE20K_DIR, MODELS_DIR, PROJECT_ROOT, DATA_DIR
 
 router = APIRouter(
     prefix="/api/benchmark",
@@ -43,8 +34,13 @@ router = APIRouter(
     },
 )
 
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES & TASK STORAGE
+# ──────────────────────────────────────────────────────────────────────
+BenchmarkTaskDict = Dict[str, Dict[str, Any]]
+PathLike = Union[str, Path]
 # Простое хранилище задач (в продакшене замените на Redis/Celery)
-benchmark_tasks: Dict[str, Dict[str, Any]] = {}
+benchmark_tasks: BenchmarkTaskDict = {}
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -65,7 +61,7 @@ class NumpyEncoder(json.JSONEncoder):
 
 
 def safe_json_response(content: Any, status_code: int = 200) -> JSONResponse:
-    """Возвращает JSONResponse с безопасной сериализацией"""
+    """Возвращает JSONResponse с безопасной сериализацией."""
     return JSONResponse(
         content=content,
         status_code=status_code,
@@ -73,20 +69,28 @@ def safe_json_response(content: Any, status_code: int = 200) -> JSONResponse:
     )
 
 
-def img_to_b64(path: str) -> str:
+def img_to_b64(path: PathLike) -> str:
+    """Конвертирует файл изображения в base64-строку."""
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode()
 
 
 class BenchmarkStartRequest(BaseModel):
+    """Запрос на запуск бенчмарка."""
+
     use_default_image: bool = True
     image_path: Optional[str] = None
 
 
+# ──────────────────────────────────────────────────────────────────────
+# ENDPOINTS
+# ──────────────────────────────────────────────────────────────────────
 @router.get("/health")
 async def benchmark_health() -> Dict[str, Any]:
+    """Возвращает статус GPU, VRAM и активных задач бенчмарка."""
     if torch.cuda.is_available():
-        total_vram_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2
+        props = torch.cuda.get_device_properties(0)
+        total_vram_mb = props.total_memory / 1024**2
         alloc_vram_mb = torch.cuda.memory_allocated(0) / 1024**2
         free_vram_mb = total_vram_mb - alloc_vram_mb
         reserved_vram_mb = torch.cuda.memory_reserved(0) / 1024**2
@@ -111,6 +115,7 @@ async def benchmark_health() -> Dict[str, Any]:
 
 @router.get("/api/benchmark/debug")
 async def debug_benchmark() -> Dict[str, Any]:
+    """Отладочный эндпоинт: статус всех задач бенчмарка."""
     return {
         "active_tasks": len(benchmark_tasks),
         "tasks": {
@@ -120,6 +125,9 @@ async def debug_benchmark() -> Dict[str, Any]:
     }
 
 
+# ──────────────────────────────────────────────────────────────────────
+# BACKGROUND TASK
+# ──────────────────────────────────────────────────────────────────────
 async def run_benchmark(
     task_id: str,
     req: BenchmarkStartRequest,
@@ -127,6 +135,11 @@ async def run_benchmark(
     gt_file: Optional[UploadFile] = None,
     config: Optional[Dict] = None,
 ) -> None:
+    """
+    Асинхронная задача бенчмарка: загрузка моделей, инференс, визуализация, сохранение.
+
+    Обновляет `benchmark_tasks[task_id]` с прогрессом и результатами.
+    """
     benchmark_tasks[task_id] = {
         "status": "running",
         "progress": 0,
@@ -155,15 +168,15 @@ async def run_benchmark(
             exists = "✅" if os.path.exists(path) else "❌"
             logger.info(f"{exists} {key}: {path}")
 
-        inference_params = config.get("inference", {})
+        inference_params = (config or {}).get("inference", {})
         alpha = inference_params.get("alpha", 0.6)
         warmup_runs = inference_params.get("warmup_runs", 2)
 
-        filters = config.get("filters", {})
+        filters = (config or {}).get("filters", {})
         min_iou = filters.get("min_iou", 0.0)
         only_passed = filters.get("only_passed", False)
 
-        viz_params = config.get("visualization", {})
+        viz_params = (config or {}).get("visualization", {})
         show_overlay = viz_params.get("show_overlay", True)
         show_gt = viz_params.get("show_gt", True)
         palette_name = viz_params.get("color_palette", "ade")
@@ -211,8 +224,6 @@ async def run_benchmark(
             gt_mask=gt_mask,
             palette=palette,
         )
-
-        models_to_run = config.get("models_to_run") if config else None
 
         # Загрузка моделей
         model_load_steps = [
@@ -320,6 +331,7 @@ async def run_benchmark(
             ),
         ]
 
+        models_to_run = (config or {}).get("models_to_run")
         if models_to_run:
             model_load_steps = [
                 step for step in model_load_steps if step[0] in models_to_run
@@ -329,13 +341,10 @@ async def run_benchmark(
             benchmark_tasks[task_id]["progress"] = 5 + (i / len(model_load_steps)) * 70
             benchmark_tasks[task_id]["message"] = f"🔄 {key}: загрузка..."
             try:
-                if "checkpoint_path" in kwargs:
-                    full_path = kwargs["checkpoint_path"]
-                    if not os.path.exists(full_path):
-                        logger.warning(
-                            f"⚠️ Checkpoint not found: {full_path}, skipping {key}"
-                        )
-                        continue
+                cp = kwargs.get("checkpoint_path")
+                if cp and not os.path.exists(cp):
+                    logger.warning(f"⚠️ Checkpoint not found: {cp}, skipping {key}")
+                    continue
                 load_fn(**kwargs)
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -363,40 +372,53 @@ async def run_benchmark(
         await asyncio.to_thread(bench.save_results, out_dir)
         await asyncio.to_thread(bench.plot_all_metrics, path=f"{out_dir}/plot_all.png")
 
-        benchmark_tasks[task_id]["status"] = "completed"
-        benchmark_tasks[task_id]["progress"] = 100
-        benchmark_tasks[task_id]["message"] = "Готово"
         summary = bench.get_summary()
-        for model, metrics in summary.items():
+        for _, metrics in summary.items():
             for key in ["mIoU", "pixel_acc", "f1_weighted"]:
                 val = metrics.get(key)
                 if isinstance(val, (float, np.floating)) and (
                     np.isnan(val) or np.isinf(val)
                 ):
                     metrics[key] = None
-        benchmark_tasks[task_id]["results"] = {
-            "summary": summary,
-            "output_dir": out_dir,
-            "charts": {
-                "metrics_plot_b64": img_to_b64(f"{out_dir}/plot_all.png"),
-            },
-        }
+        benchmark_tasks[task_id].update(
+            {
+                "status": "completed",
+                "progress": 100,
+                "message": "Готово",
+                "results": {
+                    "summary": summary,
+                    "output_dir": out_dir,
+                    "charts": {
+                        "metrics_plot_b64": img_to_b64(f"{out_dir}/plot_all.png")
+                    },
+                },
+            }
+        )
 
     except Exception as e:
         import traceback
 
-        benchmark_tasks[task_id]["status"] = "failed"
-        benchmark_tasks[task_id]["message"] = str(e)
-        benchmark_tasks[task_id]["error_details"] = {
-            "error_type": type(e).__name__,
-            "failed_at": benchmark_tasks[task_id]["message"],
-            "traceback": (
-                traceback.format_exc() if logger.level == logging.DEBUG else None
-            ),
-        }
+        benchmark_tasks[task_id].update(
+            {
+                "status": "failed",
+                "message": str(e),
+                "error_details": {
+                    "error_type": type(e).__name__,
+                    "failed_at": benchmark_tasks[task_id]["message"],
+                    "traceback": (
+                        traceback.format_exc()
+                        if logger.level == logging.DEBUG
+                        else None
+                    ),
+                },
+            }
+        )
         logger.error(f"Benchmark {task_id} failed: {e}", exc_info=True)
 
 
+# ──────────────────────────────────────────────────────────────────────
+# ROUTES
+# ──────────────────────────────────────────────────────────────────────
 @router.post("/start")
 async def start_benchmark(
     image: Optional[UploadFile] = File(None),
@@ -406,6 +428,7 @@ async def start_benchmark(
     config: Optional[str] = Form(None),
     bg: BackgroundTasks = None,
 ) -> Dict[str, str]:
+    """Запускает асинхронный бенчмарк."""
     config_dict = {}
     if config:
         try:
@@ -423,6 +446,7 @@ async def start_benchmark(
 
 @router.get("/status/{task_id}")
 async def get_status(task_id: str) -> JSONResponse:
+    """Возвращает статус и прогресс задачи бенчмарка."""
     task = benchmark_tasks[task_id]
     logger.info(f"📡 GET /status/{task_id} -> {task.get('progress')}%")
     if task_id not in benchmark_tasks or not task:
@@ -432,17 +456,19 @@ async def get_status(task_id: str) -> JSONResponse:
     )
     if task.get("results") and "summary" in task["results"]:
         summary = task["results"]["summary"]
-        for model, metrics in summary.items():
+        for _, metrics in summary.items():
             for key, value in metrics.items():
-                if isinstance(value, (float, np.floating)):
-                    if np.isnan(value) or np.isinf(value):
-                        metrics[key] = None
+                if isinstance(value, (float, np.floating)) and (
+                    np.isnan(value) or np.isinf(value)
+                ):
+                    metrics[key] = None
 
     return safe_json_response(task)
 
 
 @router.get("/debug/{task_id}")
 async def debug_task(task_id: str) -> Dict[str, Any]:
+    """Отладочная информация о задаче."""
     task = benchmark_tasks.get(task_id)
     if not task:
         return {"error": "Task not found"}
@@ -455,12 +481,13 @@ async def debug_task(task_id: str) -> Dict[str, Any]:
         "results_keys": (
             list(task.get("results", {}).keys()) if task.get("results") else None
         ),
-        "last_updated": time.time(),
+        "last_updated": time.perf_counter(),
     }
 
 
 @router.delete("/{task_id}")
 async def cancel_benchmark(task_id: str) -> Dict[str, str]:
+    """Отменяет или удаляет задачу бенчмарка."""
     if task_id not in benchmark_tasks:
         raise HTTPException(404, detail="Task not found")
 

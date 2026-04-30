@@ -8,14 +8,15 @@ import json
 import time
 import io
 import base64
-import traceback
 import logging
-from typing import Dict, Any, Optional, List
+import traceback
+from typing import Dict, Any, Optional, List, Tuple
+
+import numpy as np
+import torch
+from PIL import Image
 from fastapi import APIRouter, HTTPException, Form, File, UploadFile
 from fastapi.responses import JSONResponse
-import numpy as np
-from PIL import Image
-import torch
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from testing.TorchImplementationValidator import TorchImplementationValidator
@@ -29,8 +30,11 @@ logger = logging.getLogger("validate")
 
 router = APIRouter(prefix="/api/validate", tags=["validate"])
 
-# 🔹 Хранилище задач
-_validation_tasks: Dict[str, Dict[str, Any]] = {}
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES & TASK STORAGE
+# ──────────────────────────────────────────────────────────────────────
+ValidationTaskDict = Dict[str, Dict[str, Any]]
+_validation_tasks: ValidationTaskDict = {}
 _validation_lock = asyncio.Lock()
 
 
@@ -65,17 +69,21 @@ def arr_to_b64(arr: np.ndarray) -> str:
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
+# ──────────────────────────────────────────────────────────────────────
+# HELPERS
+# ──────────────────────────────────────────────────────────────────────
 def _get_methods_for_filter(
     validator: TorchImplementationValidator, methods_filter: Optional[str]
-) -> List[tuple]:
-    if methods_filter == "threshold":
-        return validator.threshold_methods
-    elif methods_filter == "edge":
-        return validator.edge_methods
-    elif methods_filter == "region":
-        return validator.region_methods
-    elif methods_filter == "clustering":
-        return validator.clastering_methods
+) -> List[Tuple[str, Dict[str, Any]]]:
+    """Возвращает список методов по фильтру: threshold/edge/region/clustering/all."""
+    mapping = {
+        "threshold": validator.threshold_methods,
+        "edge": validator.edge_methods,
+        "region": validator.region_methods,
+        "clustering": validator.clastering_methods,
+    }
+    if methods_filter in mapping:
+        return mapping[methods_filter]
     return (
         validator.threshold_methods
         + validator.edge_methods
@@ -84,6 +92,9 @@ def _get_methods_for_filter(
     )
 
 
+# ──────────────────────────────────────────────────────────────────────
+# BACKGROUND TASK
+# ──────────────────────────────────────────────────────────────────────
 async def _run_validation_task(
     task_id: str,
     file_content: bytes,
@@ -91,7 +102,7 @@ async def _run_validation_task(
     reference_library: str,
     methods_filter: Optional[str],
 ) -> None:
-    """Асинхронная задача валидации"""
+    """Асинхронная задача валидации: кросс-библиотечное сравнение методов."""
     t0 = time.perf_counter()
     async with _validation_lock:
         _validation_tasks[task_id] = {
@@ -126,7 +137,7 @@ async def _run_validation_task(
         primary_class = CLASS_MAP.get(primary_library, TorchSegmenter)
         reference_class = CLASS_MAP.get(reference_library, OpenCVSegmenter)
 
-        results = {}
+        results: Dict[str, Any] = {}
 
         # 🔹 Пошаговое выполнение с обновлением прогресса
         for idx, (method_name, params) in enumerate(methods_list):
@@ -243,74 +254,92 @@ async def _run_validation_task(
         )
 
         async with _validation_lock:
-            _validation_tasks[task_id]["status"] = "completed"
-            _validation_tasks[task_id]["progress"] = 100
-            _validation_tasks[task_id]["message"] = "Готово"
-            _validation_tasks[task_id]["elapsed_ms"] = elapsed_ms
-            _validation_tasks[task_id]["fetched"] = False
-            _validation_tasks[task_id]["results"] = {
-                "summary": summary,
-                "passed": sum(
-                    1 for s in summary if s.get("validation_status") == "PASS"
-                ),
-                "warning": sum(
-                    1 for s in summary if s.get("validation_status") == "WARNING"
-                ),
-                "failed": sum(
-                    1 for s in summary if s.get("validation_status") == "FAIL"
-                ),
-                "methods_tested": len(summary),
-                "report_dir": "./data/validation_web",
-                "benchmark": {
-                    "methods_count": len(benchmark_data),
-                    "passed": sum(
-                        1 for s in summary if s.get("validation_status") == "PASS"
-                    ),
-                    "warning": sum(
-                        1 for s in summary if s.get("validation_status") == "WARNING"
-                    ),
-                    "failed": sum(
-                        1 for s in summary if s.get("validation_status") == "FAIL"
-                    ),
-                    "data": benchmark_data,
-                    "avg_torch_time": (
-                        sum(valid_times) / len(valid_times) if valid_times else 0
-                    ),
-                    "avg_iou": sum(valid_iou) / len(valid_iou) if valid_iou else 0,
-                },
-                "benchmark_raw": [
-                    {
-                        "method": method,
-                        "torch_time": data.get("primary_time"),
-                        "reference_time": data.get("reference_time"),
-                        "iou": data.get("metrics", {}).get("iou"),
-                        "status": data.get("validation_status"),
-                    }
-                    for method, data in results.items()
-                    if isinstance(data, dict) and data.get("success")
-                ],
-            }
+            _validation_tasks[task_id].update(
+                {
+                    "status": "completed",
+                    "progress": 100,
+                    "message": "Готово",
+                    "elapsed_ms": elapsed_ms,
+                    "fetched": False,
+                    "results": {
+                        "summary": summary,
+                        "passed": sum(
+                            1 for s in summary if s.get("validation_status") == "PASS"
+                        ),
+                        "warning": sum(
+                            1
+                            for s in summary
+                            if s.get("validation_status") == "WARNING"
+                        ),
+                        "failed": sum(
+                            1 for s in summary if s.get("validation_status") == "FAIL"
+                        ),
+                        "methods_tested": len(summary),
+                        "report_dir": "./data/validation_web",
+                        "benchmark": {
+                            "methods_count": len(benchmark_data),
+                            "passed": sum(
+                                1
+                                for s in summary
+                                if s.get("validation_status") == "PASS"
+                            ),
+                            "warning": sum(
+                                1
+                                for s in summary
+                                if s.get("validation_status") == "WARNING"
+                            ),
+                            "failed": sum(
+                                1
+                                for s in summary
+                                if s.get("validation_status") == "FAIL"
+                            ),
+                            "data": benchmark_data,
+                            "avg_torch_time": (
+                                sum(valid_times) / len(valid_times)
+                                if valid_times
+                                else 0
+                            ),
+                            "avg_iou": (
+                                sum(valid_iou) / len(valid_iou) if valid_iou else 0
+                            ),
+                        },
+                        "benchmark_raw": [
+                            {
+                                "method": m,
+                                "torch_time": d.get("primary_time"),
+                                "reference_time": d.get("reference_time"),
+                                "iou": d.get("metrics", {}).get("iou"),
+                                "status": d.get("validation_status"),
+                            }
+                            for m, d in results.items()
+                            if isinstance(d, dict) and d.get("success")
+                        ],
+                    },
+                }
+            )
         elapsed = (time.perf_counter() - t0) * 1000
         print(f"Elapsed_time: {round(elapsed, 1)}")
 
     except Exception as e:
         logger.error(f"Validation task {task_id} failed: {e}", exc_info=True)
-        elapsed_ms = round(
-            (time.time() - _validation_tasks[task_id].get("start_time", time.time()))
-            * 1000,
-            1,
-        )
         async with _validation_lock:
-            _validation_tasks[task_id]["status"] = "failed"
-            _validation_tasks[task_id]["message"] = str(e)
-            _validation_tasks[task_id]["elapsed_ms"] = elapsed_ms
-            _validation_tasks[task_id]["error_details"] = {
-                "error_type": type(e).__name__,
-                "failed_at": _validation_tasks[task_id]["message"],
-                "traceback": (
-                    traceback.format_exc() if logger.level == logging.DEBUG else None
-                ),
-            }
+            start = _validation_tasks[task_id].get("start_time", time.time())
+            _validation_tasks[task_id].update(
+                {
+                    "status": "failed",
+                    "message": str(e),
+                    "elapsed_ms": round((time.time() - start) * 1000, 1),
+                    "error_details": {
+                        "error_type": type(e).__name__,
+                        "failed_at": _validation_tasks[task_id]["message"],
+                        "traceback": (
+                            traceback.format_exc()
+                            if logger.level == logging.DEBUG
+                            else None
+                        ),
+                    },
+                }
+            )
         logger.error(f"❌ Validation task {task_id} failed: {e}")
 
 
@@ -322,23 +351,23 @@ def _process_single_method(
     reference_class,
     validator,
 ) -> Dict[str, Any]:
-    """Синхронная обработка одного метода"""
+    """Синхронная обработка одного метода валидации."""
     logger.info(f"🔹 START Processing method: {method_name}")
     try:
         import cv2
 
-        start1 = time.time()
+        t1 = time.perf_counter()
         seg1 = primary_class(method=method_name, **params)
         mask1 = seg1.segment(img_array, **params)
-        time1 = time.time() - start1
+        time1 = time.perf_counter() - t1
         logger.info(f"✅ {method_name} primary done: {time1:.3f}s")
 
-        start2 = time.time()
         ref_params = params.copy()
         ref_params["postprocess"] = False
+        t2 = time.perf_counter()
         seg2 = reference_class(method=method_name, **ref_params)
         mask2 = seg2.segment(img_array, **ref_params)
-        time2 = time.time() - start2
+        time2 = time.perf_counter() - t2
         logger.info(f"✅ {method_name} primary done: {time2:.3f}s")
 
         metrics = SegmentationMetrics.calculate_all_metrics(mask1, mask2, threshold=0.5)
@@ -392,7 +421,9 @@ def _process_single_method(
         raise
 
 
-# 🔹 Роуты
+# ──────────────────────────────────────────────────────────────────────
+# ROUTES
+# ──────────────────────────────────────────────────────────────────────
 @router.post("/start")
 async def start_validation(
     file: UploadFile = File(...),
@@ -402,6 +433,7 @@ async def start_validation(
         None
     ),  # "threshold" | "edge" | "region" | "all"
 ) -> Dict[str, str]:
+    """Запускает асинхронную валидацию кросс-библиотечных реализаций."""
     file_content = await file.read()
     task_id = str(uuid.uuid4())
     temp_validator = TorchImplementationValidator(output_dir="./data/validation_web")
@@ -418,6 +450,7 @@ async def start_validation(
 
 @router.get("/status/{task_id}")
 async def get_validation_status(task_id: str) -> JSONResponse:
+    """Возвращает статус и результаты валидации."""
     async with _validation_lock:
         task = _validation_tasks.get(task_id)
 
@@ -594,6 +627,7 @@ async def get_validation_status(task_id: str) -> JSONResponse:
 
 @router.delete("/{task_id}")
 async def cancel_validation(task_id: str) -> Dict[str, str]:
+    """Отменяет задачу валидации."""
     async with _validation_lock:
         task = _validation_tasks.get(task_id)
     if not task:

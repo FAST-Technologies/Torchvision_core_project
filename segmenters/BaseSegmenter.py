@@ -283,7 +283,7 @@ class BaseSegmenter(ABC):
             raise ValueError(
                 f"Размеры изображения {image.shape[:2]} и маски {mask.shape[:2]} не совпадают"
             )
-        colored_mask = np.zeros_like(image)
+        colored_mask: NumpyImage = np.zeros_like(image)
         colored_mask[mask > 0] = overlay_color
 
         # Наложение маски на изображение
@@ -339,8 +339,8 @@ class BaseSegmenter(ABC):
             - Предсказанная бинарная маска.
         """
         pred_mask: BinaryMask = self.segment(image, **segment_kwargs)
-        pred_binary = self._ensure_binary_mask(pred_mask, threshold)
-        gt_binary = self._ensure_binary_mask(gt_mask, threshold)
+        pred_binary: BinaryMask = self._ensure_binary_mask(pred_mask, threshold)
+        gt_binary: BinaryMask = self._ensure_binary_mask(gt_mask, threshold)
         metrics: MetricsDict = self.evaluate_metrics(pred_binary, gt_binary, threshold)
         return metrics, pred_binary
 

@@ -139,8 +139,8 @@ class SegmentationMetrics:
         )
 
         # Вычисляем пересечение и объединение
-        intersection = int(np.logical_and(pred_binary, gt_binary).sum())
-        union = int(np.logical_or(pred_binary, gt_binary).sum())
+        intersection: int = int(np.logical_and(pred_binary, gt_binary).sum())
+        union: int = int(np.logical_or(pred_binary, gt_binary).sum())
         if union == 0:
             return 0.0
         return float(intersection / (union + 1e-8))
@@ -230,7 +230,7 @@ class SegmentationMetrics:
         pred_binary, gt_binary = SegmentationMetrics._normalize_masks(
             pred_mask, gt_mask, threshold
         )
-        intersection = int(np.logical_and(pred_binary, gt_binary).sum())
+        intersection: int = int(np.logical_and(pred_binary, gt_binary).sum())
         dice: MetricValue = (2.0 * intersection + smooth) / (
             int(pred_binary.sum()) + int(gt_binary.sum()) + smooth
         )
@@ -452,7 +452,7 @@ class SegmentationMetrics:
             }
             ```
         """
-        unique_labels = np.unique(pred_mask)
+        unique_labels: np.ndarray = np.unique(pred_mask)
 
         if len(unique_labels) <= 2:
             return {
@@ -468,8 +468,10 @@ class SegmentationMetrics:
         n_pixels = h * w
         indices = np.random.choice(n_pixels, min(n_samples, n_pixels), replace=False)
 
-        X = np.column_stack([y_coords.ravel()[indices], x_coords.ravel()[indices]])
-        labels = pred_mask.ravel()[indices]
+        X: np.ndarray = np.column_stack(
+            [y_coords.ravel()[indices], x_coords.ravel()[indices]]
+        )
+        labels: np.ndarray = pred_mask.ravel()[indices]
 
         metrics: ClusteringMetricsDict = {}
         try:
@@ -514,8 +516,8 @@ class SegmentationMetrics:
             pred_mask, gt_mask, threshold
         )
 
-        correct_pixels = int((pred_binary == gt_binary).sum())
-        total_pixels = int(pred_binary.size)
+        correct_pixels: int = int((pred_binary == gt_binary).sum())
+        total_pixels: int = int(pred_binary.size)
 
         if total_pixels == 0:
             return 0.0
@@ -556,8 +558,10 @@ class SegmentationMetrics:
         )
 
         # 2. IoU / Jaccard
-        iou_custom = SegmentationMetrics.calculate_iou(pred_mask, gt_mask, threshold)
-        iou_sklearn = SegmentationMetrics.calculate_jaccard_sklearn(
+        iou_custom: MetricValue = SegmentationMetrics.calculate_iou(
+            pred_mask, gt_mask, threshold
+        )
+        iou_sklearn: MetricValue = SegmentationMetrics.calculate_jaccard_sklearn(
             pred_mask, gt_mask, threshold
         )
         metrics["iou"] = iou_custom
@@ -609,8 +613,8 @@ class SegmentationMetrics:
         )
 
         # Площади (сумма единичек)
-        pred_area = int(np.sum(pred_binary))
-        gt_area = int(np.sum(gt_binary))
+        pred_area: int = int(np.sum(pred_binary))
+        gt_area: int = int(np.sum(gt_binary))
 
         metrics["predicted_area"] = float(pred_area)
         metrics["ground_truth_area"] = float(gt_area)

@@ -6,18 +6,18 @@ import uuid
 import asyncio
 import json
 import time
-import traceback
 import base64
-from typing import Dict, Any, Optional, List
-from fastapi import APIRouter, HTTPException, Form, File, UploadFile
-from fastapi.responses import JSONResponse
-import numpy as np
-import torch
 import gc
 import logging
+import traceback
+from typing import Dict, Any, Optional, List, Tuple
+
+import numpy as np
+import torch
+from fastapi import APIRouter, HTTPException, Form, File, UploadFile
+from fastapi.responses import JSONResponse
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.config import settings
 from utils.paths import ensure_dirs, DATA_DIR
 from testing.SegmentationComparator import SegmentationComparator
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
@@ -36,8 +36,11 @@ router = APIRouter(
     },
 )
 
-# 🔹 Хранилище задач
-_comparator_tasks: Dict[str, Dict[str, Any]] = {}
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES & TASK STORAGE
+# ──────────────────────────────────────────────────────────────────────
+ComparatorTaskDict = Dict[str, Dict[str, Any]]
+_comparator_tasks: ComparatorTaskDict = {}
 _comparator_lock = asyncio.Lock()
 
 
@@ -65,8 +68,7 @@ def img_to_b64(path: str) -> str:
         return base64.b64encode(f.read()).decode()
 
 
-# 🔹 Конфигурация методов по умолчанию
-DEFAULT_COMPARATOR_METHODS = {
+DEFAULT_COMPARATOR_METHODS: Dict[str, List[str]] = {
     "opencv": [
         "global_thresholding",
         "otsu_thresholding",
@@ -94,8 +96,11 @@ DEFAULT_COMPARATOR_METHODS = {
 }
 
 
+# ──────────────────────────────────────────────────────────────────────
+# HELPERS
+# ──────────────────────────────────────────────────────────────────────
 def _extract_library_from_name(name: str) -> str:
-    """Извлекает библиотеку из имени метода: Otsu_OpenCV -> opencv"""
+    """Извлекает библиотеку из имени метода: Otsu_OpenCV -> opencv."""
     if name.endswith("_OpenCV"):
         return "opencv"
     elif name.endswith("_Sklearn"):
@@ -106,7 +111,7 @@ def _extract_library_from_name(name: str) -> str:
 
 
 def _create_segmenter(library: str, method: str, params: Dict[str, Any]):
-    """Фабрика сегментеров"""
+    """Фабрика сегментеров."""
     if library == "opencv":
         return OpenCVSegmenter(method, **params)
     elif library == "sklearn":
@@ -116,6 +121,9 @@ def _create_segmenter(library: str, method: str, params: Dict[str, Any]):
     raise ValueError(f"Unknown library: {library}")
 
 
+# ──────────────────────────────────────────────────────────────────────
+# BACKGROUND TASK
+# ──────────────────────────────────────────────────────────────────────
 async def _run_comparator_task(
     task_id: str,
     image: np.ndarray,
@@ -124,7 +132,7 @@ async def _run_comparator_task(
     comparison_type: str = "batch",
     output_dir: Optional[str] = None,
 ) -> None:
-    """Асинхронная задача компаратора"""
+    """Асинхронная задача компаратора: пакетное сравнение с референсом."""
     async with _comparator_lock:
         _comparator_tasks[task_id] = {
             "status": "running",
@@ -138,7 +146,7 @@ async def _run_comparator_task(
         output_dir = output_dir or f"./data/comparator_{task_id}"
         os.makedirs(output_dir, exist_ok=True)
 
-        # 🔹 Подготовка методов
+        # Подготовка методов
         segmenters = []
         for cfg in methods_config:
             try:
@@ -183,12 +191,12 @@ async def _run_comparator_task(
             await asyncio.sleep(0)
 
             try:
-                start = time.time()
+                t0 = time.perf_counter()
                 test_mask = cfg["segmenter"].segment(image)
-                test_time = time.time() - start
+                test_time = time.perf_counter() - t0
 
                 ref_mask = ref_seg.segment(image)
-                ref_time = time.time() - start - test_time
+                ref_time = time.perf_counter() - t0 - test_time
 
                 metrics = comparator.compute_metrics(
                     ref_mask, test_mask, ref_name, cfg["name"]
@@ -261,7 +269,7 @@ async def _run_comparator_task(
         )
 
         # 🔹 Подготовка ответа
-        summary = {
+        summary: Dict[str, Any] = {
             "methods_count": len(results),
             "successful": len([r for r in results if "error" not in r]),
             "failed": len([r for r in results if "error" in r]),
@@ -313,7 +321,9 @@ async def _run_comparator_task(
             }
 
 
-# 🔹 Роуты
+# ──────────────────────────────────────────────────────────────────────
+# ROUTES
+# ──────────────────────────────────────────────────────────────────────
 @router.post("/start")
 async def start_comparator(
     image: UploadFile = File(...),
@@ -321,6 +331,7 @@ async def start_comparator(
     reference: str = Form(...),  # JSON string
     comparison_type: str = Form("batch"),
 ) -> Dict[str, str]:
+    """Запускает асинхронное сравнение методов."""
     try:
         methods_config = json.loads(methods)
         reference_config = json.loads(reference)
@@ -346,6 +357,7 @@ async def start_comparator(
 
 @router.get("/status/{task_id}")
 async def get_status(task_id: str) -> JSONResponse:
+    """Возвращает статус задачи компаратора."""
     async with _comparator_lock:
         task = _comparator_tasks.get(task_id)
     if not task:
@@ -362,6 +374,7 @@ async def get_status(task_id: str) -> JSONResponse:
 
 @router.delete("/{task_id}")
 async def cancel_comparator(task_id: str) -> Dict[str, str]:
+    """Отменяет задачу компаратора."""
     async with _comparator_lock:
         task = _comparator_tasks.get(task_id)
     if not task:

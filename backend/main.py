@@ -13,20 +13,40 @@ AutoSegmenter API — улучшенная версия FastAPI бэкенда.
   8. elapsed_ms и library возвращаются клиенту.
   9. Пользовательские параметры корректно мёржатся с дефолтами.
 """
-import asyncio
-from typing import Optional, Dict, Any, List
-import json, os, sys, base64, io, math, logging, time
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
+import os, sys, json, io, math, logging, time, uuid, base64
+from typing import (
+    Dict,
+    Any,
+    Optional,
+    List,
+    Union,
+    Callable,
+    Literal,
+    TypeAlias,
+)
 from contextlib import asynccontextmanager
-import uuid
-from fastapi import BackgroundTasks
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
 import torch
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import (
+    FastAPI,
+    File,
+    UploadFile,
+    Form,
+    HTTPException,
+    Request,
+    BackgroundTasks,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
+# Локальные импорты
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from segmenters.AutoSegmenter import (
     AutoSegmenter,
@@ -35,76 +55,205 @@ from segmenters.AutoSegmenter import (
     MethodProfile,
 )
 from metrics.SegmentationMetrics import SegmentationMetrics
-from testing.TorchImplementationValidator import TorchImplementationValidator
 from routers import benchmark, comparator, validator
-from fastapi import Request
-
-# from segmenters.NeuralModelFactory import NeuralModelFactory
+from segmenters.NeuralSegmenter import NeuralSegmenter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("autoseg")
 
-# ── Кеш нейронных моделей ──────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES & CONSTANTS
+# ──────────────────────────────────────────────────────────────────────
+ImageArray = np.ndarray
+MaskArray = np.ndarray
+MetricsDict = Dict[str, Any]
+PathLike = Union[str, Path]
+DeviceStr = Literal["cuda", "cpu"]
+ModelConfigDict = Dict[str, Dict[str, Any]]
+NeuralConfigDict = Dict[str, ModelConfigDict]
+RecommendationDict = Dict[str, Any]
+AnalysisDataDict = Dict[str, Any]
+ChartDict = Dict[str, str]  # fname -> base64 string
+SegmentResponseDict = Dict[str, Any]
+
+# ──────────────────────────────────────────────────────────────────────
+# КЕШ МОДЕЛЕЙ
+# ──────────────────────────────────────────────────────────────────────
 _model_cache: Dict[str, Any] = {}
-_CACHE_MAX = 3
+_CACHE_MAX: int = 3
 
 print(f"🔍 CWD: {os.getcwd()}")
 print(f"🔍 __file__: {__file__}")
 
 
-def _get_or_load_neural(config: dict, task: str) -> Any:
-    from segmenters.NeuralSegmenter import NeuralSegmenter
+def _get_or_load_neural(config: Dict[str, Any], task: str) -> Any:
+    """
+    Загружает нейронный сегментер с LRU-кешем (макс. 3 модели).
 
-    cache_key = json.dumps({**config, "_task": task}, sort_keys=True)
+    Args:
+        config: Конфигурация модели (model_type, model_name, checkpoint_path, ...).
+        task: Тип задачи ("semantic", "instance", "panoptic") для формирования ключа кеша.
+
+    Returns:
+        NeuralSegmenter: Экземпляр загруженной модели.
+    """
+    cache_key: str = json.dumps({**config, "_task": task}, sort_keys=True)
     if cache_key not in _model_cache:
         if len(_model_cache) >= _CACHE_MAX:
             oldest = next(iter(_model_cache))
             del _model_cache[oldest]
             logger.info("Model cache evicted oldest entry")
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device: str = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Loading {config.get('model_type')} on {device}")
         _model_cache[cache_key] = NeuralSegmenter(**config, device=device)
     return _model_cache[cache_key]
 
 
-# ── FastAPI ────────────────────────────────────────────────────────────────
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("AutoSegmenter API starting…")
-    yield
-    _model_cache.clear()
-    logger.info("Model cache cleared on shutdown")
+# ──────────────────────────────────────────────────────────────────────
+# УТИЛИТЫ
+# ──────────────────────────────────────────────────────────────────────
+def arr_to_b64(arr: np.ndarray) -> str:
+    """
+    Конвертирует numpy-массив в base64 PNG-строку.
+
+    Args:
+        arr: Входной массив (H×W или H×W×C). Автоматически приводится к uint8.
+
+    Returns:
+        str: Строка формата `data:image/png;base64,...`.
+    """
+    if arr.dtype != np.uint8:
+        arr = (arr * 255).astype(np.uint8) if arr.max() <= 1.0 else arr.astype(np.uint8)
+    if arr.ndim == 3 and arr.shape[2] == 1:
+        arr = arr.squeeze()
+    buf = io.BytesIO()
+    Image.fromarray(arr).save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-app = FastAPI(title="AutoSegmenter API", version="2.0", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-app.include_router(benchmark.router)
-app.include_router(comparator.router)
-app.include_router(validator.router)
-print(f"📋 Registered routes: {[r.path for r in app.routes]}")
+def analyze_image_data(img_array: ImageArray) -> AnalysisDataDict:
+    """
+    Извлекает статистические данные изображения для визуализации.
 
-auto_seg = AutoSegmenter()
+    Args:
+        img_array: RGB или grayscale изображение.
+
+    Returns:
+        Dict[str, Any]: Гистограмма, плотность границ, Sobel-края в base64.
+    """
+    from scipy import ndimage
+
+    # Гистограмма интенсивностей
+    hist, bins = np.histogram(img_array.flatten(), bins=64, range=(0, 256))
+    gray: np.ndarray = (
+        np.mean(img_array, axis=2).astype(np.float32)
+        if img_array.ndim == 3
+        else img_array.astype(np.float32)
+    )
+    sobel_x: np.ndarray = ndimage.sobel(gray, axis=0)
+    sobel_y: np.ndarray = ndimage.sobel(gray, axis=1)
+    edges: np.ndarray = np.hypot(sobel_x, sobel_y)
+    edges_norm: np.ndarray = (edges / (edges.max() + 1e-8) * 255).astype(np.uint8)
+
+    return {
+        "histogram": hist.tolist(),
+        "hist_bins": bins.tolist(),
+        "edge_density": float(np.mean(edges > edges.max() * 0.3)),
+        "edges_b64": arr_to_b64(edges_norm),
+    }
 
 
-@app.middleware("http")
-async def log_benchmark_requests(request: Request, call_next):
-    if request.url.path.startswith("/api/benchmark"):
-        start = time.time()
-        response = await call_next(request)
-        duration = time.time() - start
-        logger.info(f"Benchmark {request.url.path} took {duration:.2f}s")
-        return response
-    return await call_next(request)
+def sanitize_metrics(m: MetricsDict) -> MetricsDict:
+    """
+    Заменяет `inf` и `NaN` на `None` для JSON-совместимости.
+
+    Args:
+        m: Словарь с метриками.
+
+    Returns:
+        MetricsDict: Очищенный словарь.
+    """
+    return {
+        k: (None if isinstance(v, float) and (math.isinf(v) or math.isnan(v)) else v)
+        for k, v in m.items()
+    }
 
 
-# ── Конфиг нейросетей ──────────────────────────────────────────────────────
-NEURAL_CONFIGS: Dict[str, Dict[str, dict]] = {
+def build_overlay(img: ImageArray, mask: MaskArray, alpha: float = 0.4) -> ImageArray:
+    """
+    Создаёт наложение маски на оригинальное изображение.
+
+    Args:
+        img: Оригинальное изображение (H×W или H×W×C).
+        mask: Бинарная маска (H×W).
+        alpha: Прозрачность маски (0.0–1.0).
+
+    Returns:
+        np.ndarray: RGB-изображение с наложенной маской.
+    """
+    rgb: np.ndarray = np.stack([img] * 3, axis=-1) if img.ndim == 2 else img.copy()
+    col: np.ndarray = np.zeros_like(rgb)
+    col[mask > 0] = [255, 0, 0]
+    return (rgb * (1 - alpha) + col * alpha).astype(np.uint8)
+
+
+def params_to_schema(params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Генерирует JSON-схему UI-конфигуратора из параметров по умолчанию.
+
+    Args:
+        params: Словарь параметров метода.
+
+    Returns:
+        Dict[str, Any]: Схема с типами, диапазонами и подписями.
+    """
+    schema: Dict[str, Any] = {}
+    for k, v in params.items():
+        if isinstance(v, bool):
+            schema[k] = {"type": "boolean", "default": v}
+        elif isinstance(v, int):
+            big: bool = any(x in k for x in ("size", "bin", "iter", "scale", "radius"))
+            schema[k] = {
+                "type": "int",
+                "min": 1,
+                "max": 500 if big else 100,
+                "step": 1,
+                "default": v,
+            }
+        elif isinstance(v, float):
+            norm: bool = abs(v) <= 2.0 or any(
+                x in k for x in ("threshold", "k", "ratio", "factor")
+            )
+            schema[k] = {
+                "type": "float",
+                "min": 0.0,
+                "max": 1.0 if norm else 100.0,
+                "step": 0.01,
+                "default": v,
+            }
+        else:
+            schema[k] = {"type": "string", "default": str(v)}
+    return schema
+
+
+def _best_for(method_name: str) -> List[str]:
+    """
+    Возвращает список типов изображений, для которых метод оптимален.
+
+    Args:
+        method_name: Имя метода.
+
+    Returns:
+        List[str]: Список значений `ImageType.value`.
+    """
+    p = auto_seg.benchmark_data.get(method_name)
+    return [t.value for t in p.best_for_type] if p else []
+
+
+# ──────────────────────────────────────────────────────────────────────
+# КОНФИГУРАЦИЯ НЕЙРОСЕТЕЙ
+# ──────────────────────────────────────────────────────────────────────
+NEURAL_CONFIGS: NeuralConfigDict = {
     "semantic": {
         "segformer_b0": {
             "model_type": "segformer",
@@ -245,99 +394,89 @@ NEURAL_CONFIGS: Dict[str, Dict[str, dict]] = {
 #     return result
 
 
-def arr_to_b64(arr: np.ndarray) -> str:
-    """numpy → data:image/png;base64,…"""
-    if arr.dtype != np.uint8:
-        arr = (arr * 255).astype(np.uint8) if arr.max() <= 1.0 else arr.astype(np.uint8)
-    if arr.ndim == 3 and arr.shape[2] == 1:
-        arr = arr.squeeze()
-    buf = io.BytesIO()
-    Image.fromarray(arr).save(buf, format="PNG")
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+# ──────────────────────────────────────────────────────────────────────
+# FASTAPI ПРИЛОЖЕНИЕ
+# ──────────────────────────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Жизненный цикл приложения: очистка кеша при завершении."""
+    logger.info("AutoSegmenter API starting…")
+    yield
+    _model_cache.clear()
+    logger.info("Model cache cleared on shutdown")
 
 
-def analyze_image_data(img_array: np.ndarray) -> dict:
-    """Возвращает данные для визуализации анализа"""
-    from scipy import ndimage
+app: FastAPI = FastAPI(title="AutoSegmenter API", version="2.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.include_router(benchmark.router)
+app.include_router(comparator.router)
+app.include_router(validator.router)
+print(f"📋 Registered routes: {[r.path for r in app.routes]}")
 
-    # Гистограмма интенсивностей
-    hist, bins = np.histogram(img_array.flatten(), bins=64, range=(0, 256))
-    gray = (
-        np.mean(img_array, axis=2).astype(np.float32)
-        if img_array.ndim == 3
-        else img_array.astype(np.float32)
-    )
-    sobel_x = ndimage.sobel(gray, axis=0)
-    sobel_y = ndimage.sobel(gray, axis=1)
-    edges = np.hypot(sobel_x, sobel_y)
-    edges_norm = (edges / edges.max() * 255).astype(np.uint8)
-
-    return {
-        "histogram": hist.tolist(),
-        "hist_bins": bins.tolist(),
-        "edge_density": float(np.mean(edges > edges.max() * 0.3)),
-        "edges_b64": arr_to_b64(edges_norm),
-    }
+auto_seg = AutoSegmenter()
 
 
-def sanitize_metrics(m: dict) -> dict:
-    """Заменяет inf/NaN на None для JSON-совместимости"""
-    return {
-        k: (None if isinstance(v, float) and (math.isinf(v) or math.isnan(v)) else v)
-        for k, v in m.items()
-    }
-
-
-def build_overlay(img: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    rgb = np.stack([img] * 3, axis=-1) if img.ndim == 2 else img.copy()
-    col = np.zeros_like(rgb)
-    col[mask > 0] = [255, 0, 0]
-    return (rgb * 0.6 + col * 0.4).astype(np.uint8)
-
-
-def params_to_schema(params: Dict[str, Any]) -> Dict[str, Any]:
-    schema: Dict[str, Any] = {}
-    for k, v in params.items():
-        if isinstance(v, bool):
-            schema[k] = {"type": "boolean", "default": v}
-        elif isinstance(v, int):
-            big = any(x in k for x in ("size", "bin", "iter", "scale", "radius"))
-            schema[k] = {
-                "type": "int",
-                "min": 1,
-                "max": 500 if big else 100,
-                "step": 1,
-                "default": v,
-            }
-        elif isinstance(v, float):
-            norm = abs(v) <= 2.0 or any(
-                x in k for x in ("threshold", "k", "ratio", "factor")
-            )
-            schema[k] = {
-                "type": "float",
-                "min": 0.0,
-                "max": 1.0 if norm else 100.0,
-                "step": 0.01,
-                "default": v,
-            }
-        else:
-            schema[k] = {"type": "string", "default": str(v)}
-    return schema
-
-
-def _best_for(method_name: str) -> list:
-    p = auto_seg.benchmark_data.get(method_name)
-    return [t.value for t in p.best_for_type] if p else []
+@app.middleware("http")
+async def log_benchmark_requests(
+    request: Request, call_next: Callable[[Request], Any]
+) -> Any:
+    """Мидлвэр логирования времени выполнения бенчмарков."""
+    if request.url.path.startswith("/api/benchmark"):
+        start: float = time.perf_counter()
+        response = await call_next(request)
+        duration: float = time.perf_counter() - start
+        logger.info(f"Benchmark {request.url.path} took {duration:.2f}s")
+        return response
+    return await call_next(request)
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────
 
 
+# ──────────────────────────────────────────────────────────────────────
+# ENDPOINTS
+# ──────────────────────────────────────────────────────────────────────
 @app.get("/api/health")
 async def health() -> Dict[str, Any]:
+    """
+    Возвращает статус системы: доступность CUDA, использование VRAM, активные задачи.
+
+    Returns:
+        Dict[str, Any]: Статус, device_name, vram_mb, active_tasks.
+    """
+    if torch.cuda.is_available():
+        total_vram_mb: float = (
+            torch.cuda.get_device_properties(0).total_memory / 1024**2
+        )
+        alloc_vram_mb: float = torch.cuda.memory_allocated(0) / 1024**2
+        free_vram_mb: float = total_vram_mb - alloc_vram_mb
+        reserved_vram_mb: float = torch.cuda.memory_reserved(0) / 1024**2
+        device_name: str = torch.cuda.get_device_name(0)
+    else:
+        total_vram_mb = alloc_vram_mb = free_vram_mb = reserved_vram_mb = 0.0
+        device_name = "cpu"
+
     return {
         "status": "ok",
-        "cuda": torch.cuda.is_available(),
+        "cuda_available": torch.cuda.is_available(),
+        "device_name": device_name,
+        "vram_mb": total_vram_mb,
+        "vram_allocated_mb": alloc_vram_mb,
+        "vram_free_mb": free_vram_mb,
+        "reserved_vram_mb": reserved_vram_mb,
+        "active_tasks": len(
+            [
+                t
+                for t in benchmark.benchmark_tasks.values()
+                if t.get("status") == "running"
+            ]
+        ),
         "cached_models": len(_model_cache),
         "cache_max": _CACHE_MAX,
     }
@@ -345,6 +484,12 @@ async def health() -> Dict[str, Any]:
 
 @app.get("/api/cache_info")
 async def cache_info() -> Dict[str, Any]:
+    """
+    Возвращает информацию о кеше загруженных нейронных моделей.
+
+    Returns:
+        Dict[str, Any]: Количество закэшированных моделей, список ключей.
+    """
     return {"count": len(_model_cache), "models": [k[:80] for k in _model_cache]}
 
 
@@ -352,6 +497,7 @@ async def cache_info() -> Dict[str, Any]:
 async def get_methods_by_library(
     library: Optional[str] = None,
 ) -> Dict[str, Dict[str, Any]]:
+    source_dict: Dict[str, MethodProfile]
     if library and library in METHODS_BY_LIBRARY:
         source_dict = METHODS_BY_LIBRARY.get(library, {})
     else:
@@ -361,7 +507,7 @@ async def get_methods_by_library(
             for name, profile in lib_methods.items()
         }
 
-    result = {}
+    result: Dict[str, Any] = {}
     for name, profile in source_dict.items():
         if isinstance(profile, MethodProfile):
             result[name] = {
@@ -395,18 +541,20 @@ async def get_methods_by_library(
 
 @app.get("/api/methods")
 async def get_methods(library: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
-    """Возвращает доступные методы для указанной библиотеки"""
+    """
+    Возвращает доступные методы для указанной библиотеки (алиас `/api/methods_library`).
+    """
     if library and library not in METHODS_BY_LIBRARY:
         raise HTTPException(
             422,
             f"Unknown library: {library!r}. Available: {list(METHODS_BY_LIBRARY.keys())}",
         )
-    source = (
+    source: Dict[str, MethodProfile] = (
         METHODS_BY_LIBRARY.get(library, {})
         if library
         else {n: p for lib in METHODS_BY_LIBRARY.values() for n, p in lib.items()}
     )
-    result = {}
+    result: Dict[str, Any] = {}
     for name, profile in source.items():
         if isinstance(profile, MethodProfile):
             result[name] = {
@@ -448,11 +596,35 @@ async def segment(
     library: Optional[str] = Form("opencv"),
     custom_params: str = Form("{}"),
     gt_mask: Optional[UploadFile] = File(default=None),
-) -> Dict[str, Any]:
+) -> SegmentResponseDict:
+    """
+    Основной эндпоинт сегментации изображения.
+
+    Поддерживает:
+    - Классические методы (авто-выбор или ручной).
+    - Нейронные модели (SegFormer, Mask2Former, SAM, YOLOv8, SMP, Torchvision).
+    - Расчёт метрик при наличии GT.
+    - Генерацию рекомендаций и анализ изображения.
+
+    Args:
+        file: Входное изображение.
+        mode: Режим работы ("classical" | "neural").
+        task: Тип задачи ("semantic" | "instance" | "panoptic").
+        model: Имя нейронной модели (если mode="neural").
+        goal: Цель оптимизации ("speed" | "accuracy" | "balanced" | "low_memory").
+        auto_select: Автоматически выбрать метод.
+        method: Ручной выбор метода.
+        library: Библиотека для классических методов.
+        custom_params: JSON-строка с пользовательскими параметрами.
+        gt_mask: Опциональная GT-маска для расчёта метрик.
+
+    Returns:
+        SegmentResponseDict: Словарь с маской, overlay, метриками, рекомендациями и временем.
+    """
     t0 = time.perf_counter()
     try:
-        img_pil = Image.open(io.BytesIO(await file.read())).convert("RGB")
-        img_array = np.array(img_pil)
+        img_pil: Image.Image = Image.open(io.BytesIO(await file.read())).convert("RGB")
+        img_array: np.ndarray = np.array(img_pil)
         mask: np.ndarray
         metadata: Dict[str, Any]
         overlay_np: np.ndarray
@@ -475,14 +647,16 @@ async def segment(
                 "panoptic": NeuralSegmenter.get_cityscapes_class_names,
             }
 
-            cfg = NEURAL_CONFIGS.get(task, {}).get(model)
+            cfg: Optional[Dict[str, Any]] = NEURAL_CONFIGS.get(task, {}).get(model)
             if not cfg:
                 raise HTTPException(
                     422, f"Unknown neural config: task={task!r} model={model!r}"
                 )
             ns = _get_or_load_neural(cfg, task)
-            dev = "cuda" if torch.cuda.is_available() else "cpu"
+            dev: str = "cuda" if torch.cuda.is_available() else "cpu"
 
+            overlay_pil: Image.Image
+            result_info: Dict[str, Any]
             overlay_pil, result_info = segment_image_unified(
                 model=ns.model,
                 processor=ns.processor,
@@ -498,15 +672,15 @@ async def segment(
             )
 
             raw = result_info.get("mask")
-            mask = (
+            mask: np.ndarray = (
                 raw
                 if raw is not None
                 else (np.array(overlay_pil)[:, :, 0] > 0).astype(np.uint8) * 255
             )
 
-            overlay_np = np.array(overlay_pil)
+            overlay_np: np.ndarray = np.array(overlay_pil)
 
-            metadata = {
+            metadata: Dict[str, Any] = {
                 "method": model,
                 "library": "neural",
                 "task": task,
@@ -524,7 +698,7 @@ async def segment(
             )
 
             try:
-                user_params: dict = json.loads(custom_params)
+                user_params: Dict[str, Any] = json.loads(custom_params)
             except (json.JSONDecodeError, ValueError):
                 user_params = {}
 
@@ -545,8 +719,8 @@ async def segment(
                         f"Available: {list(METHODS_BY_LIBRARY[library].keys())}",
                     )
 
-                profile = METHODS_BY_LIBRARY[library][method]
-                final_params = {**(profile.params or {}), **user_params}
+                profile: MethodProfile = METHODS_BY_LIBRARY[library][method]
+                final_params: Dict[str, Any] = {**(profile.params or {}), **user_params}
                 logger.info(
                     f"🛠 Using params for {method}/{library} params={final_params}"
                 )
@@ -555,7 +729,7 @@ async def segment(
                     method=method, **final_params
                 )
                 _, mask = segmenter.segment_with_mask(img_array)
-                metadata = {
+                metadata: Dict[str, Any] = {
                     "method": method,
                     "library": library,
                     "parameters": final_params,
@@ -564,7 +738,7 @@ async def segment(
                 }
 
         # ─── Метрики ───────────────────────────────────────────────────────
-        metrics = {}
+        metrics: MetricsDict = {}
         if gt_mask is not None:
             logger.info(f"✅ GT получен: {gt_mask.filename}")
             gt_array = np.array(
@@ -576,15 +750,17 @@ async def segment(
         else:
             logger.warning("⚠️ GT не предоставлен, метрики не рассчитываются")
 
-        # ─── Рекомендации ──────────────────────────────────────────────────
-        recommendations = auto_seg.get_recommendations(img_array, top_k=5)
-        analysis_data = analyze_image_data(img_array)
+        # ─── Рекомендации & Анализ ──────────────────────────────────────────────────
+        recommendations: List[RecommendationDict] = auto_seg.get_recommendations(
+            img_array, top_k=5
+        )
+        analysis_data: AnalysisDataDict = analyze_image_data(img_array)
         chars = metadata["image_characteristics"]
 
         if mode == "neural":
             pass
         else:
-            overlay_np = build_overlay(img_array, mask)
+            overlay_np: np.ndarray = build_overlay(img_array, mask)
 
         return {
             "success": True,
@@ -639,11 +815,17 @@ async def segment(
 @app.get("/recommendations/")
 async def get_recommendations_ep(
     file: UploadFile = File(...),
-) -> Dict[str, List[Dict[str, Any]]]:
-    img = np.array(Image.open(io.BytesIO(await file.read())))
+) -> Dict[str, List[RecommendationDict]]:
+    """
+    Возвращает топ-5 рекомендаций методов для загруженного изображения.
+    """
+    img: np.ndarray = np.array(Image.open(io.BytesIO(await file.read())))
     return {"recommendations": auto_seg.get_recommendations(img, top_k=5)}
 
 
+# ──────────────────────────────────────────────────────────────────────
+# STATIC FILES & ENTRY POINT
+# ──────────────────────────────────────────────────────────────────────
 _DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.exists(_DIST):
     app.mount("/", StaticFiles(directory=_DIST, html=True), name="static")
