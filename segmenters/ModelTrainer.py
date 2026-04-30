@@ -2,7 +2,6 @@
 
 # Импорт основных библиотек
 import os
-import sys
 import time
 import gc
 import glob
@@ -17,7 +16,6 @@ from typing import (
     Literal,
     TypedDict,
     NotRequired,
-    Union,
     cast,
 )
 from matplotlib.colors import Colormap

@@ -6,7 +6,6 @@ import signal
 import sys
 import time
 import json
-import traceback
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from collections import defaultdict

@@ -25,7 +25,7 @@ import torchvision.models.detection as tv_det
 
 from sklearn.metrics import jaccard_score
 
-from transformers import SegformerForSemanticSegmentation
+
 
 import segmentation_models_pytorch as smp
 
@@ -180,7 +180,7 @@ def train_deeplab_ade20k(
     trainer.history = {"train_loss": [], "val_loss": [], "val_miou": []}
 
     # Обучение с разморозкой после 5 эпох
-    print(f"🎯 Starting training (backbone frozen for first 5 epochs)...")
+    print("🎯 Starting training (backbone frozen for first 5 epochs)...")
 
     for epoch in range(epochs):
         # 🔥 Разморозка backbone после 5 эпох
@@ -205,7 +205,7 @@ def train_deeplab_ade20k(
         trainer.history["val_loss"].append(val_loss)
         trainer.history["val_miou"].append(val_miou)
 
-        print(f"\n📊 Epoch {epoch+1}/{epochs} | Time: {epoch_time:.1f}s")
+        print(f"\n📊 Epoch {epoch + 1}/{epochs} | Time: {epoch_time:.1f}s")
         print(f"   Train Loss: {train_loss:.4f}")
         print(f"   Val Loss:   {val_loss:.4f}")
         print(f"   Val mIoU:   {val_miou:.4f}")
@@ -452,7 +452,7 @@ def train_fcn_resnet50_ade20k(
     trainer.history = {"train_loss": [], "val_loss": [], "val_miou": []}
 
     # Обучение с разморозкой после 5 эпох
-    print(f"🎯 Starting training (backbone frozen for first 5 epochs)...")
+    print("🎯 Starting training (backbone frozen for first 5 epochs)...")
 
     for epoch in range(epochs):
         # Разморозка backbone после 5 эпох
@@ -476,7 +476,7 @@ def train_fcn_resnet50_ade20k(
         trainer.history["val_loss"].append(val_loss)
         trainer.history["val_miou"].append(val_miou)
 
-        print(f"\n📊 Epoch {epoch+1}/{epochs} | Time: {epoch_time:.1f}s")
+        print(f"\n📊 Epoch {epoch + 1}/{epochs} | Time: {epoch_time:.1f}s")
         print(f"   Train Loss: {train_loss:.4f}")
         print(f"   Val Loss:   {val_loss:.4f}")
         print(f"   Val mIoU:   {val_miou:.4f}")
@@ -536,7 +536,7 @@ def train_segnet_ade20k(
             activation=None,
         )
         print("   Using SMP U-Net as SegNet proxy")
-    except:
+    except Exception:
         # Fallback к кастомной реализации
         model = SegNet(num_classes=150)
 
@@ -692,7 +692,7 @@ def compare_trained_models():
                 classes=150,
                 activation=None,
             )
-        except:
+        except Exception:
             segnet = SegNet(num_classes=150)
 
         checkpoint = torch.load("./models/segnet_ade20k_best.pth", map_location=device)
@@ -749,7 +749,7 @@ def compare_trained_models():
 
                 # Прогресс
                 if (batch_idx + 1) % 10 == 0:
-                    print(f"   Processed {batch_idx+1}/{len(val_loader)} batches")
+                    print(f"   Processed {batch_idx + 1}/{len(val_loader)} batches")
 
         # Вычисление mIoU
         miou = jaccard_score(
@@ -760,14 +760,14 @@ def compare_trained_models():
             zero_division=0,
         )
         results[name] = miou
-        print(f"   ✅ mIoU: {miou*100:.2f}%")
+        print(f"   ✅ mIoU: {miou * 100:.2f}%")
 
     # Таблица результатов
     print("\n" + "=" * 60)
     print("RESULTS SUMMARY")
     print("=" * 60)
     for name, miou in sorted(results.items(), key=lambda x: x[1], reverse=True):
-        print(f"{name:20s} : {miou*100:6.2f}% mIoU")
+        print(f"{name:20s} : {miou * 100:6.2f}% mIoU")
 
     return results
 
@@ -879,7 +879,7 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
                     classes=150,
                     activation=None,
                 )
-            except:
+            except Exception:
                 model = SegNet(num_classes=150)
 
             checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -915,7 +915,7 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
 
                 # Прогресс
                 if (batch_idx + 1) % 20 == 0:
-                    print(f"   Processed {batch_idx+1}/{len(val_loader)} batches")
+                    print(f"   Processed {batch_idx + 1}/{len(val_loader)} batches")
 
         # Метрики
         miou = jaccard_score(
@@ -926,7 +926,7 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
             zero_division=0,
         )
         results[model_name] = miou
-        print(f"   ✅ mIoU: {miou*100:.2f}%")
+        print(f"   ✅ mIoU: {miou * 100:.2f}%")
 
         # Очистка памяти
         del model
@@ -938,7 +938,7 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
     print("TRAINED MODELS COMPARISON (on validation set)")
     print("=" * 60)
     for name, miou in sorted(results.items(), key=lambda x: x[1], reverse=True):
-        print(f"{name:20s} : {miou*100:6.2f}% mIoU")
+        print(f"{name:20s} : {miou * 100:6.2f}% mIoU")
 
     return results
 
