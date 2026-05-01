@@ -19,7 +19,6 @@ Example:
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
-# Импорт основных библиотек
 import glob
 import os
 import gc
@@ -68,7 +67,7 @@ MODEL_TYPE_MAPPING: Dict[str, str] = {
 
 
 def analyze_augmentation_impact() -> (
-    Tuple[Optional[pd.DataFrame], Optional[Dict[str, Image.Image]]]
+    Optional[Tuple[Optional[pd.DataFrame], Optional[Dict[str, Image.Image]]]]
 ):
     """
     Исследование влияния аугментаций на качество сегментации.
@@ -119,7 +118,7 @@ def analyze_augmentation_impact() -> (
             files: List[str] = glob.glob(pattern)
 
             if files:
-                latest_checkpoint = max(files, key=os.path.getctime)
+                latest_checkpoint: str = max(files, key=os.path.getctime)
                 key: str = f"{model_type}_{aug_level}"
                 checkpoints[key] = {
                     "path": latest_checkpoint,
@@ -158,8 +157,8 @@ def analyze_augmentation_impact() -> (
         try:
             model_type = checkpoint_info["model_type"]
             aug_level = checkpoint_info["augmentation"]
-            checkpoint_path = checkpoint_info["path"]
-            display_name = checkpoint_info["original_type"]
+            checkpoint_path: str = checkpoint_info["path"]
+            display_name: str = checkpoint_info["original_type"]
 
             print(f"\n   🔹 {key} {display_name}_{aug_level}...")
 
@@ -172,13 +171,13 @@ def analyze_augmentation_impact() -> (
             )
 
             # Предсказание
-            start_time = time.perf_counter()
+            start_time: float = time.perf_counter()
             pred_mask: MaskArray
             pred_info: Dict[str, Any]
             pred_mask, pred_info = segmenter.predict_segmentation_map(
                 test_image, verbose=False, gt_mask=gt_mask
             )
-            inference_time = time.perf_counter() - start_time
+            inference_time: float = time.perf_counter() - start_time
 
             # Бинарная сегментация для совместимости
             pred_mask_2: MaskArray = segmenter.segment(np.array(test_image))
@@ -197,17 +196,19 @@ def analyze_augmentation_impact() -> (
             # ──────────────────────────────────────────────────────────────
             # Расчёт mIoU (многоклассовый)
             # ──────────────────────────────────────────────────────────────
-            classes = np.unique(np.concatenate([gt_mask, pred_mask_resized]))
+            classes: np.ndarray = np.unique(
+                np.concatenate([gt_mask, pred_mask_resized])
+            )
             iou_per_class: List[float] = []
 
             for cls in classes:
                 if cls == 255:  # ignore index
                     continue
-                pred_cls = (pred_mask_resized == cls).astype(np.uint8)
-                gt_cls = (gt_mask == cls).astype(np.uint8)
+                pred_cls: np.ndarray = (pred_mask_resized == cls).astype(np.uint8)
+                gt_cls: np.ndarray = (gt_mask == cls).astype(np.uint8)
 
-                intersection = int(np.logical_and(pred_cls, gt_cls).sum())
-                union = int(np.logical_or(pred_cls, gt_cls).sum())
+                intersection: int = int(np.logical_and(pred_cls, gt_cls).sum())
+                union: int = int(np.logical_or(pred_cls, gt_cls).sum())
 
                 if union > 0:
                     iou_per_class.append(intersection / union)
@@ -217,8 +218,8 @@ def analyze_augmentation_impact() -> (
             # ──────────────────────────────────────────────────────────────
             # Бинарные метрики (объект vs фон)
             # ──────────────────────────────────────────────────────────────
-            pred_binary = (pred_mask_resized > 0).astype(np.uint8)
-            gt_binary = (gt_mask > 0).astype(np.uint8)
+            pred_binary: np.ndarray = (pred_mask_resized > 0).astype(np.uint8)
+            gt_binary: np.ndarray = (gt_mask > 0).astype(np.uint8)
 
             metrics: MetricsDict = SegmentationMetrics.calculate_all_metrics(
                 pred_mask=pred_binary,
@@ -293,14 +294,14 @@ def analyze_augmentation_impact() -> (
 
     # Сводная таблица
     print("\n📊 Сводная таблица метрик (mIoU):")
-    pivot_all = df.pivot_table(
+    pivot_all: pd.DataFrame = df.pivot_table(
         values=["iou", "dice", "f1_score"],
         index="model",
         columns="augmentation",
         aggfunc="mean",
     )
     print(pivot_all.round(4).to_string())
-    pivot_iou = df.pivot_table(
+    pivot_iou: pd.DataFrame = df.pivot_table(
         values="iou", index="model", columns="augmentation", aggfunc="mean"
     )
     print(pivot_iou.round(4).to_string())
@@ -349,7 +350,9 @@ def analyze_augmentation_impact() -> (
             ax.axis("off")
             continue
 
-        plot_data = df.groupby(["model", "augmentation"])[metric].first().unstack()
+        plot_data: pd.DataFrame = (
+            df.groupby(["model", "augmentation"])[metric].first().unstack()
+        )
         plot_data.plot(kind="bar", ax=ax, colormap="viridis", edgecolor="black")
         ax.set_title(f"{metric_names[metric]} по моделям и аугментациям", fontsize=11)
         ax.set_ylabel("Score")
@@ -380,7 +383,7 @@ def analyze_augmentation_impact() -> (
 
     # График 3: Heatmap прироста
     plt.figure(figsize=(10, 8))
-    pivot_gain = pivot_iou.copy()
+    pivot_gain: pd.DataFrame = pivot_iou.copy()
     if "none" in pivot_gain.columns:
         for col in ["basic", "medium"]:
             if col in pivot_gain.columns:
@@ -403,7 +406,7 @@ def analyze_augmentation_impact() -> (
 
     # График 4: Heatmap прироста
     fig, ax = plt.subplots(figsize=(12, 8))
-    heatmap_data = df.pivot_table(
+    heatmap_data: pd.DataFrame = df.pivot_table(
         index="model", columns="augmentation", values="iou", aggfunc="first"
     )
 
@@ -449,15 +452,15 @@ def analyze_augmentation_impact() -> (
 
     # Считаем прирост
     for model in df_analysis["model"].unique():
-        model_data = df_analysis[df_analysis["model"] == model]
+        model_data: pd.DataFrame = df_analysis[df_analysis["model"] == model]
 
         none_iou = model_data[model_data["augmentation"] == "none"]["iou"].values
         basic_iou = model_data[model_data["augmentation"] == "basic"]["iou"].values
         medium_iou = model_data[model_data["augmentation"] == "medium"]["iou"].values
 
         if len(none_iou) > 0 and len(basic_iou) > 0:
-            basic_gain = (basic_iou[0] - none_iou[0]) * 100
-            medium_gain = (
+            basic_gain: float = (basic_iou[0] - none_iou[0]) * 100
+            medium_gain: float = (
                 (medium_iou[0] - none_iou[0]) * 100 if len(medium_iou) > 0 else 0
             )
 
@@ -525,9 +528,9 @@ def analyze_augmentation_impact() -> (
     print("=" * 80)
 
     # Средний mIoU по уровням аугментаций
-    avg_none = df[df["augmentation"] == "none"]["iou"].mean()
-    avg_basic = df[df["augmentation"] == "basic"]["iou"].mean()
-    avg_medium = df[df["augmentation"] == "medium"]["iou"].mean()
+    avg_none: float = df[df["augmentation"] == "none"]["iou"].mean()
+    avg_basic: float = df[df["augmentation"] == "basic"]["iou"].mean()
+    avg_medium: float = df[df["augmentation"] == "medium"]["iou"].mean()
 
     print("\n📊 Средний mIoU по уровням аугментаций:")
     print(f"   None:   {avg_none:.4f}")
@@ -538,7 +541,7 @@ def analyze_augmentation_impact() -> (
 
     # Лучшая комбинация
     best_idx = df["iou"].idxmax()
-    best_row = df.loc[best_idx]
+    best_row: pd.Series = df.loc[best_idx]
 
     print("\n🏆 Лучшая комбинация:")
     print(f"   Модель: {best_row['model']}")
@@ -590,17 +593,19 @@ def save_augmentation_comparison_grid(
         output_dir: Директория для сохранения.
         model_names: Опциональный список имён моделей (если `None`, извлекается из ключей).
     """
-    output_path = Path(output_dir)
+    output_path: Path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     if model_names is None:
 
-        def extract_model_name(key):
+        def extract_model_name(key: str) -> str:
             """Извлекает имя модели из ключа 'model_aug' (учитывает подчёркивания в имени)"""
             # Разделяем по последнему подчёркиванию: "fpn_smp_none" -> ("fpn_smp", "none")
             parts = key.rsplit("_", 1)
             return parts[0] if len(parts) > 1 else key
 
-        models = list(set(extract_model_name(k) for k in overlay_images.keys()))
+        models: List[str] = list(
+            set(extract_model_name(k) for k in overlay_images.keys())
+        )
     else:
         models = model_names
 
@@ -613,7 +618,7 @@ def save_augmentation_comparison_grid(
 
     for row, model in enumerate(models):
         for col, aug in enumerate(["none", "basic", "medium"]):
-            key = f"{model}_{aug}"
+            key: str = f"{model}_{aug}"
             ax = axes[row, col]
 
             if key in overlay_images:
@@ -656,7 +661,7 @@ def save_augmentation_comparison_grid(
         y=1.01,
         fontweight="bold",
     )
-    plt.tight_layout(rect=[0, 0, 1, 0.98])
+    plt.tight_layout(rect=(0, 0, 1, 0.98))
     plt.savefig(
         f"{output_dir}/full_comparison_grid.png",
         dpi=300,
@@ -676,7 +681,17 @@ if __name__ == "__main__":
         print(
             f"   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB"
         )
-    results_df, overlay_images_result = analyze_augmentation_impact()
+    result_df: Optional[pd.DataFrame]
+    overlay_images_result: Optional[Dict[str, Image.Image]]
+    analysis_result = analyze_augmentation_impact()
+
+    if analysis_result is None:
+        print(
+            "\n❌ Анализ не вернул результатов (возможно, не найдены чекпоинты или произошла ошибка)."
+        )
+        exit(1)
+
+    results_df, overlay_images_result = analysis_result
     if overlay_images_result:
         print("\n🔍 DEBUG: overlay_images keys:")
         for k in sorted(overlay_images_result.keys())[:10]:
@@ -685,14 +700,16 @@ if __name__ == "__main__":
         print("\n🔍 DEBUG: извлечённые модели:")
 
         def extract_model_name(key: str) -> str:
-            parts = key.rsplit("_", 1)
+            parts: List[str] = key.rsplit("_", 1)
             return parts[0] if len(parts) > 1 else key
 
-        models = list(set(extract_model_name(k) for k in overlay_images_result.keys()))
+        models: List[str] = list(
+            set(extract_model_name(k) for k in overlay_images_result.keys())
+        )
         print(f"   {models}")
 
         if results_df is not None:
-            model_names = results_df["model"].unique().tolist()
+            model_names: List[str] = results_df["model"].unique().tolist()
             save_augmentation_comparison_grid(
                 overlay_images_result, model_names=model_names
             )

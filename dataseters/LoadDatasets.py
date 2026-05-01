@@ -26,7 +26,7 @@ Example:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# ИМПОРТЫ & TYPE ALIASES
+# ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
 import os
 import sys
@@ -327,7 +327,7 @@ class DatasetManager:
             ValueError: Если датасет не найден в реестре.
         """
         if dataset_name not in self._registry:
-            available = list(self._registry.keys())
+            available: List[str] = list(self._registry.keys())
             raise ValueError(f"Unknown dataset: {dataset_name}. Available: {available}")
         return self._registry[dataset_name]
 
@@ -617,12 +617,12 @@ class DatasetManager:
         print(f"Путь: {config.full_path}")
 
         for split_name, split_dir in config.splits.items():
-            img_dir = config.full_path / "images" / split_dir
-            ann_dir = config.full_path / "annotations" / split_dir
+            img_dir: Path = config.full_path / "images" / split_dir
+            ann_dir: Path = config.full_path / "annotations" / split_dir
 
             if img_dir.exists():
-                n_images = len(list(img_dir.glob(f"*{config.image_ext}")))
-                n_masks = (
+                n_images: int = len(list(img_dir.glob(f"*{config.image_ext}")))
+                n_masks: int = (
                     len(list(ann_dir.glob(f"*{config.mask_ext}")))
                     if ann_dir.exists()
                     else 0
@@ -1143,7 +1143,7 @@ class DatasetManager:
                 from PIL import Image
                 from io import BytesIO
 
-                header, encoded = data.split(",", 1)
+                _, encoded = data.split(",", 1)
                 return (
                     Image.open(BytesIO(base64.b64decode(encoded))).convert("RGB")
                     if convert_to_rgb
@@ -1776,11 +1776,11 @@ class MedicalDatasetUtils:
         except ImportError:
             raise ImportError("Install pydicom: pip install pydicom")
 
-        dicom_files = sorted(series_dir.glob("*.dcm"))
+        dicom_files: List[Path] = sorted(series_dir.glob("*.dcm"))
         if not dicom_files:
             raise ValueError(f"No DICOM files found in {series_dir}")
 
-        slices = []
+        slices: List = []
         for dcm_path in dicom_files:
             ds = pydicom.dcmread(dcm_path)
             # Конвертация к Hounsfield units для CT
@@ -1802,7 +1802,7 @@ class MedicalDatasetUtils:
 
         nii = nib.load(str(path))
         data = nii.get_fdata()  # type: ignore[attr-defined]
-        metadata = {
+        metadata: Dict[str, Any] = {
             "shape": data.shape,
             "affine": nii.affine.tolist(),  # type: ignore[attr-defined]
             "header": dict(nii.header),  # type: ignore[call-overload]
@@ -1814,8 +1814,8 @@ class MedicalDatasetUtils:
         image: np.ndarray, window_center: float, window_width: float
     ) -> np.ndarray:
         """Применение CT windowing для визуализации"""
-        min_val = window_center - window_width / 2
-        max_val = window_center + window_width / 2
+        min_val: float = window_center - window_width / 2
+        max_val: float = window_center + window_width / 2
         image = np.clip(image, min_val, max_val)
         image = (image - min_val) / (max_val - min_val) * 255
         return image.astype(np.uint8)
@@ -1827,7 +1827,7 @@ class MedicalDatasetUtils:
         output_dir: Path,
         prefix: str,
         config: MedicalConfig,
-    ):
+    ) -> None:
         """Сохранение в формате, готовом для обучения"""
         output_dir.mkdir(parents=True, exist_ok=True)
         if config.modality == "X-Ray":

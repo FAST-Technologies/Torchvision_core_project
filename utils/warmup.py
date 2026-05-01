@@ -1,6 +1,8 @@
 # utils/warmup.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import time
 import numpy as np
 import torch
@@ -110,7 +112,7 @@ class SegmentationWarmUp:
 
         if pattern == "gradient":
             # Градиент для тестирования пороговых методов
-            img = np.zeros((h, w, 3), dtype=np.uint8)
+            img: np.ndarray = np.zeros((h, w, 3), dtype=np.uint8)
             img[:, :, 0] = np.tile(np.linspace(0, 255, w), (h, 1)).astype(np.uint8)
             img[:, :, 1] = np.tile(
                 np.linspace(0, 255, h).reshape(-1, 1), (1, w)
@@ -175,7 +177,7 @@ class SegmentationWarmUp:
         """
         # Выбор изображения
         if use_real_image and real_image is not None:
-            image = real_image
+            image: np.ndarray = real_image
         else:
             image = self.create_test_image(pattern="gradient")
 
@@ -185,8 +187,9 @@ class SegmentationWarmUp:
             print(f"🔥 Warm-up: {method_name} ({self.n_warmup_runs} runs)")
 
         for i in range(self.n_warmup_runs):
-            start_time = time.perf_counter()
+            start_time: float = time.perf_counter()
             try:
+                result: SegmenterLike
                 if hasattr(segmenter, "segment_with_mask"):
                     result, mask = segmenter.segment_with_mask(image)
                 elif hasattr(segmenter, "segment"):
@@ -196,7 +199,7 @@ class SegmentationWarmUp:
                         "Segmenter must have 'segment' or 'segment_with_mask' method"
                     )
                 print(result)
-                end_time = time.perf_counter()
+                end_time: float = time.perf_counter()
                 warmup_times.append(end_time - start_time)
                 if verbose and i == 0:
                     print(f"   ✅ Run 1: {warmup_times[-1] * 1000:.2f}ms")
@@ -311,7 +314,9 @@ class SegmentationWarmUp:
 
         for name, segmenter in segmenters_dict.items():
             try:
-                stats = self.warmup_segmenter(segmenter, name, image, verbose)
+                stats: WarmupStats = self.warmup_segmenter(
+                    segmenter, name, image, verbose
+                )
                 all_results[name] = stats
             except Exception as e:
                 print(f"   ❌ {name}: {e}")
@@ -338,7 +343,7 @@ class SegmentationWarmUp:
             if isinstance(times, dict) and "error" in times:
                 lines.append(f"❌ {method}: {times['error']}")
             else:
-                mean_ms = np.mean(times) * 1000
-                std_ms = np.std(times) * 1000
+                mean_ms: float = float(np.mean(times) * 1000)
+                std_ms: float = float(np.std(times) * 1000)
                 lines.append(f"✅ {method}: {mean_ms:.2f}ms ± {std_ms:.2f}ms")
         return "\n".join(lines)

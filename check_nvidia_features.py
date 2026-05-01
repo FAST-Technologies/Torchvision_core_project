@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
+
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import torch
 import subprocess
 
 
-def print_gpu_mem():
+def print_gpu_mem() -> None:
     if torch.cuda.is_available():
-        alloc = torch.cuda.memory_allocated() / 1e9
-        reserved = torch.cuda.memory_reserved() / 1e9
+        alloc: float = torch.cuda.memory_allocated() / 1e9
+        reserved: float = torch.cuda.memory_reserved() / 1e9
         print(f"🔋 GPU: {alloc:.2f} GB / {reserved:.2f} GB reserved")
 
 
 print_gpu_mem()
 
 
-def run(cmd):
+def run(cmd) -> str:
     try:
         return (
             subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
@@ -92,7 +96,7 @@ except Exception as e:
 
 # Дополнительно: показать активные сессии если есть
 try:
-    sessions = subprocess.run(
+    sessions: str = subprocess.run(
         ["nvidia-smi", "encodersessions"], capture_output=True, text=True, timeout=5
     ).stdout.strip()
     if "No active encoder sessions" not in sessions and sessions:

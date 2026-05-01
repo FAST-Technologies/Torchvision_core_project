@@ -1,8 +1,11 @@
 # tests/test_torch_segmenter.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import sys
 from pathlib import Path
+from typing import Dict, Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -39,10 +42,10 @@ class TestTorchSegmenter:
         assert segmenter.method == "global_thresholding"
         assert segmenter.params["threshold"] == 0.5
 
-    def test_segment_rgb(self, test_image) -> None:
+    def test_segment_rgb(self, test_image: np.ndarray) -> None:
         """Сегментация RGB изображения"""
         segmenter = TorchSegmenter("global_thresholding", threshold=0.5)
-        mask = segmenter.segment(test_image)
+        mask: np.ndarray = segmenter.segment(test_image)
 
         assert mask is not None
         assert mask.shape == test_image.shape[:2]
@@ -50,16 +53,16 @@ class TestTorchSegmenter:
         assert mask.min() >= 0
         assert mask.max() <= 255
 
-    def test_segment_grayscale(self, test_gray_image) -> None:
+    def test_segment_grayscale(self, test_gray_image: np.ndarray) -> None:
         """Сегментация grayscale изображения"""
         segmenter = TorchSegmenter("otsu_thresholding")
-        mask = segmenter.segment(test_gray_image)
+        mask: np.ndarray = segmenter.segment(test_gray_image)
 
         assert mask is not None
         assert mask.shape == test_gray_image.shape
         assert mask.dtype == np.uint8
 
-    def test_unknown_method(self, test_image) -> None:
+    def test_unknown_method(self, test_image: np.ndarray) -> None:
         """Проверка обработки неизвестного метода"""
         with pytest.raises(ValueError):
             segmenter = TorchSegmenter("unknown_method")
@@ -75,10 +78,12 @@ class TestTorchSegmenter:
             ("canny_edge", {"low": 0.1, "high": 0.3}),
         ],
     )
-    def test_methods(self, test_image, method, params) -> None:
+    def test_methods(
+        self, test_image: np.ndarray, method: str, params: Dict[str, Any]
+    ) -> None:
         """Параметризованный тест методов"""
         segmenter = TorchSegmenter(method, **params)
-        mask = segmenter.segment(test_image)
+        mask: np.ndarray = segmenter.segment(test_image)
 
         assert mask is not None
         assert mask.shape == test_image.shape[:2]
@@ -95,7 +100,7 @@ class TestTorchSegmenter:
             pytest.skip("CUDA not available")
 
     def test_segment_returns_numpy(self, segmenter) -> None:
-        result = segmenter.segment("test_images/animals.jpg")
+        result: np.ndarray = segmenter.segment("test_images/animals.jpg")
         assert isinstance(result, np.ndarray)
         assert result.dtype == np.uint8
 

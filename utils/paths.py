@@ -1,5 +1,8 @@
 # utils/paths.py
 
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 from pathlib import Path
 from typing import Union
 
@@ -107,8 +110,8 @@ def resolve_relative_path(base: PathLike, relative: str) -> Path:
     Raises:
         ValueError: Если разрешённый путь выходит за пределы `base`.
     """
-    base_path = Path(base).resolve()
-    target_path = (base_path / relative).resolve()
+    base_path: Path = Path(base).resolve()
+    target_path: Path = (base_path / relative).resolve()
 
     # Проверка на выход за пределы base (защита от path traversal)
     try:

@@ -1,6 +1,8 @@
 # testing/TorchImplementationValidator.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import os
 import time
 import traceback
@@ -333,16 +335,18 @@ class TorchImplementationValidator:
                 # ──────────────────────────────────────────────────────
                 # Torch / тестируемая реализация
                 # ──────────────────────────────────────────────────────
-                start_method_1_time = time.perf_counter()
+                start_method_1_time: float = time.perf_counter()
                 torch_segmenter = torch_segmenter_class(method=method_name, **params)
                 torch_mask: MaskArray = torch_segmenter.segment(img_array, **params)
-                execution_method_1_time = time.perf_counter() - start_method_1_time
+                execution_method_1_time: float = (
+                    time.perf_counter() - start_method_1_time
+                )
 
                 # ──────────────────────────────────────────────────────
                 # Референсная реализация
                 # ──────────────────────────────────────────────────────
-                start_method_2_time = time.perf_counter()
-                ref_params = params.copy()
+                start_method_2_time: float = time.perf_counter()
+                ref_params: Dict[str, Any] = params.copy()
                 ref_params["postprocess"] = (
                     False  # 🔧 Отключаем постобработку для честного сравнения
                 )
@@ -350,9 +354,11 @@ class TorchImplementationValidator:
                     method=method_name, **ref_params
                 )
                 ref_mask: MaskArray = ref_segmenter.segment(img_array, **ref_params)
-                execution_method_2_time = time.perf_counter() - start_method_2_time
+                execution_method_2_time: float = (
+                    time.perf_counter() - start_method_2_time
+                )
 
-                difference_methods_time = abs(
+                difference_methods_time: float = abs(
                     execution_method_2_time - execution_method_1_time
                 )
 
@@ -500,14 +506,16 @@ class TorchImplementationValidator:
             reference: Название референсной библиотеки.
             flag_torch: Если `True`, сохраняет маску как `torch_mask.npy`, иначе `opencv_mask.npy`.
         """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        results_dir = os.path.join(self.output_dir, f"{prefix}_{reference}_{timestamp}")
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        results_dir: str = os.path.join(
+            self.output_dir, f"{prefix}_{reference}_{timestamp}"
+        )
         os.makedirs(results_dir, exist_ok=True)
 
         # Сохраняем маски и метрики
         for method, data in results.items():
             if data.get("success"):
-                method_dir = os.path.join(results_dir, method)
+                method_dir: str = os.path.join(results_dir, method)
                 os.makedirs(method_dir, exist_ok=True)
 
                 # Torch маска
@@ -523,8 +531,8 @@ class TorchImplementationValidator:
                 np.save(os.path.join(method_dir, "reference_mask.npy"), ref_mask)
 
                 # Метрики
-                metrics = data["metrics"]
-                metrics_path = os.path.join(method_dir, "metrics.txt")
+                metrics: Dict[str, Any] = data["metrics"]
+                metrics_path: str = os.path.join(method_dir, "metrics.txt")
                 with open(metrics_path, "w", encoding="utf-8") as f:
                     f.write(f"Результаты валидации: {method}\n")
                     f.write(f"Референсная библиотека: {reference}\n")
@@ -559,10 +567,10 @@ class TorchImplementationValidator:
             reference: Название референсной библиотеки.
             additional_method: Идентификатор тестируемой реализации.
         """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        original = image_array
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        original: ImageArray = image_array
 
-        n_methods = len([r for r in results.values() if r.get("success")])
+        n_methods: int = len([r for r in results.values() if r.get("success")])
         if n_methods == 0:
             print("⚠️ Нет успешных результатов для визуализации")
             return
@@ -571,26 +579,26 @@ class TorchImplementationValidator:
         if n_methods == 1:
             axes = axes.reshape(1, -1)
 
-        row = 0
+        row: int = 0
         for method, data in results.items():
             if not data.get("success"):
                 continue
 
             torch_mask = data["torch_mask"]
             ref_mask = data["reference_mask"]
-            torch_mask_np = np.squeeze(
+            torch_mask_np: np.ndarray = np.squeeze(
                 torch_mask.cpu().numpy()
                 if isinstance(torch_mask, torch.Tensor)
                 else torch_mask
             )
-            ref_mask_np = np.squeeze(
+            ref_mask_np: np.ndarray = np.squeeze(
                 ref_mask.cpu().numpy()
                 if isinstance(ref_mask, torch.Tensor)
                 else ref_mask
             )
 
-            metrics = data["metrics"]
-            status = data["validation_status"]
+            metrics: Dict[str, Any] = data["metrics"]
+            status: str = data["validation_status"]
 
             # Оригинальное изображение
             axes[row, 0].imshow(original)
@@ -611,11 +619,15 @@ class TorchImplementationValidator:
             axes[row, 2].axis("off")
 
             # Heatmap разности
-            diff = np.abs(torch_mask_np.astype(float) - ref_mask_np.astype(float))
-            im = axes[row, 3].imshow(diff, cmap="hot")
-            status_color = {"PASS": "green", "WARNING": "orange", "FAIL": "red"}.get(
-                status, "red"
+            diff: float = np.abs(
+                torch_mask_np.astype(float) - ref_mask_np.astype(float)
             )
+            im = axes[row, 3].imshow(diff, cmap="hot")
+            status_color: str = {
+                "PASS": "green",
+                "WARNING": "orange",
+                "FAIL": "red",
+            }.get(status, "red")
             axes[row, 3].set_title(f"Difference\nStatus: {status}", color=status_color)
             axes[row, 3].axis("off")
             plt.colorbar(im, ax=axes[row, 3], fraction=0.046)
@@ -627,7 +639,7 @@ class TorchImplementationValidator:
         )
         plt.tight_layout()
 
-        viz_path = os.path.join(
+        viz_path: str = os.path.join(
             self.output_dir, f"{validation_type}_validation_{reference}_{timestamp}.jpg"
         )
         plt.savefig(viz_path, dpi=150, bbox_inches="tight")
@@ -671,7 +683,7 @@ class TorchImplementationValidator:
                     continue
 
                 total_methods += 1
-                status = data["validation_status"]
+                status: str = data["validation_status"]
 
                 if status == "PASS":
                     passed_methods += 1
@@ -683,7 +695,7 @@ class TorchImplementationValidator:
                     failed_methods += 1
                     icon = "❌"
 
-                metrics = data["metrics"]
+                metrics: Dict[str, Any] = data["metrics"]
                 report_lines.append(
                     f"{icon} {method}: "
                     f"Accuracy={metrics['accuracy']:.3f}, "
@@ -720,9 +732,9 @@ class TorchImplementationValidator:
         else:
             report_lines.append("⚠️ Нет данных для статистики (все методы не прошли)")
         report_lines.append("=" * 60)
-        report = "\n".join(report_lines)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_path = os.path.join(
+        report: str = "\n".join(report_lines)
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_path: str = os.path.join(
             self.output_dir, f"validation_report_{timestamp}.txt"
         )
         with open(report_path, "w", encoding="utf-8") as f:
@@ -912,7 +924,7 @@ class TorchImplementationValidator:
 
                 # Добавляем метрики если есть
                 if "metrics" in data:
-                    metrics = data["metrics"]
+                    metrics: Dict[str, Any] = data["metrics"]
                     row.update(
                         {
                             "iou": metrics.get("iou", 0),
@@ -933,8 +945,8 @@ class TorchImplementationValidator:
                         torch_mask = data["torch_mask"]
                         if isinstance(torch_mask, torch.Tensor):
                             torch_mask = torch_mask.cpu().numpy()
-                        mask_area = np.sum(torch_mask > 0)
-                        total_pixels = torch_mask.size
+                        mask_area: int = np.sum(torch_mask > 0)
+                        total_pixels: int = torch_mask.size
                         row["torch_mask_coverage"] = (mask_area / total_pixels) * 100
 
                     if "reference_mask" in data and data["reference_mask"] is not None:
@@ -983,7 +995,7 @@ class TorchImplementationValidator:
             df: DataFrame с агрегированными данными.
             output_dir: Директория для сохранения графиков.
         """
-        charts_dir = os.path.join(output_dir, "charts")
+        charts_dir: str = os.path.join(output_dir, "charts")
         os.makedirs(charts_dir, exist_ok=True)
 
         # ──────────────────────────────────────────────────────
@@ -993,11 +1005,11 @@ class TorchImplementationValidator:
 
         # Группируем по методам и берем среднее время
         if "torch_time" in df.columns:
-            df_sorted = df.sort_values("torch_time", ascending=True)
+            df_sorted: pd.DataFrame = df.sort_values("torch_time", ascending=True)
 
             # Динамический размер фигуры
-            n_methods = len(df_sorted)
-            fig_height = max(8, n_methods * 0.35)
+            n_methods: int = len(df_sorted)
+            fig_height: float = max(8, n_methods * 0.35)
             plt.figure(figsize=(14, fig_height))
 
             bars = plt.barh(
@@ -1016,7 +1028,7 @@ class TorchImplementationValidator:
             )
 
             # Добавляем подписи значений
-            max_time = df_sorted["torch_time"].max()
+            max_time: float = df_sorted["torch_time"].max()
             for bar, time_val in zip(bars, df_sorted["torch_time"]):
                 plt.text(
                     time_val + max_time * 0.01,
@@ -1041,7 +1053,9 @@ class TorchImplementationValidator:
         # ──────────────────────────────────────────────────────
         if "torch_time" in df.columns and "reference_time" in df.columns:
             # Берем только методы где есть оба времени
-            df_compare = df[(df["torch_time"] > 0) & (df["reference_time"] > 0)].copy()
+            df_compare: pd.DataFrame = df[
+                (df["torch_time"] > 0) & (df["reference_time"] > 0)
+            ].copy()
 
             if not df_compare.empty:
                 plt.figure(figsize=(12, 8))
@@ -1106,14 +1120,14 @@ class TorchImplementationValidator:
         # График 3: IoU по методам
         # ──────────────────────────────────────────────────────
         if "iou" in df.columns:
-            df_iou = df[df["iou"] > 0].sort_values("iou", ascending=True)
+            df_iou: pd.DataFrame = df[df["iou"] > 0].sort_values("iou", ascending=True)
 
             if not df_iou.empty:
                 plt.figure(figsize=(14, 8))
                 n_methods = len(df_iou)
                 fig_height = max(8, n_methods * 0.35)
                 plt.figure(figsize=(14, fig_height))
-                colors = [
+                colors: List[str] = [
                     {"PASS": "green", "WARNING": "orange", "FAIL": "red"}.get(
                         row.get("validation_status", "UNKNOWN"), "red"
                     )
@@ -1162,7 +1176,9 @@ class TorchImplementationValidator:
         # График 4: Покрытие масок (Coverage)
         # ──────────────────────────────────────────────────────
         if "torch_mask_coverage" in df.columns:
-            df_coverage = df.sort_values("torch_mask_coverage", ascending=True)
+            df_coverage: pd.DataFrame = df.sort_values(
+                "torch_mask_coverage", ascending=True
+            )
 
             plt.figure(figsize=(14, 8))
             n_methods = len(df_coverage)
@@ -1208,17 +1224,17 @@ class TorchImplementationValidator:
         # ──────────────────────────────────────────────────────
         # График 5: Heatmap метрик
         # ──────────────────────────────────────────────────────
-        metric_cols = ["iou", "dice", "precision", "recall", "f1_score"]
-        available_metrics = [m for m in metric_cols if m in df.columns]
+        metric_cols: List[str] = ["iou", "dice", "precision", "recall", "f1_score"]
+        available_metrics: List[str] = [m for m in metric_cols if m in df.columns]
 
         if len(available_metrics) >= 2:
             # Берем top-20 методов по времени
-            df_top = df.nlargest(20, "torch_time") if len(df) > 20 else df
+            df_top: pd.DataFrame = df.nlargest(20, "torch_time") if len(df) > 20 else df
 
             plt.figure(figsize=(12, 10))
 
             # Подготавливаем данные для heatmap
-            heatmap_data = df_top[["method"] + available_metrics].copy()
+            heatmap_data: pd.DataFrame = df_top[["method"] + available_metrics].copy()
             heatmap_data.set_index("method", inplace=True)
 
             sns.heatmap(
@@ -1246,7 +1262,7 @@ class TorchImplementationValidator:
         # График 6: Trade-off время vs IoU
         # ──────────────────────────────────────────────────────
         if "torch_time" in df.columns and "iou" in df.columns:
-            df_tradeoff = df[(df["torch_time"] > 0) & (df["iou"] > 0)]
+            df_tradeoff: pd.Series = df[(df["torch_time"] > 0) & (df["iou"] > 0)]
 
             if not df_tradeoff.empty:
                 plt.figure(figsize=(12, 8))
@@ -1311,7 +1327,7 @@ class TorchImplementationValidator:
             df: DataFrame с агрегированными данными.
             output_dir: Директория для сохранения `benchmark_summary.txt`.
         """
-        summary_path = os.path.join(output_dir, "benchmark_summary.txt")
+        summary_path: str = os.path.join(output_dir, "benchmark_summary.txt")
 
         with open(summary_path, "w", encoding="utf-8") as f:
             f.write("=" * 80 + "\n")
@@ -1325,7 +1341,7 @@ class TorchImplementationValidator:
                 "=" * 80 + "\nТОП-10 САМЫХ БЫСТРЫХ МЕТОДОВ (Torch)\n" + "=" * 80 + "\n"
             )
             if "torch_time" in df.columns:
-                df_fast = df.nsmallest(10, "torch_time")
+                df_fast: pd.DataFrame = df.nsmallest(10, "torch_time")
                 for i, (_, row) in enumerate(df_fast.iterrows(), 1):
                     f.write(f"{i:2d}. {row['method']:<40} {row['torch_time']:.4f}s\n")
             f.write("\n")
@@ -1338,7 +1354,7 @@ class TorchImplementationValidator:
                     + "=" * 80
                     + "\n"
                 )
-                df_accurate = df.nlargest(10, "iou")
+                df_accurate: pd.DataFrame = df.nlargest(10, "iou")
                 for i, (_, row) in enumerate(df_accurate.iterrows(), 1):
                     f.write(f"{i:2d}. {row['method']:<40} IoU: {row['iou']:.4f}\n")
                 f.write("\n")
@@ -1352,11 +1368,11 @@ class TorchImplementationValidator:
                     + "\n"
                 )
                 # Вычисляем score = IoU / time (чем больше, тем лучше)
-                df_compromise = df.copy()
+                df_compromise: pd.DataFrame = df.copy()
                 df_compromise["efficiency_score"] = df_compromise["iou"] / (
                     df_compromise["torch_time"] + 0.001
                 )
-                df_best = df_compromise.nlargest(10, "efficiency_score")
+                df_best: pd.DataFrame = df_compromise.nlargest(10, "efficiency_score")
                 for i, (_, row) in enumerate(df_best.iterrows(), 1):
                     f.write(
                         f"{i:2d}. {row['method']:<35} IoU: {row['iou']:.4f}, "
@@ -1369,7 +1385,7 @@ class TorchImplementationValidator:
             if "reference_library" in df.columns:
                 f.write("=" * 80 + "\nСРАВНЕНИЕ ПО БИБЛИОТЕКАМ\n" + "=" * 80 + "\n")
                 for lib in df["reference_library"].unique():
-                    df_lib = df[df["reference_library"] == lib]
+                    df_lib: pd.DataFrame = df[df["reference_library"] == lib]
                     f.write(f"\n{lib.upper()}:\n")
                     f.write(f"  Количество методов: {len(df_lib)}\n")
                     if "torch_time" in df_lib.columns:
@@ -1390,9 +1406,9 @@ class TorchImplementationValidator:
                     + "=" * 80
                     + "\n"
                 )
-                status_counts = df["validation_status"].value_counts()
+                status_counts: pd.Series = df["validation_status"].value_counts()
                 for status, count in status_counts.items():
-                    percentage = (count / len(df)) * 100
+                    percentage: float = (count / len(df)) * 100
                     f.write(f"{status:<10}: {count:3d} методов ({percentage:.1f}%)\n")
                 f.write("\n")
 
@@ -1404,7 +1420,7 @@ class TorchImplementationValidator:
                 f.write(f"Max покрытие: {df['torch_mask_coverage'].max():.2f}%\n")
 
                 # Методы с аномальным покрытием
-                df_extreme = df[
+                df_extreme: pd.Series = df[
                     (df["torch_mask_coverage"] < 5) | (df["torch_mask_coverage"] > 95)
                 ]
                 if not df_extreme.empty:

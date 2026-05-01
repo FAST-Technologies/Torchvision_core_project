@@ -1,6 +1,8 @@
 # testing/BatchClassicTester.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import os
 import signal
 import sys
@@ -81,16 +83,16 @@ class BatchClassicTester:
             resume: Если `True`, автоматически ищет и загружает предыдущий прогресс.
         """
         self._setup_signal_handlers()
-        self.ade20k_root = Path(ade20k_root)
-        self.output_dir = Path(output_dir)
-        self.split = split
-        self.max_images = max_images
-        self.image_size = image_size
+        self.ade20k_root: Path = Path(ade20k_root)
+        self.output_dir: Path = Path(output_dir)
+        self.split: str = split
+        self.max_images: Optional[int] = max_images
+        self.image_size: Tuple[int, int] = image_size
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Метрики для агрегации
-        self.metrics_to_aggregate = [
+        self.metrics_to_aggregate: List[str] = [
             "iou",
             "dice",
             "precision",
@@ -107,12 +109,12 @@ class BatchClassicTester:
         )
         self.execution_times: Dict[str, List[float]] = defaultdict(list)
         self.errors: Dict[str, List[str]] = defaultdict(list)
-        self.autosave_interval = autosave_interval
-        self.resume = resume
+        self.autosave_interval: int = autosave_interval
+        self.resume: bool = resume
 
         # Пути для автосохранения
-        self.progress_file = Path(output_dir) / ".progress.json"
-        self.temp_results_file = Path(output_dir) / ".results_temp.csv"
+        self.progress_file: Path = Path(output_dir) / ".progress.json"
+        self.temp_results_file: Path = Path(output_dir) / ".results_temp.csv"
 
         # Загрузка предыдущего прогресса если нужно
         if resume and self.progress_file.exists():
@@ -149,12 +151,12 @@ class BatchClassicTester:
             total_images: Количество изображений в текущем наборе.
             total_methods: Количество тестируемых алгоритмов сегментации.
         """
-        self._total_images = total_images
-        self._total_methods = total_methods
-        self._total_tests = total_images * total_methods
+        self._total_images: int = total_images
+        self._total_methods: int = total_methods
+        self._total_tests: int = total_images * total_methods
         self._processed_count = getattr(self, "_processed_count", 0)
-        self._start_time = time.time()
-        self._last_save_time = time.time()
+        self._start_time: float = time.time()
+        self._last_save_time: float = time.time()
 
     # ──────────────────────────────────────────────────────────────────────
     def _update_progress_bar(
@@ -172,12 +174,12 @@ class BatchClassicTester:
             method_name: Имя текущего метода сегментации.
             img_name: Имя текущего изображения.
         """
-        elapsed = time.time() - self._start_time
-        rate = current_count / elapsed if elapsed > 0 else 0
-        remaining = (self._total_tests - current_count) / rate if rate > 0 else 0
+        elapsed: float = time.time() - self._start_time
+        rate: float = current_count / elapsed if elapsed > 0 else 0
+        remaining: float = (self._total_tests - current_count) / rate if rate > 0 else 0
 
         # Форматирование времени
-        def fmt_time(seconds):
+        def fmt_time(seconds) -> str:
             if seconds < 60:
                 return f"{seconds:.0f}с"
             elif seconds < 3600:
@@ -185,8 +187,8 @@ class BatchClassicTester:
             else:
                 return f"{seconds / 3600:.1f}ч"
 
-        total_errors = sum(len(errs) for errs in self.errors.values())
-        error_rate = total_errors / current_count if current_count > 0 else 0
+        total_errors: int = sum(len(errs) for errs in self.errors.values())
+        error_rate: float = total_errors / current_count if current_count > 0 else 0
 
         pbar.set_postfix(
             {
@@ -211,14 +213,14 @@ class BatchClassicTester:
         Args:
             force: Если `True`, сохраняет прогресс немедленно, игнорируя таймер.
         """
-        now = time.time()
+        now: float = time.time()
         # Сохраняем если прошло достаточно времени или по принуждению
         if not force and (now - self._last_save_time) < 30:  # не чаще 30 сек
             return
 
         try:
             # 1. Сохраняем метаданные прогресса
-            progress = {
+            progress: Dict[str, Any] = {
                 "processed_count": self._processed_count,
                 "total_tests": self._total_tests,
                 "start_time": self._start_time,
@@ -230,10 +232,10 @@ class BatchClassicTester:
 
             # 2. Сохраняем промежуточные результаты (atomic write)
             if self.results:
-                df_temp = self._aggregate_results()
+                df_temp: pd.DataFrame = self._aggregate_results()
                 df_temp.to_csv(self.temp_results_file, index=False, float_format="%.4f")
                 # Atomic rename
-                final_path = self.temp_results_file.with_suffix(".csv")
+                final_path: Path = self.temp_results_file.with_suffix(".csv")
                 self.temp_results_file.replace(final_path)
 
             self._last_save_time = now
@@ -286,8 +288,8 @@ class BatchClassicTester:
         Returns:
             Список кортежей `(имя_файла, изображение_HxWxC_uint8, бинарная_маска_HxW_uint8)`.
         """
-        images_dir = self.ade20k_root / "images" / self.split
-        masks_dir = self.ade20k_root / "annotations" / self.split
+        images_dir: Path = self.ade20k_root / "images" / self.split
+        masks_dir: Path = self.ade20k_root / "annotations" / self.split
 
         if not images_dir.exists():
             raise FileNotFoundError(f"Images directory not found: {images_dir}")
@@ -295,7 +297,7 @@ class BatchClassicTester:
             raise FileNotFoundError(f"Masks directory not found: {masks_dir}")
 
         # Получаем список изображений
-        image_files = sorted(
+        image_files: List[str] = sorted(
             [f for f in os.listdir(images_dir) if f.endswith((".jpg", ".jpeg", ".png"))]
         )
 
@@ -306,9 +308,9 @@ class BatchClassicTester:
 
         data = []
         for img_file in tqdm(image_files, desc="Loading images"):
-            mask_file = img_file.rsplit(".", 1)[0] + ".png"
-            img_path = images_dir / img_file
-            mask_path = masks_dir / mask_file
+            mask_file: str = img_file.rsplit(".", 1)[0] + ".png"
+            img_path: Path = images_dir / img_file
+            mask_path: Path = masks_dir / mask_file
 
             if not mask_path.exists():
                 print(f"⚠️  Mask not found for {img_file}, skipping")
@@ -316,20 +318,20 @@ class BatchClassicTester:
 
             try:
                 # Загрузка изображения
-                img = Image.open(img_path).convert("RGB")
-                img_array = np.array(
+                img: Image.Image = Image.open(img_path).convert("RGB")
+                img_array: np.ndarray = np.array(
                     img.resize(self.image_size, Image.Resampling.BILINEAR)
                 )
 
                 # Загрузка маски
                 mask_pil = Image.open(mask_path)
-                mask_array = np.array(
+                mask_array: np.ndarray = np.array(
                     mask_pil.resize(self.image_size, Image.Resampling.NEAREST)
                 )
 
                 # Конвертация многоклассовой маски в бинарную
                 # Стратегия: самый частый класс = фон (0), всё остальное = объект (255)
-                binary_mask = self._multiclass_to_binary(mask_array)
+                binary_mask: np.ndarray = self._multiclass_to_binary(mask_array)
 
                 data.append((img_file, img_array, binary_mask))
 
@@ -358,7 +360,7 @@ class BatchClassicTester:
         background_class = unique[np.argmax(counts)]
 
         # Бинаризация: объект = всё, что не фон
-        binary = (mask != background_class).astype(np.uint8) * 255
+        binary: np.ndarray = (mask != background_class).astype(np.uint8) * 255
         return binary
 
     def _run_single_test(
@@ -378,10 +380,10 @@ class BatchClassicTester:
             При успехе `error_msg` равен `None`, при ошибке первые два элемента `None`.
         """
         try:
-            start_time = time.time()
+            start_time: float = time.time()
 
             # Сегментация
-            pred_mask = segmenter.segment(image)
+            pred_mask: np.ndarray = segmenter.segment(image)
 
             # Ресайз предсказания к размеру GT если нужно
             if pred_mask.shape != gt_mask.shape:
@@ -391,10 +393,10 @@ class BatchClassicTester:
                     pred_mask, gt_mask.shape, order=0, preserve_range=True
                 ).astype(np.uint8)
 
-            exec_time = time.time() - start_time
+            exec_time: float = time.time() - start_time
 
             # Расчёт метрик
-            metrics = SegmentationMetrics.calculate_all_metrics(
+            metrics: Dict[str, float] = SegmentationMetrics.calculate_all_metrics(
                 pred_mask=pred_mask,
                 gt_mask=gt_mask,
                 threshold=0.5,
@@ -500,14 +502,16 @@ class BatchClassicTester:
             `pd.DataFrame` с агрегированными метриками, временем выполнения и статистикой ошибок.
         """
         # Загрузка данных
-        test_data = self._load_images_with_masks()
+        test_data: List[Tuple[str, np.ndarray, np.ndarray]] = (
+            self._load_images_with_masks()
+        )
         if not test_data:
             raise ValueError("No test data loaded!")
 
         # Получение методов
-        methods = self._get_classic_methods()
-        total_images = len(test_data)
-        total_methods = len(methods)
+        methods: Dict[str, Any] = self._get_classic_methods()
+        total_images: int = len(test_data)
+        total_methods: int = len(methods)
 
         print(f"🔧 Тестируем {total_methods} методов на {total_images} изображениях")
         print(f"📊 Всего тестов: {total_images * total_methods}")
@@ -603,7 +607,7 @@ class BatchClassicTester:
             `pd.DataFrame` со столбцами `Method`, `{metric}_{stat}`, `time_mean_s`,
             `error_count`, `error_rate` и `Images_Tested`.
         """
-        rows = []
+        rows: List = []
 
         for method_name in self.results:
             images_tested: int = len(self.results[method_name].get("iou", []))
@@ -614,7 +618,7 @@ class BatchClassicTester:
 
             # Средние значения метрик
             for metric_name in self.metrics_to_aggregate:
-                values = self.results[method_name].get(metric_name, [])
+                values: List[float] = self.results[method_name].get(metric_name, [])
                 if values:
                     row[f"{metric_name}_mean"] = np.mean(values)
                     row[f"{metric_name}_std"] = np.std(values)
@@ -624,7 +628,7 @@ class BatchClassicTester:
                     row[f"{metric_name}_mean"] = np.nan
 
             # Время выполнения
-            times = self.execution_times.get(method_name, [])
+            times: List[float] = self.execution_times.get(method_name, [])
             if times:
                 row["time_mean_s"] = np.mean(times)
                 row["time_std_s"] = np.std(times)
@@ -632,13 +636,13 @@ class BatchClassicTester:
                 row["time_mean_s"] = np.nan
 
             # Ошибки
-            errors = self.errors.get(method_name, [])
+            errors: List[str] = self.errors.get(method_name, [])
             row["error_count"] = len(errors)
             row["error_rate"] = len(errors) / max(row["Images_Tested"], 1)
 
             rows.append(row)
 
-        df = pd.DataFrame(rows)
+        df: pd.DataFrame = pd.DataFrame(rows)
 
         # Сортировка по IoU
         if "iou_mean" in df.columns:
@@ -660,13 +664,13 @@ class BatchClassicTester:
             Кортеж путей к сохранённым файлам `(csv_path, json_path, md_path)`.
         """
         # CSV
-        csv_path = self.output_dir / f"{prefix}_results.csv"
+        csv_path: Path = self.output_dir / f"{prefix}_results.csv"
         df.to_csv(csv_path, index=False, float_format="%.4f")
         print(f"💾 CSV сохранён: {csv_path}")
 
         # JSON с детальными результатами
-        json_path = self.output_dir / f"{prefix}_details.json"
-        details = {
+        json_path: Path = self.output_dir / f"{prefix}_details.json"
+        details: Dict[str, Any] = {
             "summary": df.to_dict(orient="records"),
             "errors": dict(self.errors),
             "config": {
@@ -681,7 +685,7 @@ class BatchClassicTester:
         print(f"💾 JSON сохранён: {json_path}")
 
         # Markdown отчёт
-        md_path = self.output_dir / f"{prefix}_report.md"
+        md_path: Path = self.output_dir / f"{prefix}_report.md"
         self._save_markdown_report(df, md_path)
         print(f"💾 Markdown отчёт: {md_path}")
 
@@ -705,20 +709,22 @@ class BatchClassicTester:
 
             # Топ-10 по IoU
             f.write("## 🏆 Топ-10 методов по среднему IoU\n\n")
-            top_10 = df.head(10)[
+            top_10: pd.DataFrame = df.head(10)[
                 ["Method", "iou_mean", "dice_mean", "time_mean_s", "Images_Tested"]
             ]
             f.write(top_10.to_markdown(index=False) + "\n\n")
 
             # Сводная таблица всех метрик
             f.write("## 📈 Полная таблица результатов\n\n")
-            cols_to_show = ["Method"] + [c for c in df.columns if c.endswith("_mean")]
+            cols_to_show: List[str] = ["Method"] + [
+                c for c in df.columns if c.endswith("_mean")
+            ]
             f.write(df[cols_to_show].to_markdown(index=False, floatfmt=".4f") + "\n\n")
 
             # Статистика ошибок
             if any(df["error_count"] > 0):
                 f.write("## ⚠️ Статистика ошибок\n\n")
-                error_df = df[df["error_count"] > 0][
+                error_df: pd.DataFrame = df[df["error_count"] > 0][
                     ["Method", "error_count", "error_rate"]
                 ]
                 f.write(error_df.to_markdown(index=False) + "\n\n")
@@ -741,7 +747,7 @@ class BatchClassicTester:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Фильтруем методы с достаточным количеством тестов
-        df_plot = df[df["Images_Tested"] >= 5].copy()
+        df_plot: pd.DataFrame = df[df["Images_Tested"] >= 5].copy()
         if df_plot.empty:
             print("⚠️ Недостаточно данных для построения графиков")
             return
@@ -784,7 +790,7 @@ class BatchClassicTester:
         plt.close()
 
         # === График 3: Heatmap метрик ===
-        metrics_cols = [
+        metrics_cols: List[str] = [
             c
             for c in df.columns
             if c.endswith("_mean") and c.split("_")[0] in self.metrics_to_aggregate

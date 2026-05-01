@@ -1,5 +1,8 @@
 # segmenters/AutoSegmenter.py
 
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import os
 from typing import Callable, TypeVar, ParamSpec
 
@@ -30,7 +33,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 # Локальные импорты (для совместимости с экосистемой)
-from segmenters.BaseSegmenter import BaseSegmenter
+from segmenters.BaseSegmenter import BaseSegmenter, ProbabilityMask, BinaryMask
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
@@ -5231,27 +5234,31 @@ class AutoSegmenter:
 
         # Основные статистики
         gray_f: np.ndarray = gray.astype(np.float64)
-        mean_intensity = float(np.mean(gray_f))
-        std_intensity = float(np.std(gray_f))
-        contrast = float((np.max(gray_f) - np.min(gray_f)) / (np.max(gray_f) + 1e-6))
+        mean_intensity: float = float(np.mean(gray_f))
+        std_intensity: float = float(np.std(gray_f))
+        contrast: float = float(
+            (np.max(gray_f) - np.min(gray_f)) / (np.max(gray_f) + 1e-6)
+        )
 
         # Оценка шума (через локальную дисперсию)
-        local_std = cv2.blur(gray_f**2, (3, 3)) - cv2.blur(gray_f, (3, 3)) ** 2
+        local_std: np.ndarray = (
+            cv2.blur(gray_f**2, (3, 3)) - cv2.blur(gray_f, (3, 3)) ** 2
+        )
         mean_local_std: float = float(np.mean(local_std))  # type: ignore[arg-type]
-        noise_level = float(np.sqrt(mean_local_std) / (std_intensity + 1e-6))
+        noise_level: float = float(np.sqrt(mean_local_std) / (std_intensity + 1e-6))
 
         # Плотность границ
         edges = cv2.Canny(gray, 50, 150)
-        edge_density = float(np.sum(edges > 0) / (width * height))
+        edge_density: float = float(np.sum(edges > 0) / (width * height))
 
         # Комплексность (энтропия)
         hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
         hist_norm = hist / (hist.sum() + 1e-6)
-        entropy = -np.sum(hist_norm * np.log2(hist_norm + 1e-6))
-        complexity_score = float(entropy / 8.0)  # Нормализация
+        entropy: np.ndarray = -np.sum(hist_norm * np.log2(hist_norm + 1e-6))
+        complexity_score: float = float(entropy / 8.0)  # Нормализация
 
         # Оценка типа изображения
-        estimated_type = self._estimate_image_type(
+        estimated_type: ImageType = self._estimate_image_type(
             gray,
             float(mean_intensity),
             float(std_intensity),
@@ -5360,10 +5367,13 @@ class AutoSegmenter:
 
         # Нормализация уверенности
         all_scores: List[float] = [s for s, _ in scores.values()]
-        z_score = (best_score - np.mean(all_scores)) / (np.std(all_scores) + 1e-6)
+        z_score: float = float(
+            (best_score - np.mean(all_scores)) / (np.std(all_scores) + 1e-6)
+        )
         confidence: float = float(1 / (1 + np.exp(-z_score)))  # Sigmoid
 
-        params = self.available_methods.get(best_method, {}).get("params", {})
+        params_raw = self.available_methods.get(best_method, {}).get("params", {})
+        params: MethodParams = params_raw if isinstance(params_raw, dict) else {}
 
         return best_method, best_profile.library, params, confidence
 
@@ -5487,7 +5497,10 @@ class AutoSegmenter:
         segmenter = segmenter_class(**params)
 
         # Выполнение сегментации
-        result = segmenter.segment_with_mask(image)
+        result: Union[Tuple[BinaryMask, Optional[ProbabilityMask]], MaskArray] = (
+            segmenter.segment_with_mask(image)
+        )
+        mask: Optional[MaskArray] = None
         if isinstance(result, tuple) and len(result) == 2:
             _, mask = result
         else:
@@ -5564,7 +5577,7 @@ class AutoSegmenter:
             }
 
         # Сортировка
-        sorted_methods = sorted(
+        sorted_methods: List[Tuple[str, Dict[str, Any]]] = sorted(
             scores.items(), key=lambda x: x[1]["score"], reverse=True
         )
 

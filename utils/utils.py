@@ -1,6 +1,8 @@
 # utils/utils.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import torch
 import numpy as np
 import pandas as pd
@@ -63,7 +65,7 @@ def compute_metrics(
         ```
     """
     # Маска валидных пикселей (исключаем ignore_index)
-    valid = gt_mask != ignore_index
+    valid: bool = gt_mask != ignore_index
     if not np.any(valid):
         return {
             "mIoU": np.nan,
@@ -76,7 +78,7 @@ def compute_metrics(
         }
 
     pred_valid = pred_mask[valid]
-    gt_valid = np.clip(gt_mask[valid], 0, num_classes - 1)
+    gt_valid: np.ndarray = np.clip(gt_mask[valid], 0, num_classes - 1)
 
     # Значения в ground truth должны быть в диапазоне [0, num_classes-1]
     gt_min, gt_max = gt_valid.min(), gt_valid.max()
@@ -193,7 +195,7 @@ def extract_logits_info(
         elif model_type in ["deeplab_tv", "fcn_tv"]:
             # Torchvision: dict["out"][0] или tensor[0]
             if isinstance(outputs, dict) and "out" in outputs:
-                out_val = outputs["out"]
+                out_val: torch.Tensor = outputs["out"]
                 logits = (
                     out_val[0]
                     if isinstance(out_val, (tuple, list)) and len(out_val) > 0
@@ -242,14 +244,14 @@ def extract_logits_info(
         # ──────────────────────────────────────────────────────────────
         # Статистика логов
         # ──────────────────────────────────────────────────────────────
-        logits_cpu = logits.cpu().float()
-        logits_np = logits_cpu.numpy()
+        logits_cpu: torch.Tensor = logits.cpu().float()
+        logits_np: np.ndarray = logits_cpu.numpy()
         try:
             # PyTorch >= 1.9 с поддержкой nan-статистик
-            min_val = float(np.nanmin(logits_np))
-            max_val = float(np.nanmax(logits_np))
-            mean_val = float(np.nanmean(logits_np))
-            std_val = float(np.nanstd(logits_np))
+            min_val: float = float(np.nanmin(logits_np))
+            max_val: float = float(np.nanmax(logits_np))
+            mean_val: float = float(np.nanmean(logits_np))
+            std_val: float = float(np.nanstd(logits_np))
         except AttributeError:
             # Fallback для PyTorch < 1.9
             flat = logits_cpu.flatten()
@@ -308,14 +310,16 @@ def analyze_prediction(
         - Имена классов берутся из `class_names` или генерируются как `"Class_{id}"`.
     """
     # Фильтрация ignore_index
-    valid_mask = mask != ignore_index
-    mask_valid = mask[valid_mask]
+    valid_mask: bool = mask != ignore_index
+    mask_valid: MaskArray = mask[valid_mask]
 
     if len(mask_valid) == 0:
         print("⚠️  No valid pixels (all ignored)")
         return {}
 
     # Статистика
+    unique: np.ndarray
+    counts: np.ndarray
     unique, counts = np.unique(mask_valid, return_counts=True)
     total: int = len(mask_valid)
 
@@ -327,19 +331,21 @@ def analyze_prediction(
 
     # Топ классы
     print(f"\n   Top {top_k} classes by pixel count:")
-    sorted_idx = np.argsort(counts)[::-1][:top_k]
+    sorted_idx: np.ndarray = np.argsort(counts)[::-1][:top_k]
 
     for idx in sorted_idx:
         cls = unique[idx]
-        cnt = counts[idx]
-        pct = 100 * cnt / total
-        name = class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
+        cnt: np.ndarray = counts[idx]
+        pct: np.ndarray = 100 * cnt / total
+        name: str = (
+            class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
+        )
         print(f"     {cls:3d}: {name:25s} {cnt:7,} px ({pct:5.3f}%)")
 
     # Проверка на доминирующий класс
     dominant_class: Optional[int] = None
     if len(counts) > 0 and counts[0] / total > 0.5:
-        dominant_cls = int(unique[np.argmax(counts)])
+        dominant_cls: int = int(unique[np.argmax(counts)])
         dominant_class = dominant_cls
         print(
             f"\n   ⚠️  Dominant class: {dominant_cls} ({100 * counts.max() / total:.3f}% of pixels)"
@@ -390,21 +396,23 @@ def generate_class_report(
         - DataFrame содержит колонки: `class_id`, `class_name`, `pixel_count`, `percentage`, `rank`.
     """
     # Фильтрация
-    valid = mask != ignore_index
-    mask_valid = mask[valid]
+    valid: bool = mask != ignore_index
+    mask_valid: MaskArray = mask[valid]
 
     if len(mask_valid) == 0:
         return {"error": "⚠️ No valid pixels"}
 
     # Статистика
+    unique: np.ndarray
+    counts: np.ndarray
     unique, counts = np.unique(mask_valid, return_counts=True)
-    total = len(mask_valid)
+    total: int = len(mask_valid)
 
     # Сбор данных
     rows: List[Dict[str, Any]] = []
     for cls, cnt in zip(unique, counts):
         if cnt >= min_pixels:  # Фильтрация шума
-            name = (
+            name: str = (
                 class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
             )
             rows.append(
@@ -462,11 +470,11 @@ def export_class_report(
     if "dataframe" not in report:
         print("⚠️ Invalid report structure: missing 'dataframe' key")
         return
-    df = report["dataframe"]
+    df: pd.DataFrame = report["dataframe"]
     if format == "csv":
         df.to_csv(output_file, index=False, encoding="utf-8")
     elif format == "markdown":
-        md = df.to_markdown(index=False)
+        md: str = df.to_markdown(index=False)
         with open(output_file, "w", encoding="utf-8") as f:
             f.write("# Class Prediction Report\n\n")
             f.write(

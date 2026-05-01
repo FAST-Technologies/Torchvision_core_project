@@ -1,5 +1,8 @@
 # routers/benchmark.py
 
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import os
 import sys
 import uuid
@@ -9,7 +12,17 @@ import time
 import gc
 import base64
 import logging
-from typing import Dict, Any, Optional, Union, List, Tuple
+from typing import (
+    Dict,
+    Any,
+    Optional,
+    Union,
+    List,
+    Callable,
+    TypedDict,
+    Tuple,
+    cast,
+)
 from pathlib import Path
 from pydantic import BaseModel
 
@@ -25,7 +38,7 @@ from utils.paths import ensure_dirs, ADE20K_DIR, MODELS_DIR, PROJECT_ROOT, DATA_
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("benchmark")
 
-router = APIRouter(
+router: APIRouter = APIRouter(
     prefix="/api/benchmark",
     tags=["benchmark"],
     responses={
@@ -37,8 +50,30 @@ router = APIRouter(
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & TASK STORAGE
 # ──────────────────────────────────────────────────────────────────────
-BenchmarkTaskDict = Dict[str, Dict[str, Any]]
 PathLike = Union[str, Path]
+
+
+# 🔹 TypedDict для структуры задачи бенчмарка
+class BenchmarkTask(TypedDict, total=False):
+    status: str  # "running", "completed", "failed", "cancelled"
+    progress: float  # 0-100
+    message: str
+    results: Optional[Dict[str, Any]]
+    error_details: Optional[Dict[str, Any]]
+
+
+# 🔹 TypedDict для конфигурации бенчмарка (вместо Dict[str, Any])
+class BenchmarkConfig(TypedDict, total=False):
+    inference: Dict[str, Any]
+    filters: Dict[str, Any]
+    visualization: Dict[str, Any]
+    models_to_run: Optional[List[str]]
+
+
+# 🔹 Type alias для хранилища задач
+BenchmarkTaskDict = Dict[str, BenchmarkTask]
+ModelLoadStep = Tuple[str, Callable[..., Any], Dict[str, Any]]
+
 # Простое хранилище задач (в продакшене замените на Redis/Celery)
 benchmark_tasks: BenchmarkTaskDict = {}
 
@@ -46,7 +81,7 @@ benchmark_tasks: BenchmarkTaskDict = {}
 class NumpyEncoder(json.JSONEncoder):
     """Кастомный JSON-энкодер для numpy-типов и специальных float-значений"""
 
-    def default(self, obj):
+    def default(self, obj: Any) -> Any:
         if isinstance(obj, np.integer):
             return int(obj)
         elif isinstance(obj, np.floating):
@@ -90,11 +125,11 @@ async def benchmark_health() -> Dict[str, Any]:
     """Возвращает статус GPU, VRAM и активных задач бенчмарка."""
     if torch.cuda.is_available():
         props = torch.cuda.get_device_properties(0)
-        total_vram_mb = props.total_memory / 1024**2
-        alloc_vram_mb = torch.cuda.memory_allocated(0) / 1024**2
-        free_vram_mb = total_vram_mb - alloc_vram_mb
-        reserved_vram_mb = torch.cuda.memory_reserved(0) / 1024**2
-        device_name = torch.cuda.get_device_name(0)
+        total_vram_mb: float = props.total_memory / 1024**2
+        alloc_vram_mb: float = torch.cuda.memory_allocated(0) / 1024**2
+        free_vram_mb: float = total_vram_mb - alloc_vram_mb
+        reserved_vram_mb: float = torch.cuda.memory_reserved(0) / 1024**2
+        device_name: str = torch.cuda.get_device_name(0)
     else:
         total_vram_mb = alloc_vram_mb = free_vram_mb = reserved_vram_mb = 0.0
         device_name = "cpu"
@@ -147,7 +182,7 @@ async def run_benchmark(
         "results": None,
     }
     if torch.cuda.is_available():
-        vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        vram_gb: float = torch.cuda.get_device_properties(0).total_memory / 1024**3
         if vram_gb < 20:  # менее 20 ГБ
             logger.warning(f"⚠️ Low VRAM: {vram_gb:.1f} GB. Benchmark may fail.")
     try:
@@ -165,30 +200,35 @@ async def run_benchmark(
             ("UNet", settings.MODEL_DIR / settings.UNET_CHECKPOINT),
             ("Default Image", settings.DEFAULT_IMAGE),
         ]:
-            exists = "✅" if os.path.exists(path) else "❌"
+            path_str: str = str(path)
+            exists = "✅" if os.path.exists(path_str) else "❌"
             logger.info(f"{exists} {key}: {path}")
 
-        inference_params = (config or {}).get("inference", {})
-        alpha = inference_params.get("alpha", 0.6)
-        warmup_runs = inference_params.get("warmup_runs", 2)
+        config_dict: BenchmarkConfig = cast(BenchmarkConfig, config or {})
+        inference_params: Dict[str, Any] = config_dict.get("inference", {})
+        alpha: float = float(inference_params.get("alpha", 0.6))
+        warmup_runs: int = int(inference_params.get("warmup_runs", 2))
 
-        filters = (config or {}).get("filters", {})
-        min_iou = filters.get("min_iou", 0.0)
-        only_passed = filters.get("only_passed", False)
+        filters: Dict[str, Any] = config_dict.get("filters", {})
+        min_iou: float = float(filters.get("min_iou", 0.0))
+        only_passed: bool = bool(filters.get("only_passed", False))
 
-        viz_params = (config or {}).get("visualization", {})
-        show_overlay = viz_params.get("show_overlay", True)
-        show_gt = viz_params.get("show_gt", True)
-        palette_name = viz_params.get("color_palette", "ade")
+        viz_params: Dict[str, Any] = config_dict.get("visualization", {})
+        show_overlay: bool = bool(viz_params.get("show_overlay", True))
+        show_gt: bool = bool(viz_params.get("show_gt", True))
+        palette_name: str = str(viz_params.get("color_palette", "ade"))
 
         from utils.palettes import ade_palette, coco_palette, cityscapes_palette
 
-        PALETTES = {
+        PALETTES: Dict[str, Callable[[], List[List[int]]]] = {
             "ade": ade_palette,
             "coco": coco_palette,
             "cityscapes": cityscapes_palette,
         }
-        palette = PALETTES.get(palette_name, ade_palette)
+        palette_func: Callable[[], List[List[int]]] = PALETTES.get(
+            palette_name, ade_palette
+        )
+        palette: List[List[int]] = palette_func()
 
         benchmark_tasks[task_id]["progress"] = 5
         benchmark_tasks[task_id]["message"] = "Загрузка бенчмарка..."
@@ -196,6 +236,7 @@ async def run_benchmark(
             f"🔄 Task {task_id}: progress={benchmark_tasks[task_id]['progress']}, message={benchmark_tasks[task_id]['message']}"
         )
 
+        image_input: Image.Image
         if image_file:
             image_input = Image.open(image_file.file).convert("RGB")
         elif req.image_path and os.path.exists(req.image_path):
@@ -203,22 +244,22 @@ async def run_benchmark(
         else:
             from huggingface_hub import hf_hub_download
 
-            repo_id = "hf-internal-testing/fixtures_ade20k"
-            image_path = hf_hub_download(
+            repo_id: str = "hf-internal-testing/fixtures_ade20k"
+            image_path: str = hf_hub_download(
                 repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset"
             )
             image_input = Image.open(image_path).convert("RGB")
 
         # 🔹 Обработка GT-маски
-        gt_mask = None
+        gt_mask: Optional[np.ndarray] = None
         if gt_file:
             gt_mask = np.array(Image.open(gt_file.file).convert("L"))
         elif req.use_default_image:
-            gt_path = "./data/ade20k_test_trained/original_image_mask_0.png"
+            gt_path: str = "./data/ade20k_test_trained/original_image_mask_0.png"
             if os.path.exists(gt_path):
                 gt_mask = np.array(Image.open(gt_path).convert("L"))
 
-        bench = SegmentationBenchmark(
+        bench: SegmentationBenchmark = SegmentationBenchmark(
             device="cuda" if torch.cuda.is_available() else "cpu",
             num_classes=150,
             gt_mask=gt_mask,
@@ -226,7 +267,7 @@ async def run_benchmark(
         )
 
         # Загрузка моделей
-        model_load_steps = [
+        model_load_steps: List[ModelLoadStep] = [
             (
                 "segformer",
                 bench.load_segformer,
@@ -331,7 +372,7 @@ async def run_benchmark(
             ),
         ]
 
-        models_to_run = (config or {}).get("models_to_run")
+        models_to_run: Optional[List[str]] = config_dict.get("models_to_run")
         if models_to_run:
             model_load_steps = [
                 step for step in model_load_steps if step[0] in models_to_run
@@ -341,7 +382,7 @@ async def run_benchmark(
             benchmark_tasks[task_id]["progress"] = 5 + (i / len(model_load_steps)) * 70
             benchmark_tasks[task_id]["message"] = f"🔄 {key}: загрузка..."
             try:
-                cp = kwargs.get("checkpoint_path")
+                cp: Optional[str] = kwargs.get("checkpoint_path")
                 if cp and not os.path.exists(cp):
                     logger.warning(f"⚠️ Checkpoint not found: {cp}, skipping {key}")
                     continue
@@ -366,13 +407,13 @@ async def run_benchmark(
 
         # Сохранение результатов
         benchmark_tasks[task_id]["message"] = "Сохранение результатов..."
-        out_dir = f"./data/benchmark_{task_id}"
+        out_dir: str = f"./data/benchmark_{task_id}"
         os.makedirs(out_dir, exist_ok=True)
         os.makedirs("./data/ade20k_test_trained", exist_ok=True)
         await asyncio.to_thread(bench.save_results, out_dir)
         await asyncio.to_thread(bench.plot_all_metrics, path=f"{out_dir}/plot_all.png")
 
-        summary = bench.get_summary()
+        summary: Dict[str, Dict[str, Any]] = bench.get_summary()
         for _, metrics in summary.items():
             for key in ["mIoU", "pixel_acc", "f1_weighted"]:
                 val = metrics.get(key)
@@ -426,36 +467,45 @@ async def start_benchmark(
     use_default_image: bool = Form(True),
     image_path: Optional[str] = Form(None),
     config: Optional[str] = Form(None),
-    bg: BackgroundTasks = None,
+    bg: Optional[BackgroundTasks] = None,
 ) -> Dict[str, str]:
     """Запускает асинхронный бенчмарк."""
-    config_dict = {}
+    config_dict: Optional[BenchmarkConfig] = None
     if config:
         try:
-            config_dict = json.loads(config)
+            config_dict = cast(BenchmarkConfig, json.loads(config))
         except json.JSONDecodeError:
             raise HTTPException(422, detail="Invalid config JSON")
+    config_for_task: Optional[Dict[str, Any]] = (
+        dict(config_dict) if config_dict else None
+    )
     req = BenchmarkStartRequest(
         use_default_image=use_default_image,
         image_path=image_path,
     )
-    task_id = str(uuid.uuid4())
-    bg.add_task(run_benchmark, task_id, req, image, gt_mask, config_dict)
+    task_id: str = str(uuid.uuid4())
+    if bg is not None:
+        bg.add_task(run_benchmark, task_id, req, image, gt_mask, config_for_task)
+    else:
+        logger.warning("BackgroundTasks not provided, running benchmark synchronously")
     return {"task_id": task_id}
 
 
 @router.get("/status/{task_id}")
 async def get_status(task_id: str) -> JSONResponse:
     """Возвращает статус и прогресс задачи бенчмарка."""
-    task = benchmark_tasks[task_id]
+    task: Optional[BenchmarkTask] = benchmark_tasks.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
     logger.info(f"📡 GET /status/{task_id} -> {task.get('progress')}%")
     if task_id not in benchmark_tasks or not task:
         raise HTTPException(status_code=404, detail="Task not found")
     logger.debug(
         f"📡 Status requested for {task_id}: {task['status']} / {task['progress']}%"
     )
-    if task.get("results") and "summary" in task["results"]:
-        summary = task["results"]["summary"]
+    results = task.get("results")
+    if results is not None and isinstance(results, dict) and "summary" in results:
+        summary = results["summary"]
         for _, metrics in summary.items():
             for key, value in metrics.items():
                 if isinstance(value, (float, np.floating)) and (
@@ -469,18 +519,18 @@ async def get_status(task_id: str) -> JSONResponse:
 @router.get("/debug/{task_id}")
 async def debug_task(task_id: str) -> Dict[str, Any]:
     """Отладочная информация о задаче."""
-    task = benchmark_tasks.get(task_id)
+    task: Optional[BenchmarkTask] = benchmark_tasks.get(task_id)
     if not task:
         return {"error": "Task not found"}
+    results = task.get("results")
+    results_keys = list(results.keys()) if isinstance(results, dict) else None
 
     return {
         "task_id": task_id,
         "status": task.get("status"),
         "progress": task.get("progress"),
         "message": task.get("message"),
-        "results_keys": (
-            list(task.get("results", {}).keys()) if task.get("results") else None
-        ),
+        "results_keys": results_keys,
         "last_updated": time.perf_counter(),
     }
 
@@ -491,7 +541,7 @@ async def cancel_benchmark(task_id: str) -> Dict[str, str]:
     if task_id not in benchmark_tasks:
         raise HTTPException(404, detail="Task not found")
 
-    task = benchmark_tasks[task_id]
+    task: BenchmarkTask = benchmark_tasks[task_id]
     if not task:
         return {"status": "not_found", "message": "Task not found or already removed"}
     if task["status"] in ("completed", "failed", "cancelled"):

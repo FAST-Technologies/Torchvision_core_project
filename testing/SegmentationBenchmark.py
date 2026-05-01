@@ -1,6 +1,8 @@
 # testing/SegmentationBenchmark.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import sys
 import os
 import json
@@ -13,6 +15,7 @@ from typing import (
     Any,
     Optional,
     Callable,
+    TypedDict,
     Union,
     Tuple,
 )
@@ -36,11 +39,26 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES & CONSTANTS
+# ──────────────────────────────────────────────────────────────────────
+
 num_classes_custom: int = 150
 
 # Alias для удобства
 ImageInput = Union[str, Image.Image]
 PaletteType = Optional[Union[List[List[int]], Callable[[], List[List[int]]]]]
+
+
+# 🔹 TypedDict для спецификации метрики
+class MetricPlotSpec(TypedDict):
+    key: str  # Ключ метрики в summary (например, "mIoU")
+    label: str  # Подпись для оси Y
+    transform: Callable[[float], float]  # Функция трансформации значения
+
+
+# 🔹 Type alias для функции трансформации
+TransformFunc = Callable[[float], float]
 
 
 class SegmentationBenchmark:
@@ -163,7 +181,7 @@ class SegmentationBenchmark:
             ),
         }
         for key, (model_type, checkpoint_file, kwargs) in checkpoints.items():
-            checkpoint_path = os.path.join(checkpoint_dir, checkpoint_file)
+            checkpoint_path: str = os.path.join(checkpoint_dir, checkpoint_file)
             if os.path.exists(checkpoint_path):
                 self.load_trained_model(key, model_type, checkpoint_path, **kwargs)
             else:
@@ -206,7 +224,7 @@ class SegmentationBenchmark:
             variant=variant,
             device=cast(Literal["cuda", "cpu"], self.device),
         )
-        key = f"segformer_{variant}"
+        key: str = f"segformer_{variant}"
         self.models[key] = {
             "model": model,
             "processor": processor,
@@ -295,7 +313,7 @@ class SegmentationBenchmark:
             device=cast(Literal["cuda", "cpu"], self.device),
             num_classes=self.num_classes,
         )
-        model_key = "sam2" if "sam2" in model_name.lower() else "sam"
+        model_key: str = "sam2" if "sam2" in model_name.lower() else "sam"
         self.models[model_key] = {
             "model": model,
             "processor": processor,
@@ -315,7 +333,7 @@ class SegmentationBenchmark:
             encoder_name=f"mit_{variant}",
             checkpoint_path=checkpoint_path,
         )
-        key = f"fpn_mit_{variant}_pretrained"
+        key: str = f"fpn_mit_{variant}_pretrained"
         self.models[key] = {
             "model": model,
             "processor": processor,
@@ -336,7 +354,7 @@ class SegmentationBenchmark:
             encoder_name=f"mit_{variant}",
             checkpoint_path=checkpoint_path,
         )
-        key = f"psp_mit_{variant}_pretrained"
+        key: str = f"psp_mit_{variant}_pretrained"
         self.models[key] = {
             "model": model,
             "processor": processor,
@@ -357,7 +375,7 @@ class SegmentationBenchmark:
             variant=variant,
             checkpoint_path=checkpoint_path,
         )
-        key = f"fcn_{variant.replace('fcn_', '')}_pretrained"
+        key: str = f"fcn_{variant.replace('fcn_', '')}_pretrained"
         self.models[key] = {
             "model": model,
             "processor": processor,
@@ -378,7 +396,7 @@ class SegmentationBenchmark:
             encoder_name=encoder_name,
             checkpoint_path=checkpoint_path,
         )
-        key = f"segnet_{encoder_name.replace('-', '_')}_pretrained"
+        key: str = f"segnet_{encoder_name.replace('-', '_')}_pretrained"
         self.models[key] = {
             "model": model,
             "processor": processor,
@@ -428,7 +446,7 @@ class SegmentationBenchmark:
             encoder_name=encoder_name,
             checkpoint_path=checkpoint_path,
         )
-        key = "unet_pretrained"
+        key: str = "unet_pretrained"
         self.models[key] = {
             "model": model,
             "processor": processor,
@@ -458,7 +476,7 @@ class SegmentationBenchmark:
             encoder_name=None,
             checkpoint_path=checkpoint_path,
         )
-        key = "deeplab_pretrained"
+        key: str = "deeplab_pretrained"
         self.models[key] = {
             "model": model,
             "processor": processor,
@@ -479,7 +497,7 @@ class SegmentationBenchmark:
 
         processor = MaskFormerImageProcessor.from_pretrained(name)
         model = cast(PreTrainedModel, MaskFormerForInstanceSegmentation.from_pretrained(name))  # type: ignore[arg-type]
-        model = model.to(self.device).eval() # type: ignore[arg-type]
+        model = model.to(self.device).eval()  # type: ignore[arg-type]
 
         self.models["maskformer"] = {
             "model": model,
@@ -496,7 +514,7 @@ class SegmentationBenchmark:
         from ultralytics import YOLO
 
         model = YOLO(model_name)
-        key = os.path.splitext(os.path.basename(model_name))[0]
+        key: str = os.path.splitext(os.path.basename(model_name))[0]
 
         self.models[key] = {
             "model": model,
@@ -514,9 +532,9 @@ class SegmentationBenchmark:
         print("📦 Loading all pre-trained CNN models for benchmark")
         print("=" * 60)
         self.load_mask_rcnn_pretrained(variant="maskrcnn_resnet50_fpn")
-        fpn_checkpoint = os.path.join(checkpoint_dir, "fpn_mit_b5_best.pth")
+        fpn_checkpoint: str = os.path.join(checkpoint_dir, "fpn_mit_b5_best.pth")
         self.load_fpn_mit_pretrained(variant="b5", checkpoint_path=fpn_checkpoint)
-        psp_checkpoint = os.path.join(checkpoint_dir, "psp_mit_b5_best.pth")
+        psp_checkpoint: str = os.path.join(checkpoint_dir, "psp_mit_b5_best.pth")
         self.load_psp_mit_pretrained(variant="b5", checkpoint_path=psp_checkpoint)
         self.load_fcn_resnet50_pretrained(variant="fcn_resnet50")
         self.load_segnet_pretrained(encoder_name="resnet34")
@@ -565,7 +583,7 @@ class SegmentationBenchmark:
         model = model_cfg["model"]
         processor = model_cfg["processor"]
         model_type = model_cfg["type"]
-        n_classes = int(self.get_model_num_classes(model_key))
+        n_classes: int = int(self.get_model_num_classes(model_key))
         torch.cuda.empty_cache()
         gc.collect()
 
@@ -593,7 +611,7 @@ class SegmentationBenchmark:
                 )
 
         torch.cuda.synchronize()
-        t0 = time.time()
+        t0: float = time.time()
         overlay, resd = segment_image_unified(
             model,
             processor,
@@ -607,14 +625,14 @@ class SegmentationBenchmark:
         )
 
         torch.cuda.synchronize()
-        inference_time = time.time() - t0
+        inference_time: float = time.time() - t0
         mask = resd["mask"]
 
         # 📊 Метрики (если есть ground truth)
         metrics: Dict[str, Any] = {}
         print(f"gt_maske: {self.gt_mask}")
         if self.gt_mask is not None:
-            gt_np = (
+            gt_np: np.ndarray = (
                 np.array(self.gt_mask)
                 if isinstance(self.gt_mask, Image.Image)
                 else self.gt_mask
@@ -661,8 +679,8 @@ class SegmentationBenchmark:
             raise ValueError(
                 f"Model {model_key} not loaded. Available: {list(self.models.keys())}"
             )
-        model_info = self.models[model_key]
-        n_classes = self.get_model_num_classes(model_key)
+        model_info: Dict[str, Any] = self.models[model_key]
+        n_classes: int = self.get_model_num_classes(model_key)
         return segment_image_unified(
             model_info["model"],
             model_info["processor"],
@@ -692,7 +710,7 @@ class SegmentationBenchmark:
             dict: Сводная таблица метрик по всем моделям `{model_key: {mIoU, pixel_acc, ...}}`.
         """
         print(f"🚀 Starting benchmark on {len(self.models)} models...")
-        model_keys = list(self.models.keys())
+        model_keys: List[str] = list(self.models.keys())
         for i, key in enumerate(model_keys):
             print(f"\n🔹 Running {key}...")
             self.run_single(image_input, key, alpha=alpha)
@@ -777,7 +795,7 @@ class SegmentationBenchmark:
         - Автоматический выбор формата (проценты или десятичные)
         - Улучшенное размещение подписей
         """
-        summary = self.get_summary()
+        summary: Dict[str, Dict[str, Any]] = self.get_summary()
         if not summary:
             print("⚠️ No results to plot. Run compare() first.")
             return
@@ -786,7 +804,9 @@ class SegmentationBenchmark:
         values: List[float] = [summary[m].get(metric_name, np.nan) for m in models]
 
         # Фильтруем модели без данных
-        valid = [(m, v) for m, v in zip(models, values) if not np.isnan(v)]
+        valid: List[Tuple[str, float]] = [
+            (m, v) for m, v in zip(models, values) if not np.isnan(v)
+        ]
 
         if not valid:
             print(f"⚠️ No valid data for metric '{metric_name}'")
@@ -795,15 +815,15 @@ class SegmentationBenchmark:
         models = [m for m, _ in valid]
         values = [v for _, v in valid]
 
-        is_percentage = metric_name in ["mIoU", "pixel_acc", "f1_weighted"]
-        multiplier = 100 if is_percentage else 1
+        is_percentage: bool = metric_name in ["mIoU", "pixel_acc", "f1_weighted"]
+        multiplier: int = 100 if is_percentage else 1
 
-        max_val = max(values) * multiplier
-        use_percent_format = max_val < 1.0
+        max_val: float = max(values) * multiplier
+        use_percent_format: bool = max_val < 1.0
 
         plt.figure(figsize=figsize)
         cmap = plt.get_cmap("Set2")
-        colors = cmap(np.linspace(0, 1, len(models)))
+        colors: np.ndarray = cmap(np.linspace(0, 1, len(models)))
 
         # Создаем бары
         x_pos = range(len(models))
@@ -906,12 +926,12 @@ class SegmentationBenchmark:
 
         # Берем top-k среди присутствующих классов
         mean_iou = np.nanmean(data_arr[:, class_indices], axis=0)
-        top_indices_in_subset = np.argsort(mean_iou)[::-1][:top_k]
-        top_class_indices = class_indices[top_indices_in_subset]
+        top_indices_in_subset: np.ndarray = np.argsort(mean_iou)[::-1][:top_k]
+        top_class_indices: np.ndarray = class_indices[top_indices_in_subset]
 
         # Подписи классов
-        class_labels = [f"Class {c}" for c in top_class_indices]
-        data_filtered = data_arr[:, top_class_indices]
+        class_labels: List[str] = [f"Class {c}" for c in top_class_indices]
+        data_filtered: np.ndarray = data_arr[:, top_class_indices]
 
         plt.figure(figsize=figsize)
         _ = sns.heatmap(
@@ -972,12 +992,12 @@ class SegmentationBenchmark:
             cm_display = cm
             title_suffix = "(counts)"
             fmt = "d"
-        gt_classes = np.where(cm.sum(axis=1) > 0)[0][:20]
+        gt_classes: np.ndarray = np.where(cm.sum(axis=1) > 0)[0][:20]
         if len(gt_classes) == 0:
             print("⚠️  No ground truth classes found!")
             return
 
-        class_labels = [f"C{c}" for c in gt_classes]
+        class_labels: List[str] = [f"C{c}" for c in gt_classes]
         cm_subset = cm_display[np.ix_(gt_classes, gt_classes)]
 
         plt.figure(figsize=figsize)
@@ -1017,36 +1037,64 @@ class SegmentationBenchmark:
         if not summary:
             print("⚠️ No results to plot.")
             return
-        metrics_to_plot = [
-            ("mIoU", "Mean IoU ↑", lambda x: x * 100),
-            ("pixel_acc", "Pixel Accuracy ↑", lambda x: x * 100),
-            ("time_ms", "Inference Time ↓ (ms)", lambda x: x),
+        metrics_to_plot: List[MetricPlotSpec] = [
+            {
+                "key": "mIoU",
+                "label": "Mean IoU ↑",
+                "transform": lambda x: float(x * 100),
+            },
+            {
+                "key": "pixel_acc",
+                "label": "Pixel Accuracy ↑",
+                "transform": lambda x: float(x * 100),
+            },
+            {
+                "key": "time_ms",
+                "label": "Inference Time ↓ (ms)",
+                "transform": lambda x: float(x),
+            },
         ]
-        valid_metrics = []
-        for metric, label, transform in metrics_to_plot:
-            values = [summary[m].get(metric, np.nan) for m in summary]
+        valid_metrics: List[Tuple[str, str, TransformFunc]] = []
+        for spec in metrics_to_plot:
+            key: str = spec["key"]
+            label: str = spec["label"]
+            transform: TransformFunc = spec["transform"]
+
+            values: List[float] = [summary[m].get(key, np.nan) for m in summary]
             if any(not np.isnan(v) for v in values):
-                valid_metrics.append((metric, label, transform))
+                valid_metrics.append((key, label, transform))
 
         if not valid_metrics:
             print("⚠️ No valid metrics to plot")
             return
-        n_plots = len(valid_metrics)
+        n_plots: int = len(valid_metrics)
         fig, axes = plt.subplots(
             1, n_plots, figsize=(figsize[0] * n_plots / 3, figsize[1])
         )
-        if n_plots == 1:
-            axes = [axes]
+        axes_list: List[Any] = [axes] if n_plots == 1 else axes  # type: ignore[assignment]
+
         cmap = plt.get_cmap("Set2")
         colors = cmap(np.linspace(0, 1, len(summary)))
-        for ax, (metric, label, transform) in zip(axes, valid_metrics):
+        for ax, (metric_key, metric_label, transform_func) in zip(
+            axes_list, valid_metrics
+        ):
             models = list(summary.keys())
-            values = [transform(summary[m].get(metric, np.nan)) for m in models]
-            valid = [(m, v) for m, v in zip(models, values) if not np.isnan(v)]
+            values = [
+                transform_func(summary[m].get(metric_key, np.nan)) for m in models
+            ]
+
+            # Фильтрация валидных данных
+            valid: List[Tuple[str, float]] = [
+                (m, v) for m, v in zip(models, values) if not np.isnan(v)
+            ]
 
             if valid:
+                # Разделение кортежей с явными типами
+                plot_models: Tuple[str, ...]
+                plot_values: Tuple[float, ...]
                 plot_models, plot_values = zip(*valid)
-                fontsize = 7 if len(plot_models) > 10 else 8
+
+                fontsize: int = 7 if len(plot_models) > 10 else 8
 
                 bars = ax.bar(
                     range(len(plot_models)),
@@ -1055,7 +1103,9 @@ class SegmentationBenchmark:
                     edgecolor="black",
                 )
                 for bar, val, name in zip(bars, plot_values, plot_models):
-                    display_name = name.replace("_", "_\n") if len(name) > 15 else name
+                    display_name: str = (
+                        name.replace("_", "_\n") if len(name) > 15 else name
+                    )
                     print(display_name)
                     ax.text(
                         bar.get_x() + bar.get_width() / 2,
@@ -1074,10 +1124,11 @@ class SegmentationBenchmark:
                     fontsize=fontsize,
                 )
 
-                ax.set_ylabel(label, fontsize=9)
-                ax.set_title(metric, fontsize=10, fontweight="bold")
+                ax.set_ylabel(metric_label, fontsize=9)
+                ax.set_title(metric_key, fontsize=10, fontweight="bold")
                 ax.grid(axis="y", alpha=0.3, linestyle="--")
-                if metric == "time_ms":
+
+                if metric_key == "time_ms":
                     ax.set_ylim(0, max(plot_values) * 1.2)
                 else:
                     ax.set_ylim(0, 100)
@@ -1091,7 +1142,7 @@ class SegmentationBenchmark:
                     fontsize=12,
                     color="gray",
                 )
-                ax.set_title(metric, fontsize=10)
+                ax.set_title(metric_key, fontsize=10)
                 ax.set_xticks([])
                 ax.set_yticks([])
 
@@ -1107,9 +1158,9 @@ class SegmentationBenchmark:
         path: str = "./data/ade20k_test_trained/plot_summary.jpg",
     ) -> None:
         """Визуализация сводных результатов"""
-        summary = self.get_summary()
+        summary: Dict[str, Dict[str, Any]] = self.get_summary()
         for metric in metrics:
-            values = [summary[k].get(metric, np.nan) for k in summary]
+            values: List[Any] = [summary[k].get(metric, np.nan) for k in summary]
             if all(np.isnan(v) for v in values):
                 continue
             plt.figure(figsize=(10, 5))
@@ -1148,10 +1199,10 @@ class SegmentationBenchmark:
                 np.save(f"{output_dir}/mask_{key}.npy", res["mask"])
 
         # Сводная таблица
-        df = pd.DataFrame(self.get_summary()).T
+        df: pd.DataFrame = pd.DataFrame(self.get_summary()).T
         df.to_csv(f"{output_dir}/summary.csv")
 
-        def convert_numpy_types(obj):
+        def convert_numpy_types(obj: Any) -> Any:
             """Рекурсивно конвертирует numpy-типы в Python-native для JSON"""
             if isinstance(obj, np.ndarray):
                 return obj.tolist()
@@ -1169,7 +1220,7 @@ class SegmentationBenchmark:
                 return obj
 
         # Детальные метрики
-        detailed = {}
+        detailed: Dict[str, Any] = {}
         for key, res in self.results.items():
             detailed[key] = {
                 "inference_time_ms": float(res["inference_time_ms"]),
@@ -1211,16 +1262,16 @@ class SegmentationBenchmark:
         ]
 
         for model, metrics in summary.items():
-            mIoU = (
+            mIoU: str = (
                 f"{metrics['mIoU'] * 100:.3f}" if not np.isnan(metrics["mIoU"]) else "-"
             )
-            acc = (
+            acc: str = (
                 f"{metrics['pixel_acc'] * 100:.3f}"
                 if not np.isnan(metrics["pixel_acc"])
                 else "-"
             )
-            time = f"{metrics['time_ms']:.3f}"
-            model_clean = model.replace("_", r"\_").replace("-", r"\-")
+            time: str = f"{metrics['time_ms']:.3f}"
+            model_clean: str = model.replace("_", r"\_").replace("-", r"\-")
             lines.append(f"{model_clean} & {mIoU} & {acc} & {time} \\\\")
         lines.extend([r"\bottomrule", r"\end{tabular}", r"\end{table}"])
         return "\n".join(lines)
@@ -1245,18 +1296,20 @@ class SegmentationBenchmark:
             dict: Сводная таблица метрик.
         """
         print(f"🚀 Starting step-by-step benchmark on {len(self.models)} models...")
-        model_keys = list(self.models.keys())
+        model_keys: List[str] = list(self.models.keys())
 
         # Прогресс: 50% -> 99% на этапе инференса (49% диапазона)
-        progress_start = 50
-        progress_range = 49
+        progress_start: int = 50
+        progress_range: int = 49
 
         for i, key in enumerate(model_keys):
             print(f"\n🔹 Running {key} ({i + 1}/{len(model_keys)})...")
 
             # 🔹 Обновляем прогресс ПЕРЕД запуском модели
             if task_id and benchmark_tasks:
-                progress = progress_start + (i / len(model_keys)) * progress_range
+                progress: float = (
+                    progress_start + (i / len(model_keys)) * progress_range
+                )
                 benchmark_tasks[task_id]["progress"] = progress
                 benchmark_tasks[task_id][
                     "message"

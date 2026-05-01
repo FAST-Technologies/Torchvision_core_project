@@ -1,17 +1,15 @@
 # testing/CpuCudaBenchmark.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import os
 import time
 import torch
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from typing import (
-    Optional,
-    Dict,
-    Any,
-)
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 
@@ -88,7 +86,7 @@ class CpuCudaBenchmark:
             - `n_runs`: Фактическое количество успешных прогонов.
             - `error`: Строка с описанием ошибки, если ни один прогон не выполнился успешно.
         """
-        times = []
+        times: List[float] = []
 
         # Переключение устройства для Torch-сегментеров
         original_device = None
@@ -110,16 +108,16 @@ class CpuCudaBenchmark:
 
         # Основное тестирование
         torch.cuda.synchronize() if device == "cuda" else None
-        start_total = time.perf_counter()
+        start_total: float = time.perf_counter()
 
         for run in range(self.n_runs):
             try:
                 if device == "cuda":
                     torch.cuda.synchronize()
 
-                start = time.perf_counter()
+                start: float = time.perf_counter()
                 segmenter.segment(image)
-                end = time.perf_counter()
+                end: float = time.perf_counter()
 
                 if device == "cuda":
                     torch.cuda.synchronize()
@@ -131,7 +129,7 @@ class CpuCudaBenchmark:
                 break
 
         torch.cuda.synchronize() if device == "cuda" else None
-        end_total = time.perf_counter()
+        end_total: float = time.perf_counter()
 
         # Восстановление оригинального устройства
         if original_device is not None:
@@ -187,7 +185,7 @@ class CpuCudaBenchmark:
         Returns:
             `pd.DataFrame` с агрегированными метриками производительности.
         """
-        all_results = []
+        all_results: List = []
 
         print("\n" + "=" * 80)
         print("БЕНЧМАРК: CPU vs CUDA")
@@ -202,7 +200,9 @@ class CpuCudaBenchmark:
 
             # Тест на CPU
             print("   📊 Тестирование на CPU...")
-            cpu_result = self.benchmark_method(segmenter, image, method_name, "cpu")
+            cpu_result: Dict[str, Any] = self.benchmark_method(
+                segmenter, image, method_name, "cpu"
+            )
             all_results.append(cpu_result)
             print(
                 f"      CPU: {cpu_result['mean_time'] * 1000:.2f}ms ± {cpu_result['std_time'] * 1000:.2f}ms"
@@ -227,11 +227,11 @@ class CpuCudaBenchmark:
                 print("   ⚠️ CUDA недоступна, пропускаем")
 
         # Создаем DataFrame
-        df = pd.DataFrame(all_results)
+        df: pd.DataFrame = pd.DataFrame(all_results)
 
         # Сохраняем результаты
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = os.path.join(self.base_output_dir, f"{test_name}_{timestamp}")
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir: str = os.path.join(self.base_output_dir, f"{test_name}_{timestamp}")
         self._save_results(df, test_name, output_dir=output_dir)
 
         # Визуализация
@@ -257,17 +257,17 @@ class CpuCudaBenchmark:
                 с таймстампом внутри `self.base_output_dir`.
         """
         if output_dir is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_dir = os.path.join(self.base_output_dir, f"{test_name}_{timestamp}")
         os.makedirs(output_dir, exist_ok=True)
 
         # CSV
-        csv_path = os.path.join(output_dir, "results.csv")
+        csv_path: str = os.path.join(output_dir, "results.csv")
         df.to_csv(csv_path, index=False)
 
         # Excel с форматированием
         try:
-            excel_path = os.path.join(output_dir, "results.xlsx")
+            excel_path: str = os.path.join(output_dir, "results.xlsx")
             with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
                 df.to_excel(writer, sheet_name="Results", index=False)
 
@@ -282,13 +282,13 @@ class CpuCudaBenchmark:
                                 max_length = len(str(cell.value))
                         except Exception:
                             pass
-                    adjusted_width = min(max_length + 2, 50)
+                    adjusted_width: int = min(max_length + 2, 50)
                     worksheet.column_dimensions[column_letter].width = adjusted_width
         except Exception as e:
             print(f"⚠️ Не удалось сохранить Excel: {e}")
 
         # Текстовый отчёт
-        report_path = os.path.join(output_dir, "report.txt")
+        report_path: str = os.path.join(output_dir, "report.txt")
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("=" * 80 + "\n")
             f.write("ОТЧЁТ: СРАВНЕНИЕ ПРОИЗВОДИТЕЛЬНОСТИ CPU vs CUDA\n")
@@ -330,7 +330,7 @@ class CpuCudaBenchmark:
             f.write("ТОП-5 МЕТОДОВ ПО УСКОРЕНИЮ (CUDA vs CPU):\n")
             f.write("=" * 80 + "\n")
 
-            speedups = []
+            speedups: List = []
             for method in df["method"].unique():
                 method_data = df[df["method"] == method]
                 cpu_data = method_data[method_data["device"] == "cpu"]
@@ -369,7 +369,7 @@ class CpuCudaBenchmark:
             output_dir: Директория для сохранения графиков. Генерируется автоматически, если `None`.
         """
         if output_dir is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_dir = os.path.join(self.base_output_dir, f"{test_name}_{timestamp}")
         os.makedirs(output_dir, exist_ok=True)
 
@@ -378,10 +378,10 @@ class CpuCudaBenchmark:
 
         methods = df["method"].unique()
         x = np.arange(len(methods))
-        width = 0.35
+        width: float = 0.35
 
-        cpu_times = []
-        cuda_times = []
+        cpu_times: List[float] = []
+        cuda_times: List[float] = []
 
         for method in methods:
             method_data = df[df["method"] == method]
@@ -417,8 +417,8 @@ class CpuCudaBenchmark:
         if torch.cuda.is_available():
             plt.figure(figsize=(12, 6))
 
-            speedups = []
-            method_names = []
+            speedups: List[str] = []
+            method_names: List[str] = []
 
             for method in methods:
                 method_data = df[df["method"] == method]
@@ -436,7 +436,22 @@ class CpuCudaBenchmark:
 
             if speedups:
                 x = np.arange(len(method_names))
-                colors = ["#2ecc71" if s > 1 else "#e74c3c" for s in speedups]
+
+                def _parse_speedup(val: str) -> float:
+                    """Извлекает числовое значение из строки speedup (например, '1.5×' → 1.5)."""
+                    if isinstance(val, (int, float)):
+                        return float(val)
+                    try:
+                        # Удаляем символы "×", "x", пробелы и приводим к float
+                        return float(str(val).replace("×", "").replace("x", "").strip())
+                    except (ValueError, AttributeError):
+                        return 1.0  # Default при ошибке парсинга
+
+                # Используем функцию для безопасного сравнения
+                colors: List[str] = [
+                    "#2ecc71" if _parse_speedup(s) > 1.0 else "#e74c3c"
+                    for s in speedups
+                ]
 
                 plt.bar(x, speedups, color=colors, edgecolor="black", linewidth=1.2)
                 plt.axhline(
@@ -453,7 +468,7 @@ class CpuCudaBenchmark:
                 plt.grid(axis="y", alpha=0.3, linestyle="--")
                 plt.tight_layout()
 
-                speedup_path = os.path.join(output_dir, "speedup_comparison.png")
+                speedup_path: str = os.path.join(output_dir, "speedup_comparison.png")
                 plt.savefig(
                     speedup_path, dpi=300, bbox_inches="tight", facecolor="white"
                 )
@@ -464,9 +479,9 @@ class CpuCudaBenchmark:
         if torch.cuda.is_available():
             plt.figure(figsize=(10, 10))
 
-            cpu_vals = []
-            cuda_vals = []
-            method_labels = []
+            cpu_vals: List = []
+            cuda_vals: List = []
+            method_labels: List[str] = []
 
             for method in methods:
                 method_data = df[df["method"] == method]
@@ -509,7 +524,7 @@ class CpuCudaBenchmark:
                 plt.grid(True, alpha=0.3, linestyle="--")
                 plt.tight_layout()
 
-                scatter_path = os.path.join(output_dir, "cpu_cuda_scatter.png")
+                scatter_path: str = os.path.join(output_dir, "cpu_cuda_scatter.png")
                 plt.savefig(
                     scatter_path, dpi=300, bbox_inches="tight", facecolor="white"
                 )

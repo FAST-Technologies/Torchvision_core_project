@@ -1,5 +1,8 @@
 # utils/settings.py
 
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import os
 import sys
 from pathlib import Path
@@ -44,9 +47,7 @@ class Settings(BaseSettings):
         ```
     """
 
-    model_config: SettingsConfigDict = SettingsConfigDict(
-        env_file=".env", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     MODEL_DIR: Path = MODELS_DIR
     DEFAULT_IMAGE: Path = ADE20K_DIR / "original_image_0.jpg"
     DEFAULT_GT: Path = ADE20K_DIR / "original_image_mask_0.png"

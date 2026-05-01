@@ -1,7 +1,11 @@
 # utils/function_tracker.py
+
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import logging
 from functools import wraps
-from typing import Callable, TypeVar, ParamSpec, cast
+from typing import List, Callable, TypeVar, ParamSpec, cast
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & GENERICS
@@ -47,13 +51,13 @@ def track_calls(func: Callable[P, R]) -> Callable[P, R]:
 
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        func_name = f"{func.__module__}.{func.__qualname__}"
+        func_name: str = f"{func.__module__}.{func.__qualname__}"
         logger.info(f"🔹 Called: {func_name}")
 
         # Логируем аргументы только на уровне DEBUG (чтобы не засорять вывод)
         if logger.isEnabledFor(logging.DEBUG):
-            args_repr = [repr(a) for a in args]
-            kwargs_repr = [f"{k}={v!r}" for k, v in kwargs.items()]
+            args_repr: List[str] = [repr(a) for a in args]
+            kwargs_repr: List[str] = [f"{k}={v!r}" for k, v in kwargs.items()]
             logger.debug(f"   Args: ({', '.join(args_repr + kwargs_repr)})")
 
         try:
@@ -85,18 +89,20 @@ def track_calls_verbose(func: Callable[P, R]) -> Callable[P, R]:
 
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        func_name = f"{func.__module__}.{func.__qualname__}"
-        args_repr = [repr(a) for a in args[:3]]  # Логируем только первые 3 аргумента
+        func_name: str = f"{func.__module__}.{func.__qualname__}"
+        args_repr: List[str] = [
+            repr(a) for a in args[:3]
+        ]  # Логируем только первые 3 аргумента
         if len(args) > 3:
             args_repr.append(f"... +{len(args) - 3} more")
-        kwargs_repr = [f"{k}={type(v).__name__}" for k, v in kwargs.items()]
+        kwargs_repr: List[str] = [f"{k}={type(v).__name__}" for k, v in kwargs.items()]
 
         logger.info(f"🔹 Called: {func_name}({', '.join(args_repr + kwargs_repr)})")
 
         try:
             result: R = func(*args, **kwargs)
-            result_type = type(result).__name__
-            result_repr = (
+            result_type: str = type(result).__name__
+            result_repr: str = (
                 repr(result)
                 if isinstance(result, (int, float, str, bool))
                 else f"<{result_type}>"

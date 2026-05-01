@@ -15,13 +15,7 @@
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
 import warnings
-from typing import (
-    List,
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-)
+from typing import List, Tuple, Dict, Any, Optional, Union
 
 import numpy as np
 from scipy.spatial.distance import directed_hausdorff
@@ -42,7 +36,7 @@ from sklearn.metrics import (
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
 MaskArray = np.ndarray  # Binary or multi-class mask: H×W, dtype uint8/int/float
-MetricValue = float
+MetricValue = Union[Any]
 MetricsDict = Dict[str, MetricValue]
 ClusteringMetricsDict = Dict[str, Optional[float]]
 
@@ -97,6 +91,8 @@ class SegmentationMetrics:
             - Бинаризованный ground truth, форма `(N,)`, dtype `uint8`.
         """
         # Бинаризация предсказания
+        pred_binary: np.ndarray
+        gt_binary: np.ndarray
         if pred_mask.max() > 1:
             pred_binary = (pred_mask > threshold * 255).astype(np.uint8)
         else:
@@ -356,6 +352,8 @@ class SegmentationMetrics:
             float: Значение MAE.
         """
         # Нормализация к [0, 1] если нужно
+        pred_norm: np.ndarray
+        gt_norm: np.ndarray
         if normalize:
             pred_norm = (
                 pred_mask.astype(np.float32) / 255.0
@@ -409,8 +407,8 @@ class SegmentationMetrics:
         )
 
         # Получаем координаты точек контуров
-        pred_coords = np.column_stack(np.where(pred_binary))
-        gt_coords = np.column_stack(np.where(gt_binary))
+        pred_coords: np.ndarray = np.column_stack(np.where(pred_binary))
+        gt_coords: np.ndarray = np.column_stack(np.where(gt_binary))
 
         # Если один из контуров пустой, возвращаем бесконечность
         if len(pred_coords) == 0 or len(gt_coords) == 0:
@@ -467,8 +465,10 @@ class SegmentationMetrics:
         y_coords, x_coords = np.mgrid[0:h, 0:w]
 
         # Сэмплируем 1000 случайных пикселей для скорости
-        n_pixels = h * w
-        indices = np.random.choice(n_pixels, min(n_samples, n_pixels), replace=False)
+        n_pixels: int = int(h * w)
+        indices: np.ndarray = np.random.choice(
+            n_pixels, min(n_samples, n_pixels), replace=False
+        )
 
         X: np.ndarray = np.column_stack(
             [y_coords.ravel()[indices], x_coords.ravel()[indices]]
@@ -681,7 +681,7 @@ class SegmentationMetrics:
         individual_results: Dict[str, MetricsDict] = {}
 
         for i, (pred_mask, gt_mask) in enumerate(zip(pred_masks, gt_masks)):
-            metrics = SegmentationMetrics.calculate_all_metrics(
+            metrics: MetricsDict = SegmentationMetrics.calculate_all_metrics(
                 pred_mask, gt_mask, threshold, include_hausdorff=False
             )
             all_metrics.append(metrics)
@@ -693,7 +693,9 @@ class SegmentationMetrics:
             return {"average_metrics": {}, "individual_results": {}}
 
         for key in all_metrics[0].keys():
-            values = [m[key] for m in all_metrics if key in m and not np.isnan(m[key])]
+            values: List[MetricValue] = [
+                m[key] for m in all_metrics if key in m and not np.isnan(m[key])
+            ]
             if values:
                 avg_metrics[f"avg_{key}"] = float(np.mean(values))
                 avg_metrics[f"std_{key}"] = float(np.std(values))

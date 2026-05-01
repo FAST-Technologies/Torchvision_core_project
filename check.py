@@ -13,6 +13,7 @@ from utils.strategies import SegNet
 
 import os
 from typing import List, Dict, Tuple, Any
+from typing import Literal
 import time
 import gc
 
@@ -105,7 +106,7 @@ def train_deeplab_ade20k(
     print("🔹 Training DeepLabV3+ (Torchvision) on ADE20K...")
 
     # DataLoader'ы (те же)
-    augmentation_level = "none"
+    augmentation_level: Literal["none", "basic", "medium", "aggressive"] = "none"
     is_augmented = augmentation_level != "none"
     train_dataset = ADE20KDataset(
         root_dir="./data/ade20k",

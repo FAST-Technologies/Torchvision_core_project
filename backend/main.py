@@ -100,7 +100,7 @@ def _get_or_load_neural(config: Dict[str, Any], task: str) -> Any:
     cache_key: str = json.dumps({**config, "_task": task}, sort_keys=True)
     if cache_key not in _model_cache:
         if len(_model_cache) >= _CACHE_MAX:
-            oldest = next(iter(_model_cache))
+            oldest: str = next(iter(_model_cache))
             del _model_cache[oldest]
             logger.info("Model cache evicted oldest entry")
         device: str = "cuda" if torch.cuda.is_available() else "cpu"
@@ -417,7 +417,7 @@ app.add_middleware(
 app.include_router(benchmark.router)
 app.include_router(comparator.router)
 app.include_router(validator.router)
-print(f"📋 Registered routes: {[r.path for r in app.routes]}")
+print(f"📋 Registered routes: {[r.path for r in app.routes if hasattr(r, 'path')]}")
 
 auto_seg = AutoSegmenter()
 
@@ -621,7 +621,7 @@ async def segment(
     Returns:
         SegmentResponseDict: Словарь с маской, overlay, метриками, рекомендациями и временем.
     """
-    t0 = time.perf_counter()
+    t0: float = time.perf_counter()
     try:
         img_pil: Image.Image = Image.open(io.BytesIO(await file.read())).convert("RGB")
         img_array: np.ndarray = np.array(img_pil)
@@ -635,13 +635,15 @@ async def segment(
             from utils.strategies import segment_image_unified
             from utils.palettes import ade_palette, coco_palette, cityscapes_palette
 
-            PALETTES = {
+            # 🔹 PALETTES: словарь, где значения — функции без аргументов, возвращающие палитру
+            PALETTES: Dict[str, Callable[[], List[List[int]]]] = {
                 "semantic": ade_palette,  # ADE20K: 150 классов
                 "instance": coco_palette,  # COCO: 80 классов
                 "panoptic": cityscapes_palette,  # Cityscapes: 19 классов
             }
 
-            CLASS_FN = {
+            # 🔹 CLASS_FN: словарь, где значения — функции без аргументов, возвращающие имена классов
+            CLASS_FN: Dict[str, Callable[[], Dict[int, str]]] = {
                 "semantic": NeuralSegmenter.get_ade_class_names,
                 "instance": NeuralSegmenter.get_coco_class_names,
                 "panoptic": NeuralSegmenter.get_cityscapes_class_names,
@@ -672,15 +674,15 @@ async def segment(
             )
 
             raw = result_info.get("mask")
-            mask: np.ndarray = (
+            mask = (
                 raw
                 if raw is not None
                 else (np.array(overlay_pil)[:, :, 0] > 0).astype(np.uint8) * 255
             )
 
-            overlay_np: np.ndarray = np.array(overlay_pil)
+            overlay_np = np.array(overlay_pil)
 
-            metadata: Dict[str, Any] = {
+            metadata = {
                 "method": model,
                 "library": "neural",
                 "task": task,
@@ -726,10 +728,20 @@ async def segment(
                 )
 
                 segmenter = auto_seg._get_segmenter_class(method, library)(
-                    method=method, **final_params
+                    **final_params
                 )
-                _, mask = segmenter.segment_with_mask(img_array)
-                metadata: Dict[str, Any] = {
+                result = segmenter.segment_with_mask(img_array)
+                if isinstance(result, tuple) and len(result) == 2:
+                    _, mask_opt = result
+                    mask = (
+                        mask_opt
+                        if mask_opt is not None
+                        else np.zeros_like(img_array[:, :, 0], dtype=np.uint8)
+                    )
+                else:
+                    # Fallback для методов, возвращающих только одну маску
+                    mask = result
+                metadata = {
                     "method": method,
                     "library": library,
                     "parameters": final_params,
@@ -741,7 +753,7 @@ async def segment(
         metrics: MetricsDict = {}
         if gt_mask is not None:
             logger.info(f"✅ GT получен: {gt_mask.filename}")
-            gt_array = np.array(
+            gt_array: np.ndarray = np.array(
                 Image.open(io.BytesIO(await gt_mask.read())).convert("L")
             )
             metrics = sanitize_metrics(
@@ -760,7 +772,7 @@ async def segment(
         if mode == "neural":
             pass
         else:
-            overlay_np: np.ndarray = build_overlay(img_array, mask)
+            overlay_np = build_overlay(img_array, mask)
 
         return {
             "success": True,

@@ -958,19 +958,19 @@ def main():
         for img_name, (img_path, img, gt) in test_images.items():
             img_array = np.array(img)
             print(f"\n--- Обработка изображения: {img_name} ---")
-            try:
-                results = comparator.matrix_comparison(
-                    image=img_array,
-                    methods_config=methods_config_list,
-                    comparison_type="all_vs_all",
-                    save_results=True,
-                    output_dir=f"./data/matrix_comparison_{img_name}",
-                )
-                print(f"   ✅ Матрица сравнения для {img_name}")
-                print(f"      - Сравнено пар: {len(results['df_comparisons'])}")
-            except Exception as e:
-                print(f"   ❌ Ошибка матричного сравнения: {e}")
-                traceback.print_exc()
+            # try:
+            #     results = comparator.matrix_comparison(
+            #         image=img_array,
+            #         methods_config=methods_config_list,
+            #         comparison_type="all_vs_all",
+            #         save_results=True,
+            #         output_dir=f"./data/matrix_comparison_{img_name}",
+            #     )
+            #     print(f"   ✅ Матрица сравнения для {img_name}")
+            #     print(f"      - Сравнено пар: {len(results['df_comparisons'])}")
+            # except Exception as e:
+            #     print(f"   ❌ Ошибка матричного сравнения: {e}")
+            #     traceback.print_exc()
 
             try:
                 df_results = comparator.batch_comparison(

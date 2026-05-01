@@ -1,6 +1,8 @@
 # utils/threshold_warmup.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import time
 import numpy as np
 from typing import (
@@ -81,7 +83,6 @@ class ThresholdWarmUp:
     """
 
     @staticmethod
-    @staticmethod
     def warmup_threshold_methods(
         segmenters_dict: Dict[str, SegmenterLike],
         image_sizes: List[Tuple[int, int]] = [(128, 128), (256, 256), (512, 512)],
@@ -131,7 +132,7 @@ class ThresholdWarmUp:
         print("=" * 60)
 
         for name, segmenter in segmenters_dict.items():
-            is_threshold = any(tm in name.lower() for tm in threshold_methods)
+            is_threshold: bool = any(tm in name.lower() for tm in threshold_methods)
             if not is_threshold:
                 continue
             method_results: SizeResults = {"sizes": {}}
@@ -141,7 +142,7 @@ class ThresholdWarmUp:
 
                 times: List[float] = []
                 for _ in range(n_runs_per_size):
-                    start = time.perf_counter()
+                    start: float = time.perf_counter()
                     try:
                         if hasattr(segmenter, "segment"):
                             segmenter.segment(img)
@@ -194,14 +195,14 @@ class ThresholdWarmUp:
             - Паттерны генерируются через `_create_edge_pattern()`.
             - Для паттерна "noise" создаётся цветное изображение (H×W×3), остальные — градации серого (H×W).
         """
-        edge_methods = ["sobel", "canny", "laplacian", "prewitt"]
+        edge_methods: List[str] = ["sobel", "canny", "laplacian", "prewitt"]
         results: Dict[str, PatternResults] = {}
 
         print("\n🔥 WARM-UP ГРАНИЧНЫХ МЕТОДОВ")
         print("=" * 60)
 
         for name, segmenter in segmenters_dict.items():
-            is_edge = any(em in name.lower() for em in edge_methods)
+            is_edge: bool = any(em in name.lower() for em in edge_methods)
             if not is_edge:
                 continue
 
@@ -214,7 +215,7 @@ class ThresholdWarmUp:
 
                 times: List[float] = []
                 for _ in range(n_runs_per_pattern):
-                    start = time.perf_counter()
+                    start: float = time.perf_counter()
                     try:
                         if hasattr(segmenter, "segment"):
                             segmenter.segment(img)

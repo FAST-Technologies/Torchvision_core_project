@@ -1,6 +1,8 @@
 # segmenters/ModelTrainer.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import os
 import time
 import gc
@@ -32,7 +34,7 @@ from sklearn.metrics import jaccard_score
 
 # Локальные импорты
 from dataseters.ADE20KDataset import ADE20KDataset
-from .NeuralTrainer import NeuralTrainer
+from .NeuralTrainer import NeuralTrainer, LossValue
 from utils.strategies import SegNet
 
 # ──────────────────────────────────────────────────────────────────────
@@ -681,7 +683,7 @@ class ModelTrainer:
 
         # ── Optimizer: только unfrozen параметры ──
         is_tv_model: bool = config.model_type in ["deeplab_tv", "fcn_tv"]
-        trainable_params = [p for p in model.parameters() if p.requires_grad]
+        trainable_params: List = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.AdamW(trainable_params, lr=config.lr, weight_decay=1e-4)
         if is_tv_model:
             print(
@@ -724,7 +726,7 @@ class ModelTrainer:
         print(f"   Criterion ignore_index: {trainer.criterion.ignore_index}")
         print(f"   Optimizer param groups: {len(trainer.optimizer.param_groups)}")
 
-        checkpoint_path = os.path.join(self.checkpoint_dir, config.checkpoint_name)
+        checkpoint_path: str = os.path.join(self.checkpoint_dir, config.checkpoint_name)
         print("🔍 DEBUG FCN training setup:")
         print(f"   ignore_index: {ignore_index}")
         print(f"   aux_loss_weight: {trainer.aux_loss_weight}")
@@ -780,7 +782,7 @@ class ModelTrainer:
                     print(f"   ⚠️  Cannot unfreeze backbone: {type(backbone)}")
 
             start_time: float = time.time()
-            train_loss = trainer.train_epoch()
+            train_loss: LossValue = trainer.train_epoch()
             val_loss, val_miou = trainer.validate()
             epoch_time: float = time.time() - start_time
 
@@ -912,7 +914,7 @@ class ModelTrainer:
                 pattern = os.path.join(
                     self.checkpoint_dir, f"{model_typer}_{augmentation_level}_*.pth"
                 )
-                files = glob.glob(pattern)
+                files: List[str] = glob.glob(pattern)
                 if files:
                     checkpoint_path = max(files, key=os.path.getctime)
                     checkpoint_paths[name] = checkpoint_path
@@ -954,7 +956,7 @@ class ModelTrainer:
                     state_dict = checkpoint
 
                 if model_type == "deeplab_tv":
-                    model_keys = {
+                    model_keys: Dict = {
                         k: v
                         for k, v in state_dict.items()
                         if not k.startswith("aux_classifier")
@@ -1108,7 +1110,7 @@ class ModelTrainer:
                 state_dict = checkpoint
 
             if model_type == "deeplab_tv":
-                model_keys = {
+                model_keys: Dict = {
                     k: v
                     for k, v in state_dict.items()
                     if not k.startswith("aux_classifier")
@@ -1528,7 +1530,7 @@ class ModelTrainer:
                 continue
 
             # Извлекаем имя эксперимента из пути
-            checkpoint_name = os.path.basename(checkpoint_path)
+            checkpoint_name: str = os.path.basename(checkpoint_path)
 
             # Создание модели
             model = self.create_model(
@@ -1544,7 +1546,7 @@ class ModelTrainer:
 
             # Фильтрация aux_classifier для DeepLab (как в старом варианте)
             if model_type == "deeplab_tv":
-                model_keys = {
+                model_keys: Dict = {
                     k: v
                     for k, v in state_dict.items()
                     if not k.startswith("aux_classifier")

@@ -1,6 +1,8 @@
 # testing/SegmentationTester.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import os
 import sys
 import json
@@ -23,8 +25,8 @@ from PIL import Image
 import cv2
 
 # Локальные импорты
-from segmenters.BaseSegmenter import BaseSegmenter
-from metrics.SegmentationMetrics import SegmentationMetrics
+from segmenters.BaseSegmenter import BaseSegmenter, BinaryMask, ProbabilityMask
+from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict
 from utils.warmup import SegmentationWarmUp
 
 # Настройка путей проекта
@@ -122,7 +124,7 @@ class SegmentationTester:
               будут обработаны внешним кодом перед передачей в метрики.
         """
         try:
-            gt_path_str = str(gt_path)
+            gt_path_str: str = str(gt_path)
             if gt_path_str.endswith((".png", ".jpg", ".jpeg", ".bmp")):
                 self.ground_truth_mask = cv2.imread(gt_path_str, cv2.IMREAD_GRAYSCALE)
             elif gt_path_str.endswith(".npy"):
@@ -191,7 +193,7 @@ class SegmentationTester:
         else:
             test_dir = f"test_{timestamp}"
 
-        full_path = os.path.join(self.base_output_dir, test_dir)
+        full_path: str = os.path.join(self.base_output_dir, test_dir)
         os.makedirs(full_path, exist_ok=True)
         os.makedirs(os.path.join(full_path, "images"), exist_ok=True)
         os.makedirs(os.path.join(full_path, "masks"), exist_ok=True)
@@ -252,6 +254,8 @@ class SegmentationTester:
 
         # Замер времени
         start_time: float = time.perf_counter()
+        result_opt: BinaryMask
+        mask_opt: Optional[ProbabilityMask]
         result_opt, mask_opt = segmenter.segment_with_mask(image)
         if result_opt is None or mask_opt is None:
             raise ValueError(f"{method_name}.segment_with_mask() returned None")
@@ -309,12 +313,12 @@ class SegmentationTester:
 
             # Сохраняем наложение (overlay)
             try:
-                overlay_alpha = 0.7  # Яркость наложения
-                original_alpha = 0.3  # Прозрачность оригинала
+                overlay_alpha: float = 0.7  # Яркость наложения
+                original_alpha: float = 0.3  # Прозрачность оригинала
 
-                overlay = (img_array * original_alpha + result * overlay_alpha).astype(
-                    np.uint8
-                )
+                overlay: np.ndarray = (
+                    img_array * original_alpha + result * overlay_alpha
+                ).astype(np.uint8)
                 overlay = overlay.astype(np.uint8)
                 overlay_path: str = os.path.join(
                     output_dir, "images", f"{method_name}_overlay.jpg"
@@ -370,12 +374,12 @@ class SegmentationTester:
                 return
 
             if isinstance(result_img, Image.Image):
-                result_np = np.array(result_img)
+                result_np: np.ndarray = np.array(result_img)
             else:
                 result_np = result_img
 
             if isinstance(mask, np.ndarray):
-                mask_np = mask.copy()
+                mask_np: np.ndarray = mask.copy()
                 if mask_np.dtype != np.uint8:
                     if mask_np.max() <= 1.0:
                         mask_np = (mask_np * 255).astype(np.uint8)
@@ -387,26 +391,26 @@ class SegmentationTester:
             # Создаем overlay
             if len(result_np.shape) == 2:
                 # Grayscale оригинал
-                overlay = np.stack([result_np] * 3, axis=-1)
+                overlay: np.ndarray = np.stack([result_np] * 3, axis=-1)
             else:
                 # RGB оригинал
                 overlay = result_np.copy()
 
             if mask_np.ndim == 2:
-                mask_bool = mask_np > 127
+                mask_bool: np.ndarray = mask_np > 127
                 overlay[mask_bool] = [255, 0, 0]  # Красный
 
             # Сохраняем overlay
-            overlay_path = os.path.join(method_dir, "overlay.jpg")
+            overlay_path: str = os.path.join(method_dir, "overlay.jpg")
             Image.fromarray(overlay.astype(np.uint8)).save(overlay_path)
 
-            alpha = 0.5
+            alpha: float = 0.5
             if len(result_np.shape) == 2:
-                result_colored = np.stack([result_np] * 3, axis=-1)
+                result_colored: np.ndarray = np.stack([result_np] * 3, axis=-1)
             else:
                 result_colored = result_np
 
-            transparent_overlay = result_colored.copy()
+            transparent_overlay: np.ndarray = result_colored.copy()
             if mask_np.ndim == 2:
                 mask_bool = mask_np > 127
                 transparent_overlay[mask_bool] = [255, 0, 0]  # Красный
@@ -414,7 +418,7 @@ class SegmentationTester:
                     result_colored, 1 - alpha, transparent_overlay, alpha, 0
                 )
 
-                blended_path = os.path.join(method_dir, "blended_overlay.jpg")
+                blended_path: str = os.path.join(method_dir, "blended_overlay.jpg")
                 Image.fromarray(blended.astype(np.uint8)).save(blended_path)
 
         except Exception as e:
@@ -431,17 +435,17 @@ class SegmentationTester:
             method_dir: Директория для сохранения.
             method_name: Имя метода.
         """
-        metrics = result_data.get("metrics", {})
+        metrics: Optional[Dict[str, Any]] = result_data.get("metrics", {})
         if not metrics:
             return
 
         # JSON файл
-        json_path = os.path.join(method_dir, "metrics.json")
+        json_path: str = os.path.join(method_dir, "metrics.json")
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(metrics, f, indent=2, ensure_ascii=False, default=str)
 
         # Текстовый файл
-        txt_path = os.path.join(method_dir, "metrics.txt")
+        txt_path: str = os.path.join(method_dir, "metrics.txt")
         with open(txt_path, "w", encoding="utf-8") as f:
             f.write("=" * 50 + "\n")
             f.write(f"МЕТРИКИ СЕГМЕНТАЦИИ: {method_name}\n")
@@ -492,7 +496,7 @@ class SegmentationTester:
             if segmenter is None:
                 return
 
-            info_path = os.path.join(method_dir, "method_info.txt")
+            info_path: str = os.path.join(method_dir, "method_info.txt")
 
             with open(info_path, "w", encoding="utf-8") as f:
                 f.write(
@@ -548,14 +552,14 @@ class SegmentationTester:
             method_name: Имя метода.
         """
         # Создаем поддиректории
-        method_dir = os.path.join(output_dir, method_name)
+        method_dir: str = os.path.join(output_dir, method_name)
         os.makedirs(method_dir, exist_ok=True)
 
         # Сохраняем изображение результата
         result_img = result_data.get("result")
         if result_img is not None:
             if isinstance(result_img, np.ndarray):
-                result_path = os.path.join(method_dir, "result.jpg")
+                result_path: str = os.path.join(method_dir, "result.jpg")
                 if len(result_img.shape) == 2:
                     # Grayscale
                     Image.fromarray(result_img).save(result_path)
@@ -569,7 +573,7 @@ class SegmentationTester:
         # Сохраняем маску
         mask = result_data.get("mask")
         if mask is not None and isinstance(mask, np.ndarray):
-            mask_path = os.path.join(method_dir, "mask.png")
+            mask_path: str = os.path.join(method_dir, "mask.png")
 
             if mask.dtype != np.uint8:
                 if mask.max() <= 1.0:
@@ -617,18 +621,22 @@ class SegmentationTester:
             raise ValueError(f"Метод {method_name} не найден")
 
         # Используем ground truth
-        gt_mask = ground_truth if ground_truth is not None else self.ground_truth_mask
+        gt_mask: Optional[MaskArray] = (
+            ground_truth if ground_truth is not None else self.ground_truth_mask
+        )
 
         segmenter = self.methods[method_name]
 
         # Измеряем время выполнения
-        start_time = time.perf_counter()
+        start_time: float = time.perf_counter()
+        result_img: BinaryMask
+        pred_mask: Optional[ProbabilityMask]
         result_img, pred_mask = segmenter.segment_with_mask(image)
-        execution_time = time.perf_counter() - start_time
+        execution_time: float = time.perf_counter() - start_time
 
         if gt_mask is not None:
             if pred_mask is not None and gt_mask is not None:
-                metrics = SegmentationMetrics.calculate_all_metrics(
+                metrics: MetricsDict = SegmentationMetrics.calculate_all_metrics(
                     pred_mask, gt_mask, threshold=threshold
                 )
             else:
@@ -848,31 +856,33 @@ class SegmentationTester:
         if method_names is None:
             method_names = list(self.methods.keys())
 
-        test_dir = self._create_test_directory(test_name)
+        test_dir: str = self._create_test_directory(test_name)
         results: Dict[str, Dict[str, Any]] = {}
 
-        gt_mask = ground_truth if ground_truth is not None else self.ground_truth_mask
-        has_gt = gt_mask is not None
+        gt_mask: Optional[MaskArray] = (
+            ground_truth if ground_truth is not None else self.ground_truth_mask
+        )
+        has_gt: bool = gt_mask is not None
 
         print(f"Сравнение методов {'с' if has_gt else 'без'} ground truth")
 
         # Grid-визуализация
-        n_methods = len(method_names)
-        n_cols = min(4, n_methods + 2 if has_gt else n_methods + 1)
-        n_rows = (n_methods + n_cols) // n_cols
+        n_methods: int = len(method_names)
+        n_cols: int = min(4, n_methods + 2 if has_gt else n_methods + 1)
+        n_rows: int = (n_methods + n_cols) // n_cols
 
         fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
         axes = axes.flatten()
 
         # Оригинальное изображение
-        original_img = (
+        original_img: Union[Image.Image | np.ndarray] = (
             Image.open(image).convert("RGB") if isinstance(image, str) else image
         )
         axes[0].imshow(original_img)
         axes[0].set_title("Original Image")
         axes[0].axis("off")
 
-        start_idx = 1
+        start_idx: int = 1
         if has_gt:
             axes[1].imshow(gt_mask, cmap="gray")
             axes[1].set_title("Ground Truth")
@@ -886,7 +896,7 @@ class SegmentationTester:
                 break
 
             try:
-                result_data = self.test_single_method_with_metrics(
+                result_data: Dict[str, Any] = self.test_single_method_with_metrics(
                     image, method_name, gt_mask, threshold, test_dir
                 )
                 results[method_name] = result_data
@@ -894,7 +904,7 @@ class SegmentationTester:
 
                 if has_gt:
                     metrics = result_data["metrics"]
-                    title = (
+                    title: str = (
                         f"{method_name}\n"
                         f"IoU: {metrics['iou']:.3f}, Dice: {metrics['dice']:.3f}\n"
                         f"F1: {metrics['f1_score']:.3f}, Acc: {metrics['pixel_accuracy']:.3f}"
@@ -919,7 +929,7 @@ class SegmentationTester:
                 )
 
             except Exception as e:
-                error_msg = str(e)[:50]
+                error_msg: str = str(e)[:50]
                 axes[i].text(
                     0.5,
                     0.5,
@@ -943,7 +953,7 @@ class SegmentationTester:
         )
         plt.tight_layout(rect=(0, 0.03, 1, 0.95))
 
-        comparison_path = Path(test_dir, "comparisons", "methods_comparison.jpg")
+        comparison_path: Path = Path(test_dir, "comparisons", "methods_comparison.jpg")
         comparison_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(comparison_path, dpi=150, bbox_inches="tight")
 
@@ -967,7 +977,7 @@ class SegmentationTester:
         """
 
         # Функция для конвертации numpy типов в стандартные Python типы
-        def convert_numpy_types(obj):
+        def convert_numpy_types(obj: Any) -> Any:
             if isinstance(obj, np.integer):
                 return int(obj)
             elif isinstance(obj, np.floating):
@@ -984,7 +994,7 @@ class SegmentationTester:
                 return obj
 
         # Конвертируем все numpy типы перед сохранением в JSON
-        serializable_stats = convert_numpy_types(stats)
+        serializable_stats: Any = convert_numpy_types(stats)
 
         # Сохраняем как JSON
         stats_json_path: str = os.path.join(output_dir, "statistics", "statistics.json")
@@ -998,7 +1008,7 @@ class SegmentationTester:
             print(f"⚠️ Ошибка сохранения JSON статистики: {e}")
             try:
 
-                def default_serializer(o):
+                def default_serializer(o: Any) -> Any:
                     if isinstance(o, np.integer):
                         return int(o)
                     elif isinstance(o, np.floating):
@@ -1031,7 +1041,7 @@ class SegmentationTester:
 
         # Сохраняем как CSV
         try:
-            df_stats = []
+            df_stats: List[Dict[str, Any]] = []
             for stat in stats:
                 row: Dict[str, Any] = {}
                 for key, value in stat.items():
@@ -1067,7 +1077,7 @@ class SegmentationTester:
             f.write(f"ID теста: {self.current_test_id}\n")
             f.write(f"Всего методов: {len(stats)}\n\n")
 
-            successful: List[Dict] = [s for s in stats if "error" not in s]
+            successful: List[Dict[str, Any]] = [s for s in stats if "error" not in s]
             if successful:
                 f.write("УСПЕШНЫЕ МЕТОДЫ:\n")
                 f.write("-" * 40 + "\n")
@@ -1090,7 +1100,7 @@ class SegmentationTester:
                             f.write(f"  Размер результата: {shape}\n")
                     f.write("\n")
 
-            failed: List[Dict] = [s for s in stats if "error" in s]
+            failed: List[Dict[str, Any]] = [s for s in stats if "error" in s]
             if failed:
                 f.write("МЕТОДЫ С ОШИБКАМИ:\n")
                 f.write("-" * 40 + "\n")
@@ -1109,20 +1119,20 @@ class SegmentationTester:
             metrics_data: Список словарей с метриками по методам.
             output_dir: Базовая директория для сохранения.
         """
-        metrics_dir = os.path.join(output_dir, "metrics")
+        metrics_dir: str = os.path.join(output_dir, "metrics")
         os.makedirs(metrics_dir, exist_ok=True)
 
         # JSON
-        json_path = os.path.join(metrics_dir, "metrics_comparison.json")
+        json_path: str = os.path.join(metrics_dir, "metrics_comparison.json")
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(metrics_data, f, indent=2, ensure_ascii=False)
         print(f"📊 Метрики сохранены (JSON): {json_path}")
 
         # CSV + таблица-изображение
         try:
-            df = pd.DataFrame(metrics_data)
+            df: pd.DataFrame = pd.DataFrame(metrics_data)
             df = df.sort_values("iou", ascending=False)
-            csv_path = os.path.join(metrics_dir, "metrics_comparison.csv")
+            csv_path: str = os.path.join(metrics_dir, "metrics_comparison.csv")
             df.to_csv(csv_path, index=False)
             print(f"📊 Метрики сохранены (CSV): {csv_path}")
 
@@ -1178,7 +1188,7 @@ class SegmentationTester:
             plt.title("Сравнение метрик сегментации", fontsize=14, fontweight="bold")
             plt.tight_layout()
 
-            table_path = os.path.join(metrics_dir, "metrics_table.jpg")
+            table_path: str = os.path.join(metrics_dir, "metrics_table.jpg")
             plt.savefig(table_path, dpi=150, bbox_inches="tight")
             plt.close(fig)
             print(f"📊 Таблица метрик сохранена: {table_path}")
@@ -1200,7 +1210,7 @@ class SegmentationTester:
             output_dir, "statistics", "results_summary.json"
         )
 
-        def convert_for_json(obj):
+        def convert_for_json(obj: Any) -> Any:
             if isinstance(obj, np.integer):
                 return int(obj)
             elif isinstance(obj, np.floating):
@@ -1298,8 +1308,8 @@ class SegmentationTester:
         """
         # Конвертация изображения
         if isinstance(image, str):
-            original_img = Image.open(image).convert("RGB")
-            image_array = np.array(original_img)
+            original_img: Image.Image = Image.open(image).convert("RGB")
+            image_array: np.ndarray = np.array(original_img)
         elif isinstance(image, Image.Image):
             original_img = image.convert("RGB")
             image_array = np.array(original_img)
@@ -1315,7 +1325,7 @@ class SegmentationTester:
         Path(bench_dir, "masks").mkdir(parents=True, exist_ok=True)
 
         # Сохраняем оригинальное изображение
-        orig_path = os.path.join(bench_dir, "images", "original.jpg")
+        orig_path: str = os.path.join(bench_dir, "images", "original.jpg")
         original_img.save(orig_path)
         print(f"📸 Оригинальное изображение сохранено: {orig_path}")
 
@@ -1325,10 +1335,10 @@ class SegmentationTester:
             for method_name, segmenter in self.methods.items():
                 self._ensure_warmup(method_name, segmenter, image_array)
 
-        gt_mask_to_use = (
+        gt_mask_to_use: Optional[MaskArray] = (
             ground_truth if ground_truth is not None else self.ground_truth_mask
         )
-        has_gt = gt_mask_to_use is not None
+        has_gt: bool = gt_mask_to_use is not None
         gt_binary: Optional[MaskArray] = None
 
         if has_gt and gt_mask_to_use is not None:
@@ -1356,7 +1366,7 @@ class SegmentationTester:
             results_list: List[np.ndarray] = []
             masks_list: List[MaskArray] = []
 
-            is_neural = (
+            is_neural: bool = (
                 "neural" in method_name.lower()
                 or "segformer" in method_name.lower()
                 or "mask2former" in method_name.lower()
@@ -1374,17 +1384,19 @@ class SegmentationTester:
                 if isinstance(image, str):
                     input_arg_for_method = image
                 else:
-                    temp_path = os.path.join(bench_dir, "images", "temp_input.jpg")
+                    temp_path: str = os.path.join(bench_dir, "images", "temp_input.jpg")
                     original_img.save(temp_path)
                     input_arg_for_method = temp_path
             else:
                 input_arg_for_method = image_array
 
             for run in range(n_runs):
-                start_time = time.perf_counter()
+                start_time: float = time.perf_counter()
                 result: np.ndarray
                 mask: np.ndarray
                 try:
+                    result_opt: BinaryMask
+                    mask_opt: Optional[ProbabilityMask]
                     result_opt, mask_opt = self.methods[method_name].segment_with_mask(
                         input_arg_for_method
                     )
@@ -1406,7 +1418,7 @@ class SegmentationTester:
 
             mask_area: int = 0
             total_pixels: int = 1
-            metrics_dict: Dict[str, Any] = {}
+            metrics_dict: MetricsDict = {}
             if masks_list and results_list:
                 mask = masks_list[0]
                 result_img: np.ndarray = results_list[0]
@@ -1418,7 +1430,7 @@ class SegmentationTester:
                         if gt_binary.shape != mask.shape:
                             from skimage.transform import resize
 
-                            gt_resized = resize(
+                            gt_resized: np.ndarray = resize(
                                 gt_binary,
                                 mask.shape,
                                 order=0,
@@ -1434,8 +1446,8 @@ class SegmentationTester:
                             threshold=0.5,
                             include_hausdorff=True,
                         )
-                        iou = metrics_dict.get("iou", 0)
-                        dice = metrics_dict.get("dice", 0)
+                        iou: float = metrics_dict.get("iou", 0)
+                        dice: float = metrics_dict.get("dice", 0)
                         status = "✅" if iou > 0.5 else "⚠️" if iou > 0.2 else "❌"
                         print(f"    {status} IoU: {iou:.4f}, Dice: {dice:.4f}")
 
@@ -1446,8 +1458,8 @@ class SegmentationTester:
                 if not times:
                     print(f"    ❌ Метод {method_name} не вернул результат.")
 
-            mean_time = np.mean(times) if times else 0
-            std_time = np.std(times) if times else 0
+            mean_time: float = float(np.mean(times)) if times else 0.0
+            std_time: float = float(np.std(times)) if times else 0.0
 
             if save_results and masks_list and results_list:
                 try:
@@ -1455,14 +1467,16 @@ class SegmentationTester:
                     result_path: str = os.path.join(
                         bench_dir, "images", f"{method_name}_result.jpg"
                     )
-                    result_pil = Image.fromarray(result_img.astype(np.uint8))
+                    result_pil: Image.Image = Image.fromarray(
+                        result_img.astype(np.uint8)
+                    )
                     result_pil.save(result_path)
 
                     # Сохраняем маску
                     mask_path: str = os.path.join(
                         bench_dir, "masks", f"{method_name}_mask.png"
                     )
-                    mask_pil = Image.fromarray(mask.astype(np.uint8))
+                    mask_pil: Image.Image = Image.fromarray(mask.astype(np.uint8))
                     mask_pil.save(mask_path)
 
                     # Сохраняем overlay (30% оригинал + 70% результат)
@@ -1576,9 +1590,9 @@ class SegmentationTester:
                 )
                 f.write("-" * 80 + "\n")
                 for _, row in df.iterrows():
-                    iou = row.get("IoU", "N/A")
-                    dice = row.get("Dice", "N/A")
-                    f1 = row.get("F1_Score", "N/A")
+                    iou: str = row.get("IoU", "N/A")
+                    dice: str = row.get("Dice", "N/A")
+                    f1: str = row.get("F1_Score", "N/A")
                     if isinstance(iou, float):
                         f.write(
                             f"{row['Method']:<30} {row['Time_String']:<20} {iou:.4f}     {dice:.4f}     {f1:.4f}\n"
@@ -1656,7 +1670,7 @@ class SegmentationTester:
                 capsize=5,
             )
 
-        max_time = df["Mean_Time_s"].max() if not df.empty else 0
+        max_time: float = df["Mean_Time_s"].max() if not df.empty else 0
         for bar, time_val in zip(bars, df["Mean_Time_s"]):
             plt.text(
                 time_val + max_time * 0.01,
@@ -1852,8 +1866,8 @@ class SegmentationTester:
             return
         sorted_methods: List[Any] = df.sort_values("Mean_Time_s")["Method"].tolist()
 
-        images = []
-        titles = []
+        images: List[Image.Image] = []
+        titles: List[str] = []
         for method in sorted_methods:
             result_file: str = f"{method}_result.jpg"
             if result_file in result_files:
@@ -1862,7 +1876,7 @@ class SegmentationTester:
                 images.append(img)
                 method_data = df[df["Method"] == method]
                 if not method_data.empty:
-                    time_val = method_data.iloc[0]["Mean_Time_s"]
+                    time_val: float = method_data.iloc[0]["Mean_Time_s"]
                     mask_percent: float = (
                         method_data.iloc[0]["Mask_Percentage"]
                         if "Mask_Percentage" in method_data.columns
@@ -1931,10 +1945,10 @@ class SegmentationTester:
                 np.array(image) if not isinstance(image, np.ndarray) else image,
             )
 
-            times = []
+            times: List[float] = []
             last_result = None
             for _ in range(n_runs):
-                t0 = time.perf_counter()
+                t0: float = time.perf_counter()
                 try:
                     result_img, mask = segmenter.segment_with_mask(image)
                     times.append(time.perf_counter() - t0)
@@ -1968,7 +1982,7 @@ class SegmentationTester:
             if ground_truth is not None:
                 try:
                     if mask is not None and ground_truth is not None:
-                        m = SegmentationMetrics.calculate_all_metrics(
+                        m: MetricsDict = SegmentationMetrics.calculate_all_metrics(
                             mask, ground_truth, threshold=0.5
                         )
                     else:
@@ -1992,7 +2006,7 @@ class SegmentationTester:
                 f"(±{record['std_time_s'] * 1000:.1f}ms), mask={record['mask_pct']:.1f}%"
             )
 
-        df = pd.DataFrame(records)
+        df: pd.DataFrame = pd.DataFrame(records)
         if not df.empty and "mean_time_s" in df.columns:
             df = df.sort_values("mean_time_s")
         return df

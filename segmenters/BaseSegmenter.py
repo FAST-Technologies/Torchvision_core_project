@@ -1,6 +1,8 @@
 # segmenters/BaseSegmenter.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import torch
 import cv2
 import numpy as np
@@ -237,7 +239,7 @@ class BaseSegmenter(ABC):
                 f"Ожидается один из: {ImageInput.__args__}"
             )
         if target_size is not None:
-            interpolation = (
+            interpolation: int = (
                 cv2.INTER_AREA
                 if result.shape[0] * result.shape[1] > target_size[0] * target_size[1]
                 else cv2.INTER_LINEAR

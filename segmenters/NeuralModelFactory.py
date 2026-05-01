@@ -1,6 +1,8 @@
 # segmenters/NeuralModelFactory.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 from typing import (
     Tuple,
     Dict,
@@ -157,12 +159,12 @@ class NeuralModelFactory:
             Dict[str, Any]: Словарь с конфигурацией моделей и обучения.
         """
         if config_path is not None:
-            new_path = Path(config_path)
+            new_path: Path = Path(config_path)
             if cls._config is None or new_path != cls._config_path:
                 cls._config = None
                 cls._config_path = new_path
         if cls._config is None:
-            path = cls._config_path
+            path: Path = cls._config_path
             if path.exists():
                 with open(path, "r", encoding="utf-8") as f:
                     cls._config = yaml.safe_load(f)
@@ -230,7 +232,7 @@ class NeuralModelFactory:
         Returns:
             str: Полное имя модели (например, "nvidia/segformer-b5-finetuned-ade-640-640").
         """
-        config = cls.load_config()
+        config: Dict[str, Any] = cls.load_config()
         model_config = config["models"].get(model_type, {})
 
         if variant is None:
@@ -250,7 +252,7 @@ class NeuralModelFactory:
         Returns:
             Dict[str, Any]: Параметры обучения (image_size, batch_size, lr, ...).
         """
-        config = cls.load_config()
+        config: Dict[str, Any] = cls.load_config()
         return config["training"].get(dataset_name, config["training"]["ade20k"])
 
     @classmethod
@@ -261,7 +263,7 @@ class NeuralModelFactory:
         Returns:
             Dict[str, Any]: Параметры метрик (threshold, include_hausdorff).
         """
-        config = cls.load_config()
+        config: Dict[str, Any] = cls.load_config()
         return config["metrics"]
 
     @classmethod
@@ -286,12 +288,12 @@ class NeuralModelFactory:
         Returns:
             Tuple[nn.Module, Optional[Any], str]: (model, processor, model_type_str).
         """
-        config = cls.load_config()
+        config: Dict[str, Any] = cls.load_config()
 
         # Для SMP моделей — получаем encoder из конфига
         if model_type == "unet":
             encoders = config["models"]["unet"].get("encoders", ["resnet34"])
-            encoder_name = kwargs.get(
+            encoder_name: str = kwargs.get(
                 "encoder_name", encoders[0] if variant is None else variant
             )
             return cls.create_model(
@@ -303,7 +305,7 @@ class NeuralModelFactory:
             )
 
         # Для HF моделей — используем model_name из конфига
-        model_name = cls.get_model_name(model_type, variant)
+        model_name: str = cls.get_model_name(model_type, variant)
 
         return cls.create_model(
             getattr(ModelType, model_type.upper()),
@@ -437,7 +439,7 @@ class NeuralModelFactory:
         if model_name is None and local_path is None:
             raise ValueError("Укажите model_name или local_path для SegFormer")
 
-        source = local_path if local_path else model_name
+        source: Optional[str] = local_path if local_path else model_name
 
         processor = SegformerImageProcessor.from_pretrained(source)  # type: ignore[arg-type]
         model = SegformerForSemanticSegmentation.from_pretrained(source).to(device).eval()  # type: ignore[arg-type]
@@ -463,7 +465,7 @@ class NeuralModelFactory:
         Raises:
             ValueError: Если указана неизвестная версия.
         """
-        config = cls.load_config()
+        config: Dict[str, Any] = cls.load_config()
         variants = config["models"]["segformer"]["variants"]
 
         if variant not in variants:
@@ -471,7 +473,7 @@ class NeuralModelFactory:
                 f"Unknown SegFormer variant: {variant}. Available: {list(variants.keys())}"
             )
 
-        model_name = variants[variant]
+        model_name: str = variants[variant]
         processor = SegformerImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
         model = SegformerForSemanticSegmentation.from_pretrained(model_name).to(device).eval()  # type: ignore[arg-type]
         return model, processor, f"segformer_{variant}"
@@ -516,7 +518,7 @@ class NeuralModelFactory:
 
         if variant not in variants:
             raise ValueError(f"Unknown SegFormer variant: {variant}")
-        model_name = variants[variant]
+        model_name: str = variants[variant]
         processor = SegformerImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
         model = SegformerForSemanticSegmentation.from_pretrained(model_name).to(device)  # type: ignore[arg-type]
         print(processor)
@@ -591,7 +593,7 @@ class NeuralModelFactory:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
 
-        files = list_repo_files(model_name)
+        files: List[str] = list_repo_files(model_name)
         print(
             "✅ safetensors found!"
             if any(f.endswith(".safetensors") for f in files)
@@ -608,7 +610,7 @@ class NeuralModelFactory:
         device: DeviceStr = "cuda",
     ) -> None:
         """Вывод параметров OneFormer"""
-        files = list_repo_files(name)
+        files: List[str] = list_repo_files(name)
         print(
             "✅ safetensors found!"
             if any(f.endswith(".safetensors") for f in files)
@@ -691,7 +693,7 @@ class NeuralModelFactory:
         **kwargs: Any,
     ) -> ModelTuple:
         num_classes = int(num_classes)
-        safe_path = checkpoint_path or "model_path.pth"
+        safe_path: str = checkpoint_path or "model_path.pth"
         if checkpoint_path and os.path.exists(safe_path):
             model = tv_seg.deeplabv3_resnet101(weights=None)
             model.classifier[4] = torch.nn.Conv2d(256, num_classes, kernel_size=1)
@@ -702,7 +704,7 @@ class NeuralModelFactory:
                 state_dict = checkpoint["model_state_dict"]
             else:
                 state_dict = checkpoint
-            model_keys = {
+            model_keys: Dict = {
                 k: v
                 for k, v in state_dict.items()
                 if not k.startswith("aux_classifier")
@@ -743,7 +745,7 @@ class NeuralModelFactory:
             activation=None,
         )
 
-        safe_path = checkpoint_path or "model_path.pth"
+        safe_path: str = checkpoint_path or "model_path.pth"
         if checkpoint_path and os.path.exists(safe_path):
             checkpoint = torch.load(
                 checkpoint_path, map_location=device, weights_only=False
@@ -808,7 +810,7 @@ class NeuralModelFactory:
             activation=None,
         )
 
-        safe_path = checkpoint_path or "model_path.pth"
+        safe_path: str = checkpoint_path or "model_path.pth"
         if checkpoint_path and os.path.exists(safe_path):
             checkpoint = torch.load(
                 checkpoint_path, map_location=device, weights_only=False
@@ -888,7 +890,7 @@ class NeuralModelFactory:
             psp_size=psp_size,
         )
 
-        safe_path = checkpoint_path or "model_path.pth"
+        safe_path: str = checkpoint_path or "model_path.pth"
         if checkpoint_path and os.path.exists(safe_path):
             checkpoint = torch.load(
                 checkpoint_path, map_location=device, weights_only=False
@@ -1030,7 +1032,7 @@ class NeuralModelFactory:
             activation=None,
         )
 
-        safe_path = checkpoint_path or "model_path.pth"
+        safe_path: str = checkpoint_path or "model_path.pth"
         if checkpoint_path and os.path.exists(safe_path):
             checkpoint = torch.load(
                 checkpoint_path, map_location=device, weights_only=False
@@ -1123,7 +1125,7 @@ class NeuralModelFactory:
             raise ValueError(f"Unknown Mask R-CNN variant: {variant}")
         model = variants[variant](weights="DEFAULT")  # Было weights="COCO_V1"
         model = model.to(device).eval()
-        score_thresh = kwargs.get("score_thresh", 0.5)
+        score_thresh: float = kwargs.get("score_thresh", 0.5)
         model.score_thresh = score_thresh
         return model, None, "maskrcnn_tv"
 
@@ -1253,14 +1255,14 @@ class NeuralModelFactory:
         print("=" * 60)
 
         # FPN + MiT-B5
-        fpn_checkpoint = os.path.join(checkpoint_dir, "fpn_mit_b5_best.pth")
+        fpn_checkpoint: str = os.path.join(checkpoint_dir, "fpn_mit_b5_best.pth")
         fpn_model, _, fpn_type = cls._load_fpn_smp(
             device, num_classes, fpn_checkpoint, encoder_name="mit_b5"
         )
         models_dict["fpn_mit_b5_pretrained"] = (fpn_model, None, fpn_type)
 
         # PSPNet + MiT-B5
-        psp_checkpoint = os.path.join(checkpoint_dir, "psp_mit_b5_best.pth")
+        psp_checkpoint: str = os.path.join(checkpoint_dir, "psp_mit_b5_best.pth")
         psp_model, _, psp_type = cls._load_psp_smp(
             device, num_classes, psp_checkpoint, encoder_name="mit_b5"
         )

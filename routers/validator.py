@@ -1,5 +1,8 @@
 # routers/validate.py
 
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import os
 import sys
 import uuid
@@ -13,17 +16,19 @@ import traceback
 from typing import Dict, Any, Optional, List, Tuple
 
 import numpy as np
-import torch
 from PIL import Image
 from fastapi import APIRouter, HTTPException, Form, File, UploadFile
 from fastapi.responses import JSONResponse
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from testing.TorchImplementationValidator import TorchImplementationValidator
+from testing.TorchImplementationValidator import (
+    TorchImplementationValidator,
+    MethodConfig,
+)
 from segmenters.TorchSegmenter import TorchSegmenter
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
-from metrics.SegmentationMetrics import SegmentationMetrics
+from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("validate")
@@ -40,7 +45,7 @@ _validation_lock = asyncio.Lock()
 
 # 🔹 Энкодер для NaN/Infinity
 class NumpyEncoder(json.JSONEncoder):
-    def default(self, obj):
+    def default(self, obj: Any) -> Any:
         if isinstance(obj, np.integer):
             return int(obj)
         elif isinstance(obj, np.floating):
@@ -76,7 +81,7 @@ def _get_methods_for_filter(
     validator: TorchImplementationValidator, methods_filter: Optional[str]
 ) -> List[Tuple[str, Dict[str, Any]]]:
     """Возвращает список методов по фильтру: threshold/edge/region/clustering/all."""
-    mapping = {
+    mapping: Dict[str, List[MethodConfig]] = {
         "threshold": validator.threshold_methods,
         "edge": validator.edge_methods,
         "region": validator.region_methods,
@@ -103,7 +108,7 @@ async def _run_validation_task(
     methods_filter: Optional[str],
 ) -> None:
     """Асинхронная задача валидации: кросс-библиотечное сравнение методов."""
-    t0 = time.perf_counter()
+    t0: float = time.perf_counter()
     async with _validation_lock:
         _validation_tasks[task_id] = {
             "status": "running",
@@ -119,17 +124,21 @@ async def _run_validation_task(
         }
 
     try:
-        img_array = np.array(Image.open(io.BytesIO(file_content)).convert("RGB"))
+        img_array: np.ndarray = np.array(
+            Image.open(io.BytesIO(file_content)).convert("RGB")
+        )
         validator = TorchImplementationValidator(output_dir="./data/validation_web")
-        methods_list = _get_methods_for_filter(validator, methods_filter)
-        total_methods = len(methods_list)
+        methods_list: List[Tuple[str, Dict[str, Any]]] = _get_methods_for_filter(
+            validator, methods_filter
+        )
+        total_methods: int = len(methods_list)
 
         async with _validation_lock:
             _validation_tasks[task_id]["total_methods"] = total_methods
             _validation_tasks[task_id]["progress"] = 5
             _validation_tasks[task_id]["message"] = f"Запущено {total_methods} методов"
 
-        CLASS_MAP = {
+        CLASS_MAP: Dict[str, Any] = {
             "torch": TorchSegmenter,
             "opencv": OpenCVSegmenter,
             "sklearn": SklearnSegmenter,
@@ -141,7 +150,7 @@ async def _run_validation_task(
 
         # 🔹 Пошаговое выполнение с обновлением прогресса
         for idx, (method_name, params) in enumerate(methods_list):
-            progress = 10 + (idx / total_methods) * 80
+            progress: float = 10 + (idx / total_methods) * 80
             async with _validation_lock:
                 _validation_tasks[task_id]["progress"] = round(progress, 2)
                 _validation_tasks[task_id][
@@ -150,7 +159,7 @@ async def _run_validation_task(
             await asyncio.sleep(0)
 
             try:
-                result = await asyncio.to_thread(
+                result: Dict[str, Any] = await asyncio.to_thread(
                     _process_single_method,
                     method_name,
                     params,
@@ -184,14 +193,14 @@ async def _run_validation_task(
             _validation_tasks[task_id]["message"] = "Сохранение результатов..."
 
         # 🔹 Подготовка ответа
-        summary = []
+        summary: List[Dict[str, Any]] = []
         for method, data in results.items():
             if not isinstance(data, dict) or not data.get("success"):
                 summary.append(
                     {"method": method, "success": False, "error": data.get("error")}
                 )
                 continue
-            metrics = data.get("metrics", {})
+            metrics: Dict[str, Any] = data.get("metrics", {})
             summary.append(
                 {
                     "method": method,
@@ -216,13 +225,13 @@ async def _run_validation_task(
             )
 
         # 🔹 Бенчмарк-данные
-        benchmark_data = []
+        benchmark_data: List[Dict[str, Any]] = []
         for method, data in results.items():
             if isinstance(data, dict) and data.get("success"):
                 metrics = data.get("metrics", {})
-                pred_area = metrics.get("predicted_area", 0) or 0
-                gt_area = metrics.get("ground_truth_area", 0) or 0
-                coverage_pct = (pred_area / gt_area * 100) if gt_area > 0 else 0
+                pred_area: int = metrics.get("predicted_area", 0) or 0
+                gt_area: int = metrics.get("ground_truth_area", 0) or 0
+                coverage_pct: float = (pred_area / gt_area * 100) if gt_area > 0 else 0
                 benchmark_data.append(
                     {
                         "method": method,
@@ -247,8 +256,12 @@ async def _run_validation_task(
                     }
                 )
 
-        valid_times = [d["torch_time"] for d in benchmark_data if d.get("torch_time")]
-        valid_iou = [d["iou"] for d in benchmark_data if d.get("iou") is not None]
+        valid_times: List[Any] = [
+            d["torch_time"] for d in benchmark_data if d.get("torch_time")
+        ]
+        valid_iou: List[Any] = [
+            d["iou"] for d in benchmark_data if d.get("iou") is not None
+        ]
         elapsed_ms = round(
             (time.time() - _validation_tasks[task_id]["start_time"]) * 1000, 1
         )
@@ -317,18 +330,20 @@ async def _run_validation_task(
                     },
                 }
             )
-        elapsed = (time.perf_counter() - t0) * 1000
+        elapsed: float = (time.perf_counter() - t0) * 1000
         print(f"Elapsed_time: {round(elapsed, 1)}")
 
     except Exception as e:
         logger.error(f"Validation task {task_id} failed: {e}", exc_info=True)
         async with _validation_lock:
-            start = _validation_tasks[task_id].get("start_time", time.time())
+            start: float = _validation_tasks[task_id].get(
+                "start_time", time.perf_counter()
+            )
             _validation_tasks[task_id].update(
                 {
                     "status": "failed",
                     "message": str(e),
-                    "elapsed_ms": round((time.time() - start) * 1000, 1),
+                    "elapsed_ms": round((time.perf_counter() - start) * 1000, 1),
                     "error_details": {
                         "error_type": type(e).__name__,
                         "failed_at": _validation_tasks[task_id]["message"],
@@ -345,7 +360,7 @@ async def _run_validation_task(
 
 def _process_single_method(
     method_name: str,
-    params: dict,
+    params: Dict[str, Any],
     img_array: np.ndarray,
     primary_class,
     reference_class,
@@ -356,21 +371,23 @@ def _process_single_method(
     try:
         import cv2
 
-        t1 = time.perf_counter()
+        t1: float = time.perf_counter()
         seg1 = primary_class(method=method_name, **params)
-        mask1 = seg1.segment(img_array, **params)
-        time1 = time.perf_counter() - t1
+        mask1: np.ndarray = seg1.segment(img_array, **params)
+        time1: float = time.perf_counter() - t1
         logger.info(f"✅ {method_name} primary done: {time1:.3f}s")
 
-        ref_params = params.copy()
+        ref_params: Dict[str, Any] = params.copy()
         ref_params["postprocess"] = False
-        t2 = time.perf_counter()
+        t2: float = time.perf_counter()
         seg2 = reference_class(method=method_name, **ref_params)
-        mask2 = seg2.segment(img_array, **ref_params)
-        time2 = time.perf_counter() - t2
+        mask2: np.ndarray = seg2.segment(img_array, **ref_params)
+        time2: float = time.perf_counter() - t2
         logger.info(f"✅ {method_name} primary done: {time2:.3f}s")
 
-        metrics = SegmentationMetrics.calculate_all_metrics(mask1, mask2, threshold=0.5)
+        metrics: MetricsDict = SegmentationMetrics.calculate_all_metrics(
+            mask1, mask2, threshold=0.5
+        )
         metrics.update(
             {
                 "first_method_time": time1,
@@ -385,12 +402,12 @@ def _process_single_method(
             if img_array.ndim == 3
             else img_array
         )
-        mask1_vis = mask1 if mask1.max() == 255 else mask1 * 255
-        mask2_vis = mask2 if mask2.max() == 255 else mask2 * 255
-        diff = np.abs(mask1_vis.astype(int) - mask2_vis.astype(int))
+        mask1_vis: np.ndarray = mask1 if mask1.max() == 255 else mask1 * 255
+        mask2_vis: np.ndarray = mask2 if mask2.max() == 255 else mask2 * 255
+        diff: np.ndarray = np.abs(mask1_vis.astype(int) - mask2_vis.astype(int))
 
         logger.info(f"✅ FINISHED {method_name}")
-        result = {
+        result: Dict[str, Any] = {
             "success": True,
             "validation_status": status,
             "metrics": metrics,
@@ -408,7 +425,7 @@ def _process_single_method(
             "difference_b64",
         ]:
             if key in result:
-                size_kb = len(result[key]) / 1024
+                size_kb: float = len(result[key]) / 1024
                 logger.info(f"📦 {key}: {size_kb:.1f} KB")
                 if size_kb > 500:  # >500KB
                     logger.warning(f"⚠️ Large base64 string: {key} ({size_kb:.1f} KB)")
@@ -435,10 +452,12 @@ async def start_validation(
 ) -> Dict[str, str]:
     """Запускает асинхронную валидацию кросс-библиотечных реализаций."""
     file_content = await file.read()
-    task_id = str(uuid.uuid4())
+    task_id: str = str(uuid.uuid4())
     temp_validator = TorchImplementationValidator(output_dir="./data/validation_web")
-    methods_list = _get_methods_for_filter(temp_validator, methods_filter)
-    total_methods = len(methods_list)
+    methods_list: List[Tuple[str, Dict[str, Any]]] = _get_methods_for_filter(
+        temp_validator, methods_filter
+    )
+    total_methods: int = len(methods_list)
     logger.info(f"🔧 methods_filter={methods_filter}, total_methods={total_methods}")
     asyncio.create_task(
         _run_validation_task(
@@ -452,7 +471,7 @@ async def start_validation(
 async def get_validation_status(task_id: str) -> JSONResponse:
     """Возвращает статус и результаты валидации."""
     async with _validation_lock:
-        task = _validation_tasks.get(task_id)
+        task: Optional[Dict[str, Any]] = _validation_tasks.get(task_id)
 
     if not task:
         raise HTTPException(404, detail="Task not found")
@@ -460,7 +479,7 @@ async def get_validation_status(task_id: str) -> JSONResponse:
     if task["status"] in ("completed", "failed") and task.get("results") is not None:
         task["fetched"] = True
 
-    response = {
+    response: Dict[str, Any] = {
         "task_id": task_id,
         "status": task["status"],
         "progress": task.get("progress", 0),
@@ -479,7 +498,7 @@ async def get_validation_status(task_id: str) -> JSONResponse:
             response["results"] = results_data.get("summary", [])
 
         elif isinstance(results_data, dict):
-            summary = []
+            summary: List[Dict[str, Any]] = []
             for method, data in results_data.items():
                 if not isinstance(data, dict) or not data.get("success"):
                     summary.append(
@@ -487,7 +506,7 @@ async def get_validation_status(task_id: str) -> JSONResponse:
                     )
                     continue
 
-                metrics = data.get("metrics", {})
+                metrics: Dict[str, Any] = data.get("metrics", {})
                 summary.append(
                     {
                         "method": method,
@@ -514,14 +533,14 @@ async def get_validation_status(task_id: str) -> JSONResponse:
                     }
                 )
 
-            benchmark_data = []
+            benchmark_data: List[Dict[str, Any]] = []
             for method, data in results_data.items():
                 if not isinstance(data, dict) or not data.get("success"):
                     continue
                 metrics = data.get("metrics", {})
-                pred_area = metrics.get("predicted_area", 0) or 0
-                gt_area = metrics.get("ground_truth_area", 0) or 0
-                coverage_pct = (pred_area / gt_area * 100) if gt_area > 0 else 0
+                pred_area: int = metrics.get("predicted_area", 0) or 0
+                gt_area: int = metrics.get("ground_truth_area", 0) or 0
+                coverage_pct: float = (pred_area / gt_area * 100) if gt_area > 0 else 0
 
                 benchmark_data.append(
                     {
@@ -547,10 +566,12 @@ async def get_validation_status(task_id: str) -> JSONResponse:
                     }
                 )
 
-            valid_times = [
+            valid_times: List[Any] = [
                 d["torch_time"] for d in benchmark_data if d.get("torch_time")
             ]
-            valid_iou = [d["iou"] for d in benchmark_data if d.get("iou") is not None]
+            valid_iou: List[Any] = [
+                d["iou"] for d in benchmark_data if d.get("iou") is not None
+            ]
 
             response.update(
                 {
@@ -629,7 +650,7 @@ async def get_validation_status(task_id: str) -> JSONResponse:
 async def cancel_validation(task_id: str) -> Dict[str, str]:
     """Отменяет задачу валидации."""
     async with _validation_lock:
-        task = _validation_tasks.get(task_id)
+        task: Optional[Dict[str, Any]] = _validation_tasks.get(task_id)
     if not task:
         return {"status": "not_found", "message": "Task not found"}
     if task["status"] in ("completed", "failed", "cancelled"):

@@ -1,6 +1,8 @@
 # segmenters/NeuralSegmenter.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 from segmenters.BaseSegmenter import BaseSegmenter, ImageInput, BinaryMask
 from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType, ModelTuple
 from utils.strategies import segment_image_unified as infer_unified
@@ -177,7 +179,7 @@ class NeuralSegmenter(BaseSegmenter):
                 **kwargs,
             )
         self.model, self.processor, self.model_type_str = model_tuple
-        load_time = time.perf_counter() - start_time
+        load_time: float = time.perf_counter() - start_time
         print(f"Модель загружена за {load_time:.4f} секунд")
         self.palette: Optional[List[List[int]]] = (
             palette if palette else self._get_default_palette()
@@ -665,7 +667,7 @@ class NeuralSegmenter(BaseSegmenter):
         # Получаем карту сегментации через стратегию инференса
         seg_map, _ = self.predict_segmentation_map(image, verbose=False)
         # Бинаризация: всё кроме фона (класс 0) = объект
-        mask = (seg_map > 0).astype(np.uint8) * 255
+        mask: np.ndarray = (seg_map > 0).astype(np.uint8) * 255
         return mask
 
     def segment_with_mask(  # type: ignore[override]
@@ -690,11 +692,11 @@ class NeuralSegmenter(BaseSegmenter):
             - `mask`: Бинарная маска, форма `(H, W)`, dtype `uint8`, значения {0, 255}.
         """
         start_time: float = time.perf_counter()
-        alpha = kwargs.get("alpha", 0.9)
+        alpha: float = kwargs.get("alpha", 0.9)
 
         # Получаем карту сегментации
         seg_map, _ = self.predict_segmentation_map(image, verbose=False)  # type: ignore[arg-type]
-        unique_classes = np.unique(seg_map)
+        unique_classes: np.ndarray = np.unique(seg_map)
         print("Предугаданные классы:", unique_classes)
 
         # Проверяем количество пикселей для каждого класса
@@ -775,7 +777,7 @@ class NeuralSegmenter(BaseSegmenter):
         unique_classes: np.ndarray
         counts: np.ndarray
         unique_classes, counts = np.unique(seg_map, return_counts=True)
-        class_distribution = {}
+        class_distribution: Dict = {}
         total_pixels: int = seg_map.size
         for cls, count in zip(unique_classes, counts):
             class_name: str = "Class_unknown"
@@ -784,7 +786,7 @@ class NeuralSegmenter(BaseSegmenter):
                 if hasattr(config, "id2label") and isinstance(config.id2label, dict):
                     id2label: Dict[Union[int, str], str] = config.id2label  # type: ignore[assignment]
                     class_name = id2label.get(cls, f"Class_{cls}")  # type: ignore[arg-type]
-            percentage = (count / total_pixels) * 100
+            percentage: float = (count / total_pixels) * 100
             class_distribution[class_name] = {
                 "class_id": int(cls),
                 "pixel_count": int(count),

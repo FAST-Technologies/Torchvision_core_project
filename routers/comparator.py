@@ -1,5 +1,8 @@
 # routers/comparator.py
 
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import os
 import sys
 import uuid
@@ -7,18 +10,17 @@ import asyncio
 import json
 import time
 import base64
-import gc
 import logging
 import traceback
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 
 import numpy as np
-import torch
+import pandas as pd
 from fastapi import APIRouter, HTTPException, Form, File, UploadFile
 from fastapi.responses import JSONResponse
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.paths import ensure_dirs, DATA_DIR
+# from utils.paths import ensure_dirs, DATA_DIR
 from testing.SegmentationComparator import SegmentationComparator
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
@@ -27,7 +29,7 @@ from segmenters.TorchSegmenter import TorchSegmenter
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("comparator")
 
-router = APIRouter(
+router: APIRouter = APIRouter(
     prefix="/api/comparator",
     tags=["comparator"],
     responses={
@@ -45,7 +47,7 @@ _comparator_lock = asyncio.Lock()
 
 
 class NumpyEncoder(json.JSONEncoder):
-    def default(self, obj):
+    def default(self, obj: Any) -> Any:
         if isinstance(obj, np.integer):
             return int(obj)
         elif isinstance(obj, np.floating):
@@ -147,12 +149,14 @@ async def _run_comparator_task(
         os.makedirs(output_dir, exist_ok=True)
 
         # Подготовка методов
-        segmenters = []
+        segmenters: List[Dict[str, Any]] = []
         for cfg in methods_config:
             try:
-                library = cfg.get("library") or _extract_library_from_name(cfg["name"])
-                method_name = cfg["method"]
-                params = cfg.get("params", {})
+                library: str = cfg.get("library") or _extract_library_from_name(
+                    cfg["name"]
+                )
+                method_name: str = cfg["method"]
+                params: Dict[str, Any] = cfg.get("params") or {}
 
                 seg = _create_segmenter(library, method_name, params)
                 segmenters.append(
@@ -170,7 +174,7 @@ async def _run_comparator_task(
             reference_config["method"],
             reference_config.get("params", {}),
         )
-        ref_name = reference_config["name"]
+        ref_name: str = reference_config["name"]
 
         # 🔹 Прогресс: 0-20% подготовка, 20-90% сравнение, 90-100% сохранение
         async with _comparator_lock:
@@ -180,9 +184,9 @@ async def _run_comparator_task(
             ] = f"Запущено {len(segmenters)} методов"
 
         # 🔹 Пакетное сравнение с пошаговым обновлением
-        results = []
+        results: List[Dict[str, Any]] = []
         for i, cfg in enumerate(segmenters):
-            progress = 20 + (i / len(segmenters)) * 70
+            progress: float = 20 + (i / len(segmenters)) * 70
             async with _comparator_lock:
                 _comparator_tasks[task_id]["progress"] = progress
                 _comparator_tasks[task_id][
@@ -191,14 +195,14 @@ async def _run_comparator_task(
             await asyncio.sleep(0)
 
             try:
-                t0 = time.perf_counter()
-                test_mask = cfg["segmenter"].segment(image)
-                test_time = time.perf_counter() - t0
+                t0: float = time.perf_counter()
+                test_mask: np.ndarray = cfg["segmenter"].segment(image)
+                test_time: float = time.perf_counter() - t0
 
-                ref_mask = ref_seg.segment(image)
-                ref_time = time.perf_counter() - t0 - test_time
+                ref_mask: np.ndarray = ref_seg.segment(image)
+                ref_time: float = time.perf_counter() - t0 - test_time
 
-                metrics = comparator.compute_metrics(
+                metrics: Dict[str, float] = comparator.compute_metrics(
                     ref_mask, test_mask, ref_name, cfg["name"]
                 )
 
@@ -213,7 +217,7 @@ async def _run_comparator_task(
                 )
 
                 if i < 3:
-                    out_path = os.path.join(output_dir, f"viz_{cfg['name']}.png")
+                    out_path: str = os.path.join(output_dir, f"viz_{cfg['name']}.png")
                     comparator.visualize_comparison(
                         image,
                         ref_mask,
@@ -234,7 +238,7 @@ async def _run_comparator_task(
             _comparator_tasks[task_id]["message"] = "Сохранение результатов..."
 
         # Сохранение
-        df = comparator.batch_comparison(
+        df: pd.DataFrame = comparator.batch_comparison(
             image=image,
             methods_config=[
                 {
@@ -286,13 +290,13 @@ async def _run_comparator_task(
         }
 
         # 🔹 Сериализация графиков
-        charts = {}
+        charts: Dict = {}
         for fname in [
             "comparison_summary.jpg",
             "f1_score_matrix.png",
             "accuracy_matrix.png",
         ]:
-            fpath = os.path.join(output_dir, fname)
+            fpath: str = os.path.join(output_dir, fname)
             if os.path.exists(fpath):
                 charts[fname] = img_to_b64(fpath)
 
@@ -339,10 +343,10 @@ async def start_comparator(
         raise HTTPException(422, detail=f"Invalid JSON: {e}")
     from PIL import Image
 
-    img = Image.open(image.file).convert("RGB")
-    image_array = np.array(img)
+    img: Image.Image = Image.open(image.file).convert("RGB")
+    image_array: np.ndarray = np.array(img)
 
-    task_id = str(uuid.uuid4())
+    task_id: str = str(uuid.uuid4())
     asyncio.create_task(
         _run_comparator_task(
             task_id=task_id,
@@ -359,7 +363,7 @@ async def start_comparator(
 async def get_status(task_id: str) -> JSONResponse:
     """Возвращает статус задачи компаратора."""
     async with _comparator_lock:
-        task = _comparator_tasks.get(task_id)
+        task: Optional[Dict[str, Any]] = _comparator_tasks.get(task_id)
     if not task:
         raise HTTPException(404, detail="Task not found")
 
@@ -376,7 +380,7 @@ async def get_status(task_id: str) -> JSONResponse:
 async def cancel_comparator(task_id: str) -> Dict[str, str]:
     """Отменяет задачу компаратора."""
     async with _comparator_lock:
-        task = _comparator_tasks.get(task_id)
+        task: Optional[Dict[str, Any]] = _comparator_tasks.get(task_id)
     if not task:
         return {"status": "not_found", "message": "Task not found"}
     if task["status"] in ("completed", "failed", "cancelled"):
