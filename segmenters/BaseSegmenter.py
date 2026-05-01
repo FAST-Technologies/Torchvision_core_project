@@ -47,6 +47,7 @@ ProbabilityMask: TypeAlias = np.ndarray  # shape: (H, W), dtype: float32, зна
 MetricsDict: TypeAlias = Dict[str, float]
 
 
+# ──────────────────────────────────────────────────────────────────────
 @runtime_checkable
 class SegmentationMetricsProtocol(Protocol):
     """
@@ -76,6 +77,7 @@ class SegmentationMetricsProtocol(Protocol):
 T = TypeVar("T", bound="BaseSegmenter")
 
 
+# ──────────────────────────────────────────────────────────────────────
 class BaseSegmenter(ABC):
     """
     Абстрактный базовый класс для всех методов сегментации.
@@ -114,6 +116,7 @@ class BaseSegmenter(ABC):
         self.name: str = self.__class__.__name__
         self.metrics_calculator: SegmentationMetricsProtocol = SegmentationMetrics
 
+    # ──────────────────────────────────────────────────────────────────────
     @abstractmethod
     def segment(self, image: ImageInput, **kwargs: Any) -> BinaryMask:
         """
@@ -133,6 +136,7 @@ class BaseSegmenter(ABC):
         """
         pass
 
+    # ──────────────────────────────────────────────────────────────────────
     @abstractmethod
     def segment_with_mask(
         self, image: ImageInput, **kwargs: Any
@@ -154,6 +158,7 @@ class BaseSegmenter(ABC):
         """
         pass
 
+    # ──────────────────────────────────────────────────────────────────────
     def preprocess_image(
         self,
         image: ImageInput,
@@ -252,6 +257,7 @@ class BaseSegmenter(ABC):
 
         return result
 
+    # ──────────────────────────────────────────────────────────────────────
     def visualize(
         self,
         image: NumpyImage,
@@ -292,6 +298,7 @@ class BaseSegmenter(ABC):
         result = cv2.addWeighted(image, 1 - alpha, colored_mask, alpha, 0)
         return result if return_numpy else Image.fromarray(result)
 
+    # ──────────────────────────────────────────────────────────────────────
     def evaluate_metrics(
         self, pred_mask: BinaryMask, gt_mask: BinaryMask, threshold: float = 0.5
     ) -> MetricsDict:
@@ -317,6 +324,7 @@ class BaseSegmenter(ABC):
             pred_binary, gt_binary, threshold
         )
 
+    # ──────────────────────────────────────────────────────────────────────
     def segment_and_evaluate(
         self,
         image: ImageInput,
@@ -354,11 +362,13 @@ class BaseSegmenter(ABC):
         self, image: ImageInput, return_mask: Literal[False] = False, **kwargs: Any
     ) -> BinaryMask: ...
 
+    # ──────────────────────────────────────────────────────────────────────
     @overload
     def __call__(
         self, image: ImageInput, return_mask: Literal[True], **kwargs: Any
     ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]: ...
 
+    # ──────────────────────────────────────────────────────────────────────
     def __call__(
         self, image: ImageInput, return_mask: bool = False, **kwargs: Any
     ) -> Union[BinaryMask, Tuple[BinaryMask, Optional[ProbabilityMask]]]:
@@ -378,6 +388,7 @@ class BaseSegmenter(ABC):
             return self.segment_with_mask(image, **kwargs)
         return self.segment(image, **kwargs)
 
+    # ──────────────────────────────────────────────────────────────────────
     def _ensure_binary_mask(
         self, mask: Union[BinaryMask, ProbabilityMask], threshold: float = 0.5
     ) -> BinaryMask:
@@ -410,6 +421,7 @@ class BaseSegmenter(ABC):
                 return np.where(normalized > threshold, 255, 0).astype(np.uint8)
         return mask.astype(np.uint8)
 
+    # ──────────────────────────────────────────────────────────────────────
     def get_info(self) -> Dict[str, Any]:
         """
         Возвращает мета-информацию о сегментаторе.

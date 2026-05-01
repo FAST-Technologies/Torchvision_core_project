@@ -69,6 +69,7 @@ ModelTuple = Tuple[nn.Module, Optional[Any], str]  # (model, processor, model_ty
 ProcessorLike = Optional[Union[Any, None]]  # HF processor или None для SMP/torchvision
 
 
+# ──────────────────────────────────────────────────────────────────────
 class ModelType(Enum):
     """
     Перечисление поддерживаемых типов моделей сегментации.
@@ -99,6 +100,7 @@ class ModelType(Enum):
     YOLOV8 = "yolov8"
 
 
+# ──────────────────────────────────────────────────────────────────────
 class NeuralModelFactory:
     """
     Фабрика для создания и загрузки нейронных моделей сегментации.
@@ -174,6 +176,7 @@ class NeuralModelFactory:
                 cls._config = cls._get_default_config()
         return cls._config
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def _get_default_config(cls) -> Dict[str, Any]:
         """
@@ -220,6 +223,7 @@ class NeuralModelFactory:
             "metrics": {"threshold": 0.5, "include_hausdorff": True},
         }
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def get_model_name(cls, model_type: str, variant: Optional[str] = None) -> str:
         """
@@ -241,6 +245,7 @@ class NeuralModelFactory:
         variants = model_config.get("variants", {})
         return variants.get(variant, variant)  # type: ignore[return-value]
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def get_training_config(cls, dataset_name: str = "ade20k") -> Dict[str, Any]:
         """
@@ -255,6 +260,7 @@ class NeuralModelFactory:
         config: Dict[str, Any] = cls.load_config()
         return config["training"].get(dataset_name, config["training"]["ade20k"])
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def get_metrics_config(cls) -> Dict[str, Any]:
         """
@@ -266,6 +272,7 @@ class NeuralModelFactory:
         config: Dict[str, Any] = cls.load_config()
         return config["metrics"]
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def create_model_from_config(
         cls,
@@ -315,6 +322,7 @@ class NeuralModelFactory:
             **kwargs,
         )
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def register_model(cls, model_type: ModelType, config: Dict[str, Any]) -> None:
         """
@@ -326,6 +334,7 @@ class NeuralModelFactory:
         """
         cls._model_registry[model_type] = config
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def get_supported_models(cls) -> List[str]:
         """
@@ -336,6 +345,7 @@ class NeuralModelFactory:
         """
         return [model_type.value for model_type in ModelType]
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def create_model(
         cls,
@@ -446,6 +456,7 @@ class NeuralModelFactory:
 
         return model, processor, "segformer"
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def load_segformer_variant(
         cls, variant: str = "b2", device: DeviceStr = "cuda"
@@ -478,6 +489,7 @@ class NeuralModelFactory:
         model = SegformerForSemanticSegmentation.from_pretrained(model_name).to(device).eval()  # type: ignore[arg-type]
         return model, processor, f"segformer_{variant}"
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_segformer_params(cls, path: str, device: DeviceStr = "cuda") -> None:
         """
@@ -496,6 +508,7 @@ class NeuralModelFactory:
         print(f"   Устройство: {device}")
         print(model.config)
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_segformer_variant_params(
         cls, variant: str = "b2", device: DeviceStr = "cuda"
@@ -541,6 +554,7 @@ class NeuralModelFactory:
         model = Mask2FormerForUniversalSegmentation.from_pretrained(model_name).to(device).eval()  # type: ignore[arg-type]
         return model, processor, "mask2former"
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_mask2former_params(
         cls,
@@ -568,6 +582,7 @@ class NeuralModelFactory:
         model = MaskFormerForInstanceSegmentation.from_pretrained(model_name).to(device).eval()  # type: ignore[arg-type]
         return model, processor, "maskformer"
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_maskformer_params(
         cls,
@@ -603,6 +618,7 @@ class NeuralModelFactory:
         model = OneFormerForUniversalSegmentation.from_pretrained(model_name).to(device).eval()  # type: ignore[arg-type]
         return model, processor, "oneformer"
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_oneformer_params(
         cls,
@@ -636,6 +652,7 @@ class NeuralModelFactory:
         model = DPTForSemanticSegmentation.from_pretrained(model_name).to(device).eval()  # type: ignore[arg-type]
         return model, processor, "dpt"
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_dpt_params(
         cls, model_name: str = "Intel/dpt-large-ade", device: DeviceStr = "cuda"
@@ -665,6 +682,7 @@ class NeuralModelFactory:
         )
         return model, processor, "upernet"
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_upernet_params(
         cls,
@@ -719,6 +737,7 @@ class NeuralModelFactory:
         model = model.to(device).eval()
         return model, None, "deeplab_tv"
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_deeplab_params(cls, device: str = "cuda") -> None:
         """Вывод параметров DeepLab"""
@@ -727,6 +746,7 @@ class NeuralModelFactory:
         print("✅ DeepLab загружена!")
         print(f"   Устройство: {device}")
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def _load_unet_smp(
         cls,
@@ -760,6 +780,7 @@ class NeuralModelFactory:
         model = model.to(device).eval()
         return model, None, "unet_smp"
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_unet_params(
         cls,
@@ -834,6 +855,7 @@ class NeuralModelFactory:
             model_type_str = "fpn_smp"
         return model, None, model_type_str
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_fpn_params(
         cls,
@@ -916,6 +938,7 @@ class NeuralModelFactory:
         model.target_size = (512, 512)  # type: ignore[attr-defined]
         return model, None, model_type_str
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_psp_params(
         cls,
@@ -997,6 +1020,7 @@ class NeuralModelFactory:
         model.target_size = (512, 512)
         return model, None, "fcn_tv"
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_fcn_params(
         cls, variant: str = "fcn_resnet50", device: str = "cuda"
@@ -1047,6 +1071,7 @@ class NeuralModelFactory:
         model = model.to(device).eval()
         return model, None, "segnet"
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_segnet_params(
         cls, encoder_name: str = "resnet34", device: str = "cuda"
@@ -1094,6 +1119,7 @@ class NeuralModelFactory:
             model_type = "sam"
         return model, None, model_type
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_sam_params(
         cls, model_name: str = "mobile_sam.pt", device: str = "cuda"
@@ -1129,6 +1155,7 @@ class NeuralModelFactory:
         model.score_thresh = score_thresh
         return model, None, "maskrcnn_tv"
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_mask_rcnn_params(
         cls, variant: str = "maskrcnn_resnet50_fpn", device: str = "cuda"
@@ -1148,6 +1175,7 @@ class NeuralModelFactory:
         print("✅ Mask R-CNN загружена!")
         print(f"   Устройство: {device}")
 
+    # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def _load_yolov8(
         cls, model_name: Optional[str], device: DeviceStr = "cuda"

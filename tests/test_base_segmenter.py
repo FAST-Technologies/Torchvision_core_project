@@ -13,14 +13,12 @@ from typing import Tuple
 from PIL import Image
 from segmenters.BaseSegmenter import (
     BaseSegmenter,
-    ImagePath,
     NumpyImage,
-    PILImage,
-    TorchImage,
     ImageInput,
 )
 
 
+# ──────────────────────────────────────────────────────────────────────
 class DummySegmenter(BaseSegmenter):
     def segment(self, image: ImageInput, **kwargs) -> np.ndarray:
         # Возвращаем пустую маску того же размера что и вход
@@ -30,6 +28,7 @@ class DummySegmenter(BaseSegmenter):
             h, w = 256, 256
         return np.zeros((h, w), dtype=np.uint8)
 
+    # ──────────────────────────────────────────────────────────────────────
     def segment_with_mask(
         self, image: ImageInput, **kwargs
     ) -> Tuple[np.ndarray, np.ndarray]:
@@ -47,6 +46,7 @@ class DummySegmenter(BaseSegmenter):
         return result, mask
 
 
+# ──────────────────────────────────────────────────────────────────────
 class TestBaseSegmenter:
     def test_import(self) -> None:
         from segmenters.BaseSegmenter import BaseSegmenter
@@ -57,13 +57,14 @@ class TestBaseSegmenter:
     #     """Базовый класс не должен инстанцироваться напрямую"""
     #     with pytest.raises(TypeError):
     #         BaseSegmenter()
-
+    # ──────────────────────────────────────────────────────────────────────
     def test_preprocess_image_from_path(self, temp_image_file) -> None:
         """Тест предобработки из файла"""
         seg = DummySegmenter()
         result: NumpyImage = seg.preprocess_image(temp_image_file)
         assert result is not None
 
+    # ──────────────────────────────────────────────────────────────────────
     def test_preprocess_image_from_pil(self) -> None:
         """Тест предобработки из PIL Image"""
         img: Image.Image = Image.fromarray(
@@ -73,6 +74,7 @@ class TestBaseSegmenter:
         result: NumpyImage = seg.preprocess_image(img)
         assert result is not None
 
+    # ──────────────────────────────────────────────────────────────────────
     def test_preprocess_image_from_numpy(self) -> None:
         """Тест предобработки из numpy array"""
         img: np.ndarray = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
@@ -80,6 +82,7 @@ class TestBaseSegmenter:
         result: NumpyImage = seg.preprocess_image(img)
         assert result is not None
 
+    # ──────────────────────────────────────────────────────────────────────
     def test_segment_with_mask_base(self) -> None:
         """Тест базового segment_with_mask"""
         seg = DummySegmenter()

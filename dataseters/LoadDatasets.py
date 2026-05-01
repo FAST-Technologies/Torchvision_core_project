@@ -209,6 +209,7 @@ class DatasetConfig:
     expected_structure: ExpectedStructureDict = field(default_factory=dict)
     postprocess_script: Optional[str] = None
 
+    # ──────────────────────────────────────────────────────────────────────
     @property
     def full_path(self) -> Path:
         """
@@ -220,6 +221,7 @@ class DatasetConfig:
         return Path(self.root_dir) / self.name
 
 
+# ──────────────────────────────────────────────────────────────────────
 @dataclass
 class MedicalConfig(DatasetConfig):
     """
@@ -296,6 +298,7 @@ class DatasetManager:
         self._register_default_datasets()
         self._load_configs()
 
+    # ──────────────────────────────────────────────────────────────────────
     def _load_configs(self) -> None:
         """
         Загружает конфигурации датасетов из внешнего YAML-файла.
@@ -313,6 +316,7 @@ class DatasetManager:
                     else:
                         self._registry[name] = DatasetConfig(name=name, **cfg)
 
+    # ──────────────────────────────────────────────────────────────────────
     def get_config(self, dataset_name: str) -> DatasetConfig:
         """
         Возвращает конфигурацию указанного датасета.
@@ -331,6 +335,7 @@ class DatasetManager:
             raise ValueError(f"Unknown dataset: {dataset_name}. Available: {available}")
         return self._registry[dataset_name]
 
+    # ──────────────────────────────────────────────────────────────────────
     def _log(
         self,
         message: str,
@@ -364,6 +369,7 @@ class DatasetManager:
             f"[{timestamp}] {colors.get(level, '')}{prefix.get(level, '•')} {message}{colors['reset']}"
         )
 
+    # ──────────────────────────────────────────────────────────────────────
     def _check_disk_space(self, path: Path, required_gb: float) -> bool:
         """
         Проверяет наличие достаточного свободного места на диске.
@@ -387,6 +393,7 @@ class DatasetManager:
             return False
         return True
 
+    # ──────────────────────────────────────────────────────────────────────
     def _compute_sha256(self, filepath: Path) -> str:
         """
         Вычисляет SHA256 хеш файла для валидации целостности.
@@ -403,6 +410,7 @@ class DatasetManager:
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
 
+    # ──────────────────────────────────────────────────────────────────────
     def _register_default_datasets(self) -> None:
         """
         Регистрирует стандартные датасеты в `_registry`.
@@ -519,6 +527,7 @@ class DatasetManager:
         )
         self._log("✅ Готово! Датасеты зарегистрированы.", "success")
 
+    # ──────────────────────────────────────────────────────────────────────
     def download(
         self,
         dataset_name: str,
@@ -601,6 +610,7 @@ class DatasetManager:
             self._log(f"❌ Ошибка загрузки: {e}", "error")
             raise
 
+    # ──────────────────────────────────────────────────────────────────────
     def _print_dataset_summary(self, config: DatasetConfig) -> None:
         """
         Печатает сводную информацию о датасете.
@@ -631,6 +641,7 @@ class DatasetManager:
 
         print(f"{'-' * 50}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _download_huggingface(self, config: DatasetConfig) -> None:
         """
         Загружает датасет из HuggingFace Hub.
@@ -691,6 +702,7 @@ class DatasetManager:
             self._log(f"⚠️ HF download failed, trying fallback: {error_msg}", "warning")
             self._hf_fallback_download(config)
 
+    # ──────────────────────────────────────────────────────────────────────
     def _hf_fallback_download(
         self, config: DatasetConfig, use_api: bool = False
     ) -> None:
@@ -735,6 +747,7 @@ class DatasetManager:
                         local_dir=str(local_dir),
                     )
 
+    # ──────────────────────────────────────────────────────────────────────
     def _download_via_api(self, config: DatasetConfig) -> None:
         """
         Экспериментальный метод загрузки через HF API.
@@ -771,6 +784,7 @@ class DatasetManager:
             # Fallback на стандартный метод
             return self._hf_fallback_download(config, use_api=False)
 
+    # ──────────────────────────────────────────────────────────────────────
     def _download_zip(self, config: DatasetConfig) -> None:
         """
         Скачивает и распаковывает ZIP-архив с прогрессом и валидацией.
@@ -830,6 +844,7 @@ class DatasetManager:
         else:
             print(f"✅ Датасет уже распакован в {config.full_path}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _download_tar(self, config: DatasetConfig) -> None:
         """
         Скачивает и распаковывает TAR/GZ архив.
@@ -872,6 +887,7 @@ class DatasetManager:
         else:
             print("✅ Датасет уже распакован")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _download_direct(self, config: DatasetConfig) -> None:
         """
         Прямая загрузка файлов по ссылке.
@@ -895,6 +911,7 @@ class DatasetManager:
                 "warning",
             )
 
+    # ──────────────────────────────────────────────────────────────────────
     def _streaming_download(
         self,
         url: str,
@@ -943,6 +960,7 @@ class DatasetManager:
                 )
         self._log("✅ Контрольная сумма совпадает", "success")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _reorganize_ade_structure(
         self,
         source: Path,
@@ -1040,6 +1058,7 @@ class DatasetManager:
             except (OSError, PermissionError) as e:
                 print(f"⚠️ Не удалось создать символические ссылки: {e}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _postprocess_dataset(self, config: DatasetConfig) -> None:
         """
         Выполняет пост-обработку датасета.
@@ -1067,6 +1086,7 @@ class DatasetManager:
         self._create_index(config)
         print("✅ Пост-обработка завершена")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _decode_image_from_hf(
         self, data: Any, convert_to_rgb: bool = True
     ) -> Optional[Image.Image]:
@@ -1160,6 +1180,7 @@ class DatasetManager:
 
         return None
 
+    # ──────────────────────────────────────────────────────────────────────
     def _convert_parquet_to_files(self, config: DatasetConfig) -> None:
         """
         Конвертирует Parquet-файлы в файловую структуру изображений/масок.
@@ -1337,6 +1358,7 @@ class DatasetManager:
         self._create_index(config)
         print("✅ Конвертация завершена")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _medical_postprocess(self, config: MedicalConfig) -> None:
         """
         Специальная обработка медицинских датасетов.
@@ -1359,6 +1381,7 @@ class DatasetManager:
         # Конвертация масок к единому формату (0/1 или 0/255)
         self._normalize_masks(config.full_path / "annotations", config.num_classes)
 
+    # ──────────────────────────────────────────────────────────────────────
     def _apply_clahe(self, images_dir: Path, clip_limit: float = 2.0) -> None:
         """
         Применяет CLAHE для улучшения контраста рентгеновских снимков.
@@ -1387,6 +1410,7 @@ class DatasetManager:
             except Exception as e:
                 self._log(f"⚠️ Ошибка обработки {img_path.name}: {e}", "warning")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _normalize_masks(self, masks_dir: Path, num_classes: int) -> None:
         """
         Приводит маски к единому формату.
@@ -1411,6 +1435,7 @@ class DatasetManager:
             except Exception as e:
                 self._log(f"⚠️ Failed to normalize {mask_path.name}: {e}", "warning")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _create_index(self, config: DatasetConfig) -> None:
         """
         Создаёт индексный файл для быстрого доступа к датасету.
@@ -1470,6 +1495,7 @@ class DatasetManager:
             json.dump(index, f, indent=2)
         self._log(f"📄 Создан индекс: {index_path}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _validate_dataset(self, config: DatasetConfig) -> bool:
         """
         Гибкая валидация структуры датасета.
@@ -1558,6 +1584,7 @@ class DatasetManager:
         self._log("✅ Валидация пройдена", "success")
         return True
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_sample(
         self,
         dataset_name: str,
@@ -1605,6 +1632,7 @@ class DatasetManager:
                 mask = Image.open(alt_mask)
         return img, mask
 
+    # ──────────────────────────────────────────────────────────────────────
     def _create_index_from_hf_dataset(
         self, config: DatasetConfig, hf_dataset: Any
     ) -> None:
@@ -1641,6 +1669,7 @@ class DatasetManager:
             json.dump(index, f, indent=2)
         self._log(f"📄 Создан HF индекс: {index_path}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_test_image_from_hf(
         self,
         repo_id: str,
@@ -1673,6 +1702,7 @@ class DatasetManager:
             print(f"   ❌ Ошибка загрузки {repo_id}: {e}")
             return None
 
+    # ──────────────────────────────────────────────────────────────────────
     def create_pytorch_dataset(
         self,
         dataset_name: str,
@@ -1712,13 +1742,16 @@ class DatasetManager:
                 )
                 self._log(f"Загружено {len(self.images)} образцов из {split}")
 
+            # ──────────────────────────────────────────────────────────────────────
             def _log(self, msg: str) -> None:
                 if getattr(self, "verbose", True):
                     print(f"[{self.config.name}/{self.split_dir}] {msg}")
 
+            # ──────────────────────────────────────────────────────────────────────
             def __len__(self) -> int:
                 return len(self.images)
 
+            # ──────────────────────────────────────────────────────────────────────
             def __getitem__(self, idx: int) -> Dict[str, Any]:
                 img_path: Path = self.images[idx]
                 img_pil: Image.Image = Image.open(img_path).convert("RGB")
@@ -1792,6 +1825,7 @@ class MedicalDatasetUtils:
                 slices.append(ds.pixel_array)
         return np.stack(slices, axis=0)
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def load_nifti(path: Path) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Загрузка NIfTI файла с метаданными"""
@@ -1809,6 +1843,7 @@ class MedicalDatasetUtils:
         }
         return data, metadata
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def window_ct(
         image: np.ndarray, window_center: float, window_width: float
@@ -1820,6 +1855,7 @@ class MedicalDatasetUtils:
         image = (image - min_val) / (max_val - min_val) * 255
         return image.astype(np.uint8)
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def save_for_training(
         image: np.ndarray,
@@ -1935,6 +1971,7 @@ def main():
             print(f"❌ Failed to load sample: {e}")
 
 
+# ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     main()
     import argparse

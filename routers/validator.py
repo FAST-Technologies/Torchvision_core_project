@@ -57,12 +57,14 @@ class NumpyEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
+# ──────────────────────────────────────────────────────────────────────
 def safe_json_response(content: Any, status_code: int = 200) -> JSONResponse:
     return JSONResponse(
         content=content, status_code=status_code, media_type="application/json"
     )
 
 
+# ──────────────────────────────────────────────────────────────────────
 def arr_to_b64(arr: np.ndarray) -> str:
     """numpy → data:image/png;base64,..."""
     if arr.dtype != np.uint8:
@@ -358,6 +360,7 @@ async def _run_validation_task(
         logger.error(f"❌ Validation task {task_id} failed: {e}")
 
 
+# ──────────────────────────────────────────────────────────────────────
 def _process_single_method(
     method_name: str,
     params: Dict[str, Any],
@@ -467,6 +470,7 @@ async def start_validation(
     return {"task_id": task_id, "status": "running"}
 
 
+# ──────────────────────────────────────────────────────────────────────
 @router.get("/status/{task_id}")
 async def get_validation_status(task_id: str) -> JSONResponse:
     """Возвращает статус и результаты валидации."""
@@ -646,6 +650,7 @@ async def get_validation_status(task_id: str) -> JSONResponse:
     return safe_json_response(response)
 
 
+# ──────────────────────────────────────────────────────────────────────
 @router.delete("/{task_id}")
 async def cancel_validation(task_id: str) -> Dict[str, str]:
     """Отменяет задачу валидации."""

@@ -27,6 +27,7 @@ SegmenterLike = Any  # Объект с методом .segment(image) -> MaskArr
 PathLike = Union[str, Path]
 
 
+# ──────────────────────────────────────────────────────────────────────
 class SegmentationComparator:
     """
     Класс для сравнительного тестирования и валидации сегментационных методов.
@@ -193,6 +194,7 @@ class SegmentationComparator:
             )
         return self.results[result_key]
 
+    # ──────────────────────────────────────────────────────────────────────
     def visualize_comparison(
         self,
         image: ImageArray,
@@ -424,6 +426,7 @@ class SegmentationComparator:
             self._create_summary_visualization(df, str(output_dir))
         return df
 
+    # ──────────────────────────────────────────────────────────────────────
     def _create_summary_visualization(self, df: pd.DataFrame, output_dir: str) -> None:
         """
         Строит 2×2 grid со сводной визуализацией результатов пакетного сравнения.
@@ -677,6 +680,7 @@ class SegmentationComparator:
             "method_infos": method_infos,
         }
 
+    # ──────────────────────────────────────────────────────────────────────
     def _save_matrix_results(
         self,
         df_comparisons: pd.DataFrame,
@@ -809,6 +813,7 @@ class SegmentationComparator:
             reference_method,
         )
 
+    # ──────────────────────────────────────────────────────────────────────
     def _visualize_all_masks(
         self, masks: Dict[str, np.ndarray], output_dir: str
     ) -> None:
@@ -845,6 +850,7 @@ class SegmentationComparator:
 
         print(f"🖼️ Все маски: {all_masks_path}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _create_html_report(
         self,
         df_comparisons: pd.DataFrame,

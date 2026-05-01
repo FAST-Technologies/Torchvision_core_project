@@ -12,6 +12,7 @@ if project_root not in sys.path:
 from segmenters.ModelTrainer import ModelTrainer, TrainingConfig
 
 
+# ──────────────────────────────────────────────────────────────────────
 def main():
     print("=" * 70)
     print("СРАВНЕНИЕ АУГМЕНТАЦИЙ ДЛЯ ОБУЧЕНИЯ СЕГМЕНТАЦИИ")

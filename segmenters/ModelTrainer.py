@@ -67,6 +67,7 @@ IGNORE_INDEX_BY_MODEL: Dict[str, int] = {
 }
 
 
+# ──────────────────────────────────────────────────────────────────────
 class ModelConfig(TypedDict):
     """
     Конфигурация модели для обучения.
@@ -84,6 +85,7 @@ class ModelConfig(TypedDict):
     lr: NotRequired[float]
 
 
+# ──────────────────────────────────────────────────────────────────────
 class TrainingResult(TypedDict):
     """
     Результаты обучения одного эксперимента.
@@ -141,6 +143,7 @@ class TrainingResult(TypedDict):
 # # Если передать неверный model_type → выбросит ValidationError.
 
 
+# ──────────────────────────────────────────────────────────────────────
 class TrainingConfig:
     """
     Конфигурация для эксперимента обучения моделей сегментации.
@@ -228,6 +231,7 @@ class TrainingConfig:
         else:
             self.checkpoint_name = checkpoint_name
 
+    # ──────────────────────────────────────────────────────────────────────
     def __repr__(self) -> str:
         return (
             f"TrainingConfig({self.experiment_name}, "
@@ -237,6 +241,7 @@ class TrainingConfig:
         )
 
 
+# ──────────────────────────────────────────────────────────────────────
 class ModelTrainer:
     """
     Универсальный трейнер для обучения моделей семантической сегментации.
@@ -286,6 +291,7 @@ class ModelTrainer:
         )
         self.experiment_results: List[TrainingResult] = []
 
+    # ──────────────────────────────────────────────────────────────────────
     def create_model(
         self,
         model_type: ModelType,
@@ -854,6 +860,7 @@ class ModelTrainer:
         print(f"   Checkpoint: {checkpoint_path}")
         return result
 
+    # ──────────────────────────────────────────────────────────────────────
     def compare_trained_models(
         self,
         augmentation_level: str = "medium",
@@ -1032,6 +1039,7 @@ class ModelTrainer:
 
         return results
 
+    # ──────────────────────────────────────────────────────────────────────
     def evaluate_trained_models_on_val(
         self,
         checkpoints: Dict[str, str],
@@ -1487,6 +1495,7 @@ class ModelTrainer:
 
         return all_results
 
+    # ──────────────────────────────────────────────────────────────────────
     def evaluate_checkpoints(
         self,
         checkpoint_paths: List[str],

@@ -530,6 +530,7 @@ class ADE20KDatasetWithTransforms(Dataset):
             n: int = int(len(self.valid_indices) * subset_fraction)
             self.valid_indices = self.valid_indices[:n]
 
+    # ──────────────────────────────────────────────────────────────────────
     def _get_train_transforms(self) -> Dict[str, transforms.Compose]:
         """Возвращает трансформации для обучения с аугментациями."""
         return {
@@ -545,6 +546,7 @@ class ADE20KDatasetWithTransforms(Dataset):
             "mask": transforms.Compose([transforms.ToTensor()]),
         }
 
+    # ──────────────────────────────────────────────────────────────────────
     def _get_val_transforms(self) -> Dict[str, transforms.Compose]:
         """Возвращает трансформации для валидации (без аугментаций)."""
         return {
@@ -557,9 +559,11 @@ class ADE20KDatasetWithTransforms(Dataset):
             "mask": transforms.Compose([]),
         }
 
+    # ──────────────────────────────────────────────────────────────────────
     def __len__(self) -> int:
         return len(self.valid_indices)
 
+    # ──────────────────────────────────────────────────────────────────────
     def __getitem__(self, idx: int) -> BatchDict:
         real_idx: int = self.valid_indices[idx]
         img_file: str = self.image_files[real_idx]

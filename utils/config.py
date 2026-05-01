@@ -20,6 +20,7 @@ from utils.paths import MODELS_DIR, ADE20K_DIR  # PROJECT_ROOT
 PathLike = Union[str, Path]
 
 
+# ──────────────────────────────────────────────────────────────────────
 class Settings(BaseSettings):
     """
     Конфигурация приложения через Pydantic Settings.
@@ -76,6 +77,7 @@ class Settings(BaseSettings):
         """
         return self.MODEL_DIR / checkpoint_name
 
+    # ──────────────────────────────────────────────────────────────────────
     def ensure_model_dir_exists(self) -> None:
         """Создаёт директорию моделей, если она не существует."""
         self.MODEL_DIR.mkdir(parents=True, exist_ok=True)

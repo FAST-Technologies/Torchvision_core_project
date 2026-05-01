@@ -86,6 +86,7 @@ print(f"🔍 CWD: {os.getcwd()}")
 print(f"🔍 __file__: {__file__}")
 
 
+# ──────────────────────────────────────────────────────────────────────
 def _get_or_load_neural(config: Dict[str, Any], task: str) -> Any:
     """
     Загружает нейронный сегментер с LRU-кешем (макс. 3 модели).
@@ -131,6 +132,7 @@ def arr_to_b64(arr: np.ndarray) -> str:
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
+# ──────────────────────────────────────────────────────────────────────
 def analyze_image_data(img_array: ImageArray) -> AnalysisDataDict:
     """
     Извлекает статистические данные изображения для визуализации.
@@ -163,6 +165,7 @@ def analyze_image_data(img_array: ImageArray) -> AnalysisDataDict:
     }
 
 
+# ──────────────────────────────────────────────────────────────────────
 def sanitize_metrics(m: MetricsDict) -> MetricsDict:
     """
     Заменяет `inf` и `NaN` на `None` для JSON-совместимости.
@@ -179,6 +182,7 @@ def sanitize_metrics(m: MetricsDict) -> MetricsDict:
     }
 
 
+# ──────────────────────────────────────────────────────────────────────
 def build_overlay(img: ImageArray, mask: MaskArray, alpha: float = 0.4) -> ImageArray:
     """
     Создаёт наложение маски на оригинальное изображение.
@@ -197,6 +201,7 @@ def build_overlay(img: ImageArray, mask: MaskArray, alpha: float = 0.4) -> Image
     return (rgb * (1 - alpha) + col * alpha).astype(np.uint8)
 
 
+# ──────────────────────────────────────────────────────────────────────
 def params_to_schema(params: Dict[str, Any]) -> Dict[str, Any]:
     """
     Генерирует JSON-схему UI-конфигуратора из параметров по умолчанию.
@@ -236,6 +241,7 @@ def params_to_schema(params: Dict[str, Any]) -> Dict[str, Any]:
     return schema
 
 
+# ──────────────────────────────────────────────────────────────────────
 def _best_for(method_name: str) -> List[str]:
     """
     Возвращает список типов изображений, для которых метод оптимален.
@@ -422,6 +428,7 @@ print(f"📋 Registered routes: {[r.path for r in app.routes if hasattr(r, 'path
 auto_seg = AutoSegmenter()
 
 
+# ──────────────────────────────────────────────────────────────────────
 @app.middleware("http")
 async def log_benchmark_requests(
     request: Request, call_next: Callable[[Request], Any]
@@ -482,6 +489,7 @@ async def health() -> Dict[str, Any]:
     }
 
 
+# ──────────────────────────────────────────────────────────────────────
 @app.get("/api/cache_info")
 async def cache_info() -> Dict[str, Any]:
     """
@@ -493,6 +501,7 @@ async def cache_info() -> Dict[str, Any]:
     return {"count": len(_model_cache), "models": [k[:80] for k in _model_cache]}
 
 
+# ──────────────────────────────────────────────────────────────────────
 @app.get("/api/methods_library")
 async def get_methods_by_library(
     library: Optional[str] = None,
@@ -539,6 +548,7 @@ async def get_methods_by_library(
     return {"methods": result}
 
 
+# ──────────────────────────────────────────────────────────────────────
 @app.get("/api/methods")
 async def get_methods(library: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     """
@@ -584,6 +594,7 @@ async def get_methods(library: Optional[str] = None) -> Dict[str, Dict[str, Any]
     return {"methods": result}
 
 
+# ──────────────────────────────────────────────────────────────────────
 @app.post("/api/segment")
 async def segment(
     file: UploadFile = File(...),
@@ -824,6 +835,7 @@ async def segment(
         raise HTTPException(500, str(exc))
 
 
+# ──────────────────────────────────────────────────────────────────────
 @app.get("/recommendations/")
 async def get_recommendations_ep(
     file: UploadFile = File(...),

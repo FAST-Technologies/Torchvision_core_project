@@ -1,5 +1,12 @@
 # main.py
 
+"""
+Класс для вывода информации по тестируемым изображениям.
+"""
+
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 from typing import Dict
 from PIL import Image
 
@@ -20,7 +27,7 @@ image_paths: Dict[str, str] = {
 
 for name, path in image_paths.items():
     try:
-        img = Image.open(path)
+        img: Image.Image = Image.open(path)
         print(f"✅ {name}: {img.size}, info: {img.info}")
 
     except Exception as e:

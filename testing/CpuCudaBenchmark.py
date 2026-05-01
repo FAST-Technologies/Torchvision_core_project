@@ -13,6 +13,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 
+# ──────────────────────────────────────────────────────────────────────
 class CpuCudaBenchmark:
     """
     Бенчмарк для сравнения производительности и стабильности методов сегментации
@@ -58,6 +59,7 @@ class CpuCudaBenchmark:
         self.n_runs = n_runs
         self.warmup_runs = warmup_runs
 
+    # ──────────────────────────────────────────────────────────────────────
     def benchmark_method(
         self, segmenter: Any, image: np.ndarray, method_name: str, device: str = "cpu"
     ) -> Dict[str, Any]:
@@ -164,6 +166,7 @@ class CpuCudaBenchmark:
             "n_runs": len(times),
         }
 
+    # ──────────────────────────────────────────────────────────────────────
     def benchmark_all_methods(
         self,
         methods_dict: Dict[str, Any],
@@ -239,6 +242,7 @@ class CpuCudaBenchmark:
 
         return df
 
+    # ──────────────────────────────────────────────────────────────────────
     def _save_results(
         self, df: pd.DataFrame, test_name: str, output_dir: Optional[str] = None
     ) -> None:
@@ -350,6 +354,7 @@ class CpuCudaBenchmark:
 
         print(f"✅ Результаты сохранены в: {output_dir}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _plot_results(
         self, df: pd.DataFrame, test_name: str, output_dir: Optional[str] = None
     ) -> None:

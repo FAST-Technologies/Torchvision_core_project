@@ -1,3 +1,6 @@
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 import sys
 import os
 
@@ -32,6 +35,7 @@ import segmentation_models_pytorch as smp
 device = "cuda"
 
 
+# ──────────────────────────────────────────────────────────────────────
 def train_unet_ade20k(
     epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, device="cuda"
 ):
@@ -96,6 +100,7 @@ def train_unet_ade20k(
     return model, history
 
 
+# ──────────────────────────────────────────────────────────────────────
 def train_deeplab_ade20k(
     epochs: int = 20,
     batch_size: int = 4,
@@ -224,6 +229,7 @@ def train_deeplab_ade20k(
     return model, trainer.history
 
 
+# ──────────────────────────────────────────────────────────────────────
 def train_fpn_mit_ade20k(
     epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5, device="cuda", variant="b5"
 ):
@@ -289,6 +295,7 @@ def train_fpn_mit_ade20k(
     return model, history
 
 
+# ──────────────────────────────────────────────────────────────────────
 def train_psp_mit_ade20k(
     epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5, device="cuda", variant="b5"
 ):
@@ -357,6 +364,7 @@ def train_psp_mit_ade20k(
     return model, history
 
 
+# ──────────────────────────────────────────────────────────────────────
 def train_fcn_resnet50_ade20k(
     epochs=20,
     batch_size=4,
@@ -496,6 +504,7 @@ def train_fcn_resnet50_ade20k(
     return model, trainer.history
 
 
+# ──────────────────────────────────────────────────────────────────────
 def train_segnet_ade20k(
     epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, device="cuda"
 ):
@@ -577,6 +586,7 @@ def train_segnet_ade20k(
     return model, history
 
 
+# ──────────────────────────────────────────────────────────────────────
 def compare_trained_models():
     """Сравнение обученных моделей на валидационном наборе"""
     print("\n" + "=" * 60)
@@ -772,6 +782,7 @@ def compare_trained_models():
     return results
 
 
+# ──────────────────────────────────────────────────────────────────────
 def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"):
     """Оценка обученных моделей на валидационном наборе"""
 

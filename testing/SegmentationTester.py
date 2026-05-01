@@ -46,6 +46,7 @@ PathLike = Union[str, Path]
 StatsList = List[Dict[str, Any]]
 
 
+# ──────────────────────────────────────────────────────────────────────
 class SegmentationTester:
     """
     Универсальный класс для тестирования, сравнения и бенчмаркинга методов сегментации.
@@ -106,6 +107,7 @@ class SegmentationTester:
         if ground_truth_path:
             self.load_ground_truth(ground_truth_path)
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_ground_truth(self, gt_path: PathLike) -> None:
         """
         Загружает ground truth маску из файла.
@@ -139,6 +141,7 @@ class SegmentationTester:
             print(f"❌ Ошибка загрузки ground truth: {e}")
             self.ground_truth_mask = None
 
+    # ──────────────────────────────────────────────────────────────────────
     def _ensure_warmup(
         self, method_name: str, segmenter: BaseSegmenter, image: ImageArray
     ) -> None:
@@ -167,6 +170,7 @@ class SegmentationTester:
             )
             self.warmup_completed[method_name] = True
 
+    # ──────────────────────────────────────────────────────────────────────
     def _create_test_directory(self, test_name: Optional[str] = None) -> str:
         """
         Создаёт уникальную иерархию директорий для хранения результатов теста.
@@ -206,6 +210,7 @@ class SegmentationTester:
         print(f"📁 Создана директория для теста: {full_path}")
         return str(full_path)
 
+    # ──────────────────────────────────────────────────────────────────────
     def add_method(self, name: str, segmenter: BaseSegmenter) -> None:
         """
         Регистрирует новый метод сегментации в тестере.
@@ -216,6 +221,7 @@ class SegmentationTester:
         """
         self.methods[name] = segmenter
 
+    # ──────────────────────────────────────────────────────────────────────
     def test_single_method(
         self,
         image: ImageInput,
@@ -355,6 +361,7 @@ class SegmentationTester:
         )
         return result_data
 
+    # ──────────────────────────────────────────────────────────────────────
     def _save_overlay_image(
         self, result_data: Dict[str, Any], method_dir: PathLike, method_name: str
     ) -> None:
@@ -424,6 +431,7 @@ class SegmentationTester:
         except Exception as e:
             print(f"    ⚠️ Ошибка создания overlay для {method_name}: {e}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _save_metrics_file(
         self, result_data: Dict[str, Any], method_dir: PathLike, method_name: str
     ) -> None:
@@ -479,6 +487,7 @@ class SegmentationTester:
                 )
         print(f"    📊 Метрики сохранены для {method_name}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _save_method_info(
         self, result_data: Dict[str, Any], method_dir: str, method_name: str
     ) -> None:
@@ -540,6 +549,7 @@ class SegmentationTester:
         except Exception as e:
             print(f"    ⚠️ Ошибка сохранения информации о методе {method_name}: {e}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _save_method_results(
         self, result_data: Dict[str, Any], output_dir: str, method_name: str
     ) -> None:
@@ -593,6 +603,7 @@ class SegmentationTester:
         # Сохраняем информацию о методе
         self._save_method_info(result_data, method_dir, method_name)
 
+    # ──────────────────────────────────────────────────────────────────────
     def test_single_method_with_metrics(
         self,
         image: ImageInput,
@@ -671,6 +682,7 @@ class SegmentationTester:
             self._save_method_results(result_data, str(output_dir), method_name)
         return result_data
 
+    # ──────────────────────────────────────────────────────────────────────
     def compare_methods(
         self,
         image: ImageInput,
@@ -825,6 +837,7 @@ class SegmentationTester:
         print(f"📋 Протестировано методов: {len(results)}/{len(method_names)}")
         return results
 
+    # ──────────────────────────────────────────────────────────────────────
     def compare_methods_with_metrics(
         self,
         image: ImageInput,
@@ -967,6 +980,7 @@ class SegmentationTester:
         self.results[test_dir] = results
         return results
 
+    # ──────────────────────────────────────────────────────────────────────
     def _save_statistics(self, stats: StatsList, output_dir: PathLike) -> None:
         """
         Сохраняет статистику тестирования в JSON, CSV и TXT форматах.
@@ -1109,6 +1123,7 @@ class SegmentationTester:
 
         print(f"📋 Текстовый отчет сохранен: {report_path}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _save_metrics_comparison(
         self, metrics_data: List[MetricDict], output_dir: PathLike
     ) -> None:
@@ -1140,6 +1155,7 @@ class SegmentationTester:
         except ImportError as e:
             print(f"⚠️ Ошибка сохранения CSV/таблицы: {e}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _create_metrics_table_image(self, df: pd.DataFrame, metrics_dir: str) -> None:
         """
         Создаёт изображение со сводной таблицей метрик для отчётов.
@@ -1196,6 +1212,7 @@ class SegmentationTester:
         except Exception as e:
             print(f"⚠️ Ошибка создания таблицы метрик: {e}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _save_results_summary(
         self, results: Dict[str, Dict], output_dir: PathLike
     ) -> None:
@@ -1271,6 +1288,7 @@ class SegmentationTester:
                     for key, value in method_data.items():
                         f.write(f"{key}: {value}\n")
 
+    # ──────────────────────────────────────────────────────────────────────
     def benchmark_methods(
         self,
         image: ImageInput,
@@ -1542,6 +1560,7 @@ class SegmentationTester:
 
         return df
 
+    # ──────────────────────────────────────────────────────────────────────
     def _save_benchmark_results(self, df: pd.DataFrame, output_dir: PathLike) -> None:
         """
         Сохраняет результаты бенчмарка в CSV, Excel и текстовый отчёт.
@@ -1639,6 +1658,7 @@ class SegmentationTester:
         print(f"📊 CSV с результатами: {csv_path}")
         self._plot_benchmark_results(df, output_dir)
 
+    # ──────────────────────────────────────────────────────────────────────
     def _plot_benchmark_results(self, df: pd.DataFrame, output_dir: PathLike) -> None:
         """
         Строит графики результатов бенчмарка: время, площадь, IoU vs время.
@@ -1756,6 +1776,7 @@ class SegmentationTester:
         self._create_benchmark_preview(df, output_dir, str(comp_dir))
         print(f"📈 Графики бенчмарка сохранены в {comp_dir}/")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _create_metrics_plots(self, df: pd.DataFrame, metrics_dir: PathLike) -> None:
         """
         Создаёт графики сравнения метрик (бар-чарты, scatter IoU vs время).
@@ -1846,6 +1867,7 @@ class SegmentationTester:
         except Exception as e:
             print(f"⚠️ Ошибка создания графиков метрик: {e}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _create_benchmark_preview(
         self, df: pd.DataFrame, output_dir: PathLike, comp_dir: str
     ) -> None:
@@ -1909,6 +1931,7 @@ class SegmentationTester:
         plt.savefig(preview_path, dpi=150, bbox_inches="tight")
         plt.close()
 
+    # ──────────────────────────────────────────────────────────────────────
     def benchmark_all_methods(
         self,
         image: ImageInput,
@@ -2011,6 +2034,7 @@ class SegmentationTester:
             df = df.sort_values("mean_time_s")
         return df
 
+    # ──────────────────────────────────────────────────────────────────────
     def visualize_comparison(
         self,
         results: Dict[str, Dict],
@@ -2101,6 +2125,7 @@ class SegmentationTester:
         else:
             plt.close()
 
+    # ──────────────────────────────────────────────────────────────────────
     def save_results(
         self,
         results: Dict[str, Dict],

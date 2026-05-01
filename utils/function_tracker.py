@@ -26,6 +26,7 @@ if not logger.handlers:
     logger.addHandler(handler)
 
 
+# ──────────────────────────────────────────────────────────────────────
 def track_calls(func: Callable[P, R]) -> Callable[P, R]:
     """
     Декоратор для логирования вызовов функции и обработки исключений.
@@ -74,6 +75,7 @@ def track_calls(func: Callable[P, R]) -> Callable[P, R]:
     return cast(Callable[P, R], wrapper)  # type: ignore[return-value]
 
 
+# ──────────────────────────────────────────────────────────────────────
 def track_calls_verbose(func: Callable[P, R]) -> Callable[P, R]:
     """
     Расширенная версия декоратора: логирует аргументы и результат даже на INFO-уровне.

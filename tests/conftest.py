@@ -11,24 +11,28 @@ import os
 import torch
 
 
+# ──────────────────────────────────────────────────────────────────────
 @pytest.fixture(scope="session")
 def test_data_dir() -> Path:
     """Директория с тестовыми данными"""
     return Path(__file__).parent / "test_data"
 
 
+# ──────────────────────────────────────────────────────────────────────
 @pytest.fixture
 def rgb_image() -> np.ndarray:
     """RGB изображение 256x256"""
     return np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
 
 
+# ──────────────────────────────────────────────────────────────────────
 @pytest.fixture
 def gray_image() -> np.ndarray:
     """Grayscale изображение 256x256"""
     return np.random.randint(0, 255, (256, 256), dtype=np.uint8)
 
 
+# ──────────────────────────────────────────────────────────────────────
 @pytest.fixture
 def textured_gray_image() -> np.ndarray:
     """Grayscale изображение с текстурными областями для тестов адаптивных порогов"""
@@ -42,6 +46,7 @@ def textured_gray_image() -> np.ndarray:
     return img
 
 
+# ──────────────────────────────────────────────────────────────────────
 @pytest.fixture
 def binary_mask() -> np.ndarray:
     """Бинарная маска для тестов"""
@@ -50,6 +55,7 @@ def binary_mask() -> np.ndarray:
     return mask
 
 
+# ──────────────────────────────────────────────────────────────────────
 @pytest.fixture
 def temp_image_file(tmp_path: Path, rgb_image: np.ndarray) -> str:
     """Временный файл изображения для тестов"""
@@ -59,6 +65,7 @@ def temp_image_file(tmp_path: Path, rgb_image: np.ndarray) -> str:
     return str(path)
 
 
+# ──────────────────────────────────────────────────────────────────────
 @pytest.fixture
 def temp_mask_file(tmp_path: Path, binary_mask: np.ndarray) -> str:
     """Временный файл маски"""
@@ -68,23 +75,27 @@ def temp_mask_file(tmp_path: Path, binary_mask: np.ndarray) -> str:
     return str(path)
 
 
+# ──────────────────────────────────────────────────────────────────────
 @pytest.fixture
 def small_image() -> np.ndarray:
     """Маленькое изображение для быстрых тестов"""
     return np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8)
 
 
+# ──────────────────────────────────────────────────────────────────────
 @pytest.fixture
 def large_image() -> np.ndarray:
     """Большое изображение для тестов производительности"""
     return np.random.randint(0, 255, (512, 512, 3), dtype=np.uint8)
 
 
+# ──────────────────────────────────────────────────────────────────────
 def pytest_configure(config) -> None:
     """Регистрация маркеров"""
     config.addinivalue_line("markers", "gpu: requires CUDA hardware")
 
 
+# ──────────────────────────────────────────────────────────────────────
 @pytest.fixture(autouse=True)
 def skip_if_no_gpu(request) -> None:
     """

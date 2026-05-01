@@ -38,6 +38,7 @@ ValidationStatus = Literal[
 ]  # Requires: from typing import Literal
 
 
+# ──────────────────────────────────────────────────────────────────────
 class TorchImplementationValidator:
     """
     Класс для валидации кастомных PyTorch-реализаций методов сегментации
@@ -228,6 +229,7 @@ class TorchImplementationValidator:
             "mae": 0.15,  # MAE < 0.15
         }
 
+    # ──────────────────────────────────────────────────────────────────────
     def _load_image(self, image_path: ImageInput) -> ImageArray:
         """
         Универсальная загрузка изображения для всех сегментаторов.
@@ -250,6 +252,7 @@ class TorchImplementationValidator:
         else:
             raise ValueError(f"Неподдерживаемый тип изображения: {type(image_path)}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def validate_segmentation_methods(
         self,
         image_path: ImageInput,
@@ -440,6 +443,7 @@ class TorchImplementationValidator:
         )
         return results
 
+    # ──────────────────────────────────────────────────────────────────────
     def _check_validation_status(self, metrics: MetricDict) -> ValidationStatus:
         """
         Определяет статус валидации на основе пороговых значений метрик.
@@ -481,6 +485,7 @@ class TorchImplementationValidator:
         else:
             return "FAIL"
 
+    # ──────────────────────────────────────────────────────────────────────
     def _save_validation_results(
         self,
         results: Dict[str, Any],
@@ -546,6 +551,7 @@ class TorchImplementationValidator:
 
         print(f"\n💾 Результаты сохранены: {results_dir}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _visualize_validation(
         self,
         results: Dict[str, Any],
@@ -647,6 +653,7 @@ class TorchImplementationValidator:
 
         print(f"📊 Визуализация: {viz_path}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def generate_validation_report(self, all_results: Dict[str, Any]) -> str:
         """
         Генерирует текстовый сводный отчёт по всем типам валидации.
@@ -743,6 +750,7 @@ class TorchImplementationValidator:
         print("\n" + report)
         return report
 
+    # ──────────────────────────────────────────────────────────────────────
     def validate_all_methods(self, image_path: ImageInput) -> Dict[str, Any]:
         """
         Запускает валидацию всех предустановленных категорий методов.
@@ -881,6 +889,7 @@ class TorchImplementationValidator:
             )
         return all_results
 
+    # ──────────────────────────────────────────────────────────────────────
     def generate_benchmark_report_from_validation(
         self, all_results: Dict[str, Any], output_dir: Optional[str] = None
     ) -> pd.DataFrame:
@@ -979,6 +988,7 @@ class TorchImplementationValidator:
 
         return df
 
+    # ──────────────────────────────────────────────────────────────────────
     def _plot_validation_benchmark_charts(
         self, df: pd.DataFrame, output_dir: str
     ) -> None:
@@ -1311,6 +1321,7 @@ class TorchImplementationValidator:
 
         print(f"📈 Графики бенчмарка сохранены в: {charts_dir}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _generate_validation_benchmark_summary(
         self, df: pd.DataFrame, output_dir: str
     ) -> None:

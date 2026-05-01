@@ -1,5 +1,46 @@
 # segmenters/AutoSegmenter.py
 
+"""
+Модуль интеллектуального выбора методов сегментации изображений.
+
+Предоставляет класс `AutoSegmenter`, который автоматически подбирает оптимальный
+метод сегментации на основе:
+- Характеристик входного изображения (контраст, шум, сложность)
+- Цели пользователя (скорость, точность, экономия памяти)
+- Результатов предварительных бенчмарков
+
+Поддерживаемые библиотеки: OpenCV, scikit-learn, PyTorch.
+Поддерживаемые методы: пороговые, градиентные, кластеризация, активные контуры, watershed.
+
+Example:
+    ```python
+    from segmenters.AutoSegmenter import AutoSegmenter, SegmentationGoal
+    import cv2
+
+    # Инициализация с целью "максимальная точность"
+    selector = AutoSegmenter(goal=SegmentationGoal.ACCURACY)
+
+    # Загрузка изображения
+    image = cv2.imread("sample.jpg")
+
+    # Автоматическая сегментация
+    mask = selector.segment(image, auto_select=True)
+
+    # Или ручной выбор метода
+    mask = selector.segment(
+        image,
+        auto_select=False,
+        method_name="threshold_sauvola",
+        library="opencv"
+    )
+
+    # Получение топ-5 рекомендаций
+    recommendations = selector.get_recommendations(image, top_k=5)
+    for rec in recommendations:
+        print(f"{rec['rank']}. {rec['method']} (score: {rec['score']:.3f})")
+    ```
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -52,11 +93,11 @@ ScoreWeights = Dict[str, float]
 # ──────────────────────────────────────────────────────────────────────
 class SegmentationGoal(Enum):
     """
-    Цели оптимизации сегментации.
+    Перечисление целей сегментации для настройки приоритетов выбора метода.
 
     Attributes:
-        SPEED: Максимальная скорость выполнения.
-        ACCURACY: Максимальная точность (mIoU).
+        SPEED: Приоритет максимальной скорости выполнения.
+        ACCURACY: Приоритет максимальной точности (IoU/Dice).
         BALANCED: Оптимальный баланс между скоростью и точностью.
         LOW_MEMORY: Минимальное потребление VRAM/RAM.
     """
@@ -67,9 +108,12 @@ class SegmentationGoal(Enum):
     LOW_MEMORY = "low_memory"  # Минимальное потребление памяти
 
 
+# ──────────────────────────────────────────────────────────────────────
 class ImageType(Enum):
     """
-    Категории входных изображений для эвристического выбора методов.
+    Перечисление типов изображений для эвристической классификации.
+
+    Используется для подбора методов, оптимизированных под конкретный домен.
 
     Attributes:
         MEDICAL: МРТ, КТ, рентген, гистология.
@@ -90,21 +134,24 @@ class ImageType(Enum):
     UNKNOWN = "unknown"  # В случае, если датасет неизвестен
 
 
+# ──────────────────────────────────────────────────────────────────────
 @dataclass
 class ImageCharacteristics:
     """
-    Статистические характеристики изображения.
+    Структура характеристик изображения, извлечённых для анализа.
+
+    Используется для принятия решений при выборе метода сегментации.
 
     Attributes:
-        width: Ширина в пикселях.
-        height: Высота в пикселях.
-        channels: Количество цветовых каналов (1 для grayscale, 3 для RGB).
-        mean_intensity: Средняя яркость пикселей.
-        std_intensity: Стандартное отклонение яркости.
-        contrast: Контрастность (размах / максимум).
-        noise_level: Оценка уровня шума (локальная дисперсия).
-        edge_density: Плотность границ (доля пикселей Canny).
-        complexity_score: Энтропийная сложность (0.0–1.0).
+        width: Ширина изображения в пикселях.
+        height: Высота изображения в пикселях.
+        channels: Количество цветовых каналов (1 для градаций серого, 3 для RGB).
+        mean_intensity: Средняя интенсивность пикселей [0, 255].
+        std_intensity: Стандартное отклонение интенсивности (мера контраста).
+        contrast: Нормализованный контраст: (max-min)/(max+ε).
+        noise_level: Оценка уровня шума через локальную дисперсию.
+        edge_density: Доля пикселей, определённых как границы (Canny).
+        complexity_score: Нормализованная энтропия гистограммы [0, 1].
         estimated_type: Эвристически определенный тип изображения.
     """
 
@@ -120,23 +167,26 @@ class ImageCharacteristics:
     estimated_type: ImageType
 
 
+# ──────────────────────────────────────────────────────────────────────
 @dataclass
 class MethodProfile:
     """
     Профиль метода сегментации на основе бенчмарков.
 
+    Содержит метрики производительности и рекомендации по применению.
+
     Attributes:
-        name: Уникальное имя метода.
+        name: Уникальное имя метода (например, "otsu_thresholding").
         library: Библиотека реализации ("opencv" | "sklearn" | "torch").
         avg_time_ms: Среднее время выполнения (мс).
-        avg_iou: Средний IoU на тестовых наборах.
+        avg_iou: Средний IoU на тестовых наборах [0, 1].
         memory_mb: Среднее потребление памяти (МБ).
         best_for_type: Типы изображений, для которых метод оптимален.
-        robustness: Устойчивость к шуму и артефактам (0.0–1.0).
-        parameter_sensitivity: Чувствительность к гиперпараметрам (0.0–1.0).
+        robustness: Устойчивость к шуму и артефактам [0, 1] (1 = максимальная).
+        parameter_sensitivity: Чувствительность к гиперпараметрам [0, 1] (1 = высокая).
         description: Человекочитаемое описание метода.
-        params: Параметры по умолчанию.
-        schema: JSON-схема для UI-конфигуратора.
+        params: Словарь параметров по умолчанию.
+        schema: JSON-схема параметров для UI-конфигуратора.
     """
 
     name: str
@@ -153,9 +203,10 @@ class MethodProfile:
 
 
 MethodConfig = Tuple[str, Dict[str, Any]]
+"""Кортеж (имя_метода, параметры)."""
 
 # ──────────────────────────────────────────────────────────────────────
-# РЕЕСТР МЕТОДОВ (сокращённо для читаемости, типы сохранены)
+# РЕЕСТР МЕТОДОВ (BENCHMARK PROFILES)
 # ──────────────────────────────────────────────────────────────────────
 METHODS_BY_LIBRARY: Dict[str, Dict[str, MethodProfile]] = {
     "opencv": {
@@ -3791,22 +3842,44 @@ METHODS_BY_LIBRARY: Dict[str, Dict[str, MethodProfile]] = {
     },
 }
 
+# ──────────────────────────────────────────────────────────────────────
 # Flat dict для быстрого доступа (как было)
 ALL_METHODS: Dict[str, MethodProfile] = {
     name: profile
     for lib_methods in METHODS_BY_LIBRARY.values()
     for name, profile in lib_methods.items()
 }
+"""Плоский словарь всех методов для быстрого поиска по имени."""
 
 
+# ──────────────────────────────────────────────────────────────────────
+# MAIN CLASS: AutoSegmenter
+# ───────────────────────────────────────────────────────────────────────
 class AutoSegmenter:
     """
-    Интеллектуальный селектор методов сегментации.
+    Интеллектуальный селектор методов сегментации изображений.
 
-    Автоматически выбирает оптимальный алгоритм на основе:
-    - Статистических характеристик изображения.
-    - Цели пользователя (скорость / точность / память).
-    - Агрегированных данных бенчмарков.
+    Автоматически выбирает оптимальный метод на основе:
+    1. **Характеристик изображения**: контраст, шум, плотность границ, энтропия.
+    2. **Цели пользователя**: скорость, точность, экономия памяти.
+    3. **Результатов бенчмарков**: средние метрики (IoU, время, память) по тестовым наборам.
+
+    Поддерживает три бэкенда: OpenCV, scikit-learn, PyTorch.
+    Предоставляет интерфейс для:
+    - Автоматического выбора метода (`segment(auto_select=True)`)
+    - Ручного выбора с валидацией параметров
+    - Получения рекомендаций (`get_recommendations()`)
+    - Анализа изображения (`analyze_image()`)
+
+    Attributes:
+        goal (SegmentationGoal): Текущая цель оптимизации.
+        custom_weights (Optional[Dict[str, float]]): Пользовательские веса для методов.
+        benchmark_data (Dict[str, MethodProfile]): Загруженные профили методов.
+        available_methods (Dict[str, Any]): Доступные методы с параметрами и схемами.
+        success_thresholds (Dict[str, float]): Пороговые значения метрик для "успеха".
+
+    Example:
+        См. пример в модульном docstring выше.
     """
 
     def __init__(
@@ -3816,12 +3889,18 @@ class AutoSegmenter:
         benchmark_data_path: Optional[str] = None,
     ) -> None:
         """
-        Инициализация селектора.
+        Инициализация селектора методов сегментации.
 
         Args:
-            goal: Приоритет оптимизации (скорость/точность/баланс/память).
-            custom_weights: Опциональные множители для скоринга методов `{метод: вес}`.
-            benchmark_data_path: Путь к JSON/CSV с бенчмарк-данными (пока заглушка).
+            goal: Цель оптимизации выбора метода. По умолчанию `BALANCED`.
+            custom_weights: Словарь `{имя_метода: вес}` для корректировки скоринга.
+                          Вес >1.0 повышает приоритет метода, <1.0 — понижает.
+            benchmark_data_path: Путь к внешнему файлу с профилями бенчмарков.
+                               Если `None`, используются встроенные данные.
+
+        Raises:
+            FileNotFoundError: Если указан `benchmark_data_path`, но файл не найден.
+            ValueError: Если `custom_weights` содержит несуществующие имена методов.
         """
         self.success_thresholds: Dict[str, float] = {
             "iou": 0.80,
@@ -3843,9 +3922,16 @@ class AutoSegmenter:
             if name in self.available_methods and profile.params:
                 self.available_methods[name]["params"].update(profile.params)
 
+    # ──────────────────────────────────────────────────────────────────────
     def _register_methods(self) -> Dict[str, Any]:
         """
-        Регистрация всех доступных методов с параметрами и UI-схемами.
+        Регистрация всех доступных методов с параметрами по умолчанию и UI-схемами.
+
+        Возвращает словарь, где ключ — имя метода, а значение — словарь с:
+        - `class`: категория метода ("threshold", "edge", "clustering", ...)
+        - `params`: параметры по умолчанию
+        - `schema`: JSON-схема для динамической генерации UI
+        - `description`: человекочитаемое описание
 
         Returns:
             Dict[str, Any]: Словарь `{метод: {класс, params, schema, description}}`.
@@ -4785,15 +4871,23 @@ class AutoSegmenter:
             },
         }
 
+    # ──────────────────────────────────────────────────────────────────────
     def _load_benchmark_data(self, path: Optional[str]) -> BenchmarkData:
         """
-        Загрузка профилей методов на основе исторических бенчмарков.
+        Загрузка профилей методов из бенчмарков.
+
+        Если `path` указан, пытается загрузить данные из внешнего файла (JSON/Pickle).
+        Иначе возвращает встроенные усреднённые данные по наборам: DIBCO, BSDS500, ISIC, INRIA.
 
         Args:
-            path: Путь к файлу бенчмарков (пока используется заглушка).
+            path: Опциональный путь к файлу с бенчмарк-данными.
 
         Returns:
             BenchmarkData: Словарь `{имя_метода: MethodProfile}`.
+
+        Note:
+            Встроенные данные усреднены по 4 тестовым наборам и 3 библиотекам.
+            Для продакшена рекомендуется использовать собственные бенчмарки.
         """
         return {
             # ===== THRESHOLDING =====
@@ -5198,6 +5292,7 @@ class AutoSegmenter:
             ),
         }
 
+    # ──────────────────────────────────────────────────────────────────────
     def get_available_methods(
         self, library: Optional[str] = None
     ) -> Dict[str, MethodProfile]:
@@ -5205,25 +5300,46 @@ class AutoSegmenter:
         Возвращает доступные методы, опционально отфильтрованные по библиотеке.
 
         Args:
-            library: Название библиотеки ("opencv", "sklearn", "torch"). Если `None`, возвращает все.
+            library: Название библиотеки для фильтрации ("opencv", "sklearn", "torch").
+                    Если `None`, возвращаются все методы.
 
         Returns:
-            Dict[str, MethodProfile]: Словарь доступных методов.
+            Dict[str, MethodProfile]: Словарь `{имя_метода: профиль}`.
+
+        Example:
+            ```python
+            selector = AutoSegmenter()
+            opencv_methods = selector.get_available_methods("opencv")
+            print(f"OpenCV methods: {list(opencv_methods.keys())}")
+            ```
         """
         if library:
             return METHODS_BY_LIBRARY.get(library, {})
         return self.benchmark_data
 
+    # ──────────────────────────────────────────────────────────────────────
     def analyze_image(self, image: ImageArray) -> ImageCharacteristics:
         """
-        Извлекает статистические характеристики входного изображения.
+        Извлечение характеристик изображения для анализа.
+
+        Вычисляет статистики, которые используются для:
+        1. Эвристической классификации типа изображения.
+        2. Скоринга методов в `select_best_method()`.
 
         Args:
-            image: Массив изображения (H×W×C или H×W).
+            image: Входное изображение в формате numpy array.
+                  Поддерживаются формы: (H, W) для grayscale, (H, W, 3) для RGB (H×W×C или H×W).
 
         Returns:
-            ImageCharacteristics: Объект с метриками (контраст, шум, энтропия, тип).
+            ImageCharacteristics: Объект с извлечёнными характеристиками (контраст, шум, энтропия, тип).
+
+        Note:
+            - Для цветных изображений сначала выполняется конвертация в grayscale.
+            - Оценка шума основана на локальной дисперсии (3×3 окно).
+            - Плотность границ вычисляется через детектор Canny с фиксированными порогами.
+            - Энтропия нормализуется на 8 бит (макс. значение для 256 градаций).
         """
+
         if len(image.shape) == 3:
             height, width, channels = image.shape
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -5279,6 +5395,7 @@ class AutoSegmenter:
             estimated_type=estimated_type,
         )
 
+    # ──────────────────────────────────────────────────────────────────────
     def _estimate_image_type(
         self,
         gray: np.ndarray,
@@ -5290,12 +5407,18 @@ class AutoSegmenter:
         """
         Эвристическая классификация типа изображения по статистикам.
 
+        Использует простые правила на основе статистик:
+        - Документы: высокий контраст, низкая энтропия.
+        - Медицинские: специфичный диапазон интенсивностей.
+        - Индустриальные: высокая плотность границ.
+        - Спутниковые: высокая комплексность.
+
         Args:
-            gray: Оттенки серого.
-            mean_intensity: Средняя яркость.
-            std_intensity: Стандартное отклонение.
-            edge_density: Доля граничных пикселей.
-            complexity_score: Энтропийная сложность.
+            gray: Изображение в градациях серого.
+            mean_intensity: Средняя интенсивность [0, 255].
+            std_intensity: Стандартное отклонение интенсивности.
+            edge_density: Доля пикселей-границ [0, 1].
+            complexity_score: Нормализованная энтропия [0, 1].
 
         Returns:
             ImageType: Предсказанный тип изображения.
@@ -5318,6 +5441,7 @@ class AutoSegmenter:
 
         return ImageType.NATURAL
 
+    # ──────────────────────────────────────────────────────────────────────
     def select_best_method(
         self,
         image: ImageArray,
@@ -5325,19 +5449,36 @@ class AutoSegmenter:
         library: Optional[str] = None,
     ) -> Tuple[str, str, MethodParams, float]:
         """
-        Выбирает оптимальный метод сегментации для текущего изображения.
+        Выбор оптимального метода сегментации для данного изображения.
+
+        Алгоритм:
+        1. Анализирует изображение (если `characteristics` не передан).
+        2. Фильтрует кандидаты по библиотеке (если указана).
+        3. Рассчитывает интегральный скор для каждого метода.
+        4. Выбирает метод с максимальным скором.
+        5. Нормализует уверенность через сигмоиду.
 
         Args:
-            image: Входное изображение.
-            characteristics: Предварительно рассчитанные характеристики (опционально).
-            library: Ограничить выбор одной библиотекой.
+            image: Входное изображение для анализа.
+            characteristics: Предварительно рассчитанные характеристики.
+                           Если `None`, вызывается `analyze_image()`.
+            library: Ограничить выбор одной библиотекой ("opencv", "sklearn", "torch").
 
         Returns:
-            Tuple[str, str, MethodParams, float]:
-            - `method_name`: Имя лучшего метода.
-            - `library_name`: Библиотека реализации.
-            - `params`: Рекомендуемые параметры.
-            - `confidence`: Вероятность успеха (0.0–1.0, sigmoid-нормализация).
+            Tuple[str, str, Dict[str, Any], float]:
+                - method_name: Название выбранного метода.
+                - library_name: Библиотека реализации метода.
+                - params: Словарь параметров для инициализации сегментера.
+                - confidence: Уверенность выбора [0, 1] (сигмоида от z-score).
+
+        Raises:
+            ValueError: Если не найдено ни одного метода для указанной библиотеки.
+
+        Example:
+            ```python
+            method, lib, params, conf = selector.select_best_method(image)
+            print(f"Выбран {method} из {lib} (уверенность: {conf:.2%})")
+            ```
         """
         if characteristics is None:
             characteristics = self.analyze_image(image)
@@ -5377,6 +5518,7 @@ class AutoSegmenter:
 
         return best_method, best_profile.library, params, confidence
 
+    # ──────────────────────────────────────────────────────────────────────
     @track_calls
     def _calculate_method_score(
         self,
@@ -5385,15 +5527,26 @@ class AutoSegmenter:
         characteristics: ImageCharacteristics,
     ) -> float:
         """
-        Рассчитывает интегральный скоринг метода под текущее изображение и цель.
+        Расчёт интегральной оценки метода на основе цели и характеристик.
+
+        Формула скоринга:
+        ```
+        score = w_time * time_score + w_acc * accuracy_score + w_mem * memory_score
+        ```
+        где веса зависят от `self.goal`.
+
+        Дополнительные множители:
+        - ×1.3 если тип изображения в `profile.best_for_type`
+        - ×`profile.robustness` если изображение зашумлено (noise_level > 0.3)
+        - ×`custom_weights[method_name]` если заданы пользовательские веса
 
         Args:
-            method_name: Имя метода.
-            profile: Бенчмарк-профиль метода.
-            characteristics: Характеристики изображения.
+            method_name: Название метода (для кастомных весов).
+            profile: Профиль метода из бенчмарков.
+            characteristics: Характеристики анализируемого изображения.
 
         Returns:
-            float: Нормализованный скор (0.0–1.0+).
+            float: Интегральный скор метода [0, ~1.3].
         """
         score: float = 0.0
 
@@ -5436,6 +5589,7 @@ class AutoSegmenter:
 
         return score
 
+    # ──────────────────────────────────────────────────────────────────────
     def segment(
         self,
         image: ImageArray,
@@ -5445,19 +5599,54 @@ class AutoSegmenter:
         return_metadata: bool = False,
     ) -> Union[MaskArray, Tuple[MaskArray, RecommendationDict]]:
         """
-        Выполняет сегментацию изображения с авто-выбором или ручным методом.
+        Выполнение сегментации изображения.
+
+        Основной метод класса. Поддерживает два режима:
+        1. **Автоматический** (`auto_select=True`): выбор метода через `select_best_method()`.
+        2. **Ручной** (`auto_select=False`): использование указанного метода и библиотеки.
 
         Args:
-            image: Входное изображение.
-            auto_select: Автоматически выбрать метод (`True`) или использовать указанный.
-            method_name: Имя метода (если `auto_select=False`).
-            library: Библиотека метода (если `auto_select=False`).
-            return_metadata: Вернуть дополнительно метаданные выбора.
+            image: Входное изображение (numpy array, RGB или grayscale).
+            auto_select: Если `True`, метод выбирается автоматически.
+                        Если `False`, требуются `method_name` и `library`.
+            method_name: Название метода (только если `auto_select=False`).
+            library: Название библиотеки ("opencv", "sklearn", "torch").
+            return_metadata: Если `True`, возвращает кортеж `(маска, метаданные)`.
 
         Returns:
-            Union[MaskArray, Tuple[MaskArray, RecommendationDict]]:
-            - Бинарная маска `(H, W)`.
-            - Если `return_metadata=True`: кортеж `(маска, dict с метаданными)`.
+            Union[np.ndarray, Tuple[np.ndarray, Dict[str, Any]]]:
+                - Если `return_metadata=False`: бинарная маска сегментации (H×W, uint8).
+                - Если `return_metadata=True`: кортеж `(маска, метаданные)`, где метаданные:
+                    ```python
+                    {
+                        "method": str,          # имя метода
+                        "library": str,         # библиотека
+                        "parameters": Dict,     # использованные параметры
+                        "confidence": float,    # уверенность выбора [0,1]
+                        "image_characteristics": ImageCharacteristics,
+                    }
+                    ```
+
+        Raises:
+            ValueError: Если `auto_select=False`, но не указаны `method_name` или `library`.
+            ValueError: Если указанный метод не найден в выбранной библиотеке.
+            ImportError: Если не установлена требуемая библиотека сегментации.
+
+        Example:
+            ```python
+            # Автоматический режим
+            mask = selector.segment(image)
+
+            # Ручной режим с метаданными
+            mask, meta = selector.segment(
+                image,
+                auto_select=False,
+                method_name="canny_edge",
+                library="opencv",
+                return_metadata=True
+            )
+            print(f"Метод: {meta['method']}, уверенность: {meta['confidence']:.2%}")
+            ```
         """
 
         selected_method: str = ""
@@ -5524,18 +5713,24 @@ class AutoSegmenter:
 
         return mask
 
+    # ──────────────────────────────────────────────────────────────────────
     def _get_segmenter_class(
         self, method_name: str, library: str
     ) -> Type[BaseSegmenter]:
         """
-        Возвращает класс-сегментер по названию библиотеки.
+        Возврат класса сегментера по библиотеке.
+
+        Фабричный метод для динамического импорта сегментеров.
 
         Args:
-            method_name: Имя метода (для логирования/отладки).
+            method_name: Название метода (для логирования/отладки).
             library: Название библиотеки ("opencv", "sklearn", "torch").
 
         Returns:
             Type[BaseSegmenter]: Класс, наследующий `BaseSegmenter`.
+
+        Raises:
+            ImportError: Если требуемая библиотека не установлена.
         """
         if library == "sklearn":
             from segmenters.SklearnSegmenter import SklearnSegmenter
@@ -5550,18 +5745,43 @@ class AutoSegmenter:
 
             return OpenCVSegmenter
 
+    # ──────────────────────────────────────────────────────────────────────
     def get_recommendations(
         self, image: ImageArray, top_k: int = 5
     ) -> List[RecommendationDict]:
         """
-        Формирует топ-K рекомендаций методов для текущего изображения.
+        Получение топ-K рекомендаций методов для изображения.
+
+        Возвращает ранжированный список методов с метаданными для UI или логирования.
 
         Args:
-            image: Входное изображение.
-            top_k: Количество возвращаемых рекомендаций.
+            image: Входное изображение для анализа.
+            top_k: Количество рекомендаций (по умолчанию 5).
 
         Returns:
-            List[RecommendationDict]: Список словарей с рангом, именем, скором и параметрами.
+            List[Dict[str, Any]]: Список словарей с информацией о методах:
+                ```python
+                [
+                    {
+                        "rank": int,                    # позиция в топе (1..K)
+                        "method": str,                  # имя метода
+                        "score": float,                 # интегральный скор
+                        "estimated_time_ms": float,     # среднее время выполнения
+                        "estimated_iou": float,         # ожидаемый IoU
+                        "parameters": Dict[str, Any],   # параметры по умолчанию
+                    },
+                    # ... ещё top_k-1 элементов
+                ]
+                ```
+
+        Example:
+            ```python
+            recs = selector.get_recommendations(image, top_k=3)
+            for rec in recs:
+                print(f"{rec['rank']}. {rec['method']}: "
+                      f"IoU~{rec['estimated_iou']:.2f}, "
+                      f"time~{rec['estimated_time_ms']:.1f}ms")
+            ```
         """
         characteristics: ImageCharacteristics = self.analyze_image(image)
         scores: Dict[str, Dict[str, Any]] = {}
@@ -5597,4 +5817,24 @@ class AutoSegmenter:
         return recommendations
 
 
-__all__ = ["AutoSegmenter", "SegmentationGoal", "ImageType", "METHODS_BY_LIBRARY"]
+# ──────────────────────────────────────────────────────────────────────
+# PUBLIC API
+# ──────────────────────────────────────────────────────────────────────
+__all__ = [
+    "AutoSegmenter",
+    "SegmentationGoal",
+    "ImageType",
+    "ImageCharacteristics",
+    "MethodProfile",
+    "METHODS_BY_LIBRARY",
+    "ALL_METHODS",
+]
+"""
+Публичный API модуля.
+
+Экспортируемые символы:
+- `AutoSegmenter`: Основной класс селектора.
+- `SegmentationGoal`, `ImageType`: Перечисления для конфигурации.
+- `ImageCharacteristics`, `MethodProfile`: Структуры данных.
+- `METHODS_BY_LIBRARY`, `ALL_METHODS`: Глобальные словари методов.
+"""

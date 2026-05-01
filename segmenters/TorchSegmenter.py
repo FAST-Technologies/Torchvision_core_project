@@ -1,6 +1,8 @@
 # segmenters/TorchSegmenter.py
 
-# Импорт основных библиотек
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 from segmenters.BaseSegmenter import BaseSegmenter
 
 import warnings

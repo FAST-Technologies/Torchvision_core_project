@@ -29,6 +29,7 @@ HistoryDict = Dict[str, List[float]]
 BatchDict = Dict[str, torch.Tensor]
 
 
+# ──────────────────────────────────────────────────────────────────────
 class NeuralTrainer:
     """
     Трейнер для fine-tuning нейронных моделей семантической сегментации.
@@ -140,6 +141,7 @@ class NeuralTrainer:
         }
         self.best_miou: MetricValue = 0.0
 
+    # ──────────────────────────────────────────────────────────────────────
     def train_epoch(self) -> LossValue:
         """
         Выполняет одну эпоху обучения.
@@ -236,6 +238,7 @@ class NeuralTrainer:
 
         return total_loss / len(self.train_loader)
 
+    # ──────────────────────────────────────────────────────────────────────
     def validate(self) -> Tuple[LossValue, MetricValue]:
         """
         Выполняет валидацию и рассчитывает macro mIoU.
@@ -302,6 +305,7 @@ class NeuralTrainer:
             miou = 0.0
         return avg_loss, miou
 
+    # ──────────────────────────────────────────────────────────────────────
     def fit(
         self,
         epochs: int = 20,

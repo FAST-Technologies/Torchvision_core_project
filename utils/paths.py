@@ -58,6 +58,7 @@ def ensure_dirs(*dirs: PathLike) -> None:
         Path(d).mkdir(parents=True, exist_ok=True)
 
 
+# ──────────────────────────────────────────────────────────────────────
 def get_model_path(filename: str) -> Path:
     """
     Возвращает абсолютный путь к файлу модели в директории `MODELS_DIR`.
@@ -76,6 +77,7 @@ def get_model_path(filename: str) -> Path:
     return MODELS_DIR / filename
 
 
+# ──────────────────────────────────────────────────────────────────────
 def get_data_path(subpath: str) -> Path:
     """
     Возвращает абсолютный путь к файлу в директории `DATA_DIR`.
@@ -94,6 +96,7 @@ def get_data_path(subpath: str) -> Path:
     return DATA_DIR / subpath
 
 
+# ──────────────────────────────────────────────────────────────────────
 def resolve_relative_path(base: PathLike, relative: str) -> Path:
     """
     Безопасно разрешает относительный путь относительно базовой директории.
@@ -124,6 +127,7 @@ def resolve_relative_path(base: PathLike, relative: str) -> Path:
     return target_path
 
 
+# ──────────────────────────────────────────────────────────────────────
 def get_file_extension(path: PathLike) -> str:
     """
     Возвращает расширение файла в нижнем регистре (без точки).
@@ -142,6 +146,7 @@ def get_file_extension(path: PathLike) -> str:
     return Path(path).suffix.lstrip(".").lower()
 
 
+# ──────────────────────────────────────────────────────────────────────
 def is_image_file(path: PathLike) -> bool:
     """
     Проверяет, является ли файл изображением по расширению.
@@ -155,6 +160,7 @@ def is_image_file(path: PathLike) -> bool:
     return get_file_extension(path) in {"jpg", "jpeg", "png", "bmp", "tiff", "webp"}
 
 
+# ──────────────────────────────────────────────────────────────────────
 def is_model_file(path: PathLike) -> bool:
     """
     Проверяет, является ли файл моделью PyTorch по расширению.

@@ -31,6 +31,7 @@ import torch
 import gc
 
 
+# ──────────────────────────────────────────────────────────────────────
 class BatchClassicTester:
     """
     Класс для массового автоматизированного тестирования классических методов сегментации
@@ -342,6 +343,7 @@ class BatchClassicTester:
         print(f"✅ Загружено {len(data)} пар изображение-маска")
         return data
 
+    # ──────────────────────────────────────────────────────────────────────
     def _multiclass_to_binary(self, mask: np.ndarray) -> np.ndarray:
         """
         Конвертирует многоклассовую маску в бинарную.
@@ -363,6 +365,7 @@ class BatchClassicTester:
         binary: np.ndarray = (mask != background_class).astype(np.uint8) * 255
         return binary
 
+    # ──────────────────────────────────────────────────────────────────────
     def _run_single_test(
         self, method_name: str, segmenter: Any, image: np.ndarray, gt_mask: np.ndarray
     ) -> Tuple[Optional[Dict[str, float]], Optional[float], Optional[str]]:
@@ -409,6 +412,7 @@ class BatchClassicTester:
             error_msg = f"{type(e).__name__}: {str(e)}"
             return None, None, error_msg
 
+    # ──────────────────────────────────────────────────────────────────────
     def _get_classic_methods(self) -> Dict[str, Any]:
         """
         Формирует словарь инициализированных сегментаторов для тестирования.
@@ -491,6 +495,7 @@ class BatchClassicTester:
 
         return methods
 
+    # ──────────────────────────────────────────────────────────────────────
     def run_batch_test(self) -> pd.DataFrame:
         """
         Запускает основной цикл массового тестирования всех методов на всех изображениях.
@@ -595,6 +600,7 @@ class BatchClassicTester:
 
         return self._aggregate_results()
 
+    # ──────────────────────────────────────────────────────────────────────
     def _aggregate_results(self) -> pd.DataFrame:
         """
         Агрегирует накопленные результаты в сводную таблицу.
@@ -650,6 +656,7 @@ class BatchClassicTester:
 
         return df
 
+    # ──────────────────────────────────────────────────────────────────────
     def save_results(
         self, df: pd.DataFrame, prefix: str = "batch_test"
     ) -> Tuple[Path, Path, Path]:
@@ -691,6 +698,7 @@ class BatchClassicTester:
 
         return csv_path, json_path, md_path
 
+    # ──────────────────────────────────────────────────────────────────────
     def _save_markdown_report(self, df: pd.DataFrame, path: Path) -> None:
         """
         Генерирует читаемый Markdown-отчёт с топ-10 методов, полной таблицей и статистикой ошибок.
@@ -729,6 +737,7 @@ class BatchClassicTester:
                 ]
                 f.write(error_df.to_markdown(index=False) + "\n\n")
 
+    # ──────────────────────────────────────────────────────────────────────
     def plot_results(self, df: pd.DataFrame, output_dir: Optional[Path] = None) -> None:
         """
         Строит и сохраняет визуализации эффективности методов.

@@ -61,6 +61,7 @@ class MetricPlotSpec(TypedDict):
 TransformFunc = Callable[[float], float]
 
 
+# ──────────────────────────────────────────────────────────────────────
 class SegmentationBenchmark:
     """Полноценный бенчмарк для сравнения архитектур сегментации"""
 
@@ -140,6 +141,7 @@ class SegmentationBenchmark:
         print(f"✅ Loaded {key} from {checkpoint_path}")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_all_trained_models(
         self, checkpoint_dir: str = "./../models"
     ) -> "SegmentationBenchmark":
@@ -207,6 +209,7 @@ class SegmentationBenchmark:
         print(f"✅ Loaded SegFormer from {path}")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_segformer_variant(self, variant: str = "b2") -> "SegmentationBenchmark":
         """
         Загрузка разных версий SegFormer для сравнения.
@@ -233,6 +236,7 @@ class SegmentationBenchmark:
         print(f"✅ Loaded SegFormer-{variant} from HuggingFace")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_mask2former(
         self, name: str = "facebook/mask2former-swin-base-ade-semantic"
     ) -> "SegmentationBenchmark":
@@ -251,6 +255,7 @@ class SegmentationBenchmark:
         print(f"✅ Loaded Mask2Former from {name}")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_oneformer(
         self, name: str = "shi-labs/oneformer_ade20k_swin_large"
     ) -> "SegmentationBenchmark":
@@ -269,6 +274,7 @@ class SegmentationBenchmark:
         print(f"✅ Loaded OneFormer from {name}")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_dpt(
         self, model_name: str = "Intel/dpt-large-ade"
     ) -> "SegmentationBenchmark":
@@ -287,6 +293,7 @@ class SegmentationBenchmark:
         print(f"✅ Loaded DPT from {model_name}")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_upernet(
         self, model_name: str = "openmmlab/upernet-convnext-small"
     ) -> "SegmentationBenchmark":
@@ -305,6 +312,7 @@ class SegmentationBenchmark:
         print(f"✅ Loaded UPerNet from {model_name}")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_sam(self, model_name: str = "mobile_sam.pt") -> "SegmentationBenchmark":
         """Загрузка SAM / SAM2 (Segment Anything)."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
@@ -322,6 +330,7 @@ class SegmentationBenchmark:
         print(f"✅ Loaded SAM from {model_name}")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_fpn_mit_pretrained(
         self, variant: str = "b5", checkpoint_path: Optional[str] = None
     ) -> "SegmentationBenchmark":
@@ -343,6 +352,7 @@ class SegmentationBenchmark:
         print(f"✅ Loaded FPN+MiT-{variant}")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_psp_mit_pretrained(
         self, variant: str = "b5", checkpoint_path: str = "psp_smp_none"
     ) -> "SegmentationBenchmark":
@@ -364,6 +374,7 @@ class SegmentationBenchmark:
         print(f"✅ Loaded PSPNet+MiT-{variant}")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_fcn_resnet50_pretrained(
         self, variant: str = "fcn_resnet50", checkpoint_path: str = "fcn_resnet50_none"
     ) -> "SegmentationBenchmark":
@@ -385,6 +396,7 @@ class SegmentationBenchmark:
         print(f"✅ Loaded {variant}")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_segnet_pretrained(
         self, encoder_name: str = "resnet34", checkpoint_path: str = "segnet_none"
     ) -> "SegmentationBenchmark":
@@ -406,6 +418,7 @@ class SegmentationBenchmark:
         print("✅ Loaded SegNet-like")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_mask_rcnn_pretrained(
         self, variant: str = "maskrcnn_resnet50_fpn"
     ) -> "SegmentationBenchmark":
@@ -424,6 +437,7 @@ class SegmentationBenchmark:
         print("✅ Loaded Mask R-CNN")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_unet_trained(
         self,
         checkpoint_path: str = "unet_ade20k_best.pth",
@@ -456,6 +470,7 @@ class SegmentationBenchmark:
         print("✅ Loaded Unet pretrained")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_deeplab_trained(
         self, checkpoint_path: str = "deeplab_ade20k_best.pth"
     ) -> "SegmentationBenchmark":
@@ -486,6 +501,7 @@ class SegmentationBenchmark:
         print("✅ Loaded deeplab pretrained")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_maskformer(
         self, name: str = "facebook/maskformer-resnet50-ade20k-full"
     ) -> "SegmentationBenchmark":
@@ -507,6 +523,7 @@ class SegmentationBenchmark:
         print(f"✅ Loaded MaskFormer from {name}")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_yolov8(
         self, model_name: str = "yolov8n-seg.pt"
     ) -> "SegmentationBenchmark":
@@ -524,6 +541,7 @@ class SegmentationBenchmark:
         print(f"✅ Loaded YOLOv8 from {model_name}")
         return self
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_all_pretrained_cnn(
         self, checkpoint_dir: str = "./checkpoints"
     ) -> "SegmentationBenchmark":
@@ -653,6 +671,7 @@ class SegmentationBenchmark:
         self.results[model_key] = result
         return result
 
+    # ──────────────────────────────────────────────────────────────────────
     def predict(
         self,
         image_input: Union[str, Image.Image],
@@ -693,6 +712,7 @@ class SegmentationBenchmark:
             gt_mask=gt_mask,
         )[0]
 
+    # ──────────────────────────────────────────────────────────────────────
     def compare(
         self, image_input: Union[str, Image.Image], alpha: float = 0.6
     ) -> Dict[str, Dict[str, Any]]:
@@ -722,6 +742,7 @@ class SegmentationBenchmark:
                 print(f"   🗑️  Freed {key} from VRAM")
         return self.get_summary()
 
+    # ──────────────────────────────────────────────────────────────────────
     def get_summary(self) -> Dict[str, Dict[str, Any]]:
         """
         Извлекает агрегированные метрики из выполненных тестов.
@@ -740,6 +761,7 @@ class SegmentationBenchmark:
             }
         return summary
 
+    # ──────────────────────────────────────────────────────────────────────
     def get_model_num_classes(self, model_key: str) -> int:
         """
         Эвристическое определение количества выходных каналов модели.
@@ -886,6 +908,7 @@ class SegmentationBenchmark:
         plt.show()
         plt.close()
 
+    # ──────────────────────────────────────────────────────────────────────
     def plot_per_class_iou(
         self,
         top_k: int = 20,
@@ -961,6 +984,7 @@ class SegmentationBenchmark:
         print(f"  Showing top {len(top_class_indices)} classes")
         print(f"  Mean IoU (all classes): {np.nanmean(data):.3f}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def plot_confusion_matrix(
         self,
         model_key: str,
@@ -1021,6 +1045,7 @@ class SegmentationBenchmark:
         plt.show()
         plt.close()
 
+    # ──────────────────────────────────────────────────────────────────────
     def plot_all_metrics(
         self,
         figsize=(15, 5),
@@ -1152,6 +1177,7 @@ class SegmentationBenchmark:
         plt.show()
         plt.close()
 
+    # ──────────────────────────────────────────────────────────────────────
     def plot_summary(
         self,
         metrics: List[str] = ["mIoU", "pixel_acc", "time_ms"],
@@ -1234,6 +1260,7 @@ class SegmentationBenchmark:
             json.dump(detailed, f, indent=2, default=str)
         print(f"✅ Results saved to {output_dir}/")
 
+    # ──────────────────────────────────────────────────────────────────────
     def export_latex_table(
         self, caption: str = "Segmentation Benchmark Results"
     ) -> str:
@@ -1276,6 +1303,7 @@ class SegmentationBenchmark:
         lines.extend([r"\bottomrule", r"\end{tabular}", r"\end{table}"])
         return "\n".join(lines)
 
+    # ──────────────────────────────────────────────────────────────────────
     async def compare_step_by_step(
         self,
         image_input: Union[str, Image.Image],
@@ -1338,6 +1366,7 @@ class SegmentationBenchmark:
         return self.get_summary()
 
 
+# ──────────────────────────────────────────────────────────────────────
 def export_comparison_table(
     bench: SegmentationBenchmark, output_file: str = "./../reports/model_comparison.md"
 ) -> pd.DataFrame:

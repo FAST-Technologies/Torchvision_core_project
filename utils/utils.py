@@ -17,6 +17,7 @@ LogitsTensor = Union[torch.Tensor, Dict[str, torch.Tensor], Tuple[torch.Tensor, 
 ClassNamesDict = Optional[Dict[Union[int, str], str]]
 
 
+# ──────────────────────────────────────────────────────────────────────
 def compute_metrics(
     pred_mask: np.ndarray,
     gt_mask: np.ndarray,
@@ -130,6 +131,7 @@ def compute_metrics(
     }
 
 
+# ──────────────────────────────────────────────────────────────────────
 def extract_logits_info(
     outputs: LogitsTensor,
     model_type: str,
@@ -274,6 +276,7 @@ def extract_logits_info(
         return {"error": str(e), "type": "extraction_failed"}
 
 
+# ──────────────────────────────────────────────────────────────────────
 def analyze_prediction(
     mask: MaskArray,
     class_names: ClassNamesDict = None,
@@ -360,6 +363,7 @@ def analyze_prediction(
     }
 
 
+# ──────────────────────────────────────────────────────────────────────
 def generate_class_report(
     mask: MaskArray,
     class_names: ClassNamesDict = None,
@@ -440,6 +444,7 @@ def generate_class_report(
     return summary
 
 
+# ──────────────────────────────────────────────────────────────────────
 def export_class_report(
     report: Dict[str, Any],
     output_file: str,

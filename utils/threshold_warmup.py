@@ -19,6 +19,7 @@ from typing import (
 SegmenterLike = Any  # Объект с методом .segment(image) -> np.ndarray
 
 
+# ──────────────────────────────────────────────────────────────────────
 class WarmupMetrics(TypedDict):
     """
     Структура метрик warm-up для одного теста.
@@ -34,6 +35,7 @@ class WarmupMetrics(TypedDict):
     n_runs: int
 
 
+# ──────────────────────────────────────────────────────────────────────
 class SizeResults(TypedDict):
     """
     Результаты warm-up по различным размерам изображений.
@@ -45,6 +47,7 @@ class SizeResults(TypedDict):
     sizes: Dict[str, WarmupMetrics]
 
 
+# ──────────────────────────────────────────────────────────────────────
 class PatternResults(TypedDict):
     """
     Результаты warm-up по различным паттернам изображений.
@@ -56,6 +59,7 @@ class PatternResults(TypedDict):
     patterns: Dict[str, WarmupMetrics]
 
 
+# ──────────────────────────────────────────────────────────────────────
 class ThresholdWarmUp:
     """
     Специализированный warm-up для пороговых и граничных методов сегментации.
@@ -159,6 +163,7 @@ class ThresholdWarmUp:
             print(f"✅ {name}: {method_results['sizes']}")
         return results
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def warmup_edge_methods(
         segmenters_dict: Dict[str, SegmenterLike],
@@ -234,6 +239,7 @@ class ThresholdWarmUp:
 
         return results
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def _create_edge_pattern(h: int, w: int, pattern: str) -> np.ndarray:
         """

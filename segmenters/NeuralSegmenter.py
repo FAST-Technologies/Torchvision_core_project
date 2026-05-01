@@ -68,6 +68,7 @@ ClassNamesDict = Optional[Dict[int, str]]
 PaletteType = Optional[List[List[int]]]
 
 
+# ──────────────────────────────────────────────────────────────────────
 class NeuralSegmenter(BaseSegmenter):
     """
     Универсальный сегментатор с поддержкой множественных нейронных архитектур.
@@ -205,6 +206,7 @@ class NeuralSegmenter(BaseSegmenter):
                 for class_id, class_name in id2label.items():
                     print(f"{class_id}: {class_name}")
 
+    # ──────────────────────────────────────────────────────────────────────
     def _get_default_palette(self) -> List[List[int]]:
         """
         Возвращает палитру ADE20K по умолчанию.
@@ -229,6 +231,7 @@ class NeuralSegmenter(BaseSegmenter):
         # Source: http://sceneparsing.csail.mit.edu/
         return get_ade_class_names()
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def ade_palette() -> List[List[int]]:
         """
@@ -239,6 +242,7 @@ class NeuralSegmenter(BaseSegmenter):
         """
         return ade_palette()
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def get_coco_class_names() -> Dict[int, str]:
         """
@@ -251,6 +255,7 @@ class NeuralSegmenter(BaseSegmenter):
         # Source: https://docs.ultralytics.com/datasets/detect/coco/#dataset-yaml
         return get_coco_class_names()
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def coco_palette() -> List[List[int]]:
         """
@@ -261,6 +266,7 @@ class NeuralSegmenter(BaseSegmenter):
         """
         return coco_palette()
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def get_cityscapes_extended_class_names() -> Dict[int, str]:
         """
@@ -272,6 +278,7 @@ class NeuralSegmenter(BaseSegmenter):
         # Cityscapes Extended (34 classes - includes "grouped" categories)
         return get_cityscapes_extended_class_names()
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def cityscapes_extended_palette() -> List[List[int]]:
         """
@@ -282,6 +289,7 @@ class NeuralSegmenter(BaseSegmenter):
         """
         return cityscapes_extended_palette()
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def get_cityscapes_class_names() -> Dict[int, str]:
         """
@@ -294,6 +302,7 @@ class NeuralSegmenter(BaseSegmenter):
         # Source: https://www.cityscapes-dataset.com/
         return get_cityscapes_class_names()
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def cityscapes_palette() -> List[List[int]]:
         """
@@ -304,6 +313,7 @@ class NeuralSegmenter(BaseSegmenter):
         """
         return cityscapes_palette()
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def get_chexpert_observation_class_names() -> Dict[int, str]:
         """
@@ -344,6 +354,7 @@ class NeuralSegmenter(BaseSegmenter):
         )
         return chexpert_observation_names
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def chexpert_observation_palette() -> List[List[int]]:
         """
@@ -369,6 +380,7 @@ class NeuralSegmenter(BaseSegmenter):
             [120, 120, 70],
         ]
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def get_isic_class_names() -> Dict[int, str]:
         """
@@ -389,6 +401,7 @@ class NeuralSegmenter(BaseSegmenter):
         print(f"   Classes: {list(isic_class_names.values())}")
         return isic_class_names
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def binary_palette() -> List[List[int]]:
         """
@@ -399,6 +412,7 @@ class NeuralSegmenter(BaseSegmenter):
         """
         return [[120, 120, 120], [180, 120, 120]]
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def _resize_mask_to_original(
         mask: np.ndarray, target_size: Tuple[int, int]
@@ -420,6 +434,7 @@ class NeuralSegmenter(BaseSegmenter):
             return zoom(mask, (sh, sw), order=0)
         return mask
 
+    # ──────────────────────────────────────────────────────────────────────
     def load_image(self, input_image: ImageInput) -> Image.Image:
         """
         Загружает изображение из различных источников в формат `PIL.Image` (RGB).
@@ -484,6 +499,7 @@ class NeuralSegmenter(BaseSegmenter):
             )
         return img
 
+    # ──────────────────────────────────────────────────────────────────────
     def predict_segmentation_map(
         self,
         input_image: ImageInput,
@@ -532,6 +548,7 @@ class NeuralSegmenter(BaseSegmenter):
         # Возвращаем маску + инфо
         return result_info["mask"], result_info
 
+    # ──────────────────────────────────────────────────────────────────────
     def segment_image_unified(
         self,
         input_image: Union[str, Image.Image],
@@ -570,6 +587,7 @@ class NeuralSegmenter(BaseSegmenter):
             gt_mask=gt_mask,
         )
 
+    # ──────────────────────────────────────────────────────────────────────
     def prepare_mask_for_overlay(
         self, mask_input: Union[np.ndarray, Image.Image]
     ) -> np.ndarray:
@@ -614,6 +632,7 @@ class NeuralSegmenter(BaseSegmenter):
 
         return mask
 
+    # ──────────────────────────────────────────────────────────────────────
     def segment_image(self, image: ImageInput, alpha: float = 0.9) -> Image.Image:
         """
         Выполняет семантическую сегментацию и возвращает наложение маски на оригинал.
@@ -650,6 +669,7 @@ class NeuralSegmenter(BaseSegmenter):
         )
         return Image.fromarray(overlay)
 
+    # ──────────────────────────────────────────────────────────────────────
     def segment(self, image: ImageInput, **kwargs: Any) -> BinaryMask:  # type: ignore[override]
         """
         Основной метод сегментации.
@@ -670,6 +690,7 @@ class NeuralSegmenter(BaseSegmenter):
         mask: np.ndarray = (seg_map > 0).astype(np.uint8) * 255
         return mask
 
+    # ──────────────────────────────────────────────────────────────────────
     def segment_with_mask(  # type: ignore[override]
         self, image: ImageInput, **kwargs: Any
     ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
@@ -726,6 +747,7 @@ class NeuralSegmenter(BaseSegmenter):
         print(f"Neural segmentation completed in {time.time() - start_time:.2f}s")
         return result, mask
 
+    # ──────────────────────────────────────────────────────────────────────
     def detailed_segmentation(
         self, input_image: Union[str, Image.Image]
     ) -> Dict[str, Any]:
@@ -801,6 +823,7 @@ class NeuralSegmenter(BaseSegmenter):
             "total_classes": len(unique_classes),
         }
 
+    # ──────────────────────────────────────────────────────────────────────
     def get_class_info(self) -> Dict[str, Any]:
         """
         Возвращает информацию о классах модели.

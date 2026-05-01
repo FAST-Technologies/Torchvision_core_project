@@ -23,6 +23,7 @@ SegmenterLike = Any  # Объект с методом .segment() или .segment
 ImagePattern = Literal["gradient", "noise", "checkerboard", "circles"]
 
 
+# ──────────────────────────────────────────────────────────────────────
 class WarmupStats(TypedDict):
     """
     Статистика warm-up для одного метода.
@@ -46,6 +47,7 @@ class WarmupStats(TypedDict):
     max_time_ms: float
 
 
+# ──────────────────────────────────────────────────────────────────────
 class SegmentationWarmUp:
     """
     Универсальный warm-up для классических и нейросетевых методов сегментации.
@@ -92,6 +94,7 @@ class SegmentationWarmUp:
         self.device: str = device
         self.warmup_results: Dict[str, List[float]] = {}
 
+    # ──────────────────────────────────────────────────────────────────────
     def create_test_image(self, pattern: ImagePattern = "gradient") -> np.ndarray:
         """
         Создаёт тестовое изображение для warm-up.
@@ -145,6 +148,7 @@ class SegmentationWarmUp:
             img = np.random.randint(0, 256, (h, w, 3), dtype=np.uint8)  # type: ignore[assignment]
         return img
 
+    # ──────────────────────────────────────────────────────────────────────
     def warmup_segmenter(
         self,
         segmenter: SegmenterLike,
@@ -240,6 +244,7 @@ class SegmentationWarmUp:
 
         return stats
 
+    # ──────────────────────────────────────────────────────────────────────
     def _warmup_cuda(
         self,
         segmenter: SegmenterLike,
@@ -287,6 +292,7 @@ class SegmentationWarmUp:
         if verbose:
             print("   ✅ CUDA kernels warmed up")
 
+    # ──────────────────────────────────────────────────────────────────────
     def warmup_all_segmenters(
         self,
         segmenters_dict: Dict[str, SegmenterLike],
@@ -327,6 +333,7 @@ class SegmentationWarmUp:
         print("=" * 60)
         return all_results
 
+    # ──────────────────────────────────────────────────────────────────────
     def get_warmup_summary(self) -> str:
         """
         Возвращает текстовую сводку результатов warm-up.

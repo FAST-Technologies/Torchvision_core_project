@@ -46,6 +46,7 @@ _comparator_tasks: ComparatorTaskDict = {}
 _comparator_lock = asyncio.Lock()
 
 
+# ──────────────────────────────────────────────────────────────────────
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj: Any) -> Any:
         if isinstance(obj, np.integer):
@@ -59,17 +60,20 @@ class NumpyEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
+# ──────────────────────────────────────────────────────────────────────
 def safe_json_response(content: Any, status_code: int = 200) -> JSONResponse:
     return JSONResponse(
         content=content, status_code=status_code, media_type="application/json"
     )
 
 
+# ──────────────────────────────────────────────────────────────────────
 def img_to_b64(path: str) -> str:
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode()
 
 
+# ──────────────────────────────────────────────────────────────────────
 DEFAULT_COMPARATOR_METHODS: Dict[str, List[str]] = {
     "opencv": [
         "global_thresholding",
@@ -112,6 +116,7 @@ def _extract_library_from_name(name: str) -> str:
     return "opencv"
 
 
+# ──────────────────────────────────────────────────────────────────────
 def _create_segmenter(library: str, method: str, params: Dict[str, Any]):
     """Фабрика сегментеров."""
     if library == "opencv":
@@ -359,6 +364,7 @@ async def start_comparator(
     return {"task_id": task_id}
 
 
+# ──────────────────────────────────────────────────────────────────────
 @router.get("/status/{task_id}")
 async def get_status(task_id: str) -> JSONResponse:
     """Возвращает статус задачи компаратора."""
@@ -376,6 +382,7 @@ async def get_status(task_id: str) -> JSONResponse:
     return safe_json_response(task)
 
 
+# ──────────────────────────────────────────────────────────────────────
 @router.delete("/{task_id}")
 async def cancel_comparator(task_id: str) -> Dict[str, str]:
     """Отменяет задачу компаратора."""

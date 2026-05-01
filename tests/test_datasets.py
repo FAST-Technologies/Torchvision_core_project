@@ -15,12 +15,14 @@ from PIL import Image
 import torch
 
 
+# ──────────────────────────────────────────────────────────────────────
 def import_ade20k():
     from dataseters.ADE20KDataset import ADE20KDataset
 
     return ADE20KDataset
 
 
+# ──────────────────────────────────────────────────────────────────────
 class TestADE20KDataset:
     @pytest.fixture
     def temp_dataset_dir(self, tmp_path: Path) -> str:
@@ -46,10 +48,12 @@ class TestADE20KDataset:
 
         return str(tmp_path)
 
+    # ──────────────────────────────────────────────────────────────────────
     def test_import(self) -> None:
         ADE20KDataset = import_ade20k()
         assert ADE20KDataset is not None
 
+    # ──────────────────────────────────────────────────────────────────────
     def test_dataset_initialization(self, temp_dataset_dir: Path) -> None:
         ADE20KDataset = import_ade20k()
         dataset = ADE20KDataset(
@@ -61,6 +65,7 @@ class TestADE20KDataset:
         assert len(dataset) == 3
         assert dataset.image_size == (128, 128)
 
+    # ──────────────────────────────────────────────────────────────────────
     def test_dataset_getitem(self, temp_dataset_dir: Path) -> None:
         ADE20KDataset = import_ade20k()
         dataset = ADE20KDataset(
@@ -83,6 +88,7 @@ class TestADE20KDataset:
         assert item["image"].dtype == torch.float32
         assert item["mask"].dtype == torch.int64
 
+    # ──────────────────────────────────────────────────────────────────────
     def test_dataset_with_augmentation(self, temp_dataset_dir: Path) -> None:
         ADE20KDataset = import_ade20k()
         dataset = ADE20KDataset(
@@ -97,6 +103,7 @@ class TestADE20KDataset:
         item2 = dataset[0]
         assert item1["mask"].shape == item2["mask"].shape
 
+    # ──────────────────────────────────────────────────────────────────────
     def test_subset_fraction(self, temp_dataset_dir: Path) -> None:
         ADE20KDataset = import_ade20k()
         dataset = ADE20KDataset(
@@ -106,6 +113,7 @@ class TestADE20KDataset:
         )
         assert len(dataset) <= 2
 
+    # ──────────────────────────────────────────────────────────────────────
     def test_ignore_index_in_mask(self, temp_dataset_dir: Path) -> None:
         ADE20KDataset = import_ade20k()
         dataset = ADE20KDataset(root_dir=temp_dataset_dir, ignore_index=255)
@@ -116,6 +124,7 @@ class TestADE20KDataset:
         assert valid_values.min() >= 0
         assert valid_values.max() <= 149
 
+    # ──────────────────────────────────────────────────────────────────────
     def test_validation_split(self, temp_dataset_dir) -> None:
         ADE20KDataset = import_ade20k()
         # Создаём валидационную директорию

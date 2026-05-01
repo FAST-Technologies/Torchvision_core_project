@@ -7,6 +7,7 @@ import torch
 import subprocess
 
 
+# ──────────────────────────────────────────────────────────────────────
 def print_gpu_mem() -> None:
     if torch.cuda.is_available():
         alloc: float = torch.cuda.memory_allocated() / 1e9
@@ -17,6 +18,7 @@ def print_gpu_mem() -> None:
 print_gpu_mem()
 
 
+# ──────────────────────────────────────────────────────────────────────
 def run(cmd) -> str:
     try:
         return (

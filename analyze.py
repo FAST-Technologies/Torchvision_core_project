@@ -66,6 +66,7 @@ MODEL_TYPE_MAPPING: Dict[str, str] = {
 }
 
 
+# ──────────────────────────────────────────────────────────────────────
 def analyze_augmentation_impact() -> (
     Optional[Tuple[Optional[pd.DataFrame], Optional[Dict[str, Image.Image]]]]
 ):
@@ -573,6 +574,7 @@ def analyze_augmentation_impact() -> (
     return df, overlay_images
 
 
+# ──────────────────────────────────────────────────────────────────────
 def save_augmentation_comparison_grid(
     overlay_images: Dict[str, Image.Image],
     output_dir: PathLike = "./data/augmentation_analysis",
@@ -673,6 +675,7 @@ def save_augmentation_comparison_grid(
     print(f"✅ Полная сетка сравнения: {output_dir}/full_comparison_grid.png")
 
 
+# ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("\n🔍 CUDA DIAGNOSTICS:")
     print(f"   CUDA available: {torch.cuda.is_available()}")

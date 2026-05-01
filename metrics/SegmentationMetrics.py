@@ -66,6 +66,7 @@ class SegmentationMetrics:
         ```
     """
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def _normalize_masks(
         pred_mask: MaskArray,
@@ -105,6 +106,7 @@ class SegmentationMetrics:
             gt_binary = (gt_mask > threshold).astype(np.uint8)
         return pred_binary, gt_binary
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def calculate_iou(
         pred_mask: MaskArray,
@@ -139,6 +141,7 @@ class SegmentationMetrics:
             return 0.0
         return float(intersection / (union + 1e-8))
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def calculate_accuracy_sklearn(
         pred_mask: MaskArray,
@@ -167,6 +170,7 @@ class SegmentationMetrics:
             warnings.warn(f"Ошибка вычисления accuracy_score: {e}. Возвращаем 0.0")
             return 0.0
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def calculate_jaccard_sklearn(
         pred_mask: MaskArray,
@@ -197,6 +201,7 @@ class SegmentationMetrics:
             warnings.warn(f"Ошибка вычисления jaccard_score: {e}. Возвращаем 0.0")
             return 0.0
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def calculate_dice_coefficient(
         pred_mask: MaskArray,
@@ -230,6 +235,7 @@ class SegmentationMetrics:
         )
         return float(dice)
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def calculate_precision_recall(
         pred_mask: MaskArray,
@@ -290,6 +296,7 @@ class SegmentationMetrics:
 
         return float(p_custom), float(r_custom)
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def calculate_f1_score(
         pred_mask: MaskArray,
@@ -332,6 +339,7 @@ class SegmentationMetrics:
             )
         return float(f1_custom)
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def calculate_mae(
         pred_mask: MaskArray,
@@ -380,6 +388,7 @@ class SegmentationMetrics:
             )
         return float(mae_custom)
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def calculate_hausdorff_distance(
         pred_mask: MaskArray,
@@ -423,6 +432,7 @@ class SegmentationMetrics:
             hausdorff_dist = float("inf")
         return float(hausdorff_dist)
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def calculate_clustering_metrics(
         pred_mask: MaskArray,
@@ -492,6 +502,7 @@ class SegmentationMetrics:
             metrics["davies_bouldin_score"] = None
         return metrics
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def calculate_pixel_accuracy(
         pred_mask: MaskArray,
@@ -525,6 +536,7 @@ class SegmentationMetrics:
             return 0.0
         return float(correct_pixels / total_pixels)
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def calculate_all_metrics(
         pred_mask: MaskArray,
@@ -645,6 +657,7 @@ class SegmentationMetrics:
 
         return metrics
 
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def evaluate_multiple_masks(
         pred_masks: List[MaskArray],

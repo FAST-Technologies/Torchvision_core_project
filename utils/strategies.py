@@ -77,6 +77,7 @@ if str(project_root) not in sys.path:
 num_classes: int = 150
 
 
+# ──────────────────────────────────────────────────────────────────────
 def infer_segformer(
     model: Any,
     processor: Any,
@@ -121,6 +122,7 @@ def infer_segformer(
     return seg_map, image
 
 
+# ──────────────────────────────────────────────────────────────────────
 def infer_mask2former(
     model: Any,
     processor: Any,
@@ -157,6 +159,7 @@ def infer_mask2former(
     return predicted_mask, image
 
 
+# ──────────────────────────────────────────────────────────────────────
 def infer_oneformer(
     model: Any,
     processor: Any,
@@ -194,6 +197,7 @@ def infer_oneformer(
     return predicted_mask, image
 
 
+# ──────────────────────────────────────────────────────────────────────
 def infer_deeplab_torchvision(
     model: Any,
     processor: Any,
@@ -256,6 +260,7 @@ def infer_deeplab_torchvision(
     return predicted_mask, image
 
 
+# ──────────────────────────────────────────────────────────────────────
 def infer_unet_smp(
     model: Any,
     processor: Any,
@@ -342,6 +347,7 @@ def infer_unet_smp(
     return predicted_mask, image
 
 
+# ──────────────────────────────────────────────────────────────────────
 def infer_sam(
     model: Any, processor: Any, image: Image.Image, device: str = "cuda"
 ) -> Tuple[np.ndarray, Image.Image]:
@@ -373,6 +379,7 @@ def infer_sam(
     return seg_map, image
 
 
+# ──────────────────────────────────────────────────────────────────────
 def infer_dpt(
     model: Any, processor: Any, image: Image.Image, device: str = "cuda"
 ) -> Tuple[np.ndarray, Image.Image]:
@@ -395,6 +402,7 @@ def infer_dpt(
     return seg_map, image
 
 
+# ──────────────────────────────────────────────────────────────────────
 def infer_smp_model(
     model: Any,
     processor: Any,
@@ -457,6 +465,7 @@ def infer_smp_model(
     return pred_mask, image
 
 
+# ──────────────────────────────────────────────────────────────────────
 def infer_smp_model_fixed(
     model: Any,
     image: Image.Image,
@@ -524,6 +533,7 @@ def infer_smp_model_fixed(
     return pred_mask, image
 
 
+# ──────────────────────────────────────────────────────────────────────
 def infer_fcn_torchvision(
     model: Any, processor: Any, image: Image.Image, device: str = "cuda"
 ) -> Tuple[np.ndarray, Image.Image]:
@@ -561,6 +571,7 @@ def infer_fcn_torchvision(
     return pred_mask, image
 
 
+# ──────────────────────────────────────────────────────────────────────
 def infer_fcn_torchvision_fixed(
     model: Any,
     processor: Any,
@@ -602,6 +613,7 @@ def infer_fcn_torchvision_fixed(
     return pred_mask, image
 
 
+# ──────────────────────────────────────────────────────────────────────
 def infer_mask_rcnn(
     model: Any,
     processor: Any,
@@ -665,6 +677,7 @@ def infer_mask_rcnn(
     return semantic_map, image
 
 
+# ──────────────────────────────────────────────────────────────────────
 def infer_yolov8(
     model: Any,
     processor: Any,
@@ -707,6 +720,7 @@ def infer_yolov8(
     return semantic_map, image
 
 
+# ──────────────────────────────────────────────────────────────────────
 class SegNet(torch.nn.Module):
     """
     Простая реализация SegNet для бенчмарка.
@@ -733,6 +747,7 @@ class SegNet(torch.nn.Module):
         # Classifier
         self.classifier = torch.nn.Conv2d(64, num_classes, kernel_size=1)
 
+    # ──────────────────────────────────────────────────────────────────────
     def _make_encoder(self, in_ch, out_ch):
         return torch.nn.Sequential(
             torch.nn.Conv2d(in_ch, out_ch, 3, padding=1),
@@ -743,6 +758,7 @@ class SegNet(torch.nn.Module):
             torch.nn.ReLU(inplace=True),
         )
 
+    # ──────────────────────────────────────────────────────────────────────
     def _make_decoder(self, in_ch, out_ch):
         return torch.nn.Sequential(
             torch.nn.Conv2d(in_ch, out_ch, 3, padding=1),
@@ -756,6 +772,7 @@ class SegNet(torch.nn.Module):
             torch.nn.ReLU(inplace=True),
         )
 
+    # ──────────────────────────────────────────────────────────────────────
     def forward(self, x):
         # Encoder
         e1, p1 = self._encode(self.enc1, x)
@@ -773,6 +790,7 @@ class SegNet(torch.nn.Module):
 
         return self.classifier(d1)
 
+    # ──────────────────────────────────────────────────────────────────────
     def _encode(self, encoder, x):
         """
         Encoder step: conv → batchnorm → relu → maxpool
@@ -783,6 +801,7 @@ class SegNet(torch.nn.Module):
         pooled, indices = torch.nn.functional.max_pool2d(x, 2, 2, return_indices=True)
         return x, pooled
 
+    # ──────────────────────────────────────────────────────────────────────
     def _decode(self, decoder, x, output_size):
         """
         Decoder step: upsample → conv → batchnorm → relu
@@ -968,6 +987,7 @@ def segment_image_unified(
     return overlay, result_info
 
 
+# ──────────────────────────────────────────────────────────────────────
 def _log_inference_details_standalone(
     image: Image.Image,
     seg_map: MaskArray,
@@ -1105,6 +1125,7 @@ def _log_inference_details_standalone(
     }
 
 
+# ──────────────────────────────────────────────────────────────────────
 def _get_num_classes_standalone(
     model: Any,
     model_type: str,
@@ -1150,6 +1171,7 @@ def _get_num_classes_standalone(
         return fallback
 
 
+# ──────────────────────────────────────────────────────────────────────
 def _create_overlay_standalone(
     image: Image.Image,
     mask: MaskArray,

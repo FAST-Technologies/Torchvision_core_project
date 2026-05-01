@@ -9,6 +9,7 @@ from typing import (
 )
 
 
+# ──────────────────────────────────────────────────────────────────────
 def get_ade_class_names() -> Dict[int, str]:
     # ADE20K Class Names (0-indexed, 150 classes)
     # Source: http://sceneparsing.csail.mit.edu/
@@ -171,6 +172,7 @@ def get_ade_class_names() -> Dict[int, str]:
     return ade20k_class_names
 
 
+# ──────────────────────────────────────────────────────────────────────
 def ade_palette() -> List[List[int]]:
     """ADE20K palette that maps each class to RGB values."""
     return [
@@ -327,6 +329,7 @@ def ade_palette() -> List[List[int]]:
     ]
 
 
+# ──────────────────────────────────────────────────────────────────────
 def get_coco_class_names() -> Dict[int, str]:
     # COCO Class Names (0-indexed, 80 classes)
     # Source: https://docs.ultralytics.com/datasets/detect/coco/#dataset-yaml
@@ -417,6 +420,7 @@ def get_coco_class_names() -> Dict[int, str]:
     return COCO_class_names
 
 
+# ──────────────────────────────────────────────────────────────────────
 def coco_palette() -> List[List[int]]:
     """ADE20K palette that maps each class to RGB values."""
     return [
@@ -503,6 +507,7 @@ def coco_palette() -> List[List[int]]:
     ]
 
 
+# ──────────────────────────────────────────────────────────────────────
 def get_cityscapes_extended_class_names() -> Dict[int, str]:
     # Cityscapes Extended (34 classes - includes "grouped" categories)
     cityscapes_extended_class_names: Dict[int, str] = {
@@ -550,6 +555,7 @@ def get_cityscapes_extended_class_names() -> Dict[int, str]:
     return cityscapes_extended_class_names
 
 
+# ──────────────────────────────────────────────────────────────────────
 def cityscapes_extended_palette() -> List[List[int]]:
     """ADE20K palette that maps each class to RGB values."""
     return [
@@ -590,6 +596,7 @@ def cityscapes_extended_palette() -> List[List[int]]:
     ]
 
 
+# ──────────────────────────────────────────────────────────────────────
 def get_cityscapes_class_names() -> Dict[int, str]:
     # Cityscapes Class Names (0-indexed, 19 classes for semantic segmentation)
     # Source: https://www.cityscapes-dataset.com/
@@ -621,6 +628,7 @@ def get_cityscapes_class_names() -> Dict[int, str]:
     return cityscapes_class_names
 
 
+# ──────────────────────────────────────────────────────────────────────
 def cityscapes_palette() -> List[List[int]]:
     """ADE20K palette that maps each class to RGB values."""
     return [
@@ -646,6 +654,7 @@ def cityscapes_palette() -> List[List[int]]:
     ]
 
 
+# ──────────────────────────────────────────────────────────────────────
 def get_chexpert_observation_class_names() -> Dict[int, str]:
     # CheXpert Observation Classes (14 labels for classification)
     # Source: https://stanfordmlgroup.github.io/competitions/chexpert/
@@ -679,6 +688,7 @@ def get_chexpert_observation_class_names() -> Dict[int, str]:
     return chexpert_observation_names
 
 
+# ──────────────────────────────────────────────────────────────────────
 def chexpert_observation_palette() -> List[List[int]]:
     """ADE20K palette that maps each class to RGB values."""
     return [
@@ -699,6 +709,7 @@ def chexpert_observation_palette() -> List[List[int]]:
     ]
 
 
+# ──────────────────────────────────────────────────────────────────────
 def get_isic_class_names() -> Dict[int, str]:
     # ISIC 2018 Class Names (Binary: skin lesion segmentation)
     # Source: https://challenge.isic-archive.com/
@@ -712,6 +723,7 @@ def get_isic_class_names() -> Dict[int, str]:
     return isic_class_names
 
 
+# ──────────────────────────────────────────────────────────────────────
 def binary_palette() -> List[List[int]]:
     """ADE20K palette that maps each class to RGB values."""
     return [[120, 120, 120], [180, 120, 120]]

@@ -95,6 +95,7 @@ class NumpyEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
+# ──────────────────────────────────────────────────────────────────────
 def safe_json_response(content: Any, status_code: int = 200) -> JSONResponse:
     """Возвращает JSONResponse с безопасной сериализацией."""
     return JSONResponse(
@@ -104,12 +105,14 @@ def safe_json_response(content: Any, status_code: int = 200) -> JSONResponse:
     )
 
 
+# ──────────────────────────────────────────────────────────────────────
 def img_to_b64(path: PathLike) -> str:
     """Конвертирует файл изображения в base64-строку."""
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode()
 
 
+# ──────────────────────────────────────────────────────────────────────
 class BenchmarkStartRequest(BaseModel):
     """Запрос на запуск бенчмарка."""
 
@@ -148,6 +151,7 @@ async def benchmark_health() -> Dict[str, Any]:
     }
 
 
+# ──────────────────────────────────────────────────────────────────────
 @router.get("/api/benchmark/debug")
 async def debug_benchmark() -> Dict[str, Any]:
     """Отладочный эндпоинт: статус всех задач бенчмарка."""
@@ -491,6 +495,7 @@ async def start_benchmark(
     return {"task_id": task_id}
 
 
+# ──────────────────────────────────────────────────────────────────────
 @router.get("/status/{task_id}")
 async def get_status(task_id: str) -> JSONResponse:
     """Возвращает статус и прогресс задачи бенчмарка."""
@@ -516,6 +521,7 @@ async def get_status(task_id: str) -> JSONResponse:
     return safe_json_response(task)
 
 
+# ──────────────────────────────────────────────────────────────────────
 @router.get("/debug/{task_id}")
 async def debug_task(task_id: str) -> Dict[str, Any]:
     """Отладочная информация о задаче."""
@@ -535,6 +541,7 @@ async def debug_task(task_id: str) -> Dict[str, Any]:
     }
 
 
+# ──────────────────────────────────────────────────────────────────────
 @router.delete("/{task_id}")
 async def cancel_benchmark(task_id: str) -> Dict[str, str]:
     """Отменяет или удаляет задачу бенчмарка."""
