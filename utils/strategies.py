@@ -46,6 +46,7 @@ MaskArray = np.ndarray  # Binary/semantic mask: H×W, dtype uint8/int
 ImageArray = np.ndarray  # RGB image: H×W×3, dtype uint8
 ModelType = Literal[
     "segformer",
+    "maskformer",
     "mask2former",
     "oneformer",
     "dpt",

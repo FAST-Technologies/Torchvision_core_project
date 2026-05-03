@@ -4777,15 +4777,11 @@ class SklearnSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = {
-            "method": "isolation_forest_sklearn",
-            "parameters": {
-                "n_estimators": n_estimators,
-                "contamination": contamination,
-                **kwargs,
-            },
-            "execution_time": exec_time,
-        }
+        info: SegmentationInfo = self._log_info(
+            "isolation_forest_sklearn",
+            exec_time,
+            {"n_estimators": n_estimators, "contamination": contamination, **kwargs},
+        )
 
         return mask, info
 
@@ -4838,16 +4834,11 @@ class SklearnSegmenter(BaseSegmenter):
         mask: MaskArray = self._postprocess_mask(mask_raw)
 
         exec_time: float = time.time() - start_time
-
-        info: SegmentationInfo = {
-            "method": "local_outlier_factor_sklearn",
-            "parameters": {
-                "n_neighbors": n_neighbors,
-                "contamination": contamination,
-                **kwargs,
-            },
-            "execution_time": exec_time,
-        }
+        info: SegmentationInfo = self._log_info(
+            "local_outlier_factor_sklearn",
+            exec_time,
+            {"n_neighbors": n_neighbors, "contamination": contamination, **kwargs},
+        )
 
         return mask, info
 
@@ -4905,12 +4896,11 @@ class SklearnSegmenter(BaseSegmenter):
         mask: MaskArray = self._postprocess_mask(mask_raw)
 
         exec_time: float = time.time() - start_time
-
-        info: SegmentationInfo = {
-            "method": "one_class_svm_sklearn",
-            "parameters": {"kernel": kernel, "gamma": gamma, "nu": nu, **kwargs},
-            "execution_time": exec_time,
-        }
+        info: SegmentationInfo = self._log_info(
+            "one_class_svm_sklearn",
+            exec_time,
+            {"kernel": kernel, "gamma": gamma, "nu": nu, **kwargs},
+        )
 
         return mask, info
 
@@ -4976,15 +4966,11 @@ class SklearnSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = {
-            "method": "pca_segmentation_sklearn",
-            "parameters": {
-                "n_components": n_components,
-                "n_clusters": n_clusters,
-                **kwargs,
-            },
-            "execution_time": exec_time,
-        }
+        info: SegmentationInfo = self._log_info(
+            "pca_segmentation_sklearn",
+            exec_time,
+            {"n_components": n_components, "n_clusters": n_clusters, **kwargs},
+        )
 
         return mask, info
 
@@ -5027,16 +5013,11 @@ class SklearnSegmenter(BaseSegmenter):
         mask: MaskArray = self._create_mask_from_labels(labels, (h, w)).astype(np.uint8)
 
         exec_time: float = time.time() - start_time
-
-        info: SegmentationInfo = {
-            "method": "nmf_segmentation_sklearn",
-            "parameters": {
-                "n_components": n_components,
-                "n_clusters": n_clusters,
-                **kwargs,
-            },
-            "execution_time": exec_time,
-        }
+        info: SegmentationInfo = self._log_info(
+            "nmf_segmentation_sklearn",
+            exec_time,
+            {"n_components": n_components, "n_clusters": n_clusters, **kwargs},
+        )
 
         return mask, info
 
@@ -5093,16 +5074,11 @@ class SklearnSegmenter(BaseSegmenter):
         mask: MaskArray = self._create_mask_from_labels(labels, (h, w)).astype(np.uint8)
 
         exec_time: float = time.time() - start_time
-
-        info: SegmentationInfo = {
-            "method": "tsne_segmentation_sklearn",
-            "parameters": {
-                "perplexity": perplexity,
-                "n_clusters": n_clusters,
-                **kwargs,
-            },
-            "execution_time": exec_time,
-        }
+        info: SegmentationInfo = self._log_info(
+            "tsne_segmentation_sklearn",
+            exec_time,
+            {"perplexity": perplexity, "n_clusters": n_clusters, **kwargs},
+        )
 
         return mask, info
 
@@ -5166,11 +5142,11 @@ class SklearnSegmenter(BaseSegmenter):
         mask: MaskArray = self._create_mask_from_labels(labels, (h, w)).astype(np.uint8)
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = {
-            "method": "ensemble_clustering_sklearn",
-            "parameters": {"n_clusters": n_clusters, **kwargs},
-            "execution_time": exec_time,
-        }
+        info: SegmentationInfo = self._log_info(
+            "ensemble_clustering_sklearn",
+            exec_time,
+            {"n_clusters": n_clusters, **kwargs},
+        )
 
         return mask, info
 
@@ -5222,16 +5198,16 @@ class SklearnSegmenter(BaseSegmenter):
         mask: MaskArray = self._create_mask_from_labels(labels, (h, w)).astype(np.uint8)
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = {
-            "method": "color_spatial_clustering_sklearn",
-            "parameters": {
+        info: SegmentationInfo = self._log_info(
+            "color_spatial_clustering_sklearn",
+            exec_time,
+            {
                 "n_clusters": n_clusters,
                 "color_weight": color_weight,
                 "spatial_weight": spatial_weight,
                 **kwargs,
             },
-            "execution_time": exec_time,
-        }
+        )
 
         return mask, info
 
@@ -5586,11 +5562,9 @@ class SklearnSegmenter(BaseSegmenter):
         mask: MaskArray = self._postprocess_mask(mask_raw)
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = {
-            "method": "bayesian_gmm_sklearn",
-            "parameters": {"n_components": n_components, **kwargs},
-            "execution_time": exec_time,
-        }
+        info: SegmentationInfo = self._log_info(
+            "bayesian_gmm_sklearn", exec_time, {"n_components": n_components, **kwargs}
+        )
 
         return mask, info
 
@@ -5601,7 +5575,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """ICA для сегментации."""
-        return self._sklearn_pca_segmentation(img)
+        return self._sklearn_pca_segmentation(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_isomap_segmentation(
@@ -5610,7 +5584,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Isomap для сегментации."""
-        return self._sklearn_tsne_segmentation(img)
+        return self._sklearn_tsne_segmentation(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_spectral_embedding(
@@ -5619,7 +5593,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Spectral Embedding для сегментации."""
-        return self._sklearn_spectral(img)
+        return self._sklearn_spectral(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_variational_gmm(
@@ -5628,7 +5602,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Variational GMM для сегментации."""
-        return self._sklearn_bayesian_gmm(img)
+        return self._sklearn_bayesian_gmm(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_density_based(
@@ -5636,7 +5610,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        return self._sklearn_dbscan(img)
+        return self._sklearn_dbscan(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_hdbscan_emulation(
@@ -5645,7 +5619,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Эмуляция HDBSCAN."""
-        return self._sklearn_optics(img)
+        return self._sklearn_optics(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_graph_clustering(
@@ -5654,7 +5628,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Graph-based кластеризация."""
-        return self._sklearn_spectral(img)
+        return self._sklearn_spectral(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_modularity_clustering(
@@ -5663,7 +5637,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Modularity-based кластеризация."""
-        return self._sklearn_spectral(img)
+        return self._sklearn_spectral(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_self_training(
@@ -5672,7 +5646,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Self-training для сегментации."""
-        return self._sklearn_random_forest(img)
+        return self._sklearn_random_forest(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_semi_supervised(
@@ -5681,7 +5655,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Semi-supervised сегментация."""
-        return self._sklearn_random_forest(img)
+        return self._sklearn_random_forest(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_distance_matrix(
@@ -5690,7 +5664,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Distance matrix-based кластеризация."""
-        return self._sklearn_spectral(img)
+        return self._sklearn_spectral(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_affinity_propagation(
@@ -5711,12 +5685,9 @@ class SklearnSegmenter(BaseSegmenter):
         mask_raw = self._create_mask_from_labels(labels, (h, w))
         mask: MaskArray = self._postprocess_mask(mask_raw)
         exec_time: float = time.time() - start_time
-
-        info: SegmentationInfo = {
-            "method": "affinity_propagation_sklearn",
-            "parameters": {**kwargs},
-            "execution_time": exec_time,
-        }
+        info: SegmentationInfo = self._log_info(
+            "affinity_propagation_sklearn", exec_time, kwargs
+        )
 
         return mask, info
 
@@ -5727,7 +5698,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Quadratic Discriminant Analysis."""
-        return self._sklearn_lda(img)
+        return self._sklearn_lda(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_texture_clustering(
@@ -5736,7 +5707,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Текстурная кластеризация."""
-        return self._sklearn_color_spatial_clustering(img)
+        return self._sklearn_color_spatial_clustering(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_superpixel_clustering(
@@ -5745,7 +5716,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Кластеризация суперпикселей."""
-        return self._sklearn_color_spatial_clustering(img)
+        return self._sklearn_color_spatial_clustering(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_hierarchical_kmeans(
@@ -5754,7 +5725,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Иерархический K-Means."""
-        return self._sklearn_agglomerative(img)
+        return self._sklearn_agglomerative(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_pca_kmeans(
@@ -5763,7 +5734,7 @@ class SklearnSegmenter(BaseSegmenter):
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """PCA + K-Means."""
-        return self._sklearn_pca_segmentation(img)
+        return self._sklearn_pca_segmentation(img, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_gmm_vers2(
@@ -5957,7 +5928,8 @@ class SklearnSegmenter(BaseSegmenter):
         )
 
         # Применяем Isolation Forest
-        iso_forest = IsolationForest(contamination=0.1, random_state=42)
+        contamination = 0.1
+        iso_forest = IsolationForest(contamination=contamination, random_state=42)
         labels = iso_forest.fit_predict(features)
 
         # Аномалии = объект
@@ -5966,11 +5938,15 @@ class SklearnSegmenter(BaseSegmenter):
         exec_time = time.time() - start_time
         mask = mask.astype(np.uint8) * 255
 
-        info = {
-            "method": "isolation_forest_sklearn",
-            "parameters": {**kwargs},
-            "execution_time": exec_time,
-        }
+        info: SegmentationInfo = self._log_info(
+            "isolation_forest_sklearn",
+            exec_time,
+            {
+                # "n_estimators": n_estimators,
+                "contamination": contamination,
+                **kwargs,
+            },
+        )
 
         return mask, info
 
@@ -6138,11 +6114,13 @@ class SklearnSegmenter(BaseSegmenter):
         )
 
         # Применяем PCA
-        pca = PCA(n_components=2, random_state=42)
+        n_components = 2
+        pca = PCA(n_components=n_components, random_state=42)
         transformed = pca.fit_transform(features)
 
         # Кластеризуем в новом пространстве
-        kmeans = KMeans(n_clusters=2, random_state=42)
+        n_clusters = 2
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
         labels = kmeans.fit_predict(transformed)
 
         # Создаем маску
@@ -6150,11 +6128,11 @@ class SklearnSegmenter(BaseSegmenter):
         exec_time = time.time() - start_time
         mask = mask.astype(np.uint8) * 255
 
-        info = {
-            "method": "psa_segmentation_sklearn",
-            "parameters": {**kwargs},
-            "execution_time": exec_time,
-        }
+        info: SegmentationInfo = self._log_info(
+            "pca_segmentation_sklearn",
+            exec_time,
+            {"n_components": n_components, "n_clusters": n_clusters, **kwargs},
+        )
 
         return mask, info
 

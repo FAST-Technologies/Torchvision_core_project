@@ -761,6 +761,22 @@ class SegmentationBenchmark:
             }
         return summary
 
+    def get_summary_dataframe(self) -> pd.DataFrame:  # вместо Dict[str, Dict[str, Any]]
+        """Возвращает сводку как DataFrame для удобной сортировки."""
+        summary_list = []
+        for key, res in self.results.items():
+            summary_list.append(
+                {
+                    "model": key,
+                    "mIoU": res["metrics"].get("mIoU", np.nan),
+                    "pixel_acc": res["metrics"].get("pixel_acc", np.nan),
+                    "f1_weighted": res["metrics"].get("f1_weighted", np.nan),
+                    "time_ms": res["inference_time_ms"],
+                    "unique_classes": res["unique_classes"],
+                }
+            )
+        return pd.DataFrame(summary_list).set_index("model")
+
     # ──────────────────────────────────────────────────────────────────────
     def get_model_num_classes(self, model_key: str) -> int:
         """
