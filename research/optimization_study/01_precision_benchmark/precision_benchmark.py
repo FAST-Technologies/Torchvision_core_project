@@ -15,7 +15,12 @@ from typing import Dict, List, Tuple, Optional, Any
 from pathlib import Path
 import warnings
 
-from .config import PrecisionConfig, PRECISION_TO_DTYPE, DEFAULT_CONFIG
+from .config import (
+    PrecisionConfig,
+    is_dtype_supported,
+    PRECISION_TO_DTYPE,
+    DEFAULT_CONFIG,
+)
 from .utils import (
     get_available_dtypes,
     format_time,

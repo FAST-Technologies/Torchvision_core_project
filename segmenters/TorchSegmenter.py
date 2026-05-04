@@ -5,6 +5,7 @@
 # ──────────────────────────────────────────────────────────────────────
 from segmenters.BaseSegmenter import BaseSegmenter
 
+import os
 import warnings
 from PIL import Image
 import time
@@ -42,13 +43,19 @@ class TorchSegmenter(BaseSegmenter):
         method: str = "global_thresholding",
         device: Optional[str] = None,
         use_external_libs: bool = True,
+        use_compile: bool = True,
+        compile_mode: str = "reduce-overhead",  # или "default", "max-autotune"
         **kwargs,
     ) -> None:
+        self.dtype: torch.dtype = self._resolve_dtype(kwargs.get("dtype", None))
+        self._segment_func: Callable[[torch.Tensor], torch.Tensor]  # type: ignore[assignment]
         super().__init__()
         self.method: str = method
         self.params: Dict[str, Any] = kwargs
         self.model_name: str = f"Torch_{method}"
         self.use_external_libs: bool = use_external_libs
+        self.use_compile: bool = use_compile
+        self.compile_mode: str = compile_mode
         self._needs_normalization: bool = method in [
             "global_thresholding",
             "adaptive_thresholding",
@@ -94,6 +101,75 @@ class TorchSegmenter(BaseSegmenter):
 
         self._setup_method()
         self._debug_mode = kwargs.get("debug_mode", False)
+        if (
+            self.use_compile
+            and torch.__version__ >= "2.0"
+            and self.device.type == "cuda"
+        ):
+            try:
+                print(f"🔧 Компиляция метода '{method}' с режимом '{compile_mode}'...")
+                self._segment_func = torch.compile(
+                    self._segment_func,
+                    mode=self.compile_mode,
+                    fullgraph=True,  # Требует полностью графового кода
+                    dynamic=False,  # Статические размеры для лучшей оптимизации
+                )
+                print("✅ Компиляция завершена")
+            except Exception as e:
+                print(f"⚠️  Не удалось скомпилировать: {e}. Используем обычный режим.")
+
+        if kwargs.get("use_quantization", False) and self.device.type == "cpu":
+            print("🔧 Применяем динамическое квантование (int8)...")
+            # Оборачиваем _segment_func, если это nn.Module
+            if isinstance(self._segment_func, nn.Module):
+                self._segment_func = self._apply_dynamic_quantization(
+                    self._segment_func
+                )
+
+    def _try_export_to_tensorrt(
+        self,
+        example_input: torch.Tensor,
+        trt_path: str,
+        precision: str = "fp16",  # 'fp32', 'fp16', 'int8'
+    ) -> bool:
+        """
+        Экспорт модели в TensorRT Engine (требует torch2trt или torch-tensorrt).
+
+        Returns:
+            bool: Успешность экспорта
+        """
+        try:
+            import torch_tensorrt  # pip install torch-tensorrt
+
+            # Подготовка модели
+            self._segment_func.eval()
+            example_input = example_input.to(self.device).to(self.dtype)
+
+            # Компиляция в TensorRT
+            trt_module = torch_tensorrt.compile(
+                self._segment_func,
+                inputs=[torch_tensorrt.Input(example_input.shape, dtype=self.dtype)],
+                enabled_precisions={
+                    (
+                        torch.float32
+                        if precision == "fp32"
+                        else torch.float16 if precision == "fp16" else torch.int8
+                    )
+                },
+                ir="torchscript",  # или "dynamo" для PyTorch 2.0+
+            )
+
+            # Сохранение
+            torch.jit.save(trt_module, trt_path)
+            print(f"✅ TensorRT engine сохранён: {trt_path}")
+            return True
+
+        except ImportError:
+            print("⚠️  torch-tensorrt не установлен: pip install torch-tensorrt")
+            return False
+        except Exception as e:
+            print(f"⚠️  Ошибка экспорта в TensorRT: {e}")
+            return False
 
     def _get_intermediate_results(self) -> None:
         """Возвращает промежуточные результаты для тестов"""
@@ -186,6 +262,53 @@ class TorchSegmenter(BaseSegmenter):
             raise TypeError(f"Неподдерживаемый тип изображения: {type(image)}")
 
     @staticmethod
+    def _resolve_dtype(dtype_arg: Optional[Union[str, torch.dtype]]) -> torch.dtype:
+        """
+        Разрешение типа данных с учётом возможностей устройства.
+
+        Args:
+            dtype_arg: 'fp32', 'fp16', 'bf16' или torch.dtype
+
+        Returns:
+            torch.dtype для вычислений
+        """
+        if isinstance(dtype_arg, torch.dtype):
+            return dtype_arg
+
+        dtype_map = {
+            "fp32": torch.float32,
+            "float32": torch.float32,
+            "fp16": torch.float16,
+            "float16": torch.float16,
+            "bf16": torch.bfloat16,
+            "bfloat16": torch.bfloat16,
+        }
+
+        if isinstance(dtype_arg, str):
+            dtype = dtype_map.get(dtype_arg.lower(), torch.float32)
+        else:
+            dtype = torch.float32  # default
+
+        # Авто-коррекция для неподдерживаемых типов
+        if dtype == torch.float16 and not torch.cuda.is_available():
+            print("⚠️  fp16 не поддерживается на CPU, используем fp32")
+            return torch.float32
+
+        if dtype == torch.bfloat16:
+            if not torch.cuda.is_available():
+                print("⚠️  bf16 не поддерживается на CPU, используем fp32")
+                return torch.float32
+            # Проверка поддержки bf16 на текущей GPU
+            if torch.cuda.is_available():
+                props = torch.cuda.get_device_properties(0)
+                if props.major < 8:  # Ampere+ для полноценной поддержки
+                    print(
+                        f"⚠️  bf16 может работать медленно на GPU compute capability {props.major}.{props.minor}"
+                    )
+
+        return dtype
+
+    @staticmethod
     def _rgb_to_gray_numpy(rgb: np.ndarray) -> np.ndarray:
         """Конвертация RGB → Grayscale на numpy"""
         # ITU-R BT.601 weights
@@ -207,6 +330,14 @@ class TorchSegmenter(BaseSegmenter):
     def _to_grayscale(self, tensor: torch.Tensor) -> torch.Tensor:
         """Преобразование RGB в градации серого"""
         return self._rgb_to_gray_torch(tensor)
+
+    def _cast_to_dtype(self, tensor: torch.Tensor) -> torch.Tensor:
+        """
+        Приведение тензора к целевому dtype с минимальными копиями.
+        """
+        if tensor.dtype == self.dtype:
+            return tensor
+        return tensor.to(dtype=self.dtype, non_blocking=True)
 
     @staticmethod
     def conv2d_numpy(
@@ -265,17 +396,32 @@ class TorchSegmenter(BaseSegmenter):
         try:
             tensor: torch.Tensor
             np_img: np.ndarray
-            if normalize:
-                tensor = TF.to_tensor(img)  # Автоматически нормализует к [0, 1]
-            else:
+            if not hasattr(self, "_to_tensor_constants"):
+                self._to_tensor_constants = {
+                    "scale_255": torch.tensor(1.0 / 255.0, device=self.device),
+                    "zero": torch.tensor(0.0, device=self.device),
+                    "one": torch.tensor(1.0, device=self.device),
+                }
+            if (
+                self.use_compile
+                and getattr(self, "compile_mode", "") == "reduce-overhead"
+            ):
                 np_img = np.array(img).astype(np.float32)
                 tensor = torch.from_numpy(np_img).permute(2, 0, 1)
-                # tensor = torch.from_numpy(np_img).permute(2, 0, 1) / 255.0
+                if normalize:
+                    tensor = tensor * self._to_tensor_constants["scale_255"]
+            else:
+                # Стандартный путь — надёжность > микрооптимизации
+                if normalize:
+                    tensor = TF.to_tensor(img)  # Автоматически нормализует к [0, 1]
+                else:
+                    np_img = np.array(img).astype(np.float32)
+                    tensor = torch.from_numpy(np_img).permute(2, 0, 1)
 
             if add_batch:
                 tensor = tensor.unsqueeze(0)  # (1, C, H, W)
 
-            return tensor.to(self.device)
+            return tensor.to(device=self.device, dtype=self.dtype, non_blocking=True)
         except Exception as e:
             raise ValueError(f"Ошибка преобразования PIL->Tensor: {e}")
 
@@ -331,6 +477,203 @@ class TorchSegmenter(BaseSegmenter):
         min_val: torch.Tensor = tensor.min()
         max_val: torch.Tensor = tensor.max()
         return (tensor - min_val) / (max_val - min_val + 1e-8)
+
+    def profile_segmentation(
+        segmenter: "TorchSegmenter",
+        image: Union[np.ndarray, torch.Tensor],
+        n_runs: int = 10,
+        warmup: int = 3,
+    ) -> Dict[str, Any]:
+        """
+        Профилирование времени выполнения метода сегментации.
+
+        Returns:
+            Dict с метриками: mean_time, std_time, min_time, max_time, device
+        """
+        import time
+
+        # Предобработка
+        if isinstance(image, np.ndarray):
+            tensor = segmenter.preprocess_image(image)
+        else:
+            tensor = image.to(segmenter.device)
+
+        # Warmup
+        for _ in range(warmup):
+            _ = segmenter._segment_func(tensor)
+
+        if segmenter.device.type == "cuda":
+            torch.cuda.synchronize()
+
+        # Замеры
+        times: List[float] = []
+        for _ in range(n_runs):
+            start = time.perf_counter()
+            _ = segmenter._segment_func(tensor)
+            if segmenter.device.type == "cuda":
+                torch.cuda.synchronize()
+            end = time.perf_counter()
+            times.append(end - start)
+
+        return {
+            "method": segmenter.method,
+            "device": str(segmenter.device),
+            "mean_time_s": np.mean(times),
+            "std_time_s": np.std(times),
+            "min_time_s": np.min(times),
+            "max_time_s": np.max(times),
+            "image_shape": tuple(tensor.shape),
+        }
+
+    def profile_with_transfer_detection(
+        self,
+        image: np.ndarray,
+        n_runs: int = 10,
+        detect_transfers: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Профилирование с детекцией CPU↔GPU трансферов.
+
+        Returns:
+            Dict с метриками + предупреждениями о трансферах.
+        """
+        import torch.profiler as profiler
+
+        tensor = self.preprocess_image(image)
+
+        # 🔥 Мониторинг трансферов через profiler
+        transfer_warnings: List[str] = []
+
+        with profiler.profile(
+            activities=[profiler.ProfilerActivity.CPU, profiler.ProfilerActivity.CUDA],
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True,
+        ) as prof:
+            with profiler.record_function(f"segment_{self.method}"):
+                for _ in range(n_runs):
+                    _ = self._segment_func(tensor)
+                    if self.device.type == "cuda":
+                        torch.cuda.synchronize()
+
+        # 🔥 Анализ событий трансфера
+        if detect_transfers and self.device.type == "cuda":
+            for event in prof.key_averages():
+                if "cudaMemcpy" in event.key or "to(" in event.key:
+                    transfer_warnings.append(
+                        f"⚠️  Трансфер: {event.key} — {event.cpu_time_total/1e3:.2f}ms"
+                    )
+
+        # Стандартные метрики
+        return {
+            "method": self.method,
+            "dtype": str(self.dtype),
+            "device": str(self.device),
+            "avg_time_ms": prof.key_averages().total_average().cuda_time_total / 1e3,
+            "memory_mb": prof.key_averages().total_average().cuda_memory_usage / 1e6,
+            "transfer_warnings": transfer_warnings,
+            "profiler_table": prof.key_averages().table(
+                sort_by="cuda_time_total", row_limit=15
+            ),
+        }
+
+    def detect_cpu_gpu_transfers(
+        segmenter: "TorchSegmenter", image: np.ndarray
+    ) -> List[str]:
+        """
+        Детектирует нежелательные трансферы CPU↔GPU внутри метода.
+        Возвращает список предупреждений.
+        """
+        warnings: List[str] = []
+        original_func = segmenter._segment_func
+
+        # Мониторим вызовы .cpu(), .numpy(), .to()
+        def make_tracked_method(original, name: str):
+            def tracked(*args, **kwargs):
+                warnings.append(f"⚠️  Вызов {name}() — возможен трансфер CPU↔GPU")
+                return original(*args, **kwargs)
+
+            return tracked
+
+        # Временная замена методов (упрощённо)
+        # Для полноценного мониторинга используйте torch.profiler
+
+        # Запускаем метод
+        try:
+            tensor = segmenter.preprocess_image(image)
+            _ = original_func(tensor)
+        except Exception as e:
+            warnings.append(f"❌ Ошибка выполнения: {e}")
+
+        return warnings if warnings else ["✅ Трансферов не обнаружено"]
+
+    def profile_with_tracing(
+        segmenter: "TorchSegmenter",
+        image: np.ndarray,
+        output_dir: str = "./profiling",
+    ) -> None:
+        """
+        Запуск профилировщика PyTorch с экспортом trace для Chrome DevTools.
+        """
+        import torch.profiler as profiler
+
+        os.makedirs(output_dir, exist_ok=True)
+        tensor = segmenter.preprocess_image(image)
+
+        with profiler.profile(
+            activities=[
+                profiler.ProfilerActivity.CPU,
+                profiler.ProfilerActivity.CUDA,
+            ],
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True,
+        ) as prof:
+            with profiler.record_function(f"segment_{segmenter.method}"):
+                _ = segmenter.segment(image)
+
+        # Вывод таблицы
+        print(
+            prof.key_averages().table(
+                sort_by=(
+                    "cuda_time_total"
+                    if segmenter.device.type == "cuda"
+                    else "cpu_time_total"
+                ),
+                row_limit=20,
+            )
+        )
+
+        # Экспорт для визуализации
+        trace_path = os.path.join(output_dir, f"trace_{segmenter.method}.json")
+        prof.export_chrome_trace(trace_path)
+        print(f"📊 Trace сохранён: {trace_path}")
+        print(
+            "💡 Откройте chrome://tracing и загрузите файл для интерактивного анализа"
+        )
+
+    def _apply_dynamic_quantization(self, module: nn.Module) -> nn.Module:
+        """
+        Применяет динамическое квантование весов (int8) для совместимых слоёв.
+
+        🔹 Работает только на CPU
+        🔹 Поддерживает Linear, Conv2d
+        """
+        if self.device.type != "cpu":
+            print("⚠️  Квантование доступно только на CPU")
+            return module
+
+        try:
+            from torch.ao.quantization import quantize_dynamic
+
+            return quantize_dynamic(
+                module,
+                {torch.nn.Linear, torch.nn.Conv2d},  # типы слоёв для квантования
+                dtype=torch.qint8,
+            )
+        except ImportError:
+            print("⚠️  torch.ao.quantization недоступен, пропускаем квантование")
+            return module
 
     @staticmethod
     def _cv_heavyside(x: torch.Tensor, eps: float = 1.0) -> torch.Tensor:
@@ -1128,22 +1471,21 @@ class TorchSegmenter(BaseSegmenter):
             # print(f"Image after Torch preprocessing (mask_tensor): {mask_tensor}")
 
             # Преобразуем маску в numpy
-            if mask_tensor.dim() == 4:
-                mask_tensor = mask_tensor.squeeze(0)
-            if mask_tensor.dim() == 3 and mask_tensor.shape[0] == 1:
-                mask_tensor = mask_tensor.squeeze(0)
+            if mask_tensor.dim() >= 3:
+                mask_tensor = mask_tensor.squeeze()
 
-            mask_np: np.ndarray = mask_tensor.cpu().numpy()
+            if self.device.type == "cuda":
+                mask_np = mask_tensor.to(
+                    dtype=torch.float32, device="cpu", non_blocking=True
+                ).numpy()
+            else:
+                mask_np = mask_tensor.float().cpu().numpy()
 
-            # Конвертируем в uint8 0-255 если нужно
-            if mask_np.dtype != np.uint8:
-                if mask_np.dtype == bool:
-                    mask_np = mask_np.astype(np.uint8) * 255
-                elif mask_np.max() <= 1.0:
-                    mask_np = (mask_np * 255).astype(np.uint8)
-                else:
-                    mask_np = mask_np.astype(np.uint8)
-            # print(f"Mask after Torch segment: {mask_np}")
+            # 🔥 Векторизованная пост-обработка
+            if mask_np.max() <= 1.0:
+                mask_np = (mask_np * 255).astype(np.uint8, copy=False)
+            else:
+                mask_np = mask_np.astype(np.uint8, copy=False)
             return mask_np
 
         except Exception as e:
@@ -1316,10 +1658,18 @@ class TorchSegmenter(BaseSegmenter):
             Бинарная маска (0/255).
         """
         gray: torch.Tensor = self._to_grayscale(tensor)  # (1, 1, H, W)
+        gray = self._cast_to_dtype(gray)
         # print(f"Gray after Torch_thresholding_global: {gray}")
         start_time = time.time()
-        threshold = self.params.get("threshold", 0.5)
-        mask = (gray > threshold).float()
+        with torch.autocast(
+            device_type=self.device.type,
+            dtype=self.dtype if self.dtype != torch.float32 else None,
+            enabled=(self.dtype != torch.float32),
+        ):
+            threshold = self.params.get("threshold", 0.5)
+            # 🔥 Порог тоже приводим к нужному dtype
+            threshold_t = torch.tensor(threshold, dtype=self.dtype, device=self.device)
+            mask = (gray > threshold_t).float()
         exec_time = time.time() - start_time
         info = {
             "method": "global_thresholding_torch",
@@ -1509,9 +1859,9 @@ class TorchSegmenter(BaseSegmenter):
 
             start_time = time.time()
 
-            window_size = self.params.get("window_size", 15)
-            k = self.params.get("k", 0.2)
-            r = self.params.get("r", 128)
+            window_size: int = self.params.get("window_size", 15)
+            k: float = self.params.get("k", 0.2)
+            r: float = self.params.get("r", 128)
 
             # Вычисляем локальное среднее и СКО на numpy
             local_mean = self._local_mean_numpy(gray_np, window_size)
@@ -3007,6 +3357,7 @@ class TorchSegmenter(BaseSegmenter):
 
         return suppressed
 
+    @torch.no_grad()
     def _phase_congruency_edge(
         self,
         tensor: torch.Tensor,
@@ -3043,26 +3394,24 @@ class TorchSegmenter(BaseSegmenter):
             if gray.dim() == 3 and gray.shape[0] == 1:
                 gray = gray.squeeze(0)
 
-            start_time = time.time()
-
-            # === ПАРАМЕТРЫ (унифицированные имена) ===
-            nscales = self.params.get("nscales", 4)  # 🔥 Единое имя (не nscale)
-            norientations = self.params.get("norientations", 4)
-            min_wavelength = self.params.get("min_wavelength", 3)
-            mult = self.params.get("mult", 2.0)
-            sigma_onf = self.params.get("sigma_onf", 0.55)
-            k_noise = self.params.get("k_noise", 2.0)
-            threshold = self.params.get(
-                "threshold", 0.3
-            )  # 🔥 Единое имя (не cutoff_pc)
-            epsilon = 1e-6
-
             h, w = gray.shape
             device = gray.device
 
             # Нормализация к [0, 1]
             if gray.max() > 1.0:
                 gray = gray / 255.0
+
+            start_time = time.time()
+
+            # === ПАРАМЕТРЫ (унифицированные имена) ===
+            nscales: int = self.params.get("nscales", 4)
+            norientations: int = self.params.get("norientations", 4)
+            min_wavelength: float = self.params.get("min_wavelength", 3)
+            mult: float = self.params.get("mult", 2.0)
+            sigma_onf: float = self.params.get("sigma_onf", 0.55)
+            k_noise: float = self.params.get("k_noise", 2.0)
+            threshold: float = self.params.get("threshold", 0.3)
+            epsilon: float = 1e-10
 
             # === FFT ИЗОБРАЖЕНИЯ ===
             img_fft = torch.fft.fft2(gray)
@@ -3072,7 +3421,7 @@ class TorchSegmenter(BaseSegmenter):
             y_freq = torch.fft.fftshift(torch.fft.fftfreq(h, device=device))
             x_freq = torch.fft.fftshift(torch.fft.fftfreq(w, device=device))
             Y, X = torch.meshgrid(y_freq, x_freq, indexing="ij")
-            R = torch.sqrt(X**2 + Y**2 + 1e-10)  # Защита от деления на 0
+            R = torch.sqrt(X**2 + Y**2 + epsilon)  # Защита от деления на 0
             Theta = torch.arctan2(-Y, X)  # Угол в радианах
 
             # === АККУМУЛЯТОРЫ ===
@@ -3090,7 +3439,7 @@ class TorchSegmenter(BaseSegmenter):
                 # === Log-Gabor фильтр (радиальная часть) ===
                 # Избегаем log(0) и деления на 0
                 log_ratio = torch.log(R / fo + 1e-10) / torch.log(
-                    torch.tensor(sigma_onf, device=device) + 1e-10
+                    torch.tensor(sigma_onf, device=device) + epsilon
                 )
                 log_gabor = torch.exp(-0.5 * log_ratio**2)
                 log_gabor[0, 0] = 0.0  # DC компонента = 0

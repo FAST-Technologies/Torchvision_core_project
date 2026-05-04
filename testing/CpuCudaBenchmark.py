@@ -4,6 +4,7 @@
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
 import os
+import sys
 import time
 import torch
 import numpy as np
@@ -11,6 +12,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+
+project_root: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+
+from .segmenters import TorchSegmenter
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -166,6 +174,22 @@ class CpuCudaBenchmark:
             "n_runs": len(times),
         }
 
+    def _is_cuda_capable(segmenter) -> bool:
+        """Проверяет, может ли сегментер реально использовать CUDA"""
+        # Pure PyTorch реализации
+        if isinstance(segmenter, TorchSegmenter):
+            # Исключаем методы, которые конвертируют в numpy
+            non_cuda_methods = [
+                "otsu_thresholding",
+                "kittler_illingworth",
+                "region_growing",
+                "split_and_merge",
+                "watershed",
+                "random_walker",  # и др.
+            ]
+            return segmenter.method not in non_cuda_methods
+        return False  # OpenCV/Sklearn всегда CPU-only
+
     # ──────────────────────────────────────────────────────────────────────
     def benchmark_all_methods(
         self,
@@ -212,7 +236,7 @@ class CpuCudaBenchmark:
             )
 
             # Тест на CUDA (только если доступно)
-            if torch.cuda.is_available():
+            if torch.cuda.is_available() and self._is_cuda_capable(segmenter):
                 print("   📊 Тестирование на CUDA...")
                 cuda_result = self.benchmark_method(
                     segmenter, image, method_name, "cuda"
@@ -227,7 +251,7 @@ class CpuCudaBenchmark:
                     speedup = cpu_result["mean_time"] / cuda_result["mean_time"]
                     print(f"      ⚡ Ускорение: {speedup:.2f}x")
             else:
-                print("   ⚠️ CUDA недоступна, пропускаем")
+                print(f"   ⚠️  {method_name}: пропускаем CUDA (CPU-only реализация)")
 
         # Создаем DataFrame
         df: pd.DataFrame = pd.DataFrame(all_results)

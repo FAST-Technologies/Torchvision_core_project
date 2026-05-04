@@ -104,6 +104,8 @@ class SegmentationTester:
         self.n_warmup_runs: int = n_warmup_runs
         self.warmup_utility = SegmentationWarmUp(n_warmup_runs=n_warmup_runs)
         self.warmup_completed: Dict[str, bool] = {}
+        self.last_benchmark_dirs: Dict[str, str] = {}
+        self._benchmark_cache: Dict[str, Dict[str, str]] = {}
         if ground_truth_path:
             self.load_ground_truth(ground_truth_path)
 
@@ -205,10 +207,23 @@ class SegmentationTester:
         os.makedirs(os.path.join(full_path, "statistics"), exist_ok=True)
         # for subdir in ["images", "masks", "comparisons", "statistics"]:
         #     (full_path / subdir).mkdir(parents=True, exist_ok=True)
-
+        self._benchmark_cache[test_dir] = {
+            "root": full_path,
+            "statistics": os.path.join(full_path, "statistics"),
+            "images": os.path.join(full_path, "images"),
+            "masks": os.path.join(full_path, "masks"),
+            "comparisons": os.path.join(full_path, "comparisons"),
+        }
         self.current_test_id = test_dir
         print(f"📁 Создана директория для теста: {full_path}")
         return str(full_path)
+
+    # ──────────────────────────────────────────────────────────────────────
+    def get_benchmark_path(
+        self, test_name: str, file_type: str = "root"
+    ) -> Optional[str]:
+        """Получить путь к файлам бенчмарка по имени теста."""
+        return self._benchmark_cache.get(test_name, {}).get(file_type)
 
     # ──────────────────────────────────────────────────────────────────────
     def add_method(self, name: str, segmenter: BaseSegmenter) -> None:
@@ -1557,7 +1572,7 @@ class SegmentationTester:
         print("=" * 80)
         if save_benchmark:
             self._save_benchmark_results(df, bench_dir)
-
+        self.last_benchmark_dirs[test_name or "default"] = bench_dir
         return df
 
     # ──────────────────────────────────────────────────────────────────────

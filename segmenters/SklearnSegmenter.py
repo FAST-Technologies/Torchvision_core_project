@@ -6326,7 +6326,7 @@ class SklearnSegmenter(BaseSegmenter):
             rr, cc = polygon(snake[:, 1], snake[:, 0], mask_bool.shape)
             mask_bool[rr, cc] = True
 
-            mask: MaskArray = mask.astype(np.uint8) * 255
+            mask: MaskArray = mask_bool.astype(np.uint8) * 255
 
             exec_time: float = time.time() - start_time
             info: SegmentationInfo = self._log_info(
