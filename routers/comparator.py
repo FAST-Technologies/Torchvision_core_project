@@ -24,7 +24,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from testing.SegmentationComparator import SegmentationComparator
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
-from segmenters.TorchSegmenter import TorchSegmenter
+from segmenters.NewTorchSegmenter import TorchSegmenter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("comparator")

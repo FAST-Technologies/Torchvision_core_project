@@ -44,7 +44,7 @@ from huggingface_hub import hf_hub_download
 from segmenters.NeuralSegmenter import NeuralSegmenter
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
-from segmenters.TorchSegmenter import TorchSegmenter
+from segmenters.NewTorchSegmenter import TorchSegmenter
 from segmenters.ModelTrainer import ModelTrainer, TrainingConfig, TrainingResult
 from segmenters.NeuralModelFactory import NeuralModelFactory
 from testing.SegmentationTester import SegmentationTester

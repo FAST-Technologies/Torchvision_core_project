@@ -23,7 +23,7 @@ class TestValidationPipeline:
     def test_torch_vs_opencv_validation(self, rgb_image: np.ndarray) -> None:
         """Валидация Torch vs OpenCV реализаций"""
         from testing.TorchImplementationValidator import TorchImplementationValidator
-        from segmenters.TorchSegmenter import TorchSegmenter
+        from segmenters.NewTorchSegmenter import TorchSegmenter
         from segmenters.SklearnSegmenter import SklearnSegmenter
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -63,7 +63,7 @@ class TestValidationPipeline:
     def test_benchmark_reproducibility(self, rgb_image) -> None:
         """Проверка воспроизводимости бенчмарка"""
         from testing.SegmentationTester import SegmentationTester
-        from segmenters.TorchSegmenter import TorchSegmenter
+        from segmenters.NewTorchSegmenter import TorchSegmenter
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tester = SegmentationTester(base_output_dir=tmpdir)

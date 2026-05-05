@@ -1,7 +1,5 @@
 # segmenters/SklearnSegmenter.py
 
-# segmenters/SklearnSegmenter.py
-
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -49,8 +47,6 @@ from sklearn.tree import DecisionTreeClassifier
 
 from scipy import ndimage, signal
 from scipy.ndimage import gaussian_filter
-
-# from scipy.ndimage import laplace, sobel, prewitt
 from skimage.util import img_as_float
 
 # Импорт scikit-image компонентов

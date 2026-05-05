@@ -31,7 +31,7 @@ from .utils import (
     convert_tensor_precision,
     normalize_for_comparison,
 )
-from segmenters.TorchSegmenter import TorchSegmenter
+from segmenters.NewTorchSegmenter import TorchSegmenter
 
 
 class PrecisionBenchmark:
@@ -109,10 +109,14 @@ class PrecisionBenchmark:
     def _get_reference_mask(self, method_name: str) -> torch.Tensor:
         """Получает или вычисляет reference маску (FP32) для метода."""
         if method_name not in self._reference_masks:
+            if method_name not in self.segmenter.method_map:
+                raise KeyError(f"Method '{method_name}' not in segmenter.method_map")
             with torch.inference_mode():
-                self._reference_masks[method_name] = self.segmenter.methods[
+                # FP32 reference — явный cast входа
+                ref_input = self.reference_input.float()
+                self._reference_masks[method_name] = self.segmenter.method_map[
                     method_name
-                ](self.reference_input).clone()
+                ](ref_input).clone()
         return self._reference_masks[method_name]
 
     def _convert_precision(
@@ -145,7 +149,7 @@ class PrecisionBenchmark:
         Returns:
             Dict со статистикой времени выполнения
         """
-
+        seg_fn = self.segmenter.method_map[method_name]
         n_runs = n_runs or self.config.n_runs
         warmup = warmup or self.config.warmup_runs
 
@@ -162,7 +166,7 @@ class PrecisionBenchmark:
                 f"Precision '{precision}' ({dtype}) not supported on {self.device}"
             )
 
-        # Warm-up
+        # Warm-up: прогрев кэшей и JIT компиляции
         for _ in range(warmup):
             with torch.inference_mode():
                 with safe_autocast_context(
@@ -188,7 +192,7 @@ class PrecisionBenchmark:
                     enabled=self.config.enable_autocast,
                     cpu_enabled=self.config.autocast_cpu_enabled,
                 ):
-                    _ = self.segmenter.methods[method_name](input_tensor)
+                    _ = seg_fn(input_tensor)
 
                 if self.config.sync_cuda and self.device.type == "cuda":
                     torch.cuda.synchronize()
@@ -222,7 +226,7 @@ class PrecisionBenchmark:
         Returns:
             Dict с метриками согласия с reference
         """
-
+        seg_fn = self.segmenter.method_map[method_name]
         if reference_mask is None:
             reference_mask = self._get_reference_mask(method_name)
 
@@ -231,22 +235,17 @@ class PrecisionBenchmark:
             self.reference_input.clone(), dtype, quantize_int8=(precision == "int8")
         )
 
+        if method_name not in self.segmenter.method_map:
+            raise KeyError(f"Method '{method_name}' not found in segmenter.method_map")
+
         with torch.inference_mode():
-            # with torch.autocast(
-            #     device_type="cuda",
-            #     dtype=dtype if dtype != torch.int8 else torch.float16,
-            #     enabled=(precision != "fp32")
-            # ):
-            #     pred_mask = self.segmenter.methods[method_name](
-            #         self._convert_precision(input_tensor, dtype)
-            #     )
             with safe_autocast_context(
                 device_type=str(self.device.type),
                 dtype=dtype,
                 enabled=self.config.enable_autocast,
                 cpu_enabled=self.config.autocast_cpu_enabled,
             ):
-                pred_mask = self.segmenter.methods[method_name](input_tensor)
+                pred_mask = seg_fn(input_tensor)
 
         # Нормализация для сравнения (если нужно)
         pred_norm = normalize_for_comparison(pred_mask)
@@ -285,10 +284,29 @@ class PrecisionBenchmark:
         """
         # Определение списков
         if methods is None:
+            # Берём только методы совместимые с precision benchmark:
+            # исключаем итеративные (snake/walker) и numpy-зависимые (dbscan/meanshift)
+            _SKIP_FOR_PRECISION = {
+                "region_growing",
+                "split_and_merge",
+                "floodfill",
+                "dbscan_segmentation",
+                "meanshift",
+                "active_contour",
+                "gvf_contour",
+                "morphological_snakes",
+                "chan_vese",
+                "watershed",
+                "random_walker",
+                "quickshift",
+                "slic",
+                "felzenszwalb",
+                "grabcut",
+            }
             methods = self.config.include_methods or [
                 m
                 for m in self.segmenter.method_map.keys()
-                if m not in self.config.exclude_methods
+                if m not in self.config.exclude_methods and m not in _SKIP_FOR_PRECISION
             ]
 
         if precisions is None:

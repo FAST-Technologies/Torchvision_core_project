@@ -101,7 +101,7 @@ def main():
 
     # Инициализация сегментера
     print(f"📦 Loading TorchSegmenter...")
-    from segmenters.TorchSegmenter import TorchSegmenter
+    from segmenters.NewTorchSegmenter import TorchSegmenter
 
     segmenter = TorchSegmenter(device=args.device)
 

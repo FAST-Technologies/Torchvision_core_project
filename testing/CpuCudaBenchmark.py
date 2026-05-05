@@ -18,7 +18,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 
-from .segmenters import TorchSegmenter
+from segmenters.NewTorchSegmenter import TorchSegmenter
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -174,7 +174,7 @@ class CpuCudaBenchmark:
             "n_runs": len(times),
         }
 
-    def _is_cuda_capable(segmenter) -> bool:
+    def _is_cuda_capable(self, segmenter) -> bool:
         """Проверяет, может ли сегментер реально использовать CUDA"""
         # Pure PyTorch реализации
         if isinstance(segmenter, TorchSegmenter):

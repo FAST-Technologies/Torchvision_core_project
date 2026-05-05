@@ -18,7 +18,7 @@ from PIL import Image
 import torch
 
 # Локальные импорты
-from segmenters.TorchSegmenter import TorchSegmenter
+from segmenters.NewTorchSegmenter import TorchSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from metrics.SegmentationMetrics import SegmentationMetrics

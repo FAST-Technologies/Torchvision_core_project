@@ -5737,7 +5737,7 @@ class AutoSegmenter:
 
             return SklearnSegmenter
         elif library == "torch":
-            from segmenters.TorchSegmenter import TorchSegmenter  # если есть
+            from segmenters.NewTorchSegmenter import TorchSegmenter  # если есть
 
             return TorchSegmenter
         else:  # opencv или по умолчанию

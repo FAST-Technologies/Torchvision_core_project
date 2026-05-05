@@ -26,7 +26,7 @@ project_root = Path(__file__).resolve().parents[2]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from segmenters.TorchSegmenter import TorchSegmenter
+from segmenters.NewTorchSegmenter import TorchSegmenter
 from .backend_registry import get_registry, BackendRegistry
 from .utils import save_benchmark_results, format_time, format_speedup
 
