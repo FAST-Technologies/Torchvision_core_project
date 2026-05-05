@@ -3125,7 +3125,7 @@ class OpenCVSegmenter(BaseSegmenter):
             fo: float = 1.0 / wavelength
 
             # Log-Gabor фильтр (радиальная часть)
-            sigma_f: float = sigma_onf * fo
+            # sigma_f: float = sigma_onf * fo
             log_gabor: FloatArray = np.zeros_like(R)
             mask_freq: npt.NDArray[np.bool_] = R > 0
             log_ratio: FloatArray = np.log(R[mask_freq] / fo) / np.log(sigma_onf)
@@ -3693,7 +3693,6 @@ class OpenCVSegmenter(BaseSegmenter):
         # Выполнение K-Means
         compactness: float
         labels_flat: npt.NDArray[np.int32]
-        centers: FloatArray
         compactness, labels_flat_raw, centers_raw = cv2.kmeans(
             pixels,
             k,
@@ -3703,7 +3702,6 @@ class OpenCVSegmenter(BaseSegmenter):
             cv2.KMEANS_RANDOM_CENTERS,
         )
         labels_flat = labels_flat_raw.astype(np.int32)
-        # centers = centers_raw.astype(np.float32)
 
         # Преобразование меток обратно в форму (H, W)
         labels: npt.NDArray[np.int32] = labels_flat.reshape(h, w)
@@ -3942,7 +3940,7 @@ class OpenCVSegmenter(BaseSegmenter):
         ).astype(np.uint8)
 
         # Конвертация в grayscale для бинаризации
-        gray_raw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray_raw = cv2.cvtColor(shifted, cv2.COLOR_BGR2GRAY)
         gray: GrayImage = gray_raw.astype(np.uint8)  # type: ignore[assignment]
 
         # Автоматическая бинаризация через Оцу

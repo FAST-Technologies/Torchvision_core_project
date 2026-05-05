@@ -3858,6 +3858,7 @@ class SklearnSegmenter(BaseSegmenter):
 
     # ============ ИНТЕРАКТИВНЫЕ МЕТОДЫ ============
     # ──────────────────────────────────────────────────────────────────────
+    # ──────────────────────────────────────────────────────────────────────
     def _grabcut(
         self,
         img: ImageArray,
@@ -3866,76 +3867,107 @@ class SklearnSegmenter(BaseSegmenter):
         """
         Интерактивная сегментация GrabCut.
 
-        Использует прямоугольник для инициализации фона и переднего плана.
-        Строит модели цветового распределения (GMM) и уточняет границы итеративно.
+        Алгоритм на основе графов и гауссовых смесей (GMM):
+        1. Инициализация прямоугольником (фон/объект).
+        2. Построение моделей цвета для фона и объекта.
+        3. Итеративная оптимизация через минимизацию энергии.
+        4. Финальная бинаризация.
+
+        Требует указания прямоугольника, содержащего объект.
 
         Args:
-            img: Входное изображение (RGB).
+            img: Входное изображение (RGB/BGR/GRAY).
+            **kwargs: Дополнительные параметры:
+                - `rect` (Tuple[int, int, int, int]): Прямоугольник (x, y, w, h).
+                По умолчанию: центральная область 50%×50%.
+                - `num_iterations` (int): Количество итераций оптимизации.
+                По умолчанию 5.
 
         Returns:
-            np.ndarray: Бинарная маска (0/255, dtype=np.uint8) переднего плана.
+            Tuple[MaskArray, SegmentationInfo]:
+                - `mask`: Бинарная маска формы `(H, W)`, dtype=uint8, {0, 255}.
+                - `info`: Словарь с метаданными выполнения.
+
+        Note:
+            - Метод чувствителен к качеству инициализации (прямоугольника).
+            - Больше итераций → точнее результат, но медленнее.
+            - После выполнения рекомендуется морфологическая пост-обработка.
+
+        Example:
+            ```python
+            # Прямоугольник: (x=100, y=100, w=200, h=200)
+            segmenter = SklearnSegmenter("grabcut", rect=(100, 100, 200, 200), num_iterations=10)
+            mask, _ = segmenter.segment(image)
+            ```
         """
+        # Конвертация в BGR для OpenCV
         if len(img.shape) == 2:
-            img_rgb = np.stack([img] * 3, axis=-1)
+            img_bgr: ImageArray = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR).astype(np.uint8)
+        elif img.shape[2] == 4:  # RGBA → BGR
+            img_bgr = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR).astype(np.uint8)
+        elif img.shape[2] == 3 and img.max() <= 1.0:  # float RGB → uint8 BGR
+            img_bgr = (img * 255).astype(np.uint8)
+            img_bgr = cv2.cvtColor(img_bgr, cv2.COLOR_RGB2BGR).astype(np.uint8)
+        elif img.shape[2] == 3:  # RGB → BGR
+            img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR).astype(np.uint8)
         else:
-            img_rgb = img
+            img_bgr = img
 
-        h, w = img_rgb.shape[:2]
-
+        h, w = img_bgr.shape[:2]
         start_time: float = time.time()
 
-        # Создаем начальную маску
-        mask = np.zeros((h, w), dtype=np.uint8)
-
-        # Прямоугольник в центре
+        # Получение параметров
         rect: Tuple[int, int, int, int] = self.params.get(
             "rect", (w // 4, h // 4, w // 2, h // 2)
         )
-        x, y, w_rect, h_rect = rect
+        num_iterations: int = int(self.params.get("num_iterations", 5))
 
-        mask[y : (y + h_rect), x : (x + w_rect)] = 3  # Вероятный передний план
+        # Инициализация маски: 0=определённый фон, 2=вероятный объект
+        mask_init: npt.NDArray[np.uint8] = np.zeros((h, w), dtype=np.uint8)
+        x, y, rw, rh = rect
+        # Ограничиваем прямоугольник границами изображения
+        x, y = max(0, x), max(0, y)
+        rw, rh = min(rw, w - x), min(rh, h - y)
+        mask_init[y : (y + rh), x : (x + rw)] = cv2.GC_PR_FGD  # Вероятный передний план
 
-        # Углы - определенный фон
-        corner_size = min(h, w) // 8
-        mask[:corner_size, :corner_size] = 0  # Определенный фон
-        mask[:corner_size, -corner_size:] = 0
-        mask[-corner_size:, :corner_size] = 0
-        mask[-corner_size:, -corner_size:] = 0
+        # Временные массивы для GMM моделей (обязательные аргументы cv2.grabCut)
+        bgd_model: npt.NDArray[np.float64] = np.zeros((1, 65), dtype=np.float64)
+        fgd_model: npt.NDArray[np.float64] = np.zeros((1, 65), dtype=np.float64)
 
-        # Используем Random Forest для имитации GrabCut
-        # Подготовка данных
-        pixels = img.reshape(-1, 3)
-        coords = np.column_stack([np.repeat(np.arange(h), w), np.tile(np.arange(w), h)])
+        # Выполнение GrabCut
+        mask_grabcut: npt.NDArray[np.int32]
+        mask_grabcut, bgd_model, fgd_model = cv2.grabCut(  # type: ignore[assignment]
+            img_bgr,
+            mask_init,
+            rect,
+            bgd_model,
+            fgd_model,
+            num_iterations,
+            cv2.GC_INIT_WITH_RECT,
+        )
 
-        features = np.hstack([pixels / 255.0, coords / [h, w]])
+        # Финальная маска: GC_FGD и GC_PR_FGD = объект (255), остальное = фон (0)
+        mask_bool: npt.NDArray[np.bool_] = (mask_grabcut == cv2.GC_FGD) | (
+            mask_grabcut == cv2.GC_PR_FGD
+        )
+        mask: MaskArray = (mask_bool * 255).astype(np.uint8)
 
-        # Выбираем пиксели для обучения
-        train_mask = (mask.ravel() == 0) | (mask.ravel() == 3)
-        X_train = features[train_mask]
-        y_train = mask.ravel()[train_mask]
-        y_train = (y_train == 3).astype(int)  # 0 - фон, 1 - передний план
+        # Пост-обработка: морфологические операции для сглаживания границ
+        kernel: npt.NDArray[np.uint8] = np.ones((3, 3), dtype=np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)  # type: ignore[assignment]
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)  # type: ignore[assignment]
 
-        # Обучаем Random Forest
-        rf = RandomForestClassifier(n_estimators=50, random_state=42)
-        rf.fit(X_train, y_train)
-
-        # Предсказываем для всех пикселей
-        labels = rf.predict(features)
-
-        mask_result = labels.reshape(h, w)
-
-        mask = (labels * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = self._log_info(
-            "grabcut_sklearn",
-            exec_time,
-            {
+        info: SegmentationInfo = {
+            "method": "grabcut_sklearn",
+            "parameters": {
                 "rect": rect,
-                #  "n_estimators": n_estimators,
+                "num_iterations": num_iterations,
                 **kwargs,
             },
-        )
+            "execution_time": exec_time,
+        }
 
         return mask, info
 

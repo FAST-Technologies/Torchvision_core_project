@@ -36,7 +36,7 @@ class TestTorchSegmenter:
     # ──────────────────────────────────────────────────────────────────────
     def test_import(self) -> None:
         """Проверка импорта"""
-        from segmenters.NewTorchSegmenter import TorchSegmenter
+        from segmenters.TorchSegmenter import TorchSegmenter
 
         assert TorchSegmenter is not None
 
