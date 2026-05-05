@@ -18,7 +18,7 @@ from torch.ao.quantization import (
 from typing import Dict, List, Tuple, Any
 import numpy as np
 import time
-from segmenters.NewTorchSegmenter import TorchSegmenter
+from segmenters.TorchSegmenter import TorchSegmenter
 
 
 class QuantizedSegmenter:

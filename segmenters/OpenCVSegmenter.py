@@ -3703,7 +3703,7 @@ class OpenCVSegmenter(BaseSegmenter):
             cv2.KMEANS_RANDOM_CENTERS,
         )
         labels_flat = labels_flat_raw.astype(np.int32)
-        centers = centers_raw.astype(np.float32)
+        # centers = centers_raw.astype(np.float32)
 
         # Преобразование меток обратно в форму (H, W)
         labels: npt.NDArray[np.int32] = labels_flat.reshape(h, w)

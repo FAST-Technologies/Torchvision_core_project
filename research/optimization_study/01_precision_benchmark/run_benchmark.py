@@ -13,7 +13,7 @@ from pathlib import Path
 # Добавляем корень проекта в sys.path (если запускается из подпапки)
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from segmenters.NewTorchSegmenter import TorchSegmenter
+from segmenters.TorchSegmenter import TorchSegmenter
 from research.optimization_study.config.precision import PrecisionConfig
 from research.optimization_study.precision_benchmark import PrecisionBenchmark
 from research.optimization_study.report_generator import ReportGenerator

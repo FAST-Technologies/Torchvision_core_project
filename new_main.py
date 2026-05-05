@@ -23,8 +23,6 @@ from typing import (
     Any,
     Union,
     Literal,
-    Callable,
-    TypeVar,
     cast,
 )
 from matplotlib import colormaps
@@ -44,7 +42,7 @@ from huggingface_hub import hf_hub_download
 from segmenters.NeuralSegmenter import NeuralSegmenter
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
-from segmenters.NewTorchSegmenter import TorchSegmenter
+from segmenters.TorchSegmenter import TorchSegmenter
 from segmenters.ModelTrainer import ModelTrainer, TrainingConfig, TrainingResult
 from segmenters.NeuralModelFactory import NeuralModelFactory
 from testing.SegmentationTester import SegmentationTester
@@ -1883,15 +1881,15 @@ def run_implementation_validation(
 
         status_counts: Counter = Counter(statuses)
 
-        print(f"\n📈 Распределение статусов:")
+        print("\n📈 Распределение статусов:")
         for status, count in status_counts.most_common():
             emoji = {"PASS": "✅", "WARNING": "⚠️", "FAIL": "❌"}.get(status, "❓")
             print(
-                f"   {emoji} {status}: {count} методов ({count/len(statuses)*100:.1f}%)"
+                f"   {emoji} {status}: {count} методов ({count / len(statuses) * 100:.1f}%)"
             )
 
         # Топ-5 по согласованности (IoU)
-        print(f"\n🏆 Топ-5 по IoU (согласованность):")
+        print("\n🏆 Топ-5 по IoU (согласованность):")
         sorted_results: List[Tuple[str, Any]] = sorted(
             all_results.items(),
             key=lambda x: x[1].get("metrics", {}).get("iou", 0),
@@ -2119,7 +2117,7 @@ def run_matrix_comparison(
             top_methods: pd.Series = (
                 batch_summary.groupby("method")["similarity_score"].mean().nlargest(5)
             )
-            print(f"\n🏆 Топ-5 по схожести с референсом:")
+            print("\n🏆 Топ-5 по схожести с референсом:")
             for i, (method, score) in enumerate(top_methods.items(), 1):
                 print(f"   {i}. {method}: {score:.4f}")
 
@@ -2284,7 +2282,7 @@ def run_ground_truth_evaluation(
         )
         return None
 
-    print(f"\n📈 Генерация отчётов...")
+    print("\n📈 Генерация отчётов...")
 
     # Визуализации
     print("\n📈 Построение сводных графиков по результатам Ground Truth...")
@@ -2312,7 +2310,7 @@ def run_ground_truth_evaluation(
         )
         top_methods = list(top_series.items())
 
-        print(f"\n🏆 ТОП-5 методов по среднему IoU:")
+        print("\n🏆 ТОП-5 методов по среднему IoU:")
         for i, (method, iou) in enumerate(top_methods, 1):
             print(f"   {i}. {method}: IoU = {iou:.4f}")
     else:
@@ -2602,7 +2600,7 @@ def run_augmentation_training_study(
                 val_fraction=0.05,
             )
             print(eval_results)
-            print(f"   ✅ Оценка завершена")
+            print("   ✅ Оценка завершена")
         except Exception as e:
             print(f"   ⚠️  Ошибка оценки: {e}")
 
@@ -2622,7 +2620,7 @@ def run_augmentation_training_study(
 
     # Топ-3 комбинации
     top_combinations: pd.DataFrame = summary_df.nlargest(3, "Best mIoU (%)")
-    print(f"\n🏆 ТОП-3 ЛУЧШИХ КОМБИНАЦИЙ:")
+    print("\n🏆 ТОП-3 ЛУЧШИХ КОМБИНАЦИЙ:")
     for idx, row in top_combinations.iterrows():
         print(f"\n   {idx + 1}. {row['Model']} + {row['Augmentation Level']}")
         print(f"      mIoU: {row['Best mIoU (%)']:.2f}%")
@@ -3289,13 +3287,13 @@ def _save_test_artifacts(
     }
 
     img.save(paths["img"])
-    print(f"✅ Изображение сохранено локально: {paths["img"]}")
+    print(f"✅ Изображение сохранено локально: {paths['img']}")
 
     gt_raw.save(paths["mask_raw"])
-    print(f"✅ Изображение сырой маски сохранено локально: {paths["mask_raw"]}")
+    print(f"✅ Изображение сырой маски сохранено локально: {paths['mask_raw']}")
 
     Image.fromarray(gt_binary).save(paths["mask"])
-    print(f"✅ Изображение маски сохранено локально: {paths["mask"]}")
+    print(f"✅ Изображение маски сохранено локально: {paths['mask']}")
 
     return paths
 

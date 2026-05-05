@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 import numpy as np
-from segmenters.NewTorchSegmenter import TorchSegmenter
+from segmenters.TorchSegmenter import TorchSegmenter
 import torch
 
 

@@ -31,7 +31,7 @@ from .utils import (
     convert_tensor_precision,
     normalize_for_comparison,
 )
-from segmenters.NewTorchSegmenter import TorchSegmenter
+from segmenters.TorchSegmenter import TorchSegmenter
 
 
 class PrecisionBenchmark:

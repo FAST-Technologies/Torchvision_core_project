@@ -16,7 +16,6 @@ from numba import njit, prange
 import numpy as np
 from scipy import ndimage
 from functools import lru_cache
-import pandas as pd
 from contextlib import contextmanager
 
 import torch
@@ -83,7 +82,7 @@ class PrecisionManager:
 
 
 # ──────────────────────────────────────────────────────────────────────
-class TorchSegmenter(BaseSegmenter):
+class TorchSegmenter2(BaseSegmenter):
     """
     Класс для методов сегментации с использованием PyTorch.
     Все реализации сделаны без использования OpenCV, Scikit-learn, Scikit-image
@@ -949,7 +948,7 @@ class TorchSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     def profile_segmentation(
-        segmenter: "TorchSegmenter",
+        segmenter: "TorchSegmenter2",
         image: Union[np.ndarray, torch.Tensor],
         n_runs: int = 10,
         warmup: int = 3,
@@ -1032,7 +1031,7 @@ class TorchSegmenter(BaseSegmenter):
             for event in prof.key_averages():
                 if "cudaMemcpy" in event.key or "to(" in event.key:
                     transfer_warnings.append(
-                        f"⚠️  Трансфер: {event.key} — {event.cpu_time_total/1e3:.2f}ms"
+                        f"⚠️  Трансфер: {event.key} — {event.cpu_time_total / 1e3:.2f}ms"
                     )
 
         # Стандартные метрики
@@ -1050,7 +1049,7 @@ class TorchSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     def detect_cpu_gpu_transfers(
-        segmenter: "TorchSegmenter", image: np.ndarray
+        segmenter: "TorchSegmenter2", image: np.ndarray
     ) -> List[str]:
         """
         Детектирует нежелательные трансферы CPU↔GPU внутри метода.
@@ -1081,7 +1080,7 @@ class TorchSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     def profile_with_tracing(
-        segmenter: "TorchSegmenter",
+        segmenter: "TorchSegmenter2",
         image: np.ndarray,
         output_dir: str = "./profiling",
     ) -> None:
@@ -1092,6 +1091,7 @@ class TorchSegmenter(BaseSegmenter):
 
         os.makedirs(output_dir, exist_ok=True)
         tensor = segmenter.preprocess_image(image)
+        print(tensor)
 
         with profiler.profile(
             activities=[
@@ -2453,9 +2453,9 @@ class TorchSegmenter(BaseSegmenter):
             if isinstance(image, torch.Tensor):
                 image_for_profiling = self._tensor_to_numpy(image)
             elif isinstance(image, str):
-                image_for_profile = Image.open(image).convert("RGB")
+                image_for_profiling = Image.open(image).convert("RGB")
             else:
-                image_for_profile = image
+                image_for_profiling = image
             tensor = self.preprocess_image(image_for_profiling)
             for _ in range(3):  # Быстрый тест на 3 прогона
                 t0 = time.perf_counter()
@@ -3280,7 +3280,7 @@ class TorchSegmenter(BaseSegmenter):
                 if threshold_local.dim() == 4
                 else threshold_local
             )
-            contrast_2d = contrast.squeeze(0) if contrast.dim() == 4 else contrast
+            # contrast_2d = contrast.squeeze(0) if contrast.dim() == 4 else contrast
 
             mask[high_contrast] = (
                 gray_2d[high_contrast] > thresh_2d[high_contrast]
@@ -5705,6 +5705,7 @@ class TorchSegmenter(BaseSegmenter):
             "parameters": {"seed": seed, "tolerance": tolerance, **kwargs},
             "execution_time": exec_time,
         }
+        print(info)
         return mask.float().unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5784,6 +5785,7 @@ class TorchSegmenter(BaseSegmenter):
                 "parameters": {"seed": seed, "tolerance": tolerance, **kwargs},
                 "execution_time": exec_time,
             }
+            print(info)
             return mask.float().unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -8281,7 +8283,7 @@ class TorchSegmenter(BaseSegmenter):
 
                 # Векторизованное обновление
                 src_labels = labels[ny[valid], nx[valid]]
-                src_grad = gradient[ny[valid], nx[valid]]
+                # src_grad = gradient[ny[valid], nx[valid]]
                 dst_mask = ~visited[ny[valid], nx[valid]] & (src_labels > 0)
 
                 if dst_mask.any():
@@ -8551,7 +8553,7 @@ class TorchSegmenter(BaseSegmenter):
         )
 
         # === DOWNsample ДЛЯ УСКОРЕНИЯ ===
-        use_resize = False
+        # use_resize = False
         if h * w > 100_000 and ds < 1.0:
             small_h, small_w = int(h * ds), int(w * ds)
             img_small = cv2.resize(
@@ -8570,7 +8572,7 @@ class TorchSegmenter(BaseSegmenter):
                 (w, h),
                 interpolation=cv2.INTER_NEAREST,
             ).astype(int)
-            use_resize = True
+            # use_resize = True
         else:
             segments = self._quickshift_numpy_impl(
                 image_np=img_np, kernel_size=ks, max_dist=md, ratio=rt, convert2lab=c2l
@@ -8861,7 +8863,7 @@ class TorchSegmenter(BaseSegmenter):
         )
 
         # === DOWNsample ДЛЯ УСКОРЕНИЯ ===
-        use_resize = False
+        # use_resize = False
         if h * w > 100_000 and ds < 1.0:
             small_h, small_w = int(h * ds), int(w * ds)
             img_small = cv2.resize(
@@ -8879,7 +8881,7 @@ class TorchSegmenter(BaseSegmenter):
             labels = cv2.resize(
                 labels_small.astype(np.float32), (w, h), interpolation=cv2.INTER_NEAREST
             ).astype(int)
-            use_resize = True
+            # use_resize = True
         else:
             labels = self._slic_numpy_impl(
                 img_np,
@@ -9042,7 +9044,7 @@ class TorchSegmenter(BaseSegmenter):
             centroids, labels_flat = kmeans2(
                 features_flat, centroids, iter=max_iter, minit="matrix", missing="warn"
             )
-        except:
+        except Exception:
             centroids, labels_flat = kmeans2(
                 features_flat, n_centroids, iter=max_iter, minit="++", missing="warn"
             )
@@ -9130,7 +9132,7 @@ class TorchSegmenter(BaseSegmenter):
         )
 
         # === DOWNsample ДЛЯ УСКОРЕНИЯ ===
-        use_resize = False
+        # use_resize = False
         if h * w > 100_000 and ds < 1.0:
             small_h, small_w = int(h * ds), int(w * ds)
             gray_small = cv2.resize(
@@ -9145,7 +9147,7 @@ class TorchSegmenter(BaseSegmenter):
                 (w, h),
                 interpolation=cv2.INTER_NEAREST,
             ).astype(int)
-            use_resize = True
+            # use_resize = True
         else:
             segments = self._felzenszwalb_skimage_impl(
                 gray, scale=sc, sigma=sig, min_size=ms
@@ -9335,7 +9337,7 @@ class TorchSegmenter(BaseSegmenter):
                         means[i], covs[i] + 1e-6 * torch.eye(c + 2, device=data.device)
                     )
                     log_probs[:, i] = dist.log_prob(data)
-                except:
+                except Exception:
                     # Fallback на упрощённую гауссиану
                     diff = data - means[i]
                     log_probs[:, i] = -0.5 * torch.sum(

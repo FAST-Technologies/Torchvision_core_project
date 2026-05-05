@@ -25,7 +25,7 @@ from testing.TorchImplementationValidator import (
     TorchImplementationValidator,
     MethodConfig,
 )
-from segmenters.NewTorchSegmenter import TorchSegmenter
+from segmenters.TorchSegmenter import TorchSegmenter
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
 from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict

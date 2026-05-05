@@ -26,7 +26,7 @@ if project_root not in sys.path:
 
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
-from segmenters.NewTorchSegmenter import TorchSegmenter
+from segmenters.TorchSegmenter import TorchSegmenter
 from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict
 import torch
 import gc

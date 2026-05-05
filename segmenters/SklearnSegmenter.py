@@ -2310,8 +2310,8 @@ class SklearnSegmenter(BaseSegmenter):
         threshold: float = float(self.params.get("threshold", 0.01))
 
         # Два Гауссовых фильтра
-        g1 = gaussian_filter(img, sigma=sigma1)
-        g2 = gaussian_filter(img, sigma=sigma2)
+        g1 = gaussian_filter(gray, sigma=sigma1)
+        g2 = gaussian_filter(gray, sigma=sigma2)
 
         # Разность Гауссианов
         dog = g1 - g2
@@ -3004,7 +3004,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Преобразуем изображение в массив пикселей
         pixels = img.reshape(-1, 3)
-        features = self._extract_features(img)
+        # features = self._extract_features(img)
 
         # Применяем K-Means
         k = int(self.params.get("k", 3))
