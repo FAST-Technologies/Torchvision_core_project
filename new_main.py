@@ -310,20 +310,20 @@ def main(use_optimizations: bool = True) -> Tuple[
         validation_results: Optional[Dict[str, Any]] = run_implementation_validation(
             test_images=test_images,
             output_dir="./data/validation",
-            image_name="mountain",
+            image_name="countryside",
         )
         print(validation_results)
 
     # # 4.7 Матричное сравнение
-    if test_classic_logic:
-        matrix_results: Optional[Dict[str, Any]] = run_matrix_comparison(
-            test_images=test_images,
-            cv2_methods=cv2_methods,
-            sklearn_methods=sklearn_methods,
-            torch_methods=torch_methods,
-            reference_method="Otsu_Thresholding_Sklearn",
-        )
-        print(matrix_results)
+    # if test_classic_logic:
+    #     matrix_results: Optional[Dict[str, Any]] = run_matrix_comparison(
+    #         test_images=test_images,
+    #         cv2_methods=cv2_methods,
+    #         sklearn_methods=sklearn_methods,
+    #         torch_methods=torch_methods,
+    #         reference_method="Otsu_Thresholding_Sklearn",
+    #     )
+    #     print(matrix_results)
 
     # # 4.8 Оценка против GT (опционально)
     # if test_classic_logic:
@@ -3715,20 +3715,20 @@ def _load_images_without_ground_truth(test_images: TestImagesDict) -> None:
     print("⚠️ Не удалось загрузить реальные GT. Используем только изображения.")
     image_sources: Dict[str, str] = {
         "countryside": "https://i.pinimg.com/736x/17/e7/fc/17e7fc299466b2afd989e709fe7c9815.jpg",
-        "nature": "https://i.pinimg.com/736x/f7/5a/f2/f75af26820b50c24600f50f3998eb02f.jpg",
-        "architecture": "https://i.pinimg.com/736x/86/f6/07/86f60748d5d9ae4cb9092018d1321648.jpg",
-        "trucks": "https://www.shutterstock.com/shutterstock/videos/1106252821/thumb/1.jpg?ip=x480",
-        "traffic": "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg",
-        "mountain": "https://i.pinimg.com/736x/17/66/c4/1766c4f667af39f91172ef8eb21ab18a.jpg",
+        # "nature": "https://i.pinimg.com/736x/f7/5a/f2/f75af26820b50c24600f50f3998eb02f.jpg",
+        # "architecture": "https://i.pinimg.com/736x/86/f6/07/86f60748d5d9ae4cb9092018d1321648.jpg",
+        # "trucks": "https://www.shutterstock.com/shutterstock/videos/1106252821/thumb/1.jpg?ip=x480",
+        # "traffic": "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg",
+        # "mountain": "https://i.pinimg.com/736x/17/66/c4/1766c4f667af39f91172ef8eb21ab18a.jpg",
     }
 
     image_paths: Dict[str, str] = {
-        "war_frame_1": "test_images/2340_frame.jpg",
-        "war_frame_2": "test_images/3330_frame.jpg",
-        "war_frame_3": "test_images/4130_frame.jpg",
-        "war_frame_4": "test_images/4480_frame.jpg",
-        "building": "test_images/test_gt_image.jpg",
-        "animals": "test_images/animals.jpg",
+        # "war_frame_1": "test_images/2340_frame.jpg",
+        # "war_frame_2": "test_images/3330_frame.jpg",
+        # "war_frame_3": "test_images/4130_frame.jpg",
+        # "war_frame_4": "test_images/4480_frame.jpg",
+        # "building": "test_images/test_gt_image.jpg",
+        # "animals": "test_images/animals.jpg",
     }
 
     for name, url in image_sources.items():

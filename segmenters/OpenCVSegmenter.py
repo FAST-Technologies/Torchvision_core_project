@@ -2504,25 +2504,26 @@ class OpenCVSegmenter(BaseSegmenter):
         )
 
         # Вычисление диагональных градиентов
-        grad_x_raw = cv2.filter2D(gray, cv2.CV_32F, kernel_x)
-        grad_x: FloatArray = grad_x_raw.astype(np.uint8)  # type: ignore[assignment]
-        grad_y_raw = cv2.filter2D(gray, cv2.CV_32F, kernel_y)
-        grad_y: FloatArray = grad_y_raw.astype(np.uint8)  # type: ignore[assignment]
+        grad_x: npt.NDArray[np.float32] = cv2.filter2D(
+            gray, cv2.CV_32F, kernel_x, borderType=cv2.BORDER_REFLECT
+        )
+        grad_y: npt.NDArray[np.float32] = cv2.filter2D(
+            gray, cv2.CV_32F, kernel_y, borderType=cv2.BORDER_REFLECT
+        )
 
         # Магнитуда градиента
         magnitude: FloatArray = np.sqrt(grad_x**2 + grad_y**2)
 
         # Нормализация к [0, 255]
-        magnitude_norm: FloatArray = (
-            255 * magnitude / (np.max(magnitude) + 1e-8)
+        magnitude_norm: npt.NDArray[np.float32] = cv2.normalize(
+            magnitude, None, 0, 255, cv2.NORM_MINMAX
         ).astype(np.float32)
 
         # Пороговая бинаризация
-        mask: MaskArray
         _, mask_raw = cv2.threshold(
             magnitude_norm.astype(np.float32), threshold, 255.0, cv2.THRESH_BINARY
         )
-        mask = mask_raw.astype(np.uint8)
+        mask: MaskArray = mask_raw.astype(np.uint8)
 
         exec_time: float = time.time() - start_time
 
@@ -3087,8 +3088,8 @@ class OpenCVSegmenter(BaseSegmenter):
         mult: float = float(self.params.get("mult", 2.0))
         sigma_onf: float = float(self.params.get("sigma_onf", 0.55))
         k_noise: float = float(self.params.get("k_noise", 2.0))
-        threshold: float = float(self.params.get("threshold", 0.3))
-        epsilon: float = 1e-6
+        threshold = min(float(self.params.get("threshold", 0.3)), 0.99)
+        epsilon: float = 1e-10
 
         # Нормализация к [0, 1]
         gray_norm: FloatArray = gray.astype(np.float32)
@@ -3103,10 +3104,10 @@ class OpenCVSegmenter(BaseSegmenter):
         img_fft_shifted: npt.NDArray[np.complex128] = np.fft.fftshift(img_fft)
 
         # Частотная сетка
-        x: npt.NDArray[np.float64] = np.linspace(-0.5, 0.5, cols).astype(np.float64)
-        y: npt.NDArray[np.float64] = np.linspace(-0.5, 0.5, rows).astype(np.float64)
+        y: npt.NDArray[np.float64] = np.fft.fftshift(np.fft.fftfreq(rows))
+        x: npt.NDArray[np.float64] = np.fft.fftshift(np.fft.fftfreq(cols))
         X, Y = np.meshgrid(x, y)
-        R: FloatArray = np.sqrt(X**2 + Y**2 + 1e-10)  # Защита от деления на 0
+        R: FloatArray = np.sqrt(X**2 + Y**2 + epsilon)  # Защита от деления на 0
         Theta: FloatArray = np.arctan2(-Y, X)  # Угол в радианах
 
         # Аккумуляторы
@@ -3125,11 +3126,11 @@ class OpenCVSegmenter(BaseSegmenter):
 
             # Log-Gabor фильтр (радиальная часть)
             # sigma_f: float = sigma_onf * fo
-            log_gabor: FloatArray = np.zeros_like(R)
-            mask_freq: npt.NDArray[np.bool_] = R > 0
-            log_ratio: FloatArray = np.log(R[mask_freq] / fo) / np.log(sigma_onf)
-            log_gabor[mask_freq] = np.exp(-0.5 * log_ratio**2)
-            log_gabor[0, 0] = 0.0  # DC компонента = 0
+            log_ratio: FloatArray = np.log(R / fo + epsilon) / np.log(
+                sigma_onf + epsilon
+            )
+            log_gabor: FloatArray = np.exp(-0.5 * log_ratio**2)
+            log_gabor[0, 0] = 0.0  # DC = 0
 
             for angle in orientations:
                 # Угловая часть (Гауссов разброс)
@@ -3140,20 +3141,18 @@ class OpenCVSegmenter(BaseSegmenter):
 
                 # Полный фильтр в частотной области
                 filter_f: FloatArray = log_gabor * angular
-                filter_f = np.fft.ifftshift(filter_f)
+                product = img_fft_shifted * filter_f
 
                 # Свёртка в частотной области
-                response: npt.NDArray[np.complex128] = np.fft.ifft2(
-                    img_fft_shifted * filter_f
-                )
-                even_resp: FloatArray = np.real(response)
-                odd_resp: FloatArray = np.imag(response)
+                response = np.fft.ifft2(np.fft.ifftshift(product))
+                even_resp: FloatArray = np.real(response).astype(np.float32)
+                odd_resp: FloatArray = np.imag(response).astype(np.float32)
 
                 # Амплитуда отклика
                 amp: FloatArray = np.sqrt(even_resp**2 + odd_resp**2 + epsilon)
 
                 # Оценка шума (MAD) для текущего фильтра
-                med: float = float(np.median(np.abs(amp)))
+                med = np.median(amp)
                 noise_est: float = 2.0 * (med / 0.6745)
 
                 # Накопление
@@ -3168,14 +3167,15 @@ class OpenCVSegmenter(BaseSegmenter):
         # Компенсация шума (Ковези)
         T: np.ndarray = noise_energy * k_noise
         pc_map: FloatArray = np.maximum(local_energy - T, 0) / (sum_amp + epsilon)
-        if pc_map.max() > 0:
-            pc_map = pc_map / pc_map.max()
 
         # Ограничение [0, 1]
+        # pc_map = cv2.normalize(pc_map, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
         pc_map = np.clip(pc_map, 0, 1)
 
         # Бинаризация
-        mask: MaskArray = (pc_map > threshold).astype(np.uint8) * 255
+        # _, mask = cv2.threshold(pc_map, threshold, 255, cv2.THRESH_BINARY)
+        # mask = mask.astype(np.uint8)
+        mask = (pc_map > threshold).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
 

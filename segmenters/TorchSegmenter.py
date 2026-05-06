@@ -2458,73 +2458,6 @@ class TorchSegmenter(BaseSegmenter):
 
         return final_mask  # Возвращаем (1, 1, H, W)
 
-    # def _canny_edge(
-    #     self,
-    #     tensor: torch.Tensor,
-    #     **kwargs
-    # ) -> Tuple[torch.Tensor]:
-    #     """
-    #     Обнаружение границ оператором Кэнни.
-
-    #     Многоэтапный алгоритм: сглаживание, вычисление градиента, подавление немаксимумов,
-    #     двойная пороговая фильтрация и отслеживание связных границ.
-
-    #     Args:
-    #         img: Входное изображение (RGB или grayscale).
-
-    #     Returns:
-    #         np.ndarray: Бинарная маска границ (0/255, dtype=np.uint8).
-    #     """
-    #     gray = self._to_grayscale(tensor)
-    #     print(f"Gray after Torch_canny_edge (before blur): {gray}")
-    #     start_time = time.time()
-    #     low = self.params.get('low', 0.1)
-    #     high = self.params.get('high', 0.3)
-    #     sigma = self.params.get('sigma', 1.0)
-
-    #     sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
-    #                           dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
-    #     sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
-    #                           dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
-
-    #     # if sigma > 0:
-    #     #     # Применяем Гауссово размытие
-    #     #     kernel_size = int(2 * round(3 * sigma) + 1)
-    #     #     blur_transform = torchvision.transforms.GaussianBlur(
-    #     #         kernel_size=[kernel_size, kernel_size],
-    #     #         sigma=[sigma, sigma]
-    #     #     )
-    #     #     # 2. Применяем его к тензору
-    #     #     gray = blur_transform(gray)
-    #     # print(f"Gray after Torch_canny_edge (after blur): {gray}")
-
-    #     gx = F.conv2d(gray, sobel_x, padding=1)
-    #     gy = F.conv2d(gray, sobel_y, padding=1)
-    #     mag = torch.sqrt(gx**2 + gy**2)
-    #     angle = torch.atan2(gy, gx) * 180 / np.pi
-
-    #     suppressed = mag.clone()
-    #     suppressed[(angle > -22.5) & (angle <= 22.5)] = 0
-    #     suppressed[(angle > 22.5) & (angle <= 67.5)] = 0
-    #     suppressed[(angle > 67.5) & (angle <= 112.5)] = 0
-    #     suppressed[(angle > 112.5) & (angle <= 157.5)] = 0
-
-    #     mask = (mag > high).float()
-    #     weak = ((mag > low) & (mag <= high)).float()
-    #     mask = mask + weak * (mask > 0).float()
-
-    #     exec_time = time.time() - start_time
-    #     info = {
-    #         'method': 'canny_edge_torch',
-    #         'parameters': {'low': low, 'high': high, **kwargs},
-    #         'execution_time': exec_time,
-    #     }
-
-    #     print(f"Mask after Torch_canny_edge: {mask}")
-    #     print(f"Info after Torch_canny_edge: {info}")
-
-    #     return mask
-
     # ──────────────────────────────────────────────────────────────────────
     def _prewitt_edge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """
@@ -3134,6 +3067,8 @@ class TorchSegmenter(BaseSegmenter):
             if gray.max() > 1.0:
                 gray = gray / 255.0
 
+            gray = gray.float()
+
             # === FFT ИЗОБРАЖЕНИЯ ===
             img_fft = torch.fft.fft2(gray)
             fft_shifted = torch.fft.fftshift(img_fft)
@@ -3174,10 +3109,12 @@ class TorchSegmenter(BaseSegmenter):
 
                     # === Полный фильтр в частотной области ===
                     filter_f = log_gabor * angular
-                    filter_f = torch.fft.ifftshift(filter_f)  # Готовим к умножению
+                    # filter_f = torch.fft.ifftshift(filter_f)  # Готовим к умножению
 
                     # === Свёртка в частотной области ===
-                    response = torch.fft.ifft2(fft_shifted * filter_f)
+                    response = torch.fft.ifft2(
+                        torch.fft.ifftshift(fft_shifted * filter_f)
+                    )
                     even_resp = torch.real(response)
                     odd_resp = torch.imag(response)
 

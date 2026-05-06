@@ -20,7 +20,6 @@ from typing import (
     Callable,
     Literal,
     cast,
-    TYPE_CHECKING,
 )
 
 from numba import njit, prange
@@ -394,7 +393,6 @@ class TorchSegmenter2(BaseSegmenter):
         self._hist_cache: Dict[Tuple[int, torch.dtype], torch.Tensor] = {}
         self._result_cache: OrderedDict = OrderedDict()
         self._cache_max_size: int = kwargs.get("cache_max_size", 100)
-        self._otsu_mean_levels: Optional[torch.Tensor] = None
         super().__init__()
         self.method: str = method
         self.params: Dict[str, Any] = kwargs
@@ -464,12 +462,10 @@ class TorchSegmenter2(BaseSegmenter):
                 "mode": "reduce-overhead",
             },
             "otsu_thresholding": {
-                "use_compile": False,  # проблема с _otsu_mean_levels кэшем
                 "fullgraph": False,
                 "dynamic": True,
                 "mode": "reduce-overhead",
             },
-            "threshold_bernsen": {"use_compile": False},  # indexing issue
             "adaptive_thresholding": {
                 "fullgraph": False,
                 "dynamic": True,
@@ -485,7 +481,6 @@ class TorchSegmenter2(BaseSegmenter):
                 "dynamic": True,
                 "mode": "reduce-overhead",
             },
-            "threshold_bernsen": {"use_compile": False},  # ← пока отключить
             "threshold_kittler_illingworth": {"fullgraph": False, "dynamic": True},
             "threshold_entropy_kapur": {"fullgraph": False, "dynamic": True},
             # ===== ГРАНИЧНЫЕ МЕТОДЫ =====
@@ -715,7 +710,10 @@ class TorchSegmenter2(BaseSegmenter):
         # Ключ для кэша
         key = _make_kernel_key(kernel_type, size, sigma, dtype, device, return_pair)
         if key in self._kernel_cache:
-            return self._kernel_cache[key]  # type: ignore[assignment]
+            cached = self._kernel_cache[key]
+            if isinstance(cached, tuple):
+                return tuple(k.to(dtype=dtype, device=device) for k in cached)
+            return cached.to(dtype=dtype, device=device)
 
         # Генерация ядра
         if return_pair and kernel_type in ["sobel", "prewitt", "scharr", "roberts"]:
@@ -780,6 +778,8 @@ class TorchSegmenter2(BaseSegmenter):
                 raise ValueError(f"Unknown kernel type: {kernel_type}")
 
         self._kernel_cache[key] = kernel  # type: ignore[assignment]
+        if isinstance(kernel, tuple):
+            return tuple(k.to(dtype=dtype, device=device) for k in kernel)
         return kernel.to(dtype=dtype, device=device)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1906,31 +1906,32 @@ class TorchSegmenter2(BaseSegmenter):
     def benchmark_histc_types(
         self, gray: torch.Tensor, device: torch.device
     ) -> Dict[str, float]:
-        """Сравнивает torch.histc для разных входных типов"""
+        """Сравнивает torch.histc для разных входных типов (учёт ограничений CUDA)"""
         results = {}
+        # torch.histc на CUDA поддерживает ТОЛЬКО fp32/fp64.
+        # Прямой вызов с fp16/bf16 вызывает RuntimeError: HalfTensor is not supported
+        dtypes_to_test = [
+            ("fp32", torch.float32),
+            ("fp16 (auto-cast)", torch.float16),
+            ("bf16 (auto-cast)", torch.bfloat16),
+        ]
 
-        for dtype_name, dtype in [("fp32", torch.float32), ("fp16", torch.float16)]:
-            if dtype == torch.float16 and device.type == "cuda":
-                cap = torch.cuda.get_device_capability(device.index or 0)
-                if cap[0] < 6:  # Pascal и новее для полноценной поддержки fp16
-                    continue
-            gray_scaled = gray.clone()
-            if gray.max() <= 1.0:  # если нормализовано
-                gray_scaled = gray_scaled * 255.0
-
-            gray_typed = gray_scaled.to(dtype)
-
+        for dtype_name, dtype in dtypes_to_test:
+            gray_typed = gray.to(dtype)
             start = time.perf_counter()
             for _ in range(100):
-                _ = torch.histc(
-                    gray_typed,
-                    bins=256,
-                    min=0,
-                    max=255,
+                # histc требует fp32/fp64. При half-precision явно кастим перед вызовом
+                inp = (
+                    gray_typed.float()
+                    if dtype in (torch.float16, torch.bfloat16)
+                    else gray_typed
                 )
+
+                # max=1.0, т.к. _to_grayscale уже нормализует вход к [0, 1]
+                _ = torch.histc(inp, bins=256, min=0.0, max=1.0)
+
             if device.type == "cuda":
                 torch.cuda.synchronize()
-
             results[dtype_name] = (time.perf_counter() - start) / 100 * 1000  # ms
 
         return results
@@ -3126,12 +3127,7 @@ class TorchSegmenter2(BaseSegmenter):
             if mask_tensor.dim() >= 3:
                 mask_tensor = mask_tensor.squeeze()
 
-            if self.device.type == "cuda":
-                mask_np = mask_tensor.to(
-                    device=self.device, dtype=self.dtype, non_blocking=True
-                ).numpy()
-            else:
-                mask_np = mask_tensor.float().cpu().numpy()
+            mask_np = mask_tensor.cpu().float().numpy()
 
             # 🔥 Векторизованная пост-обработка
             if mask_np.max() <= 1.0:
@@ -3369,15 +3365,20 @@ class TorchSegmenter2(BaseSegmenter):
         color_tensor = (
             torch.tensor(color, dtype=dtype, device=img.device).view(3, 1, 1) / 255.0
         )
-        colored_mask = torch.zeros_like(img_rgb)
-        colored_mask[:, mask_bool] = color_tensor.view(3, 1).expand(3, mask_bool.sum())
 
         # === ALPHA-СМЕШИВАНИЕ ===
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            result = img_rgb * (1.0 - alpha) + colored_mask * alpha
+            mask_expanded = mask_bool.unsqueeze(0).expand_as(img_rgb)  # (C, H, W)
+
+            # Применяем цветную маску через where (избегает проблем с индексацией)
+            result = torch.where(
+                mask_expanded,
+                img_rgb * (1.0 - alpha) + color_tensor.to(img_rgb.dtype) * alpha,
+                img_rgb * (1.0 - alpha),
+            )
 
         # === КОНВЕРТАЦИЯ В NUMPY (только в конце) ===
         result_np = self._tensor_to_numpy(
@@ -3638,7 +3639,6 @@ class TorchSegmenter2(BaseSegmenter):
 
         Note:
             - Для `fp16`/`bf16` изображение масштабируется к [0, 255] для стабильности `torch.histc`.
-            - Уровни гистограммы кэшируются через `self._otsu_mean_levels` для ускорения повторных вызовов.
             - Метод безопасен для `torch.compile(fullgraph=True)` при фиксированном `num_bins`.
 
         Example:
@@ -3647,8 +3647,6 @@ class TorchSegmenter2(BaseSegmenter):
             mask = segmenter.segment(image)  # (1, 1, H, W)
             ```
         """
-        if not torch.compiler.is_compiling():
-            torch.compiler.cudagraph_mark_step_begin()
         # === ПРЕДПОДГОТОВКА ===
         gray = self._to_grayscale(tensor).squeeze()  # (H, W)
         dtype = self.precision_manager.get_dtype(precision)
@@ -3656,24 +3654,25 @@ class TorchSegmenter2(BaseSegmenter):
 
         # === ПАРАМЕТРЫ ===
         bins = num_bins if num_bins is not None else self.params.get("num_bins", 256)
-
-        if self._otsu_mean_levels is None or self._otsu_mean_levels.dtype != dtype:
-            self._otsu_mean_levels = torch.arange(
-                256, dtype=dtype, device=self.device
-            ) / (bins - 1)
-        mean_levels = self._otsu_mean_levels
+        mean_levels = (
+            torch.arange(bins, dtype=dtype, device=self.device) / (bins - 1)
+        ).clone()
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
         else:
             start_time = None  # type: ignore[assignment]
 
-        # === ГИСТОГРАММА (с учётом точности) ===
-        # Для low-precision масштабируем к [0, 255] для избежания квантования в [0, 1]
-        if dtype in (torch.float16, torch.bfloat16):
-            hist = torch.histc(gray * 255.0, bins=bins, min=0, max=255)
-        else:
-            hist = torch.histc(gray, bins=bins, min=0, max=1)
+        # === ГИСТОГРАММА ===
+        # 🔥 FIX: Для low-precision масштабируем к [0, 255] для стабильности histc
+        # if dtype in (torch.float16, torch.bfloat16):
+        #     hist = torch.histc(gray * 255.0, bins=bins, min=0, max=255)
+        #     # Масштабируем mean_levels обратно к [0, 1] для сравнения
+        #     threshold_scale = 255.0
+        # else:
+        #     hist = torch.histc(gray, bins=bins, min=0, max=1)
+        #     threshold_scale = 1.0
+        hist = torch.histc(gray, bins=256, min=0, max=1)
 
         total = hist.sum()
         if total < 1e-8:
@@ -3683,14 +3682,16 @@ class TorchSegmenter2(BaseSegmenter):
         cumsum = torch.cumsum(hist, dim=0)
         mu_cum = torch.cumsum(hist * mean_levels, dim=0)
 
-        # Вычисляем межклассовую дисперсию
-        w0 = cumsum + 1e-8
-        w1 = (total - cumsum) + 1e-8
-        m0 = mu_cum / w0
-        m1 = (mu_cum[-1] - mu_cum) / w1
+        # 🔥 FIX: Избегаем деления на 0 через clamp, а не через +1e-8 в знаменателе
+        w0 = cumsum
+        w1 = total - w0
+        m0 = mu_cum / (w0 + 1e-8)
+        m1 = (mu_cum[-1] - mu_cum) / (w1 + 1e-8)
 
         var_between = w0 * w1 * (m0 - m1) ** 2
-        best_threshold = mean_levels[var_between.argmax()]
+        best_threshold_idx = var_between.argmax()
+        best_threshold = best_threshold_idx / 255.0
+        # best_threshold = mean_levels[best_threshold_idx] /
 
         # === БИНАРИЗАЦИЯ ===
         precision_val = precision if precision is not None else "fp32"
@@ -3698,6 +3699,8 @@ class TorchSegmenter2(BaseSegmenter):
             precision_val, enabled=(dtype != torch.float32)
         ):
             mask = (gray > best_threshold).to(dtype)
+
+        # 🔥 FIX: Логирование только в eager mode, без мутации в графе
         if not torch.compiler.is_compiling() and start_time is not None:
             exec_time: float = time.time() - start_time
             self.params["execution_info"] = {
@@ -3708,6 +3711,7 @@ class TorchSegmenter2(BaseSegmenter):
                 },
                 "execution_time": exec_time,
             }
+
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3920,44 +3924,6 @@ class TorchSegmenter2(BaseSegmenter):
     ) -> torch.Tensor:
         """
         Пороговая обработка по методу Бернсена.
-
-        Локальный адаптивный порог на основе контраста в окне:
-        - Если локальный контраст (max-min) > порогового: порог = (max+min)/2.
-        - Иначе: используется глобальное среднее (опционально) или пиксель классифицируется как фон.
-
-        Алгоритм:
-        1. Конвертация в градации серого.
-        2. Вычисление локального min/max через max_pool2d / -max_pool2d(-x).
-        3. Расчёт контраста: C = max - min.
-        4. Применение локального или глобального порога в зависимости от C.
-
-        Метод особенно эффективен для:
-        - Изображений с резкими локальными перепадами яркости
-        - Текста на неоднородном фоне
-        - Случаев, когда объект имеет высокий локальный контраст
-
-        Args:
-            tensor: Входное изображение (B, C, H, W) или (C, H, W).
-            window_size: Размер локального окна (нечётное, по умолчанию: 15).
-            contrast_threshold: Минимальный контраст для применения локального порога (по умолчанию: 0.1).
-            use_global_mean: Использовать глобальное среднее при низком контрасте (по умолчанию: False).
-            precision: Точность вычислений: 'fp32', 'fp16', 'bf16'.
-
-        Returns:
-            torch.Tensor: Бинарная маска (1, 1, H, W), dtype=float32.
-
-        Note:
-            - Локальный min/max вычисляется через pooling — O(1) на пиксель.
-            - Метод безопасен для `torch.compile(fullgraph=True)`.
-            - Для `fp16` рекомендуется `contrast_threshold ≥ 0.05`.
-
-        Example:
-            ```python
-            segmenter = TorchSegmenter(
-                "threshold_bernsen", window_size=15, contrast_threshold=0.15, precision="fp16"
-            )
-            mask = segmenter.segment(image)
-            ```
         """
         # === ПРЕДПОДГОТОВКА ===
         gray = self._to_grayscale(tensor)  # (B, 1, H, W)
@@ -3967,7 +3933,7 @@ class TorchSegmenter2(BaseSegmenter):
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
         else:
-            start_time = None  # type: ignore[assignment]
+            start_time = None
 
         # === ПАРАМЕТРЫ ===
         ws = (
@@ -3987,48 +3953,47 @@ class TorchSegmenter2(BaseSegmenter):
             else self.params.get("use_global_mean", False)
         )
 
+        # === ПРИВЕДЕНИЕ К 2D ДЛЯ ЕДИНООБРАЗИЯ ===
+        gray_2d = gray.squeeze() if gray.dim() > 2 else gray  # (H, W)
+
         pad = ws // 2
-        gray_padded = F.pad(gray, (pad, pad, pad, pad), mode="reflect")
+        gray_padded = F.pad(
+            gray_2d.unsqueeze(0).unsqueeze(0), (pad, pad, pad, pad), mode="reflect"
+        )
 
         # === ЛОКАЛЬНЫЙ MIN/MAX ЧЕРЕЗ POOLING ===
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            local_max = F.max_pool2d(gray_padded, kernel_size=ws, stride=1, padding=0)
-            local_min = -F.max_pool2d(-gray_padded, kernel_size=ws, stride=1, padding=0)
-
-            def _to_2d(t: torch.Tensor) -> torch.Tensor:
-                while t.dim() > 2:
-                    t = t.squeeze(0)
-                return t
-
-            local_max = _to_2d(local_max)
-            local_min = _to_2d(local_min)
+            local_max = F.max_pool2d(
+                gray_padded, kernel_size=ws, stride=1, padding=0
+            ).squeeze()  # (H, W)
+            local_min = -F.max_pool2d(
+                -gray_padded, kernel_size=ws, stride=1, padding=0
+            ).squeeze()  # (H, W)
 
             contrast = local_max - local_min
             threshold_local = (local_max + local_min) / 2.0
 
             # Применяем локальный порог там, где контраст достаточный
             high_contrast = contrast > c_thresh
-            mask = torch.zeros_like(gray, dtype=dtype)
+            mask_2d = torch.zeros_like(gray_2d, dtype=dtype)
 
-            gray_2d = gray.squeeze() if gray.dim() > 2 else gray
-            thresh_2d = (
-                threshold_local.squeeze()
-                if threshold_local.dim() > 2
-                else threshold_local
-            )
-            # contrast_2d = contrast.squeeze(0) if contrast.dim() == 4 else contrast
-
-            mask[high_contrast] = (
-                gray_2d[high_contrast] > thresh_2d[high_contrast]
+            # Векторизованное применение — все тензоры 2D, размерности совпадают ✅
+            mask_2d[high_contrast] = (
+                gray_2d[high_contrast] > threshold_local[high_contrast]
             ).to(dtype)
 
             # Низкоконтрастные области: глобальное среднее или фон
             if use_global and not high_contrast.all():
                 global_mean = gray_2d.mean()
-                mask[~high_contrast] = (gray_2d[~high_contrast] > global_mean).to(dtype)
+                mask_2d[~high_contrast] = (gray_2d[~high_contrast] > global_mean).to(
+                    dtype
+                )
+
+        # === ВОЗВРАТ В ФОРМАТ (1, 1, H, W) ===
+        mask = mask_2d.unsqueeze(0).unsqueeze(0).to(torch.float32)
 
         if not torch.compiler.is_compiling() and start_time is not None:
             exec_time: float = time.time() - start_time
@@ -4042,7 +4007,7 @@ class TorchSegmenter2(BaseSegmenter):
                 },
                 "execution_time": exec_time,
             }
-        return mask.to(torch.float32)
+        return mask
 
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
@@ -4754,7 +4719,7 @@ class TorchSegmenter2(BaseSegmenter):
         # === ПРЕДПОДГОТОВКА ===
         gray = self._to_grayscale(tensor).squeeze()  # (H, W)
         dtype = self.precision_manager.get_dtype(precision)
-        gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+        gray = self._cast_to_dtype(gray)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -4775,7 +4740,6 @@ class TorchSegmenter2(BaseSegmenter):
         )
 
         # === ЛОКАЛЬНОЕ СРЕДНЕЕ ЧЕРЕЗ СВЁРТКУ ===
-        kernel = torch.ones(1, 1, ws, ws, device=self.device, dtype=dtype) / (ws * ws)
         gray_4d = (
             gray.unsqueeze(0).unsqueeze(0) if gray.dim() == 2 else gray.unsqueeze(0)
         )
@@ -4784,6 +4748,14 @@ class TorchSegmenter2(BaseSegmenter):
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
+            kernel = torch.ones(
+                1,
+                1,
+                ws,
+                ws,
+                device=gray_4d.device,
+                dtype=gray_4d.dtype,  # ← Ключевое: используем dtype после autocast
+            ) / (ws * ws)
             local_mean = F.conv2d(gray_4d, kernel, padding=ws // 2).squeeze()
             local_contrast = torch.abs(gray - local_mean)
 
@@ -4866,29 +4838,29 @@ class TorchSegmenter2(BaseSegmenter):
         else:
             start_time = None  # type: ignore[assignment]
         # === ЯДРА СОБЕЛЯ (кэшированные) ===
-        # sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
-        sobel_x = self._get_static_kernel(
-            "sobel_x",
-            [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
-            size=3,
-            dtype=dtype,
-            device=self.device,
-        )
-        sobel_y = self._get_static_kernel(
-            "sobel_y",
-            [[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
-            size=3,
-            dtype=dtype,
-            device=self.device,
-        )
+        sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
+        # sobel_x = self._get_static_kernel(
+        #     "sobel_x",
+        #     [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
+        #     size=3,
+        #     dtype=dtype,
+        #     device=self.device,
+        # )
+        # sobel_y = self._get_static_kernel(
+        #     "sobel_y",
+        #     [[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
+        #     size=3,
+        #     dtype=dtype,
+        #     device=self.device,
+        # )
 
         # === ГРАДИЕНТЫ ===
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            gx = F.conv2d(gray, sobel_x, padding=1)
-            gy = F.conv2d(gray, sobel_y, padding=1)
+            gx = F.conv2d(gray, sobel_x.to(gray.dtype), padding=1)
+            gy = F.conv2d(gray, sobel_y.to(gray.dtype), padding=1)
             magnitude = torch.sqrt(
                 gx.square() + gy.square() + 1e-8
             )  # eps для стабильности fp16
@@ -4918,6 +4890,19 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
         return mask.to(torch.float32)
+
+    def _safe_pad(
+        self,
+        tensor: torch.Tensor,
+        pad: Tuple[int, int, int, int],
+        mode: str = "reflect",
+    ) -> torch.Tensor:
+        """Безопасный паддинг с нормализацией размерности"""
+        if tensor.dim() == 2:
+            tensor = tensor.unsqueeze(0).unsqueeze(0)
+        elif tensor.dim() == 3:
+            tensor = tensor.unsqueeze(0)
+        return F.pad(tensor, pad, mode=mode)
 
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
@@ -4984,6 +4969,13 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
+        if gray.dim() == 2:
+            gray = gray.unsqueeze(0).unsqueeze(0)  # (H, W) -> (1, 1, H, W)
+        elif gray.dim() == 3:
+            if gray.shape[0] == 1:
+                gray = gray.unsqueeze(0)  # (1, H, W) -> (1, 1, H, W)
+            # else: уже (B, C, H, W) или (C, H, W) — оставляем как есть
+
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
         else:
@@ -5004,83 +4996,115 @@ class TorchSegmenter2(BaseSegmenter):
         if sig > 0:
             ks = int(2 * round(3 * sig) + 1)
             ks = ks if ks % 2 == 1 else ks + 1
-            gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
+            is_3d = gray.dim() == 3
+            gray_in = gray.unsqueeze(0) if is_3d else gray
+            # Применяем размытие (torchvision корректно работает с 3D и 4D)
+            gray_blurred = tv_gaussian_blur(
+                gray_in, kernel_size=[ks, ks], sigma=[sig, sig]
+            )
+            # Возвращаем исходную размерность
+            gray = gray_blurred.squeeze(0) if is_3d else gray_blurred
 
         # === ЯДРА СОБЕЛЯ ===
         # sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
-        sobel_x, sobel_y = self._get_conv_kernel(
+        # === ЯДРА СОБЕЛЯ ===
+        kernels = self._get_conv_kernel(
             "sobel", return_pair=True, dtype=dtype, device=self.device
         )
+        if isinstance(kernels, tuple):
+            sobel_x, sobel_y = kernels
+        else:
+            sobel_x, sobel_y = (
+                kernels.clone(),
+                kernels.clone(),
+            )  # 🔥 FIX: безопасный fallback
 
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
             # === ГРАДИЕНТЫ ===
-            gx = F.conv2d(gray, sobel_x, padding=1)
-            gy = F.conv2d(gray, sobel_y, padding=1)
-            mag = torch.sqrt(gx**2 + gy**2 + 1e-8)
+            # 🔥 FIX: Приводим ядра к актуальному dtype входа ВНУТРИ autocast.
+            # Autocast может изменить gray_4d.dtype на bf16/fp16, ядра должны совпадать.
+            gx = F.conv2d(gray, sobel_x.to(gray.dtype), padding=1)
+            gy = F.conv2d(gray, sobel_y.to(gray.dtype), padding=1)
+            mag = torch.sqrt(gx**2 + gy**2)
             angle = torch.atan2(gy, gx)
             angle_deg = torch.abs(torch.rad2deg(angle))  # [0, 180]
 
             # === NMS (векторизованный) ===
+            # mag_padded = self._safe_pad(mag, (1, 1, 1, 1), mode="reflect")
             mag_padded = F.pad(mag, (1, 1, 1, 1), mode="reflect")
 
-            # Соседи для 4 направлений
-            m_lr = torch.stack(
-                [
-                    mag_padded[:, :, 1:-1, :-2],  # left
-                    mag_padded[:, :, 1:-1, 2:],  # right
-                ],
-                dim=0,
-            )
-            m_tb = torch.stack(
-                [
-                    mag_padded[:, :, :-2, 1:-1],  # top
-                    mag_padded[:, :, 2:, 1:-1],  # bottom
-                ],
-                dim=0,
-            )
-            m_diag1 = torch.stack(
-                [mag_padded[:, :, :-2, 2:], mag_padded[:, :, 2:, :-2]],  # UR  # DL
-                dim=0,
-            )
-            m_diag2 = torch.stack(
-                [mag_padded[:, :, :-2, :-2], mag_padded[:, :, 2:, 2:]],  # UL  # DR
-                dim=0,
-            )
+            # m_lr = torch.stack([mag_padded[:, :, 1:-1, :-2], mag_padded[:, :, 1:-1, 2:]], dim=0)
+            # m_tb = torch.stack([mag_padded[:, :, :-2, 1:-1], mag_padded[:, :, 2:, 1:-1]], dim=0)
+            # m_diag1 = torch.stack([mag_padded[:, :, :-2, 2:], mag_padded[:, :, 2:, :-2]], dim=0)
+            # m_diag2 = torch.stack([mag_padded[:, :, :-2, :-2], mag_padded[:, :, 2:, 2:]], dim=0)
+            m_left = mag_padded[:, :, 1:-1, :-2]  # Сдвиг влево
+            m_right = mag_padded[:, :, 1:-1, 2:]  # Сдвиг вправо
+            m_top = mag_padded[:, :, :-2, 1:-1]  # Сдвиг вверх
+            m_bottom = mag_padded[:, :, 2:, 1:-1]  # Сдвиг вниз
 
-            # Маски направлений
-            mask_0 = (angle_deg <= 22.5) | (angle_deg > 157.5)  # горизонталь
-            mask_45 = (angle_deg > 22.5) & (angle_deg <= 67.5)  # диагональ /
-            mask_90 = (angle_deg > 67.5) & (angle_deg <= 112.5)  # вертикаль
-            mask_135 = (angle_deg > 112.5) & (angle_deg <= 157.5)  # диагональ \
+            # Диагональные соседи
+            m_ul = mag_padded[:, :, :-2, :-2]  # Верх-Лево
+            m_ur = mag_padded[:, :, :-2, 2:]  # Верх-Право
+            m_dl = mag_padded[:, :, 2:, :-2]  # Низ-Лево
+            m_dr = mag_padded[:, :, 2:, 2:]  # Низ-Право
 
-            # Сравнение с соседями
-            is_max_0 = mag >= m_lr.max(dim=0).values
-            is_max_90 = mag >= m_tb.max(dim=0).values
-            is_max_45 = mag >= m_diag1.max(dim=0).values
-            is_max_135 = mag >= m_diag2.max(dim=0).values
+            mask_0 = (angle_deg <= 22.5) | (angle_deg > 157.5)
+            mask_45 = (angle_deg > 22.5) & (angle_deg <= 67.5)
+            mask_90 = (angle_deg > 67.5) & (angle_deg <= 112.5)
+            mask_135 = (angle_deg > 112.5) & (angle_deg <= 157.5)
 
-            # Комбинирование
+            # is_max_0 = mag >= m_lr.max(dim=0).values
+            # is_max_90 = mag >= m_tb.max(dim=0).values
+            # is_max_45 = mag >= m_diag1.max(dim=0).values
+            # is_max_135 = mag >= m_diag2.max(dim=0).values
+
             suppressed = torch.zeros_like(mag)
-            suppressed[mask_0 & is_max_0] = mag[mask_0 & is_max_0]
-            suppressed[mask_90 & is_max_90] = mag[mask_90 & is_max_90]
-            suppressed[mask_45 & is_max_45] = mag[mask_45 & is_max_45]
-            suppressed[mask_135 & is_max_135] = mag[mask_135 & is_max_135]
+            # suppressed[mask_0 & is_max_0] = mag[mask_0 & is_max_0]
+            # suppressed[mask_90 & is_max_90] = mag[mask_90 & is_max_90]
+            # suppressed[mask_45 & is_max_45] = mag[mask_45 & is_max_45]
+            # suppressed[mask_135 & is_max_135] = mag[mask_135 & is_max_135]
+            # --- Направление 0 (Горизонталь) ---
+            cond_0 = (mag >= m_left) & (mag >= m_right)
+            suppressed[mask_0] = mag[mask_0] * cond_0[mask_0].float()
+
+            # --- Направление 90 (Вертикаль) ---
+            cond_90 = (mag >= m_top) & (mag >= m_bottom)
+            suppressed[mask_90] = mag[mask_90] * cond_90[mask_90].float()
+
+            # --- Направление 45 (Диагональ UR-DL) ---
+            # Сравниваем с Upper-Right и Down-Left
+            cond_45 = (mag >= m_ur) & (mag >= m_dl)
+            suppressed[mask_45] = mag[mask_45] * cond_45[mask_45].float()
+
+            # --- Направление 135 (Диагональ UL-DR) ---
+            # Сравниваем с Upper-Left и Down-Right
+            cond_135 = (mag >= m_ul) & (mag >= m_dr)
+            suppressed[mask_135] = mag[mask_135] * cond_135[mask_135].float()
 
             # === ДВОЙНОЙ ПОРОГ + ГИСТЕРЕЗИС ===
             strong = suppressed >= high
             weak = (suppressed >= low) & (suppressed < high)
             final_mask = strong.clone()
 
+            kernel_conn = torch.ones(
+                1, 1, 3, 3, device=gray.device, dtype=torch.float32
+            )
+
             # Гистерезис через свёртку (2 итерации)
-            kernel_conn = torch.ones(1, 1, 3, 3, device=gray.device, dtype=dtype)
             for _ in range(2):
+                if final_mask.dim() == 2:
+                    input_tensor = final_mask.unsqueeze(0).unsqueeze(0)
+                elif final_mask.dim() == 3:
+                    input_tensor = final_mask.unsqueeze(1)
+                else:
+                    input_tensor = final_mask
+
+                # Приводим вход к float перед паддингом и свёрткой
                 final_padded = F.pad(
-                    final_mask.float().unsqueeze(0).unsqueeze(0),
-                    (1, 1, 1, 1),
-                    mode="replicate",
+                    input_tensor.float(), (1, 1, 1, 1), mode="replicate"
                 )
                 neighbors = F.conv2d(final_padded, kernel_conn).squeeze(0) > 0
                 new_strong = neighbors & weak
@@ -5100,7 +5124,12 @@ class TorchSegmenter2(BaseSegmenter):
                 },
                 "execution_time": exec_time,
             }
-        return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
+
+        if final_mask.dim() == 2:
+            mask = final_mask.unsqueeze(0).unsqueeze(0)
+        elif final_mask.dim() == 3:
+            mask = final_mask.unsqueeze(0)
+        return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
@@ -5167,15 +5196,25 @@ class TorchSegmenter2(BaseSegmenter):
 
         # === ЯДРА ПРЮИТТА (кэшированные) ===
         # prewitt_x, prewitt_y = self._get_prewitt_kernels_cached(self.device, dtype)
-        prewitt_x, prewitt_y = self._get_conv_kernel(
+        kernels = self._get_conv_kernel(
             "prewitt", return_pair=True, dtype=dtype, device=self.device
         )
+        if isinstance(kernels, tuple):
+            prewitt_x, prewitt_y = kernels
+        else:
+            prewitt_x, prewitt_y = kernels
 
         # === ГРАДИЕНТЫ И БИНАРИЗАЦИЯ ===
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
+            prewitt_x = (
+                prewitt_x.to(gray.dtype) if prewitt_x.dtype != gray.dtype else prewitt_x
+            )
+            prewitt_y = (
+                prewitt_y.to(gray.dtype) if prewitt_y.dtype != gray.dtype else prewitt_y
+            )
             gx = F.conv2d(gray, prewitt_x, padding=1)
             gy = F.conv2d(gray, prewitt_y, padding=1)
             magnitude = torch.sqrt(gx.square() + gy.square() + 1e-8)
@@ -5264,15 +5303,25 @@ class TorchSegmenter2(BaseSegmenter):
 
         # === ЯДРА ШАРРА (кэшированные) ===
         # scharr_x, scharr_y = self._get_scharr_kernels_cached(self.device, dtype)
-        scharr_x, scharr_y = self._get_conv_kernel(
+        kernels = self._get_conv_kernel(
             "scharr", return_pair=True, dtype=dtype, device=self.device
         )
+        if isinstance(kernels, tuple):
+            scharr_x, scharr_y = kernels
+        else:
+            scharr_x, scharr_y = kernels
 
         # === ГРАДИЕНТЫ И БИНАРИЗАЦИЯ ===
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
+            scharr_x = (
+                scharr_x.to(gray.dtype) if scharr_x.dtype != gray.dtype else scharr_x
+            )
+            scharr_y = (
+                scharr_y.to(gray.dtype) if scharr_y.dtype != gray.dtype else scharr_y
+            )
             gx = F.conv2d(gray, scharr_x, padding=1)
             gy = F.conv2d(gray, scharr_y, padding=1)
             magnitude = torch.sqrt(gx.square() + gy.square() + 1e-8)
@@ -5379,7 +5428,7 @@ class TorchSegmenter2(BaseSegmenter):
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            laplacian = F.conv2d(gray, laplacian_kernel, padding=1)
+            laplacian = F.conv2d(gray, laplacian_kernel.to(gray.dtype), padding=1)
             magnitude = torch.abs(laplacian)
 
             if normalize:
@@ -5467,9 +5516,13 @@ class TorchSegmenter2(BaseSegmenter):
 
         # === ЯДРА РОБЕРТСА (кэшированные) ===
         # roberts_x, roberts_y = self._get_roberts_kernels_cached(self.device, dtype)
-        roberts_x, roberts_y = self._get_conv_kernel(
+        kernels = self._get_conv_kernel(
             "roberts", return_pair=True, dtype=dtype, device=self.device
         )
+        if isinstance(kernels, tuple):
+            roberts_x, roberts_y = kernels
+        else:
+            roberts_x, roberts_y = kernels
 
         # === ГРАДИЕНТЫ И БИНАРИЗАЦИЯ ===
         precision_val = precision if precision is not None else "fp32"
@@ -5478,6 +5531,16 @@ class TorchSegmenter2(BaseSegmenter):
         ):
             # Паддинг 1×1 для сохранения размера при 2×2 ядре
             gray_pad = F.pad(gray, (0, 1, 0, 1), mode="reflect")
+            roberts_x = (
+                roberts_x.to(gray_pad.dtype)
+                if roberts_x.dtype != gray_pad.dtype
+                else roberts_x
+            )
+            roberts_y = (
+                roberts_y.to(gray_pad.dtype)
+                if roberts_y.dtype != gray_pad.dtype
+                else roberts_y
+            )
             gx = F.conv2d(gray_pad, roberts_x, padding=0)
             gy = F.conv2d(gray_pad, roberts_y, padding=0)
             magnitude = torch.sqrt(gx.square() + gy.square() + 1e-8)
@@ -5583,7 +5646,7 @@ class TorchSegmenter2(BaseSegmenter):
             precision_val, enabled=(dtype != torch.float32)
         ):
             # Применяем лапласиан
-            laplacian = F.conv2d(gray, laplacian_kernel, padding=1)
+            laplacian = F.conv2d(gray, laplacian_kernel.to(gray.dtype), padding=1)
 
             # === ZERO-CROSSING DETECTION (векторизованный) ===
             sign = torch.sign(laplacian)
@@ -5685,29 +5748,29 @@ class TorchSegmenter2(BaseSegmenter):
             threshold if threshold is not None else self.params.get("threshold", 0.1)
         )
 
-        # === ГАУССОВЫ РАЗМЫТИЯ ===
-        def _gaussian_kernel_1d(
-            size: int, sigma: float, dtype: torch.dtype, device: torch.device
-        ) -> torch.Tensor:
-            coords = torch.arange(size, dtype=dtype, device=device) - size // 2
-            kernel = torch.exp(-0.5 * (coords / sigma) ** 2)
-            return kernel / kernel.sum()
-
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
+            # === ГАУССОВЫ РАЗМЫТИЯ ===
+            def _gaussian_kernel_1d(
+                size: int, sigma: float, dtype: torch.dtype, device: torch.device
+            ) -> torch.Tensor:
+                coords = torch.arange(size, dtype=dtype, device=device) - size // 2
+                kernel = torch.exp(-0.5 * (coords / sigma) ** 2)
+                return kernel / kernel.sum()
+
             # Ядро 1 для σ₁
             ks1 = int(2 * round(3 * s1) + 1)
             ks1 = ks1 if ks1 % 2 == 1 else ks1 + 1
-            k1_1d = _gaussian_kernel_1d(ks1, s1, dtype, self.device)
+            k1_1d = _gaussian_kernel_1d(ks1, s1, gray.dtype, self.device)
             k1_2d = (k1_1d.unsqueeze(1) @ k1_1d.unsqueeze(0)).unsqueeze(0).unsqueeze(0)
             blurred1 = F.conv2d(gray, k1_2d, padding=ks1 // 2)
 
             # Ядро 2 для σ₂
             ks2 = int(2 * round(3 * s2) + 1)
             ks2 = ks2 if ks2 % 2 == 1 else ks2 + 1
-            k2_1d = _gaussian_kernel_1d(ks2, s2, dtype, self.device)
+            k2_1d = _gaussian_kernel_1d(ks2, s2, gray.dtype, self.device)
             k2_2d = (k2_1d.unsqueeze(1) @ k2_1d.unsqueeze(0)).unsqueeze(0).unsqueeze(0)
             blurred2 = F.conv2d(gray, k2_2d, padding=ks2 // 2)
 
@@ -5822,7 +5885,7 @@ class TorchSegmenter2(BaseSegmenter):
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            laplacian = F.conv2d(gray, laplacian_5x5, padding=2)
+            laplacian = F.conv2d(gray, laplacian_5x5.to(gray.dtype), padding=2)
 
             # === ZERO-CROSSING С ПРОВЕРКОЙ МАГНИТУДЫ ===
             sign = torch.sign(laplacian)
@@ -5922,15 +5985,21 @@ class TorchSegmenter2(BaseSegmenter):
 
         # === ЯДРА СОБЕЛЯ ===
         # sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
-        sobel_x, sobel_y = self._get_conv_kernel(
+        kernels = self._get_conv_kernel(
             "sobel", return_pair=True, dtype=dtype, device=self.device
         )
+        if isinstance(kernels, tuple):
+            sobel_x, sobel_y = kernels
+        else:
+            sobel_x, sobel_y = kernels  # fallback для одиночных ядер
 
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
             # === ГРАДИЕНТЫ ===
+            sobel_x = sobel_x.to(gray.dtype) if sobel_x.dtype != gray.dtype else sobel_x
+            sobel_y = sobel_y.to(gray.dtype) if sobel_y.dtype != gray.dtype else sobel_y
             gx = F.conv2d(gray, sobel_x, padding=1)
             gy = F.conv2d(gray, sobel_y, padding=1)
             magnitude = torch.sqrt(gx.square() + gy.square() + 1e-8)
@@ -6144,7 +6213,6 @@ class TorchSegmenter2(BaseSegmenter):
 
         orientations = torch.linspace(0, torch.pi, n_orients, device=device)
 
-        # === ОСНОВНОЙ ЦИКЛ ПО МАСШТАБАМ И ОРИЕНТАЦИЯМ ===
         for scale in range(n_scales):
             wavelength = min_wl * (mult_val**scale)
             fo = 1.0 / wavelength
@@ -6163,12 +6231,14 @@ class TorchSegmenter2(BaseSegmenter):
                 d_theta = torch.minimum(d_theta, 2 * torch.pi - d_theta)
                 angular = torch.exp(-0.5 * (d_theta / angular_spread) ** 2)
 
-                # Полный фильтр
+                # Полный фильтр (центральный)
                 filter_f = log_gabor * angular
-                filter_f = torch.fft.ifftshift(filter_f)
 
-                # Свёртка в частотной области
-                response = torch.fft.ifft2(fft_shifted * filter_f)
+                # FIX: Умножаем центрированный спектр на центрированный фильтр,
+                # затем смещаем результат для обратного FFT.
+                # Раньше фильтр смещался до умножения, что ломало логику.
+                response = torch.fft.ifft2(torch.fft.ifftshift(fft_shifted * filter_f))
+
                 even_resp = torch.real(response).to(target_dtype)
                 odd_resp = torch.imag(response).to(target_dtype)
 
@@ -6196,7 +6266,9 @@ class TorchSegmenter2(BaseSegmenter):
             pc_map = torch.clamp(pc_map, 0, 1)
 
             # === БИНАРИЗАЦИЯ ===
-            thresh_t = torch.tensor(thresh, dtype=target_dtype, device=device)
+            thresh_t = torch.tensor(
+                min(thresh, 0.99), dtype=target_dtype, device=device
+            )
             mask = (pc_map > thresh_t).to(target_dtype)
 
         if not torch.compiler.is_compiling() and start_time is not None:
@@ -7784,8 +7856,10 @@ class TorchSegmenter2(BaseSegmenter):
         else:
             gray_smooth = gray
 
-        gx = F.conv2d(gray_smooth, sobel_x, padding=1)  # (B, 1, H, W)
-        gy = F.conv2d(gray_smooth, sobel_y, padding=1)
+        gx = F.conv2d(
+            gray_smooth, sobel_x.to(gray_smooth.dtype), padding=1
+        )  # (B, 1, H, W)
+        gy = F.conv2d(gray_smooth, sobel_y.to(gray_smooth.dtype), padding=1)
         edge_map = gx.square() + gy.square()  # (B, 1, H, W)
 
         # Нормализуем и берём градиент карты границ (внешние силы)
@@ -8063,8 +8137,8 @@ class TorchSegmenter2(BaseSegmenter):
             precision_val, enabled=(dtype != torch.float32)
         ):
             # === ГРАДИЕНТЫ ===
-            gx = F.conv2d(gray, sobel_x, padding=1)
-            gy = F.conv2d(gray, sobel_y, padding=1)
+            gx = F.conv2d(gray, sobel_x.to(gray.dtype), padding=1)
+            gy = F.conv2d(gray, sobel_y.to(gray.dtype), padding=1)
 
             # === ИТЕРАТИВНОЕ РАСПРОСТРАНЕНИЕ (упрощённый GVF) ===
             for _ in range(iters):
@@ -8203,8 +8277,16 @@ class TorchSegmenter2(BaseSegmenter):
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            gx = F.conv2d(gray.unsqueeze(0).unsqueeze(0), sobel_x, padding=1).squeeze()
-            gy = F.conv2d(gray.unsqueeze(0).unsqueeze(0), sobel_y, padding=1).squeeze()
+            gx = F.conv2d(
+                gray.unsqueeze(0).unsqueeze(0),
+                sobel_x.to(gray.unsqueeze(0).unsqueeze(0).dtype),
+                padding=1,
+            ).squeeze()
+            gy = F.conv2d(
+                gray.unsqueeze(0).unsqueeze(0),
+                sobel_y.to(gray.unsqueeze(0).unsqueeze(0).dtype),
+                padding=1,
+            ).squeeze()
             grad_mag = torch.sqrt(gx**2 + gy**2 + 1e-8)
             grad_mag = grad_mag / (grad_mag.amax() + 1e-8)
 
@@ -8509,8 +8591,16 @@ class TorchSegmenter2(BaseSegmenter):
                     "sobel", return_pair=True, dtype=dtype, device=self.device
                 ).clone()
 
-            gx = F.conv2d(gray.unsqueeze(0).unsqueeze(0), kx, padding=1).squeeze()
-            gy = F.conv2d(gray.unsqueeze(0).unsqueeze(0), ky, padding=1).squeeze()
+            gx = F.conv2d(
+                gray.unsqueeze(0).unsqueeze(0),
+                kx.to(gray.unsqueeze(0).unsqueeze(0).dtype),
+                padding=1,
+            ).squeeze()
+            gy = F.conv2d(
+                gray.unsqueeze(0).unsqueeze(0),
+                ky.to(gray.unsqueeze(0).unsqueeze(0).dtype),
+                padding=1,
+            ).squeeze()
             gradient = torch.sqrt(gx**2 + gy**2 + 1e-8)
 
             if norm_grad:
@@ -8805,8 +8895,16 @@ class TorchSegmenter2(BaseSegmenter):
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            gx = F.conv2d(gray.unsqueeze(0).unsqueeze(0), sobel_x, padding=1).squeeze()
-            gy = F.conv2d(gray.unsqueeze(0).unsqueeze(0), sobel_y, padding=1).squeeze()
+            gx = F.conv2d(
+                gray.unsqueeze(0).unsqueeze(0),
+                sobel_x.to(gray.unsqueeze(0).unsqueeze(0).dtype),
+                padding=1,
+            ).squeeze()
+            gy = F.conv2d(
+                gray.unsqueeze(0).unsqueeze(0),
+                sobel_y.to(gray.unsqueeze(0).unsqueeze(0).dtype),
+                padding=1,
+            ).squeeze()
             gradient = torch.sqrt(gx**2 + gy**2 + 1e-8)
             gradient = gradient / (gradient.amax() + 1e-8)  # Нормализация
 
