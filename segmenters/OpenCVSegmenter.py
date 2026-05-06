@@ -69,7 +69,6 @@ from typing import (
     Any,
     Optional,
     Callable,
-    Union,
 )
 import warnings
 from collections import deque

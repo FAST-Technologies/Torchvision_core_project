@@ -19,6 +19,7 @@ if project_root not in sys.path:
 
 
 from segmenters.TorchSegmenter import TorchSegmenter
+from segmenters.NewTorchSegmenter import TorchSegmenter2
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -110,7 +111,16 @@ class CpuCudaBenchmark:
                     pass
 
         # Warm-up
-        for _ in range(self.warmup_runs):
+        actual_warmup = self.warmup_runs
+        if hasattr(segmenter, "use_compile") and getattr(
+            segmenter, "use_compile", False
+        ):
+            # При torch.compile первые вызовы тратятся на JIT-компиляцию
+            # Увеличиваем warmup для стабилизации метрик
+            actual_warmup = max(actual_warmup, 5)
+
+        # Warm-up с динамическим количеством прогонов
+        for _ in range(actual_warmup):
             try:
                 segmenter.segment(image)
             except Exception:
@@ -150,6 +160,13 @@ class CpuCudaBenchmark:
                 except Exception:
                     pass
 
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            import gc
+
+            gc.collect()
+
         if not times:
             return {
                 "method": method_name,
@@ -177,15 +194,23 @@ class CpuCudaBenchmark:
     def _is_cuda_capable(self, segmenter) -> bool:
         """Проверяет, может ли сегментер реально использовать CUDA"""
         # Pure PyTorch реализации
-        if isinstance(segmenter, TorchSegmenter):
+        if isinstance(segmenter, TorchSegmenter2) or isinstance(
+            segmenter, TorchSegmenter
+        ):
             # Исключаем методы, которые конвертируют в numpy
             non_cuda_methods = [
                 "otsu_thresholding",
                 "kittler_illingworth",
+                "threshold_entropy_kapur",
                 "region_growing",
                 "split_and_merge",
                 "watershed",
-                "random_walker",  # и др.
+                "random_walker",
+                "quickshift",
+                "slic",
+                "felzenszwalb",
+                "dbscan_segmentation",
+                "meanshift",
             ]
             return segmenter.method not in non_cuda_methods
         return False  # OpenCV/Sklearn всегда CPU-only
@@ -402,6 +427,16 @@ class CpuCudaBenchmark:
             output_dir = os.path.join(self.base_output_dir, f"{test_name}_{timestamp}")
         os.makedirs(output_dir, exist_ok=True)
 
+        def _parse_speedup(val: str) -> float:
+            """Извлекает числовое значение из строки speedup (например, '1.5×' → 1.5)."""
+            if isinstance(val, (int, float)):
+                return float(val)
+            try:
+                # Удаляем символы "×", "x", пробелы и приводим к float
+                return float(str(val).replace("×", "").replace("x", "").strip())
+            except (ValueError, AttributeError):
+                return 1.0  # Default при ошибке парсинга
+
         # График 1: Сравнение времени (CPU vs CUDA)
         plt.figure(figsize=(14, 8))
 
@@ -465,16 +500,6 @@ class CpuCudaBenchmark:
 
             if speedups:
                 x = np.arange(len(method_names))
-
-                def _parse_speedup(val: str) -> float:
-                    """Извлекает числовое значение из строки speedup (например, '1.5×' → 1.5)."""
-                    if isinstance(val, (int, float)):
-                        return float(val)
-                    try:
-                        # Удаляем символы "×", "x", пробелы и приводим к float
-                        return float(str(val).replace("×", "").replace("x", "").strip())
-                    except (ValueError, AttributeError):
-                        return 1.0  # Default при ошибке парсинга
 
                 # Используем функцию для безопасного сравнения
                 colors: List[str] = [

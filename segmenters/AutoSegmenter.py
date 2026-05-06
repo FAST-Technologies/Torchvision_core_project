@@ -5740,6 +5740,10 @@ class AutoSegmenter:
             from segmenters.TorchSegmenter import TorchSegmenter  # если есть
 
             return TorchSegmenter
+        elif library == "torch_v2":
+            from segmenters.NewTorchSegmenter import TorchSegmenter2  # если есть
+
+            return TorchSegmenter2
         else:  # opencv или по умолчанию
             from segmenters.OpenCVSegmenter import OpenCVSegmenter
 

@@ -10,13 +10,27 @@ import warnings
 from PIL import Image
 import time
 import traceback
-from typing import List, Union, Tuple, Dict, Any, Optional, Callable, Literal
+from typing import (
+    List,
+    Union,
+    Tuple,
+    Dict,
+    Any,
+    Optional,
+    Callable,
+    Literal,
+    cast,
+    TYPE_CHECKING,
+)
 
 from numba import njit, prange
 import numpy as np
 from scipy import ndimage
 from functools import lru_cache
 from contextlib import contextmanager
+from collections import OrderedDict
+import hashlib
+import json
 
 import torch
 import torch.nn.functional as F
@@ -82,6 +96,271 @@ class PrecisionManager:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# NUMBA-OPTIMIZED FALLBACKS (CPU)
+# ──────────────────────────────────────────────────────────────────────
+@njit(parallel=True, cache=True)
+def _kmeans_numba(
+    data: np.ndarray, k: int, max_iter: int = 50, tol: float = 1e-4
+) -> np.ndarray:
+    """Быстрая K-Means кластеризация на CPU (Lloyd's algorithm)"""
+    n_samples, n_features = data.shape
+    centroids = data[np.random.choice(n_samples, k, replace=False)].copy()
+    labels = np.zeros(n_samples, dtype=np.int32)
+
+    for _ in range(max_iter):
+        # Assign labels
+        for i in prange(n_samples):
+            min_dist = np.inf
+            for j in range(k):
+                d = 0.0
+                for f in range(n_features):
+                    diff = data[i, f] - centroids[j, f]
+                    d += diff * diff
+                if d < min_dist:
+                    min_dist = d
+                    labels[i] = j
+
+        # Update centroids
+        old_centroids = centroids.copy()
+        for j in range(k):
+            count = 0
+            for f in range(n_features):
+                centroids[j, f] = 0.0
+            for i in range(n_samples):
+                if labels[i] == j:
+                    count += 1
+                    for f in range(n_features):
+                        centroids[j, f] += data[i, f]
+            if count > 0:
+                for f in range(n_features):
+                    centroids[j, f] /= count
+
+        # Check convergence
+        converged = True
+        for j in range(k):
+            for f in range(n_features):
+                if np.abs(old_centroids[j, f] - centroids[j, f]) > tol:
+                    converged = False
+                    break
+        if converged:
+            break
+    return labels
+
+
+@njit(parallel=True, cache=True)
+def _watershed_numba(gradient: np.ndarray, markers: np.ndarray) -> np.ndarray:
+    """Marker-based Watershed propagation (быстрая альтернатива heapq)"""
+    h, w = gradient.shape
+    labels = np.copy(markers).astype(np.int32)
+    visited = np.zeros((h, w), dtype=np.bool_)
+
+    # Initialize queue with markers
+    queue = []
+    for y in range(h):
+        for x in range(w):
+            if markers[y, x] > 0:
+                queue.append((gradient[y, x], y, x, labels[y, x]))
+                visited[y, x] = True
+
+    queue.sort()  # Sort by gradient magnitude
+
+    # Propagate
+    idx = 0
+    while idx < len(queue):
+        _, y, x, label = queue[idx]
+        idx += 1
+
+        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < h and 0 <= nx < w and not visited[ny, nx]:
+                visited[ny, nx] = True
+                labels[ny, nx] = label
+                queue.append((gradient[ny, nx], ny, nx, label))
+
+    # Re-sort remaining to maintain priority order (approximate but fast)
+    # For exact watershed, use scipy.ndimage.watershed_ift или skimage.morphology.watershed
+    return labels
+
+
+@njit(parallel=True, cache=True)
+def _morphological_dilation_numba(
+    image: np.ndarray, kernel_size: int = 3
+) -> np.ndarray:
+    """Быстрая дилатация на CPU"""
+    h, w = image.shape
+    out = np.zeros((h, w), dtype=image.dtype)
+    half = kernel_size // 2
+    for y in prange(h):
+        for x in range(w):
+            max_val = image[y, x]
+            for ky in range(-half, half + 1):
+                for kx in range(-half, half + 1):
+                    ny, nx = y + ky, x + kx
+                    if 0 <= ny < h and 0 <= nx < w:
+                        if image[ny, nx] > max_val:
+                            max_val = image[ny, nx]
+            out[y, x] = max_val
+    return out
+
+
+@njit(parallel=True, cache=True)
+def _morphological_erosion_numba(image: np.ndarray, kernel_size: int = 3) -> np.ndarray:
+    """Быстрая эрозия на CPU"""
+    h, w = image.shape
+    out = np.zeros((h, w), dtype=image.dtype)
+    half = kernel_size // 2
+    for y in prange(h):
+        for x in range(w):
+            min_val = image[y, x]
+            for ky in range(-half, half + 1):
+                for kx in range(-half, half + 1):
+                    ny, nx = y + ky, x + kx
+                    if 0 <= ny < h and 0 <= nx < w:
+                        if image[ny, nx] < min_val:
+                            min_val = image[ny, nx]
+            out[y, x] = min_val
+    return out
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Вариант Б: Ускорение через Numba (для больших изображений, >1024×1024)
+@njit(cache=True)  # parallel=True
+def _region_growing_numba(
+    gray: np.ndarray,
+    seed_y: int,
+    seed_x: int,
+    tolerance: float,
+    h: int,
+    w: int,
+) -> np.ndarray:
+    """Region Growing на Numba — максимальная скорость на CPU"""
+    mask = np.zeros((h, w), dtype=np.bool_)
+    visited = np.zeros((h, w), dtype=np.bool_)
+    seed_value = gray[seed_y, seed_x]
+
+    # Простая очередь на массиве (циклический буфер)
+    queue = np.zeros((h * w, 2), dtype=np.int32)
+    head, tail = 0, 0
+    queue[tail] = [seed_y, seed_x]
+    tail += 1
+    visited[seed_y, seed_x] = True
+
+    # Направления
+    dy = np.array([-1, 1, 0, 0], dtype=np.int32)
+    dx = np.array([0, 0, -1, 1], dtype=np.int32)
+
+    while head < tail:
+        y, x = queue[head]
+        head += 1
+
+        pixel_value = gray[y, x]
+        if abs(pixel_value - seed_value) <= tolerance:
+            mask[y, x] = True
+
+            # Добавляем соседей
+            for d in range(4):
+                ny, nx = y + dy[d], x + dx[d]
+                if 0 <= ny < h and 0 <= nx < w and not visited[ny, nx]:
+                    visited[ny, nx] = True
+                    queue[tail] = [ny, nx]
+                    tail += 1
+
+    return mask
+
+
+# ──────────────────────────────────────────────────────────────────────
+@njit(parallel=True, cache=True)
+def _watershed_numba_impl(
+    gradient: np.ndarray,  # (H, W), float32
+    markers: np.ndarray,  # (H, W), int32
+    connectivity: int = 4,
+) -> np.ndarray:
+    """Watershed на Numba для CPU — priority queue через heapq"""
+    import heapq
+
+    h, w = gradient.shape
+    labels = np.zeros((h, w), dtype=np.int32)
+    visited = np.zeros((h, w), dtype=np.bool_)
+
+    # Очередь: (gradient_value, y, x, label)
+    queue: List[Tuple[float, int, int, int]] = []  # (gradient, y, x, label)
+
+    # Инициализация маркерами
+    for y in range(h):
+        for x in range(w):
+            if markers[y, x] > 0:
+                heapq.heappush(queue, (gradient[y, x], y, x, markers[y, x]))
+                labels[y, x] = markers[y, x]
+                visited[y, x] = True
+
+    # Направления
+    if connectivity == 4:
+        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+    else:
+        directions = [
+            (0, 1),
+            (1, 0),
+            (0, -1),
+            (-1, 0),
+            (1, 1),
+            (1, -1),
+            (-1, 1),
+            (-1, -1),
+        ]
+
+    # Основной цикл
+    while queue:
+        _, y, x, label = heapq.heappop(queue)
+
+        for dy, dx in directions:
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < h and 0 <= nx < w and not visited[ny, nx]:
+                visited[ny, nx] = True
+                labels[ny, nx] = label
+                heapq.heappush(queue, (gradient[ny, nx], ny, nx, label))
+
+    return labels
+
+
+@torch.jit.unused
+def _make_kernel_key(
+    kernel_type: str,
+    size: int,
+    sigma: Optional[float],
+    dtype: torch.dtype,
+    device: torch.device,
+    return_pair: bool,
+) -> str:
+    """Создаёт детерминированный строковый ключ"""
+    key_data = {
+        "type": kernel_type,
+        "size": size,
+        "sigma": sigma,
+        "dtype": str(dtype),
+        "device": str(device),
+        "pair": return_pair,
+    }
+    key_str = json.dumps(key_data, sort_keys=True, default=str)
+    return hashlib.md5(key_str.encode()).hexdigest()
+
+
+def _compute_image_hash(image: Union[np.ndarray, torch.Tensor]) -> str:
+    """Вычисляет хэш изображения: метаданные + первые 4 КБ данных"""
+    if isinstance(image, torch.Tensor):
+        img_np = image.cpu().numpy()
+    else:
+        img_np = image
+
+    # Метаданные
+    meta = f"{img_np.shape}:{img_np.dtype}:{img_np.strides}".encode()
+
+    # Первые 4096 байт данных (достаточно для уникальности, но быстро)
+    data_sample = img_np.tobytes()[:4096]
+
+    return hashlib.sha256(meta + data_sample).hexdigest()[:16]  # 16 символов = 64 бита
+
+
+# ──────────────────────────────────────────────────────────────────────
 class TorchSegmenter2(BaseSegmenter):
     """
     Класс для методов сегментации с использованием PyTorch.
@@ -100,14 +379,21 @@ class TorchSegmenter2(BaseSegmenter):
         compile_mode: str = "reduce-overhead",  # или "default", "max-autotune"
         compile_fullgraph: bool = False,  # True для максимального ускорения, но может не скомпилироваться
         compile_dynamic: bool = True,  # Для поддержки разных размеров изображений
-        debug_mode: bool = False,
+        debug_mode: bool = True,
         **kwargs: Any,
     ) -> None:
         self.dtype: torch.dtype = self._resolve_dtype(kwargs.get("dtype", "fp32"))
         self._segment_func: Callable[[torch.Tensor], torch.Tensor]  # type: ignore[assignment]
-        self._kernel_cache: Dict[str, torch.Tensor] = {}
+        # self._kernel_cache: Dict[
+        #     Tuple[str, str, int, torch.dtype, bool],
+        #     Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
+        # ] = {}
+        self._kernel_cache: Dict[
+            str, Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
+        ] = {}
         self._hist_cache: Dict[Tuple[int, torch.dtype], torch.Tensor] = {}
-        self._result_cache: Dict[Tuple[Any, ...], np.ndarray] = {}
+        self._result_cache: OrderedDict = OrderedDict()
+        self._cache_max_size: int = kwargs.get("cache_max_size", 100)
         self._otsu_mean_levels: Optional[torch.Tensor] = None
         super().__init__()
         self.method: str = method
@@ -120,6 +406,8 @@ class TorchSegmenter2(BaseSegmenter):
         self.compile_dynamic: bool = compile_dynamic
         self._debug_mode: bool = debug_mode
         self._has_profiling_run: bool = False
+        self._static_kernels: Dict[str, Dict[str, torch.Tensor]] = {}
+        self._kernel_creation_device: Optional[torch.device] = None
         self._needs_normalization: bool = method in [
             "global_thresholding",
             "adaptive_thresholding",
@@ -172,43 +460,49 @@ class TorchSegmenter2(BaseSegmenter):
             # ===== ПОРОГОВЫЕ МЕТОДЫ =====
             "global_thresholding": {
                 "fullgraph": True,
-                "dynamic": False,
+                "dynamic": True,
                 "mode": "reduce-overhead",
             },
             "otsu_thresholding": {
-                "fullgraph": True,
-                "dynamic": False,
+                "use_compile": False,  # проблема с _otsu_mean_levels кэшем
+                "fullgraph": False,
+                "dynamic": True,
                 "mode": "reduce-overhead",
             },
+            "threshold_bernsen": {"use_compile": False},  # indexing issue
             "adaptive_thresholding": {
-                "fullgraph": True,
+                "fullgraph": False,
                 "dynamic": True,
                 "mode": "reduce-overhead",
             },
             "threshold_niblack": {
-                "fullgraph": True,
+                "fullgraph": False,
                 "dynamic": True,
                 "mode": "reduce-overhead",
             },
             "threshold_sauvola": {
-                "fullgraph": True,
+                "fullgraph": False,
                 "dynamic": True,
                 "mode": "reduce-overhead",
             },
+            "threshold_bernsen": {"use_compile": False},  # ← пока отключить
+            "threshold_kittler_illingworth": {"fullgraph": False, "dynamic": True},
+            "threshold_entropy_kapur": {"fullgraph": False, "dynamic": True},
             # ===== ГРАНИЧНЫЕ МЕТОДЫ =====
             "sobel_edge": {
                 "fullgraph": False,
-                "dynamic": True,
+                "dynamic": False,
                 "mode": "reduce-overhead",
+                "use_cudagraphs": False,
             },
             "prewitt_edge": {
-                "fullgraph": False,
-                "dynamic": True,
+                "fullgraph": True,
+                "dynamic": False,
                 "mode": "reduce-overhead",
             },
             "scharr_edge": {
-                "fullgraph": False,
-                "dynamic": True,
+                "fullgraph": True,
+                "dynamic": False,
                 "mode": "reduce-overhead",
             },
             "laplacian_edge": {
@@ -240,7 +534,7 @@ class TorchSegmenter2(BaseSegmenter):
             "chan_vese": {
                 "fullgraph": False,
                 "dynamic": True,
-                "mode": "max-autotune",
+                "mode": "reduce-overhead",
             },  # итерации
             "morphological_snakes": {
                 "fullgraph": True,
@@ -293,9 +587,356 @@ class TorchSegmenter2(BaseSegmenter):
                     self._segment_func
                 )
 
+    @torch.jit.unused  # Игнорировать при трассировке/компиляции
+    def _get_static_kernel(
+        self,
+        name: str,
+        data: List[List[float]],
+        size: int,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """
+        Создаёт и кэширует свёрточное ядро вне контекста torch.compile.
+
+        Args:
+            name: Уникальное имя ядра для кэша
+            data: Данные ядра как список списков
+            size: Размер ядра (для view)
+            dtype: Целевой тип данных
+            device: Устройство размещения
+
+        Returns:
+            torch.Tensor: Ядро формы (1, 1, size, size)
+        """
+        # Ключ кэша: имя + dtype + device
+        cache_key = f"{name}_{str(dtype)}_{str(device)}"
+
+        if cache_key not in self._static_kernels:
+            # 🔥 Создаём ядро в eager mode (вне torch.compile)
+            kernel = torch.tensor(data, dtype=dtype, device=device)
+            kernel = kernel.view(1, 1, size, size)
+            self._static_kernels[cache_key] = kernel
+
+        return self._static_kernels[cache_key]
+
+    @torch.jit.unused
+    def _make_kernel_safe(
+        self,
+        data: List[List[float]],
+        size: int,
+        device: torch.device,
+        target_dtype: torch.dtype,
+    ) -> torch.Tensor:
+        """
+        Безопасное создание ядра с учётом low-precision dtypes.
+
+        Для fp16/bf16: создаём в fp32 → конвертируем (избегаем проблем с целочисленными данными)
+        Для fp32: создаём напрямую
+
+        Args:
+            data: Данные ядра
+            size: Размер ядра
+            device: Устройство
+            target_dtype: Целевой dtype
+
+        Returns:
+            torch.Tensor: Ядро формы (1, 1, size, size)
+        """
+        # Для low-precision: сначала создаём в fp32, потом конвертируем
+        if target_dtype in [torch.float16, torch.bfloat16]:
+            kernel = torch.tensor(data, dtype=torch.float32, device=device)
+            kernel = kernel.to(dtype=target_dtype)
+        else:
+            kernel = torch.tensor(data, dtype=target_dtype, device=device)
+
+        return kernel.view(1, 1, size, size)
+
+    def export_to_jit(
+        self,
+        method_name: Optional[str] = None,
+        output_path: str = "./exported",
+        example_input: Optional[torch.Tensor] = None,
+    ) -> bool:
+        """Экспорт метода в TorchScript"""
+        import os
+
+        os.makedirs(output_path, exist_ok=True)
+
+        method = method_name or self.method
+        if method not in self.method_map:
+            print(f"❌ Метод {method} не найден")
+            return False
+
+        func = self.method_map[method]
+
+        # Создаём dummy input если не передан
+        if example_input is None:
+            example_input = torch.randn(
+                1, 3, 256, 256, device=self.device, dtype=self.dtype
+            )
+
+        try:
+            # Scripting для методов без динамического контроля
+            scripted = torch.jit.script(func)
+            path = os.path.join(output_path, f"{method}_scripted.pt")
+            scripted.save(path)
+            print(f"✅ TorchScript сохранён: {path}")
+            return True
+        except Exception as e:
+            print(f"⚠️  torch.jit.script failed: {e}")
+
+        # Fallback: tracing
+        try:
+            traced = torch.jit.trace(func, example_input, check_trace=False)
+            path = os.path.join(output_path, f"{method}_traced.pt")
+            traced.save(path)
+            print(f"✅ TorchScript (trace) сохранён: {path}")
+            return True
+        except Exception as e2:
+            print(f"❌ Trace тоже не удался: {e2}")
+            return False
+
+    def _get_conv_kernel(
+        self,
+        kernel_type: Literal[
+            "sobel", "prewitt", "scharr", "roberts", "gaussian", "ones", "laplacian"
+        ],
+        size: int = 3,
+        sigma: Optional[float] = None,
+        dtype: Optional[torch.dtype] = None,
+        device: Optional[torch.device] = None,
+        return_pair: bool = False,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """Универсальный кэш для ядер свёртки"""
+        dtype = dtype or self.dtype
+        device = device or self.device
+
+        # Ключ для кэша
+        key = _make_kernel_key(kernel_type, size, sigma, dtype, device, return_pair)
+        if key in self._kernel_cache:
+            return self._kernel_cache[key]  # type: ignore[assignment]
+
+        # Генерация ядра
+        if return_pair and kernel_type in ["sobel", "prewitt", "scharr", "roberts"]:
+            if kernel_type == "sobel":
+                data_x = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]
+                data_y = [[-1, -2, -1], [0, 0, 0], [1, 2, 1]]
+            elif kernel_type == "prewitt":
+                data_x = [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]]
+                data_y = [[-1, -1, -1], [0, 0, 0], [1, 1, 1]]
+            elif kernel_type == "scharr":
+                data_x = [[-3, 0, 3], [-10, 0, 10], [-3, 0, 3]]
+                data_y = [[-3, -10, -3], [0, 0, 0], [3, 10, 3]]
+            elif kernel_type == "roberts":
+                data_x = [[1, 0], [0, -1]]
+                data_y = [[0, 1], [-1, 0]]
+                size = 2  # Roberts всегда 2×2
+
+            kx = (
+                torch.tensor(data_x, dtype=dtype, device=device)
+                .to(dtype=dtype)
+                .view(1, 1, size, size)
+            )
+            ky = (
+                torch.tensor(data_y, dtype=dtype, device=device)
+                .to(dtype=dtype)
+                .view(1, 1, size, size)
+            )
+            kernel: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]] = (kx, ky)
+        else:
+            if kernel_type == "sobel_x":
+                data = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]
+                kernel = torch.tensor(data, dtype=dtype, device=device).view(1, 1, 3, 3)
+            elif kernel_type == "sobel_y":
+                data = [[-1, -2, -1], [0, 0, 0], [1, 2, 1]]
+                kernel = torch.tensor(data, dtype=dtype, device=device).view(1, 1, 3, 3)
+            elif kernel_type == "gaussian":
+                coords = torch.arange(size, dtype=dtype, device=device) - size // 2
+                kernel_1d = torch.exp(-0.5 * (coords / (sigma or size / 6)) ** 2)
+                kernel_1d = kernel_1d / kernel_1d.sum()
+                kernel = (kernel_1d.unsqueeze(1) @ kernel_1d.unsqueeze(0)).view(
+                    1, 1, size, size
+                )
+            elif kernel_type == "ones":
+                kernel = torch.ones(1, 1, size, size, dtype=dtype, device=device) / (
+                    size**2
+                )
+            elif kernel_type == "laplacian":
+                if size == 3:
+                    data = [[0, 1, 0], [1, -4, 1], [0, 1, 0]]
+                else:  # size == 5
+                    data = [
+                        [0, 0, -1, 0, 0],
+                        [0, -1, -2, -1, 0],
+                        [-1, -2, 16, -2, -1],
+                        [0, -1, -2, -1, 0],
+                        [0, 0, -1, 0, 0],
+                    ]
+                kernel = torch.tensor(data, dtype=dtype, device=device).to(
+                    dtype=dtype
+                ).view(1, 1, size, size) / (8.0 if size == 5 else 1.0)
+            else:
+                raise ValueError(f"Unknown kernel type: {kernel_type}")
+
+        self._kernel_cache[key] = kernel  # type: ignore[assignment]
+        return kernel.to(dtype=dtype, device=device)
+
     # ──────────────────────────────────────────────────────────────────────
-    # СЛУЖЕБНЫЕ ФУНКЦИИ
+    # КЭШИРУЕМЫЕ ЯДРА ДЛЯ ГРАДИЕНТНЫХ МЕТОДОВ
     # ──────────────────────────────────────────────────────────────────────
+    # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    @lru_cache(maxsize=32)
+    def _get_prewitt_kernels_cached(
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Кэширует ядра Прюитта для устройства и типа данных"""
+        kx = torch.tensor(
+            [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]],
+            dtype=dtype,
+            device=device,
+        ).view(1, 1, 3, 3)
+        ky = torch.tensor(
+            [[-1, -1, -1], [0, 0, 0], [1, 1, 1]],
+            dtype=dtype,
+            device=device,
+        ).view(1, 1, 3, 3)
+        return kx, ky
+
+    # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    @lru_cache(maxsize=32)
+    def _get_scharr_kernels_cached(
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Кэширует ядра Шарра для устройства и типа данных"""
+        kx = torch.tensor(
+            [[-3, 0, 3], [-10, 0, 10], [-3, 0, 3]],
+            dtype=dtype,
+            device=device,
+        ).view(1, 1, 3, 3)
+        ky = torch.tensor(
+            [[-3, -10, -3], [0, 0, 0], [3, 10, 3]],
+            dtype=dtype,
+            device=device,
+        ).view(1, 1, 3, 3)
+        return kx, ky
+
+    # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    @lru_cache(maxsize=32)
+    def _get_laplacian_kernel_cached(
+        device: torch.device, dtype: torch.dtype, size: int = 3  # 3 или 5
+    ) -> torch.Tensor:
+        """Кэширует ядро Лапласа (4-связность) для устройства и типа данных"""
+        if size == 3:
+            kernel = torch.tensor(
+                [[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=dtype, device=device
+            )
+        else:  # size == 5
+            kernel = (
+                torch.tensor(
+                    [
+                        [0, 0, -1, 0, 0],
+                        [0, -1, -2, -1, 0],
+                        [-1, -2, 16, -2, -1],
+                        [0, -1, -2, -1, 0],
+                        [0, 0, -1, 0, 0],
+                    ],
+                    dtype=dtype,
+                    device=device,
+                )
+                / 8.0
+            )
+        return kernel.view(1, 1, size, size)
+
+    # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    @lru_cache(maxsize=32)
+    def _get_roberts_kernels_cached(
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Кэширует ядра Робертса 2×2 для устройства и типа данных"""
+        kx = torch.tensor(
+            [[1, 0], [0, -1]],
+            dtype=dtype,
+            device=device,
+        ).view(1, 1, 2, 2)
+        ky = torch.tensor(
+            [[0, 1], [-1, 0]],
+            dtype=dtype,
+            device=device,
+        ).view(1, 1, 2, 2)
+        return kx, ky
+
+    # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    @lru_cache(maxsize=64)
+    def _get_gaussian_kernel_1d(
+        size: int,
+        sigma: float,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """
+        Кэшируемое 1D гауссово ядро для сепарабельной свёртки.
+
+        Args:
+            size: Нечётный размер ядра.
+            sigma: Стандартное отклонение гауссианы.
+            dtype: Тип данных тензора.
+            device: Устройство размещения.
+
+        Returns:
+            torch.Tensor: 1D ядро формы (size,), нормированное к сумме 1.
+        """
+        coords = torch.arange(size, dtype=dtype, device=device) - size // 2
+        kernel = torch.exp(-0.5 * (coords / sigma) ** 2)
+        return kernel / kernel.sum()
+
+    @staticmethod
+    @lru_cache(maxsize=8)
+    def _get_sobel_kernels_cached(
+        device: str, dtype: torch.dtype
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Кэширует ядра Собеля для устройства и dtype (избегает ре-создания)"""
+        dev = torch.device(device)
+        kx = torch.tensor(
+            [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], device=dev, dtype=dtype
+        ).view(1, 1, 3, 3)
+        ky = torch.tensor(
+            [[-1, -2, -1], [0, 0, 0], [1, 2, 1]], device=dev, dtype=dtype
+        ).view(1, 1, 3, 3)
+        return kx, ky
+
+    # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    @lru_cache(maxsize=32)
+    def _get_laplacian_5x5_cached(
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        """Кэширует лапласиан 5×5 для устройства и типа данных"""
+        kernel = (
+            torch.tensor(
+                [
+                    [0, 0, -1, 0, 0],
+                    [0, -1, -2, -1, 0],
+                    [-1, -2, 16, -2, -1],
+                    [0, -1, -2, -1, 0],
+                    [0, 0, -1, 0, 0],
+                ],
+                dtype=dtype,
+                device=device,
+            ).view(1, 1, 5, 5)
+            / 8.0
+        )
+        return kernel
+
     def _normalize_params(self, **kwargs) -> Dict[str, Any]:
         """Нормализует параметры для консистентности между GPU/CPU версиями"""
         normalized = self.params.copy()
@@ -310,7 +951,10 @@ class TorchSegmenter2(BaseSegmenter):
 
     @torch.no_grad()
     def _local_stats_torch(
-        self, gray: torch.Tensor, window_size: int
+        self,
+        gray: torch.Tensor,
+        window_size: int,
+        dtype: Optional[torch.dtype] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Вычисляет локальное среднее и стандартное отклонение через свёртку на GPU.
@@ -320,6 +964,24 @@ class TorchSegmenter2(BaseSegmenter):
         Returns:
             local_mean, local_std — тензоры той же размерности, что и вход
         """
+        dtype = dtype or gray.dtype
+        device = gray.device
+
+        # Кэш ключ для ядра
+        # kernel_key = ("ones", str(device), window_size, dtype, False) # type: ignore[assignment]
+        kernel_key = _make_kernel_key("ones", window_size, None, dtype, device, False)
+        if kernel_key not in self._kernel_cache:
+            kernel = torch.ones(
+                1, 1, window_size, window_size, device=device, dtype=dtype
+            )
+            self._kernel_cache[kernel_key] = kernel / (window_size**2)  # type: ignore[assignment]
+        cached_value = self._kernel_cache[kernel_key]
+        if isinstance(cached_value, tuple):
+            # Это не должно произойти для "ones", но добавляем защиту
+            raise TypeError(f"Expected Tensor, got tuple for kernel type 'ones'")
+        kernel = cast(torch.Tensor, cached_value)
+        kernel = kernel.to(dtype=gray.dtype)
+
         # Приводим к 4D для conv2d: (1, 1, H, W)
         if gray.dim() == 2:
             gray_4d = gray.unsqueeze(0).unsqueeze(0)
@@ -329,9 +991,6 @@ class TorchSegmenter2(BaseSegmenter):
             gray_4d = gray
 
         # Создаём ядро усреднения (с учётом dtype и device)
-        kernel = torch.ones(
-            1, 1, window_size, window_size, device=gray.device, dtype=gray.dtype
-        ) / (window_size**2)
         pad = window_size // 2
 
         # Локальное среднее: E[X]
@@ -348,20 +1007,6 @@ class TorchSegmenter2(BaseSegmenter):
         if gray.dim() == 2:
             return local_mean_4d.squeeze(), local_std_4d.squeeze()
         return local_mean_4d, local_std_4d
-
-    # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    @lru_cache(maxsize=8)
-    def _get_sobel_kernels(device: str) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Кэширует ядра Собеля для устройства"""
-        dev = torch.device(device)
-        kx = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], device=dev).view(
-            1, 1, 3, 3
-        )
-        ky = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], device=dev).view(
-            1, 1, 3, 3
-        )
-        return kx.float(), ky.float()
 
     # ──────────────────────────────────────────────────────────────────────
     def _get_mean_levels(self, bins: int, dtype: torch.dtype) -> torch.Tensor:
@@ -381,30 +1026,34 @@ class TorchSegmenter2(BaseSegmenter):
         **kwargs,
     ) -> np.ndarray:
         """Сегментация с опциональным кэшированием результатов"""
-        if use_cache and not hasattr(self, "_result_cache"):
-            self._result_cache = {}
+        if not use_cache:
+            return self.segment(image, **kwargs)
+
+        if not hasattr(self, "_result_cache"):
+            self._result_cache = OrderedDict()
+            self._cache_max_size = getattr(self, "_cache_max_size", 100)
 
         # Создаём хэш ключа из изображения и параметров
-        if isinstance(image, np.ndarray):
-            img_hash = hash(image.tobytes())
-        elif isinstance(image, torch.Tensor):
-            img_hash = hash(image.cpu().numpy().tobytes())
+        if isinstance(image, (np.ndarray, torch.Tensor)):
+            img_hash = _compute_image_hash(image)
         else:
-            img_hash = hash(str(image))
+            # Для строк и PIL — хэшируем как строку
+            img_hash = hashlib.sha256(str(image).encode()).hexdigest()[:16]
 
         cache_key = (img_hash, self.method, tuple(sorted(kwargs.items())))
 
-        if use_cache and cache_key in self._result_cache:
+        if cache_key in self._result_cache:
+            # Перемещаем в конец (LRU: недавно использованные — в конце)
+            self._result_cache.move_to_end(cache_key)
             return self._result_cache[cache_key]
 
         # Выполняем сегментацию
-        result = super().segment(image, **kwargs)  # type: ignore[safe-super]
+        result = self.segment(image, **kwargs)
 
         # Кэшируем (с ограничением размера)
-        if use_cache:
-            if len(self._result_cache) > 100:  # LRU eviction
-                self._result_cache.pop(next(iter(self._result_cache)))
-            self._result_cache[cache_key] = result
+        if len(self._result_cache) >= self._cache_max_size:  # LRU eviction
+            self._result_cache.popitem(last=False)
+        self._result_cache[cache_key] = result
 
         return result
 
@@ -595,6 +1244,19 @@ class TorchSegmenter2(BaseSegmenter):
             fullgraph = compile_cfg.get("fullgraph", self.compile_fullgraph)
             dynamic = compile_cfg.get("dynamic", self.compile_dynamic)
             mode = compile_cfg.get("mode", self.compile_mode)
+            self._precache_kernels()
+            if self.method in {
+                "adaptive_thresholding",
+                "threshold_niblack",
+                "threshold_sauvola",
+            }:
+                if fullgraph:
+                    warnings.warn(
+                        f"Метод '{self.method}' содержит dynamic control flow. "
+                        "fullgraph автоматически отключён для стабильности.",
+                        UserWarning,
+                    )
+                fullgraph = False
             try:
                 print(
                     f"🔧 Компиляция '{self.method}' "
@@ -610,6 +1272,37 @@ class TorchSegmenter2(BaseSegmenter):
                 print("✅ Компиляция завершена")
             except Exception as e:
                 print(f"⚠️  Не удалось скомпилировать: {e}. Используем обычный режим.")
+                warnings.warn(
+                    f"torch.compile failed for {self.method}: {e}. Using eager mode."
+                )
+
+    @torch.jit.unused
+    def _precache_kernels(self) -> None:
+        """Предварительное создание ядер для методов, которые будут компилироваться"""
+        dtype = self.dtype
+        device = self.device
+
+        # Пороговые методы не требуют ядер, пропускаем
+
+        # Граничные методы
+        edge_kernels = {
+            "sobel_x": [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
+            "sobel_y": [[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
+            "prewitt_x": [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]],
+            "prewitt_y": [[-1, -1, -1], [0, 0, 0], [1, 1, 1]],
+            "scharr_x": [[-3, 0, 3], [-10, 0, 10], [-3, 0, 3]],
+            "scharr_y": [[-3, -10, -3], [0, 0, 0], [3, 10, 3]],
+            "roberts_x": [[1, 0], [0, -1]],
+            "roberts_y": [[0, 1], [-1, 0]],
+            "laplacian_3x3": [[0, 1, 0], [1, -4, 1], [0, 1, 0]],
+        }
+
+        for name, data in edge_kernels.items():
+            size = 2 if "roberts" in name else 3
+            kernel = torch.tensor(data, dtype=dtype, device=device).view(
+                1, 1, size, size
+            )
+            self._static_kernels[f"{name}_{str(dtype)}_{str(device)}"] = kernel
 
     def profile_method(
         self,
@@ -661,7 +1354,12 @@ class TorchSegmenter2(BaseSegmenter):
 
         if return_trace:
             result["trace"] = prof.key_averages().table(
-                sort_by="cuda_time_total", row_limit=20
+                sort_by=(
+                    "cuda_time_total"
+                    if self.device.type == "cuda"
+                    else "cpu_time_total"
+                ),
+                row_limit=20,
             )
 
         return result
@@ -680,7 +1378,7 @@ class TorchSegmenter2(BaseSegmenter):
             raise TypeError("Unsupported batch format")
 
         # Стек в batch dimension
-        batch = torch.stack(tensors, dim=0)  # (B, C, H, W)
+        batch = torch.cat(tensors, dim=0)  # (B, C, H, W)
 
         # Применяем метод к каждому изображению в батче
         # (требует модификации _segment_func для поддержки batch)
@@ -772,10 +1470,9 @@ class TorchSegmenter2(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
+    @torch.jit.ignore  # Игнорировать при трассировке, выполнять в eager mode
     def _rgb_to_gray_torch(tensor: torch.Tensor) -> torch.Tensor:
-        """Конвертация RGB → Grayscale на torch (ITU-R BT.601)"""
-        if tensor.shape[1] == 3:
-            # (B, 3, H, W) → (B, 1, H, W)
+        if tensor.size(1) == 3:
             return (
                 0.2989 * tensor[:, 0:1, :, :]
                 + 0.5870 * tensor[:, 1:2, :, :]
@@ -790,13 +1487,14 @@ class TorchSegmenter2(BaseSegmenter):
         return self._rgb_to_gray_torch(tensor)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _cast_to_dtype(self, tensor: torch.Tensor) -> torch.Tensor:
-        """
-        Приведение тензора к целевому dtype с минимальными копиями.
-        """
-        if tensor.dtype == self.dtype:
+    def _cast_to_dtype(
+        self, tensor: torch.Tensor, target_dtype: Optional[torch.dtype] = None
+    ) -> torch.Tensor:
+        """Приведение с гарантией совпадения dtype для conv2d"""
+        dtype = target_dtype or self.dtype
+        if tensor.dtype == dtype and tensor.device == self.device:
             return tensor
-        return tensor.to(dtype=self.dtype, non_blocking=True)
+        return tensor.to(device=self.device, dtype=dtype, non_blocking=True)
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
@@ -858,29 +1556,13 @@ class TorchSegmenter2(BaseSegmenter):
             torch.Tensor на нужном устройстве
         """
         try:
+            # np.array -> float32 -> [0,1] -> (C,H,W)
             tensor: torch.Tensor
-            np_img: np.ndarray
-            if not hasattr(self, "_to_tensor_constants"):
-                self._to_tensor_constants = {
-                    "scale_255": torch.tensor(1.0 / 255.0, device=self.device),
-                    "zero": torch.tensor(0.0, device=self.device),
-                    "one": torch.tensor(1.0, device=self.device),
-                }
-            if (
-                self.use_compile
-                and getattr(self, "compile_mode", "") == "reduce-overhead"
-            ):
-                np_img = np.array(img).astype(np.float32)
-                tensor = torch.from_numpy(np_img).permute(2, 0, 1)
-                if normalize:
-                    tensor = tensor * self._to_tensor_constants["scale_255"]
-            else:
-                # Стандартный путь — надёжность > микрооптимизации
-                if normalize:
-                    tensor = TF.to_tensor(img)  # Автоматически нормализует к [0, 1]
-                else:
-                    np_img = np.array(img).astype(np.float32)
-                    tensor = torch.from_numpy(np_img).permute(2, 0, 1)
+            tensor = (
+                TF.to_tensor(img)
+                if normalize
+                else torch.from_numpy(np.array(img)).permute(2, 0, 1)
+            )
 
             if add_batch:
                 tensor = tensor.unsqueeze(0)  # (1, C, H, W)
@@ -947,6 +1629,7 @@ class TorchSegmenter2(BaseSegmenter):
         return (tensor - min_val) / (max_val - min_val + 1e-8)
 
     # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
     def profile_segmentation(
         segmenter: "TorchSegmenter2",
         image: Union[np.ndarray, torch.Tensor],
@@ -1028,26 +1711,52 @@ class TorchSegmenter2(BaseSegmenter):
 
         # 🔥 Анализ событий трансфера
         if detect_transfers and self.device.type == "cuda":
-            for event in prof.key_averages():
-                if "cudaMemcpy" in event.key or "to(" in event.key:
-                    transfer_warnings.append(
-                        f"⚠️  Трансфер: {event.key} — {event.cpu_time_total / 1e3:.2f}ms"
-                    )
+            if self.method in ["quickshift", "slic", "felzenszwalb"]:
+                transfer_warnings.append(
+                    "⚠️ Метод использует numpy — трансферы ожидаемы"
+                )
+            else:
+                for event in prof.key_averages():
+                    if "cudaMemcpy" in event.key or "to(" in event.key:
+                        transfer_warnings.append(
+                            f"⚠️  Трансфер: {event.key} — {event.cpu_time_total / 1e3:.2f}ms"
+                        )
+
+        avg_event = prof.key_averages().total_average()
+
+        # Пробуем разные варианты имён атрибутов (PyTorch 1.x → 2.x)
+        cuda_time = getattr(avg_event, "cuda_time_total", None)
+        if cuda_time is None:
+            cuda_time = getattr(avg_event, "self_cuda_time_total", 0)
+
+        cuda_memory = getattr(avg_event, "cuda_memory_usage", None)
+        if cuda_memory is None:
+            # Альтернатива: попробовать получить из summary
+            try:
+                cuda_memory = prof.key_averages().total_average().cuda_memory_usage
+            except AttributeError:
+                cuda_memory = 0
 
         # Стандартные метрики
         return {
             "method": self.method,
             "dtype": str(self.dtype),
             "device": str(self.device),
-            "avg_time_ms": prof.key_averages().total_average().cuda_time_total / 1e3,
-            "memory_mb": prof.key_averages().total_average().cuda_memory_usage / 1e6,
+            "avg_time_ms": (cuda_time or 0) / 1e3,
+            "memory_mb": (cuda_memory or 0) / 1e6,
             "transfer_warnings": transfer_warnings,
             "profiler_table": prof.key_averages().table(
-                sort_by="cuda_time_total", row_limit=15
+                sort_by=(
+                    "cuda_time_total"
+                    if self.device.type == "cuda"
+                    else "cpu_time_total"
+                ),
+                row_limit=15,
             ),
         }
 
     # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
     def detect_cpu_gpu_transfers(
         segmenter: "TorchSegmenter2", image: np.ndarray
     ) -> List[str]:
@@ -1079,6 +1788,7 @@ class TorchSegmenter2(BaseSegmenter):
         return warnings if warnings else ["✅ Трансферов не обнаружено"]
 
     # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
     def profile_with_tracing(
         segmenter: "TorchSegmenter2",
         image: np.ndarray,
@@ -1200,7 +1910,15 @@ class TorchSegmenter2(BaseSegmenter):
         results = {}
 
         for dtype_name, dtype in [("fp32", torch.float32), ("fp16", torch.float16)]:
-            gray_typed = gray.to(dtype)
+            if dtype == torch.float16 and device.type == "cuda":
+                cap = torch.cuda.get_device_capability(device.index or 0)
+                if cap[0] < 6:  # Pascal и новее для полноценной поддержки fp16
+                    continue
+            gray_scaled = gray.clone()
+            if gray.max() <= 1.0:  # если нормализовано
+                gray_scaled = gray_scaled * 255.0
+
+            gray_typed = gray_scaled.to(dtype)
 
             start = time.perf_counter()
             for _ in range(100):
@@ -1208,7 +1926,7 @@ class TorchSegmenter2(BaseSegmenter):
                     gray_typed,
                     bins=256,
                     min=0,
-                    max=1 if dtype == torch.float32 else 255,
+                    max=255,
                 )
             if device.type == "cuda":
                 torch.cuda.synchronize()
@@ -2395,6 +3113,11 @@ class TorchSegmenter2(BaseSegmenter):
             self._has_profiling_run = True
         try:
             tensor: torch.Tensor = self.preprocess_image(image)
+            if self._debug_mode:
+                print(
+                    f"[DEBUG] {self.method}: input dtype={tensor.dtype}, device={tensor.device}"
+                )
+                print(f"[DEBUG] Expected dtype: {self.dtype}, device: {self.device}")
             # print(f"Image after Torch preprocessing (tensor): {tensor}")
             mask_tensor = self._segment_func(tensor)
             # print(f"Image after Torch preprocessing (mask_tensor): {mask_tensor}")
@@ -2405,7 +3128,7 @@ class TorchSegmenter2(BaseSegmenter):
 
             if self.device.type == "cuda":
                 mask_np = mask_tensor.to(
-                    dtype=self.dtype, device="cpu", non_blocking=True
+                    device=self.device, dtype=self.dtype, non_blocking=True
                 ).numpy()
             else:
                 mask_np = mask_tensor.float().cpu().numpy()
@@ -2617,7 +3340,10 @@ class TorchSegmenter2(BaseSegmenter):
             )
 
         # === СТАНДАРТНАЯ ВИЗУАЛИЗАЦИЯ ===
-        start_time = time.time()
+        if not torch.compiler.is_compiling():
+            start_time = time.time()
+        else:
+            start_time = None
 
         # Выполнение сегментации
         mask = self._segment_func(tensor)  # (1, 1, H, W) или (H, W)
@@ -2644,7 +3370,7 @@ class TorchSegmenter2(BaseSegmenter):
             torch.tensor(color, dtype=dtype, device=img.device).view(3, 1, 1) / 255.0
         )
         colored_mask = torch.zeros_like(img_rgb)
-        colored_mask[:, mask_bool] = color_tensor[:, 0, 0]
+        colored_mask[:, mask_bool] = color_tensor.view(3, 1).expand(3, mask_bool.sum())
 
         # === ALPHA-СМЕШИВАНИЕ ===
         precision_val = precision if precision is not None else "fp32"
@@ -2659,12 +3385,14 @@ class TorchSegmenter2(BaseSegmenter):
         )  # (H, W, 3)
         mask_out = mask.to(torch.float32) if mask.dtype != torch.float32 else mask
         exec_time = time.time() - start_time
-        self.params["visualization_info"] = {
-            "method": f"{self.method}_visualisation",
-            "alpha": alpha,
-            "color": color,
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time = time.time() - start_time
+            self.params["visualization_info"] = {
+                "method": f"{self.method}_visualisation",
+                "alpha": alpha,
+                "color": color,
+                "execution_time": exec_time,
+            }
 
         return result_np, mask_out
 
@@ -2728,7 +3456,10 @@ class TorchSegmenter2(BaseSegmenter):
         )  # kwargs.get('precision')
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         thresh: float = (
@@ -2736,7 +3467,9 @@ class TorchSegmenter2(BaseSegmenter):
             if threshold is not None
             else float(self.params.get("threshold", 0.5))
         )
-        thresh_t: torch.Tensor = torch.tensor(thresh, dtype=dtype, device=self.device)
+        thresh_t: torch.Tensor = torch.scalar_tensor(
+            thresh, dtype=dtype, device=self.device
+        )
 
         # === БИНАРИЗАЦИЯ ===
         precision_val = precision if precision is not None else "fp32"
@@ -2746,16 +3479,17 @@ class TorchSegmenter2(BaseSegmenter):
             mask = (gray > thresh_t).to(dtype)
             if invert:
                 mask = 1.0 - mask
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "global_thresholding_torch",
-            "parameters": {
-                "threshold": threshold,
-                "invert": invert,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "global_thresholding_torch",
+                "parameters": {
+                    "threshold": threshold,
+                    "invert": invert,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2819,7 +3553,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         bs = block_size if block_size is not None else self.params.get("block_size", 11)
@@ -2840,6 +3577,7 @@ class TorchSegmenter2(BaseSegmenter):
                 bs * bs
             )
 
+        kernel_2d = kernel_2d.to(dtype=gray.dtype)
         local_stat = F.conv2d(gray, kernel_2d, padding=bs // 2, stride=1)
         # === БИНАРИЗАЦИЯ ===
         precision_val = precision if precision is not None else "fp32"
@@ -2849,43 +3587,19 @@ class TorchSegmenter2(BaseSegmenter):
             threshold_map = local_stat - c_norm
             mask = (gray > threshold_map).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "adaptive_thresholding_torch",
-            "parameters": {
-                "block_size": block_size,
-                "C": C,
-                "method": method,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "adaptive_thresholding_torch",
+                "parameters": {
+                    "block_size": block_size,
+                    "C": C,
+                    "method": method,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32)
-
-    # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    @lru_cache(maxsize=64)
-    def _get_gaussian_kernel_1d(
-        size: int,
-        sigma: float,
-        dtype: torch.dtype,
-        device: torch.device,
-    ) -> torch.Tensor:
-        """
-        Кэшируемое 1D гауссово ядро для сепарабельной свёртки.
-
-        Args:
-            size: Нечётный размер ядра.
-            sigma: Стандартное отклонение гауссианы.
-            dtype: Тип данных тензора.
-            device: Устройство размещения.
-
-        Returns:
-            torch.Tensor: 1D ядро формы (size,), нормированное к сумме 1.
-        """
-        coords = torch.arange(size, dtype=dtype, device=device) - size // 2
-        kernel = torch.exp(-0.5 * (coords / sigma) ** 2)
-        return kernel / kernel.sum()
 
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
@@ -2933,6 +3647,8 @@ class TorchSegmenter2(BaseSegmenter):
             mask = segmenter.segment(image)  # (1, 1, H, W)
             ```
         """
+        if not torch.compiler.is_compiling():
+            torch.compiler.cudagraph_mark_step_begin()
         # === ПРЕДПОДГОТОВКА ===
         gray = self._to_grayscale(tensor).squeeze()  # (H, W)
         dtype = self.precision_manager.get_dtype(precision)
@@ -2947,7 +3663,10 @@ class TorchSegmenter2(BaseSegmenter):
             ) / (bins - 1)
         mean_levels = self._otsu_mean_levels
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ГИСТОГРАММА (с учётом точности) ===
         # Для low-precision масштабируем к [0, 255] для избежания квантования в [0, 1]
@@ -2979,15 +3698,16 @@ class TorchSegmenter2(BaseSegmenter):
             precision_val, enabled=(dtype != torch.float32)
         ):
             mask = (gray > best_threshold).to(dtype)
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "otsu_thresholding_torch",
-            "parameters": {
-                "num_bins": num_bins,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "otsu_thresholding_torch",
+                "parameters": {
+                    "num_bins": num_bins,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3047,7 +3767,10 @@ class TorchSegmenter2(BaseSegmenter):
         if gray.max() <= 1.0:
             gray = gray * 255.0
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         ws = (
@@ -3068,16 +3791,17 @@ class TorchSegmenter2(BaseSegmenter):
             threshold = local_mean + k_val * local_std
             mask = (gray > threshold).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "niblack_thresholding_torch",
-            "parameters": {
-                "window_size": window_size,
-                "k": k,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "niblack_thresholding_torch",
+                "parameters": {
+                    "window_size": window_size,
+                    "k": k,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3144,7 +3868,10 @@ class TorchSegmenter2(BaseSegmenter):
         if gray.max() <= 1.0:
             gray = gray * 255.0
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         ws = (
@@ -3166,17 +3893,18 @@ class TorchSegmenter2(BaseSegmenter):
             threshold = local_mean * (1.0 + k_val * (local_std / r_val - 1.0))
             mask = (gray > threshold).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "sauvola_thresholding_torch",
-            "parameters": {
-                "window_size": window_size,
-                "k": k,
-                "r": r,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "sauvola_thresholding_torch",
+                "parameters": {
+                    "window_size": window_size,
+                    "k": k,
+                    "r": r,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3236,7 +3964,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         ws = (
@@ -3267,6 +3998,14 @@ class TorchSegmenter2(BaseSegmenter):
             local_max = F.max_pool2d(gray_padded, kernel_size=ws, stride=1, padding=0)
             local_min = -F.max_pool2d(-gray_padded, kernel_size=ws, stride=1, padding=0)
 
+            def _to_2d(t: torch.Tensor) -> torch.Tensor:
+                while t.dim() > 2:
+                    t = t.squeeze(0)
+                return t
+
+            local_max = _to_2d(local_max)
+            local_min = _to_2d(local_min)
+
             contrast = local_max - local_min
             threshold_local = (local_max + local_min) / 2.0
 
@@ -3274,10 +4013,10 @@ class TorchSegmenter2(BaseSegmenter):
             high_contrast = contrast > c_thresh
             mask = torch.zeros_like(gray, dtype=dtype)
 
-            gray_2d = gray.squeeze(0) if gray.dim() == 4 else gray
+            gray_2d = gray.squeeze() if gray.dim() > 2 else gray
             thresh_2d = (
-                threshold_local.squeeze(0)
-                if threshold_local.dim() == 4
+                threshold_local.squeeze()
+                if threshold_local.dim() > 2
                 else threshold_local
             )
             # contrast_2d = contrast.squeeze(0) if contrast.dim() == 4 else contrast
@@ -3291,17 +4030,18 @@ class TorchSegmenter2(BaseSegmenter):
                 global_mean = gray_2d.mean()
                 mask[~high_contrast] = (gray_2d[~high_contrast] > global_mean).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "bernsen_thresholding_torch",
-            "parameters": {
-                "window_size": window_size,
-                "contrast_threshold": contrast_threshold,
-                "use_global_mean": use_global_mean,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "bernsen_thresholding_torch",
+                "parameters": {
+                    "window_size": window_size,
+                    "contrast_threshold": contrast_threshold,
+                    "use_global_mean": use_global_mean,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3370,7 +4110,10 @@ class TorchSegmenter2(BaseSegmenter):
         if gray.max() <= 1.0:
             gray = gray * 255.0
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         ws = (
@@ -3398,18 +4141,19 @@ class TorchSegmenter2(BaseSegmenter):
             )
             mask = (gray > threshold).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "phansalkar_thresholding_torch",
-            "parameters": {
-                "window_size": window_size,
-                "k": k,
-                "r": r,
-                "m": m,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "phansalkar_thresholding_torch",
+                "parameters": {
+                    "window_size": window_size,
+                    "k": k,
+                    "r": r,
+                    "m": m,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
 
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
@@ -3462,7 +4206,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         p = (
@@ -3480,15 +4227,16 @@ class TorchSegmenter2(BaseSegmenter):
             threshold = torch.quantile(gray, p_norm)
             mask = (gray > threshold).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "percentile_thresholding_torch",
-            "parameters": {
-                "percentile": percentile,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "percentile_thresholding_torch",
+                "parameters": {
+                    "percentile": percentile,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3541,7 +4289,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         bins = num_bins if num_bins is not None else self.params.get("num_bins", 256)
@@ -3588,15 +4339,16 @@ class TorchSegmenter2(BaseSegmenter):
 
             mask = (gray > threshold).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "kittler_illingworth_torch",
-            "parameters": {
-                "num_bins": num_bins,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "kittler_illingworth_torch",
+                "parameters": {
+                    "num_bins": num_bins,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3649,7 +4401,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         bins = num_bins if num_bins is not None else self.params.get("num_bins", 256)
@@ -3695,15 +4450,16 @@ class TorchSegmenter2(BaseSegmenter):
 
             mask = (gray > threshold).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "kapur_entropy_torch",
-            "parameters": {
-                "num_bins": num_bins,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "kapur_entropy_torch",
+                "parameters": {
+                    "num_bins": num_bins,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3757,7 +4513,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         bins = num_bins if num_bins is not None else self.params.get("num_bins", 256)
@@ -3800,15 +4559,16 @@ class TorchSegmenter2(BaseSegmenter):
 
             mask = (gray > threshold).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "triangle_torch",
-            "parameters": {
-                "num_bins": num_bins,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "triangle_torch",
+                "parameters": {
+                    "num_bins": num_bins,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3862,7 +4622,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         n_thresh = (
@@ -3924,16 +4687,17 @@ class TorchSegmenter2(BaseSegmenter):
             )
             mask = (gray > final_threshold).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "multi_otsu_torch",
-            "parameters": {
-                "n_thresholds": n_thresholds,
-                "num_bins": num_bins,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "multi_otsu_torch",
+                "parameters": {
+                    "n_thresholds": n_thresholds,
+                    "num_bins": num_bins,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3992,7 +4756,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         ws = (
@@ -4024,16 +4791,17 @@ class TorchSegmenter2(BaseSegmenter):
             threshold = torch.quantile(local_contrast, 1.0 - cf)
             mask = (local_contrast > threshold).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "local_contrast_torch",
-            "parameters": {
-                "window_size": window_size,
-                "contrast_factor": contrast_factor,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "local_contrast_torch",
+                "parameters": {
+                    "window_size": window_size,
+                    "contrast_factor": contrast_factor,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4086,14 +4854,33 @@ class TorchSegmenter2(BaseSegmenter):
             edges = segmenter.segment(image)  # маска границ
             ```
         """
+        if torch.compiler.is_compiling() and self.device.type == "cuda":
+            torch.compiler.cudagraph_mark_step_begin()
         # === ПРЕДПОДГОТОВКА ===
         gray = self._to_grayscale(tensor)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
         # === ЯДРА СОБЕЛЯ (кэшированные) ===
-        sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
+        # sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
+        sobel_x = self._get_static_kernel(
+            "sobel_x",
+            [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
+            size=3,
+            dtype=dtype,
+            device=self.device,
+        )
+        sobel_y = self._get_static_kernel(
+            "sobel_y",
+            [[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
+            size=3,
+            dtype=dtype,
+            device=self.device,
+        )
 
         # === ГРАДИЕНТЫ ===
         precision_val = precision if precision is not None else "fp32"
@@ -4119,16 +4906,17 @@ class TorchSegmenter2(BaseSegmenter):
             thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
             mask = (magnitude > thresh_t).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "sobel_edge_torch",
-            "parameters": {
-                "threshold": threshold,
-                "normalize": normalize,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "sobel_edge_torch",
+                "parameters": {
+                    "threshold": threshold,
+                    "normalize": normalize,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4196,7 +4984,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         low = (
@@ -4216,7 +5007,10 @@ class TorchSegmenter2(BaseSegmenter):
             gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
 
         # === ЯДРА СОБЕЛЯ ===
-        sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
+        # sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
+        sobel_x, sobel_y = self._get_conv_kernel(
+            "sobel", return_pair=True, dtype=dtype, device=self.device
+        )
 
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
@@ -4294,17 +5088,18 @@ class TorchSegmenter2(BaseSegmenter):
 
             mask = final_mask.to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "canny_edge_torch",
-            "parameters": {
-                "low_threshold": low_threshold,
-                "high_threshold": high_threshold,
-                "sigma": sigma,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "canny_edge_torch",
+                "parameters": {
+                    "low_threshold": low_threshold,
+                    "high_threshold": high_threshold,
+                    "sigma": sigma,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4360,7 +5155,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         thresh = (
@@ -4368,7 +5166,10 @@ class TorchSegmenter2(BaseSegmenter):
         )
 
         # === ЯДРА ПРЮИТТА (кэшированные) ===
-        prewitt_x, prewitt_y = self._get_prewitt_kernels_cached(self.device, dtype)
+        # prewitt_x, prewitt_y = self._get_prewitt_kernels_cached(self.device, dtype)
+        prewitt_x, prewitt_y = self._get_conv_kernel(
+            "prewitt", return_pair=True, dtype=dtype, device=self.device
+        )
 
         # === ГРАДИЕНТЫ И БИНАРИЗАЦИЯ ===
         precision_val = precision if precision is not None else "fp32"
@@ -4386,14 +5187,15 @@ class TorchSegmenter2(BaseSegmenter):
             thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
             mask = (magnitude > thresh_t).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "prewitt_edge_torch",
-            "parameters": {
-                "threshold": thresh,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "prewitt_edge_torch",
+                "parameters": {
+                    "threshold": thresh,
+                },
+                "execution_time": exec_time,
+            }
 
         return mask.to(torch.float32)
 
@@ -4450,7 +5252,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         thresh = (
@@ -4458,7 +5263,10 @@ class TorchSegmenter2(BaseSegmenter):
         )
 
         # === ЯДРА ШАРРА (кэшированные) ===
-        scharr_x, scharr_y = self._get_scharr_kernels_cached(self.device, dtype)
+        # scharr_x, scharr_y = self._get_scharr_kernels_cached(self.device, dtype)
+        scharr_x, scharr_y = self._get_conv_kernel(
+            "scharr", return_pair=True, dtype=dtype, device=self.device
+        )
 
         # === ГРАДИЕНТЫ И БИНАРИЗАЦИЯ ===
         precision_val = precision if precision is not None else "fp32"
@@ -4476,14 +5284,15 @@ class TorchSegmenter2(BaseSegmenter):
             thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
             mask = (magnitude > thresh_t).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "scharr_edge_torch",
-            "parameters": {
-                "threshold": thresh,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "scharr_edge_torch",
+                "parameters": {
+                    "threshold": thresh,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4542,7 +5351,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         thresh = (
@@ -4557,7 +5369,10 @@ class TorchSegmenter2(BaseSegmenter):
             gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
 
         # Ядро Лапласа (4-связность)
-        laplacian_kernel = self._get_laplacian_kernel_cached(self.device, dtype)
+        # laplacian_kernel = self._get_laplacian_kernel_cached(self.device, dtype)
+        laplacian_kernel = self._get_conv_kernel(
+            "laplacian", return_pair=False, dtype=dtype, device=self.device
+        )
 
         # === ЛАПЛАСИАН И БИНАРИЗАЦИЯ ===
         precision_val = precision if precision is not None else "fp32"
@@ -4574,15 +5389,16 @@ class TorchSegmenter2(BaseSegmenter):
             thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
             mask = (magnitude > thresh_t).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "laplacian_edge_torch",
-            "parameters": {
-                "threshold": thresh,
-                "sigma": sig,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "laplacian_edge_torch",
+                "parameters": {
+                    "threshold": thresh,
+                    "sigma": sig,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4639,7 +5455,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         thresh = (
@@ -4647,7 +5466,10 @@ class TorchSegmenter2(BaseSegmenter):
         )
 
         # === ЯДРА РОБЕРТСА (кэшированные) ===
-        roberts_x, roberts_y = self._get_roberts_kernels_cached(self.device, dtype)
+        # roberts_x, roberts_y = self._get_roberts_kernels_cached(self.device, dtype)
+        roberts_x, roberts_y = self._get_conv_kernel(
+            "roberts", return_pair=True, dtype=dtype, device=self.device
+        )
 
         # === ГРАДИЕНТЫ И БИНАРИЗАЦИЯ ===
         precision_val = precision if precision is not None else "fp32"
@@ -4667,107 +5489,17 @@ class TorchSegmenter2(BaseSegmenter):
             thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
             mask = (magnitude > thresh_t).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "roberts_edge_torch",
-            "parameters": {
-                "threshold": thresh,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "roberts_edge_torch",
+                "parameters": {
+                    "threshold": thresh,
+                },
+                "execution_time": exec_time,
+            }
 
         return mask.to(torch.float32)
-
-    # ──────────────────────────────────────────────────────────────────────
-    # КЭШИРУЕМЫЕ ЯДРА ДЛЯ ГРАДИЕНТНЫХ МЕТОДОВ
-    # ──────────────────────────────────────────────────────────────────────
-    # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    @lru_cache(maxsize=32)
-    def _get_prewitt_kernels_cached(
-        device: torch.device,
-        dtype: torch.dtype,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Кэширует ядра Прюитта для устройства и типа данных"""
-        kx = torch.tensor(
-            [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]],
-            dtype=dtype,
-            device=device,
-        ).view(1, 1, 3, 3)
-        ky = torch.tensor(
-            [[-1, -1, -1], [0, 0, 0], [1, 1, 1]],
-            dtype=dtype,
-            device=device,
-        ).view(1, 1, 3, 3)
-        return kx, ky
-
-    # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    @lru_cache(maxsize=32)
-    def _get_scharr_kernels_cached(
-        device: torch.device,
-        dtype: torch.dtype,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Кэширует ядра Шарра для устройства и типа данных"""
-        kx = torch.tensor(
-            [[-3, 0, 3], [-10, 0, 10], [-3, 0, 3]],
-            dtype=dtype,
-            device=device,
-        ).view(1, 1, 3, 3)
-        ky = torch.tensor(
-            [[-3, -10, -3], [0, 0, 0], [3, 10, 3]],
-            dtype=dtype,
-            device=device,
-        ).view(1, 1, 3, 3)
-        return kx, ky
-
-    # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    @lru_cache(maxsize=32)
-    def _get_laplacian_kernel_cached(
-        device: torch.device, dtype: torch.dtype, size: int = 3  # 3 или 5
-    ) -> torch.Tensor:
-        """Кэширует ядро Лапласа (4-связность) для устройства и типа данных"""
-        if size == 3:
-            kernel = torch.tensor(
-                [[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=dtype, device=device
-            )
-        else:  # size == 5
-            kernel = (
-                torch.tensor(
-                    [
-                        [0, 0, -1, 0, 0],
-                        [0, -1, -2, -1, 0],
-                        [-1, -2, 16, -2, -1],
-                        [0, -1, -2, -1, 0],
-                        [0, 0, -1, 0, 0],
-                    ],
-                    dtype=dtype,
-                    device=device,
-                )
-                / 8.0
-            )
-        return kernel.view(1, 1, size, size)
-
-    # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    @lru_cache(maxsize=32)
-    def _get_roberts_kernels_cached(
-        device: torch.device,
-        dtype: torch.dtype,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Кэширует ядра Робертса 2×2 для устройства и типа данных"""
-        kx = torch.tensor(
-            [[1, 0], [0, -1]],
-            dtype=dtype,
-            device=device,
-        ).view(1, 1, 2, 2)
-        ky = torch.tensor(
-            [[0, 1], [-1, 0]],
-            dtype=dtype,
-            device=device,
-        ).view(1, 1, 2, 2)
-        return kx, ky
 
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
@@ -4823,7 +5555,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         sig = sigma if sigma is not None else self.params.get("sigma", 1.0)
@@ -4838,7 +5573,10 @@ class TorchSegmenter2(BaseSegmenter):
             gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
 
         # === ЛАПЛАСИАН ===
-        laplacian_kernel = self._get_laplacian_kernel_cached(self.device, dtype)
+        # laplacian_kernel = self._get_laplacian_kernel_cached(self.device, dtype)
+        laplacian_kernel = self._get_conv_kernel(
+            "laplacian", return_pair=False, dtype=dtype, device=self.device
+        )
 
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
@@ -4866,16 +5604,17 @@ class TorchSegmenter2(BaseSegmenter):
             thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
             mask = (zero_crossing & (magnitude > thresh_t)).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "log_edge_torch",
-            "parameters": {
-                "sigma": sigma,
-                "threshold": threshold,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "log_edge_torch",
+                "parameters": {
+                    "sigma": sigma,
+                    "threshold": threshold,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4934,7 +5673,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         s1 = sigma1 if sigma1 is not None else self.params.get("sigma1", 1.0)
@@ -4986,17 +5728,18 @@ class TorchSegmenter2(BaseSegmenter):
             thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
             mask = (zero_crossing & (magnitude > thresh_t)).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "dog_edge_torch",
-            "parameters": {
-                "sigma1": sigma1,
-                "sigma2": sigma2,
-                "threshold": threshold,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "dog_edge_torch",
+                "parameters": {
+                    "sigma1": sigma1,
+                    "sigma2": sigma2,
+                    "threshold": threshold,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5052,7 +5795,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         sig = sigma if sigma is not None else self.params.get("sigma", 1.5)
@@ -5067,7 +5813,10 @@ class TorchSegmenter2(BaseSegmenter):
             gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
 
         # === ЛАПЛАСИАН 5×5 (кэшированный) ===
-        laplacian_5x5 = self._get_laplacian_5x5_cached(self.device, dtype)
+        # laplacian_5x5 = self._get_laplacian_5x5_cached(self.device, dtype)
+        laplacian_5x5 = self._get_conv_kernel(
+            "laplacian", return_pair=False, dtype=dtype, device=self.device, size=5
+        )
 
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
@@ -5092,41 +5841,18 @@ class TorchSegmenter2(BaseSegmenter):
 
             mask = zero_crossing.to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "marr_hildreth_torch",
-            "parameters": {
-                "sigma": sigma,
-                "threshold": threshold,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "marr_hildreth_torch",
+                "parameters": {
+                    "sigma": sigma,
+                    "threshold": threshold,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32)
-
-    # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    @lru_cache(maxsize=32)
-    def _get_laplacian_5x5_cached(
-        device: torch.device,
-        dtype: torch.dtype,
-    ) -> torch.Tensor:
-        """Кэширует лапласиан 5×5 для устройства и типа данных"""
-        kernel = (
-            torch.tensor(
-                [
-                    [0, 0, -1, 0, 0],
-                    [0, -1, -2, -1, 0],
-                    [-1, -2, 16, -2, -1],
-                    [0, -1, -2, -1, 0],
-                    [0, 0, -1, 0, 0],
-                ],
-                dtype=dtype,
-                device=device,
-            ).view(1, 1, 5, 5)
-            / 8.0
-        )
-        return kernel
 
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
@@ -5184,7 +5910,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         thresh = (
@@ -5192,7 +5921,10 @@ class TorchSegmenter2(BaseSegmenter):
         )
 
         # === ЯДРА СОБЕЛЯ ===
-        sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
+        # sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
+        sobel_x, sobel_y = self._get_conv_kernel(
+            "sobel", return_pair=True, dtype=dtype, device=self.device
+        )
 
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
@@ -5216,16 +5948,17 @@ class TorchSegmenter2(BaseSegmenter):
             thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
             mask = (suppressed > thresh_t).to(dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "gradient_magnitude_direction_torch",
-            "parameters": {
-                "threshold": threshold,
-                "normalize": normalize,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "gradient_magnitude_direction_torch",
+                "parameters": {
+                    "threshold": threshold,
+                    "normalize": normalize,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5363,7 +6096,10 @@ class TorchSegmenter2(BaseSegmenter):
         if gray.max() > 1.0:
             gray = gray / 255.0
 
-        start_time: float = time.time()
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
         n_scales = nscales if nscales is not None else self.params.get("nscales", 4)
@@ -5463,21 +6199,22 @@ class TorchSegmenter2(BaseSegmenter):
             thresh_t = torch.tensor(thresh, dtype=target_dtype, device=device)
             mask = (pc_map > thresh_t).to(target_dtype)
 
-        exec_time: float = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "phase_congruency_torch",
-            "parameters": {
-                "nscales": nscales,
-                "norientations": norientations,
-                "min_wavelength": min_wavelength,
-                "mult": mult,
-                "sigma_onf": sigma_onf,
-                "k_noise": k_noise,
-                "threshold": threshold,
-                "precision": precision,
-            },
-            "execution_time": exec_time,
-        }
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            self.params["execution_info"] = {
+                "method": "phase_congruency_torch",
+                "parameters": {
+                    "nscales": nscales,
+                    "norientations": norientations,
+                    "min_wavelength": min_wavelength,
+                    "mult": mult,
+                    "sigma_onf": sigma_onf,
+                    "k_noise": k_noise,
+                    "threshold": threshold,
+                    "precision": precision,
+                },
+                "execution_time": exec_time,
+            }
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5709,52 +6446,6 @@ class TorchSegmenter2(BaseSegmenter):
         return mask.float().unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
-    # Вариант Б: Ускорение через Numba (для больших изображений, >1024×1024)
-    @njit(cache=True)  # parallel=True
-    def _region_growing_numba(
-        self,
-        gray: np.ndarray,
-        seed_y: int,
-        seed_x: int,
-        tolerance: float,
-        h: int,
-        w: int,
-    ) -> np.ndarray:
-        """Region Growing на Numba — максимальная скорость на CPU"""
-        mask = np.zeros((h, w), dtype=np.bool_)
-        visited = np.zeros((h, w), dtype=np.bool_)
-        seed_value = gray[seed_y, seed_x]
-
-        # Простая очередь на массиве (циклический буфер)
-        queue = np.zeros((h * w, 2), dtype=np.int32)
-        head, tail = 0, 0
-        queue[tail] = [seed_y, seed_x]
-        tail += 1
-        visited[seed_y, seed_x] = True
-
-        # Направления
-        dy = np.array([-1, 1, 0, 0], dtype=np.int32)
-        dx = np.array([0, 0, -1, 1], dtype=np.int32)
-
-        while head < tail:
-            y, x = queue[head]
-            head += 1
-
-            pixel_value = gray[y, x]
-            if abs(pixel_value - seed_value) <= tolerance:
-                mask[y, x] = True
-
-                # Добавляем соседей
-                for d in range(4):
-                    ny, nx = y + dy[d], x + dx[d]
-                    if 0 <= ny < h and 0 <= nx < w and not visited[ny, nx]:
-                        visited[ny, nx] = True
-                        queue[tail] = [ny, nx]
-                        tail += 1
-
-        return mask
-
-    # ──────────────────────────────────────────────────────────────────────
     def _region_growing_opt2(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         """Region Growing с fallback на Numba для CPU"""
         gray = self._to_grayscale(tensor).squeeze(0)
@@ -5774,9 +6465,7 @@ class TorchSegmenter2(BaseSegmenter):
         else:
             # Для CPU или больших изображений — Numba
             gray_np = gray.cpu().numpy().astype(np.float32)
-            mask_np = self._region_growing_numba(
-                gray_np, seed_y, seed_x, tolerance, h, w
-            )
+            mask_np = _region_growing_numba(gray_np, seed_y, seed_x, tolerance, h, w)
             mask = torch.from_numpy(mask_np).to(self.device)
 
             exec_time = time.time() - start_time
@@ -6975,20 +7664,6 @@ class TorchSegmenter2(BaseSegmenter):
     # ──────────────────────────────────────────────────────────────────────
     # МЕТОДЫ АКТИВНЫХ КОНТУРОВ
     # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    @lru_cache(maxsize=4)
-    def _get_sobel_kernels_cached(
-        device: str, dtype: torch.dtype
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Кэширует ядра Собеля для устройства и dtype (избегает ре-создания)"""
-        dev = torch.device(device)
-        kx = torch.tensor(
-            [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], device=dev, dtype=dtype
-        ).view(1, 1, 3, 3)
-        ky = torch.tensor(
-            [[-1, -2, -1], [0, 0, 0], [1, 2, 1]], device=dev, dtype=dtype
-        ).view(1, 1, 3, 3)
-        return kx, ky
 
     # ──────────────────────────────────────────────────────────────────────
     def _active_contour(
@@ -7089,7 +7764,10 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.dtype
 
         # === 2. КЭШИРОВАНИЕ ЯДЕР СОБЕЛЯ (статический метод) ===
-        sobel_x, sobel_y = self._get_sobel_kernels_cached(device, dtype)
+        # sobel_x, sobel_y = self._get_sobel_kernels_cached(device, dtype)
+        sobel_x, sobel_y = self._get_conv_kernel(
+            "sobel", return_pair=True, dtype=dtype, device=self.device
+        )
 
         # === 3. ВЫЧИСЛЕНИЕ КАРТЫ ГРАНИЦ (внешняя энергия) ===
         # Гауссово сглаживание
@@ -7375,7 +8053,10 @@ class TorchSegmenter2(BaseSegmenter):
             gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
 
         # === ЯДРА СОБЕЛЯ ===
-        sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
+        # sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
+        sobel_x, sobel_y = self._get_conv_kernel(
+            "sobel", return_pair=True, dtype=dtype, device=self.device
+        )
 
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
@@ -7513,7 +8194,10 @@ class TorchSegmenter2(BaseSegmenter):
         mask = ((x_grid - cx) ** 2 + (y_grid - cy) ** 2 <= radius**2).to(dtype)
 
         # === ГРАДИЕНТ ИЗОБРАЖЕНИЯ ===
-        sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
+        # sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
+        sobel_x, sobel_y = self._get_conv_kernel(
+            "sobel", return_pair=True, dtype=dtype, device=self.device
+        )
 
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
@@ -7803,17 +8487,27 @@ class TorchSegmenter2(BaseSegmenter):
             precision_val, enabled=(dtype != torch.float32)
         ):
             if grad_method == "scharr":
-                kx, ky = self._get_scharr_kernels_cached(self.device, dtype)
+                # kx, ky = self._get_scharr_kernels_cached(self.device, dtype)
+                kx, ky = self._get_conv_kernel(
+                    "scharr", return_pair=True, dtype=dtype, device=self.device
+                ).clone()
             elif grad_method == "gradient":
                 # Простые разности
-                kx = torch.tensor([[-1, 0, 1]], dtype=dtype, device=self.device).view(
-                    1, 1, 1, 3
+                kx = (
+                    torch.tensor([[-1, 0, 1]], dtype=dtype, device=self.device)
+                    .view(1, 1, 1, 3)
+                    .clone()
                 )
-                ky = torch.tensor(
-                    [[-1], [0], [1]], dtype=dtype, device=self.device
-                ).view(1, 1, 3, 1)
+                ky = (
+                    torch.tensor([[-1], [0], [1]], dtype=dtype, device=self.device)
+                    .view(1, 1, 3, 1)
+                    .clone()
+                )
             else:  # sobel
-                kx, ky = self._get_sobel_kernels_cached(self.device, dtype)
+                # kx, ky = self._get_sobel_kernels_cached(self.device, dtype)
+                kx, ky = self._get_conv_kernel(
+                    "sobel", return_pair=True, dtype=dtype, device=self.device
+                ).clone()
 
             gx = F.conv2d(gray.unsqueeze(0).unsqueeze(0), kx, padding=1).squeeze()
             gy = F.conv2d(gray.unsqueeze(0).unsqueeze(0), ky, padding=1).squeeze()
@@ -7848,7 +8542,7 @@ class TorchSegmenter2(BaseSegmenter):
                 gradient_np = gradient.squeeze().cpu().numpy().astype(np.float32)
                 markers_np = markers_int.cpu().numpy()
 
-                labels_np = self._watershed_numba_impl(
+                labels_np = _watershed_numba_impl(
                     gradient_np, markers_np, connectivity=conn
                 )
                 labels = torch.from_numpy(labels_np).to(self.device)
@@ -7887,60 +8581,6 @@ class TorchSegmenter2(BaseSegmenter):
         }
 
         return mask.unsqueeze(0).unsqueeze(0)
-
-    # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    @njit(cache=True)
-    def _watershed_numba_impl(
-        gradient: np.ndarray,  # (H, W), float32
-        markers: np.ndarray,  # (H, W), int32
-        connectivity: int = 4,
-    ) -> np.ndarray:
-        """Watershed на Numba для CPU — priority queue через heapq"""
-        import heapq
-
-        h, w = gradient.shape
-        labels = np.zeros((h, w), dtype=np.int32)
-        visited = np.zeros((h, w), dtype=np.bool_)
-
-        # Очередь: (gradient_value, y, x, label)
-        queue: List[Tuple[float, int, int, int]] = []  # (gradient, y, x, label)
-
-        # Инициализация маркерами
-        for y in range(h):
-            for x in range(w):
-                if markers[y, x] > 0:
-                    heapq.heappush(queue, (gradient[y, x], y, x, markers[y, x]))
-                    labels[y, x] = markers[y, x]
-                    visited[y, x] = True
-
-        # Направления
-        if connectivity == 4:
-            directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
-        else:
-            directions = [
-                (0, 1),
-                (1, 0),
-                (0, -1),
-                (-1, 0),
-                (1, 1),
-                (1, -1),
-                (-1, 1),
-                (-1, -1),
-            ]
-
-        # Основной цикл
-        while queue:
-            _, y, x, label = heapq.heappop(queue)
-
-            for dy, dx in directions:
-                ny, nx = y + dy, x + dx
-                if 0 <= ny < h and 0 <= nx < w and not visited[ny, nx]:
-                    visited[ny, nx] = True
-                    labels[ny, nx] = label
-                    heapq.heappush(queue, (gradient[ny, nx], ny, nx, label))
-
-        return labels
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
@@ -8156,7 +8796,10 @@ class TorchSegmenter2(BaseSegmenter):
             gray = img.squeeze(0) if img.dim() == 3 else img
 
         # Градиенты (кэшированные ядра)
-        sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
+        # sobel_x, sobel_y = self._get_sobel_kernels_cached(self.device, dtype)
+        sobel_x, sobel_y = self._get_conv_kernel(
+            "sobel", return_pair=True, dtype=dtype, device=self.device
+        )
 
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
@@ -9552,133 +10195,3 @@ class TorchSegmenter2(BaseSegmenter):
         }
 
         return result_np, mask_tensor
-
-    # ──────────────────────────────────────────────────────────────────────
-    # NUMBA-OPTIMIZED FALLBACKS (CPU)
-    # ──────────────────────────────────────────────────────────────────────
-
-    @staticmethod
-    @njit(parallel=True, cache=True)
-    def _kmeans_numba(
-        data: np.ndarray, k: int, max_iter: int = 50, tol: float = 1e-4
-    ) -> np.ndarray:
-        """Быстрая K-Means кластеризация на CPU (Lloyd's algorithm)"""
-        n_samples, n_features = data.shape
-        centroids = data[np.random.choice(n_samples, k, replace=False)].copy()
-        labels = np.zeros(n_samples, dtype=np.int32)
-
-        for _ in range(max_iter):
-            # Assign labels
-            for i in prange(n_samples):
-                min_dist = np.inf
-                for j in range(k):
-                    d = 0.0
-                    for f in range(n_features):
-                        diff = data[i, f] - centroids[j, f]
-                        d += diff * diff
-                    if d < min_dist:
-                        min_dist = d
-                        labels[i] = j
-
-            # Update centroids
-            old_centroids = centroids.copy()
-            for j in range(k):
-                count = 0
-                for f in range(n_features):
-                    centroids[j, f] = 0.0
-                for i in range(n_samples):
-                    if labels[i] == j:
-                        count += 1
-                        for f in range(n_features):
-                            centroids[j, f] += data[i, f]
-                if count > 0:
-                    for f in range(n_features):
-                        centroids[j, f] /= count
-
-            # Check convergence
-            converged = True
-            for j in range(k):
-                for f in range(n_features):
-                    if np.abs(old_centroids[j, f] - centroids[j, f]) > tol:
-                        converged = False
-                        break
-            if converged:
-                break
-        return labels
-
-    @staticmethod
-    @njit(parallel=True, cache=True)
-    def _watershed_numba(gradient: np.ndarray, markers: np.ndarray) -> np.ndarray:
-        """Marker-based Watershed propagation (быстрая альтернатива heapq)"""
-        h, w = gradient.shape
-        labels = np.copy(markers).astype(np.int32)
-        visited = np.zeros((h, w), dtype=np.bool_)
-
-        # Initialize queue with markers
-        queue = []
-        for y in range(h):
-            for x in range(w):
-                if markers[y, x] > 0:
-                    queue.append((gradient[y, x], y, x, labels[y, x]))
-                    visited[y, x] = True
-
-        queue.sort()  # Sort by gradient magnitude
-
-        # Propagate
-        idx = 0
-        while idx < len(queue):
-            _, y, x, label = queue[idx]
-            idx += 1
-
-            for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                ny, nx = y + dy, x + dx
-                if 0 <= ny < h and 0 <= nx < w and not visited[ny, nx]:
-                    visited[ny, nx] = True
-                    labels[ny, nx] = label
-                    queue.append((gradient[ny, nx], ny, nx, label))
-
-        # Re-sort remaining to maintain priority order (approximate but fast)
-        # For exact watershed, use scipy.ndimage.watershed_ift или skimage.morphology.watershed
-        return labels
-
-    @staticmethod
-    @njit(parallel=True, cache=True)
-    def _morphological_dilation_numba(
-        image: np.ndarray, kernel_size: int = 3
-    ) -> np.ndarray:
-        """Быстрая дилатация на CPU"""
-        h, w = image.shape
-        out = np.zeros((h, w), dtype=image.dtype)
-        half = kernel_size // 2
-        for y in prange(h):
-            for x in range(w):
-                max_val = image[y, x]
-                for ky in range(-half, half + 1):
-                    for kx in range(-half, half + 1):
-                        ny, nx = y + ky, x + kx
-                        if 0 <= ny < h and 0 <= nx < w:
-                            if image[ny, nx] > max_val:
-                                max_val = image[ny, nx]
-                out[y, x] = max_val
-        return out
-
-    @staticmethod
-    @njit(parallel=True, cache=True)
-    def _morphological_erosion_numba(
-        image: np.ndarray, kernel_size: int = 3
-    ) -> np.ndarray:
-        """Быстрая эрозия на CPU"""
-        h, w = image.shape
-        out = np.zeros((h, w), dtype=image.dtype)
-        half = kernel_size // 2
-        for y in prange(h):
-            for x in range(w):
-                min_val = image[y, x]
-                for ky in range(-half, half + 1):
-                    for kx in range(-half, half + 1):
-                        ny, nx = y + ky, x + kx
-                        if 0 <= ny < h and 0 <= nx < w:
-                            if image[ny, nx] < min_val:
-                                min_val = image[ny, nx]
-                out[y, x] = min_val
-        return out

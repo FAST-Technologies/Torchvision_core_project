@@ -27,6 +27,7 @@ if project_root not in sys.path:
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
 from segmenters.TorchSegmenter import TorchSegmenter
+from segmenters.NewTorchSegmenter import TorchSegmenter2
 from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict
 import torch
 import gc
@@ -35,9 +36,11 @@ import gc
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
 MethodConfig = Tuple[str, Dict[str, Any]]
-LibraryName = Literal["torch", "opencv", "sklearn"]
+LibraryName = Literal["torch", "torch_v2", "opencv", "sklearn"]
 ValidationStatus = Literal["PASS", "WARNING", "FAIL"]
-SegmenterClass = type[Union[TorchSegmenter, SklearnSegmenter, OpenCVSegmenter]]
+SegmenterClass = type[
+    Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter]
+]
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -78,6 +81,7 @@ class BatchClassicTester:
         save_visualizations: bool = True,  # Генерировать ли визуализации разницы?
         save_results: bool = True,  # Сохранять ли результаты (маски + изображения)
         refresh_masks: bool = False,  # Пересоздавать маски даже для протестированных
+        torch_segmenter_version: Literal["v1", "v2"] = "v2",
     ) -> None:
         """
         Инициализация тестера согласованности для массового сравнения реализаций.
@@ -221,6 +225,7 @@ class BatchClassicTester:
             ("torch", "opencv"),
             ("torch", "sklearn"),
             ("opencv", "sklearn"),
+            ("torch", "torch_v2"),
         ]
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -317,6 +322,7 @@ class BatchClassicTester:
         self.validation_status: Dict[str, Dict[str, List[ValidationStatus]]] = (
             defaultdict(lambda: defaultdict(list))
         )
+        self.torch_segmenter_version: Literal["v1", "v2"] = torch_segmenter_version
 
         # Пути для автосохранения
         self.progress_file: Path = self.output_dir / ".progress.json"
@@ -388,7 +394,12 @@ class BatchClassicTester:
             - Для добавления новой библиотеки достаточно расширить словарь `mapping` и тип `LibraryName`.
         """
         mapping: Dict[LibraryName, SegmenterClass] = {
-            "torch": TorchSegmenter,
+            "torch": (
+                TorchSegmenter2
+                if self.torch_segmenter_version == "v2"
+                else TorchSegmenter
+            ),
+            "torch_v2": TorchSegmenter2,
             "opencv": OpenCVSegmenter,
             "sklearn": SklearnSegmenter,
         }
@@ -1176,9 +1187,9 @@ class BatchClassicTester:
             if s < 60:
                 return f"{s:.0f}с"
             elif s < 3600:
-                return f"{s/60:.1f}м"
+                return f"{s / 60:.1f}м"
             else:
-                return f"{s/3600:.1f}ч"
+                return f"{s / 3600:.1f}ч"
 
         total_errors: int = sum(
             len(e) for m in self.errors.values() for e in m.values()
@@ -1192,8 +1203,8 @@ class BatchClassicTester:
                 "img": img[:12],
                 "elapsed": fmt_time(elapsed),
                 "eta": fmt_time(remaining),
-                "rate": f"{rate*60:.1f}/мин",
-                "errors": f"{total_errors}({error_rate*100:.1f}%)",
+                "rate": f"{rate * 60:.1f}/мин",
+                "errors": f"{total_errors}({error_rate * 100:.1f}%)",
             }
         )
 
@@ -1494,7 +1505,7 @@ class BatchClassicTester:
         total_pairs: int = len(self.library_pairs)
 
         print(f"🔧 Тестируем {total_methods} методов")
-        print(f"🔗 Пары библиотек: {[f'{a}↔{b}' for a,b in self.library_pairs]}")
+        print(f"🔗 Пары библиотек: {[f'{a}↔{b}' for a, b in self.library_pairs]}")
         print(f"📊 Всего тестов: {total_images * total_methods * total_pairs}")
 
         # Инициализация прогресса
@@ -1698,6 +1709,12 @@ class BatchClassicTester:
                 row: Dict[str, Any] = {
                     "Method": method_name,
                     "Library_Pair": pair_key,
+                    "Torch_Version": (
+                        "v2"
+                        if "torch_v2" in pair_key
+                        or self.torch_segmenter_version == "v2"
+                        else "v1"
+                    ),
                     "Images_Tested": images_tested,
                 }
 
@@ -1807,7 +1824,7 @@ class BatchClassicTester:
         with open(path, "w", encoding="utf-8") as f:
             f.write("# 📊 Отчёт: Тестирование согласованности методов сегментации\n\n")
             f.write(
-                f"**Пары библиотек:** {', '.join(f'{a}↔{b}' for a,b in self.library_pairs)}\n"
+                f"**Пары библиотек:** {', '.join(f'{a}↔{b}' for a, b in self.library_pairs)}\n"
             )
             f.write(f"**Методов:** {len(self.all_methods)}\n")
             f.write(f"**Изображений:** {self.max_images or 'all'}\n\n")
@@ -1976,7 +1993,7 @@ class BatchClassicTester:
             plt.title("Успешность валидации по парам реализаций")
             plt.ylim(0, 1)
             plt.gca().yaxis.set_major_formatter(
-                plt.FuncFormatter(lambda y, _: f"{y*100:.0f}%")
+                plt.FuncFormatter(lambda y, _: f"{y * 100:.0f}%")
             )
             plt.grid(axis="y", alpha=0.3)
             plt.tight_layout()
@@ -2049,21 +2066,23 @@ class BatchClassicTester:
             df_pair = df[df["Library_Pair"] == pair]
 
             print(f"\n🔗 {pair.upper()}:")
-            print(f"   🏆 Топ-5 по IoU:")
+            print("   🏆 Топ-5 по IoU:")
             for _, row in df_pair.head(5).iterrows():
                 print(
                     f"      • {row['Method']}: IoU={row['iou_mean']:.4f} ± {row['iou_std']:.4f}"
                 )
 
-            print(f"   ⚡ Топ-5 по скорости (наименьшая разница):")
+            print("   ⚡ Топ-5 по скорости (наименьшая разница):")
             fast = df_pair.dropna(subset=["time_diff_mean"]).nsmallest(
                 5, "time_diff_mean"
             )
             for _, row in fast.iterrows():
-                print(f"      • {row['Method']}: Δt={row['time_diff_mean']*1000:.1f}мс")
+                print(
+                    f"      • {row['Method']}: Δt={row['time_diff_mean'] * 1000:.1f}мс"
+                )
 
             if df_pair["error_count"].sum() > 0:
-                print(f"   ❌ Методы с ошибками:")
+                print("   ❌ Методы с ошибками:")
                 err = (
                     df_pair[df_pair["error_count"] > 0]
                     .sort_values("error_count", ascending=False)
@@ -2454,6 +2473,7 @@ class BatchClassicTester:
             edgecolor="black",
             linewidth=0.5,
         )
+        print(bars)
 
         plt.xlabel("Mean IoU", fontsize=12)
         plt.title(
@@ -3035,15 +3055,12 @@ class BatchClassicTester:
                 <div class="timestamp">
                     Сгенерирован: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                 </div>
-                
                 <!-- Сводная статистика -->
                 <h2>📈 Сводная статистика</h2>
                 {self._generate_summary_cards(df)}
-                
                 <!-- Детали по методам -->
                 <h2>🔍 Детали по методам</h2>
                 {self._generate_method_sections(report_data)}
-                
                 <!-- Сводная таблица -->
                 <h2>📋 Полная таблица результатов</h2>
                 {self._generate_results_table(df)}
@@ -3164,15 +3181,15 @@ class BatchClassicTester:
                     </div>
                     <div class="metric-item">
                         <div class="metric-label">Pass Rate</div>
-                        <div class="metric-value">{item['pass_rate']*100:.1f}%</div>
+                        <div class="metric-value">{item['pass_rate'] * 100:.1f}%</div>
                     </div>
                     <div class="metric-item">
                         <div class="metric-label">Time A</div>
-                        <div class="metric-value">{item['time_a_mean']*1000:.1f}ms</div>
+                        <div class="metric-value">{item['time_a_mean'] * 1000:.1f}ms</div>
                     </div>
                     <div class="metric-item">
                         <div class="metric-label">Time B</div>
-                        <div class="metric-value">{item['time_b_mean']*1000:.1f}ms</div>
+                        <div class="metric-value">{item['time_b_mean'] * 1000:.1f}ms</div>
                     </div>
                 </div>
                 """
@@ -3259,7 +3276,7 @@ class BatchClassicTester:
         for col in ["time_a_mean", "time_b_mean"]:
             if col in df_table.columns:
                 df_table[col] = df_table[col].apply(
-                    lambda x: f"{x*1000:.2f}ms" if pd.notna(x) else "N/A"
+                    lambda x: f"{x * 1000:.2f}ms" if pd.notna(x) else "N/A"
                 )
 
         # Переименовываем для читаемости
