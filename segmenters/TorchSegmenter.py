@@ -14,6 +14,7 @@ import traceback
 from typing import List, Union, Tuple, Dict, Any, Optional, Callable, Deque
 
 import numpy as np
+import numpy.typing as npt
 from scipy import ndimage
 
 import torch
@@ -164,7 +165,7 @@ class TorchSegmenter(BaseSegmenter):
                 f"Доступные методы: {list(self.method_map.keys())}"
             )
 
-        self._segment_func = self.method_map[self.method]
+        self._segment_func: Callable[..., torch.Tensor] = self.method_map[self.method]
 
     # ──────────────────────────────────────────────────────────────────────
     def preprocess_image(  # type: ignore[override]
@@ -233,7 +234,7 @@ class TorchSegmenter(BaseSegmenter):
             else:
                 # Если многоканальное — берём среднее по каналам
                 image = np.mean(image, axis=2)
-        kernel = np.ones((window_size, window_size), dtype=np.float32) / (
+        kernel: npt.NDArray[np.float64] = np.ones((window_size, window_size), dtype=np.float32) / (
             window_size**2
         )
         return self.conv2d_numpy(image, kernel)
@@ -247,17 +248,17 @@ class TorchSegmenter(BaseSegmenter):
             else:
                 # Если многоканальное — берём среднее по каналам
                 image = np.mean(image, axis=2)
-        mean = self._local_mean_numpy(image, window_size)
-        mean_sq = self._local_mean_numpy(image**2, window_size)
+        mean: np.ndarray = self._local_mean_numpy(image, window_size)
+        mean_sq: np.ndarray = self._local_mean_numpy(image**2, window_size)
         return np.sqrt(np.maximum(mean_sq - mean**2, 1e-8))
 
     # ──────────────────────────────────────────────────────────────────────
     def sobel_numpy(self, image: np.ndarray) -> np.ndarray:
         """Оператор Собеля на numpy"""
-        kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
-        kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
-        gx = self.conv2d_numpy(image, kernel_x)
-        gy = self.conv2d_numpy(image, kernel_y)
+        kernel_x: npt.NDArray[np.float32] = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
+        kernel_y: npt.NDArray[np.float32] = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
+        gx: np.ndarray = self.conv2d_numpy(image, kernel_x)
+        gy: np.ndarray = self.conv2d_numpy(image, kernel_y)
         return np.sqrt(gx**2 + gy**2)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1163,7 +1164,7 @@ class TorchSegmenter(BaseSegmenter):
         try:
             tensor: torch.Tensor = self.preprocess_image(image)
             # print(f"Image after Torch preprocessing (tensor): {tensor}")
-            mask_tensor = self._segment_func(tensor)
+            mask_tensor: torch.Tensor = self._segment_func(tensor)
             # print(f"Image after Torch preprocessing (mask_tensor): {mask_tensor}")
 
             # Преобразуем маску в numpy
@@ -2318,13 +2319,17 @@ class TorchSegmenter(BaseSegmenter):
             if kernel_size % 2 == 0:
                 kernel_size += 1
             try:
-                gray = tv_gaussian_blur(
-                    gray.unsqueeze(0),  # (B, C, H, W) или (C, H, W)
+                # FIX: gray уже (1,1,H,W) — unsqueeze(0) делало бы 5D → ошибка
+                # Передаём gray напрямую если 4D, или unsqueeze только если 3D
+                is_3d = gray.dim() == 3
+                gray_in = gray.unsqueeze(0) if is_3d else gray
+                gray_blurred = tv_gaussian_blur(
+                    gray_in,
                     kernel_size=[kernel_size, kernel_size],
                     sigma=[sigma, sigma],
-                ).squeeze(0)
+                )
+                gray = gray_blurred.squeeze(0) if is_3d else gray_blurred
             except (AttributeError, NotImplementedError, RuntimeError) as e:
-                # 🔥 Ловим NotImplementedError от внутреннего pad()
                 print(f"⚠️ Gaussian blur failed: {e}. Skipping blur step.")
 
         # 2. Градиенты Собеля

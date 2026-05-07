@@ -18,6 +18,7 @@ from typing import (
     Optional,
 )
 
+import torch
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -92,6 +93,7 @@ class SegmentationTester:
             enable_warmup: Если `True`, выполняет warm-up перед первым прогоном каждого метода.
             n_warmup_runs: Количество "разогревочных" итераций для стабилизации производительности.
         """
+        self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.methods: Dict[str, BaseSegmenter] = {}
         self.results: Dict[str, Dict[str, Any]] = {}
         self.base_output_dir: str = str(base_output_dir)
@@ -205,8 +207,6 @@ class SegmentationTester:
         os.makedirs(os.path.join(full_path, "masks"), exist_ok=True)
         os.makedirs(os.path.join(full_path, "comparisons"), exist_ok=True)
         os.makedirs(os.path.join(full_path, "statistics"), exist_ok=True)
-        # for subdir in ["images", "masks", "comparisons", "statistics"]:
-        #     (full_path / subdir).mkdir(parents=True, exist_ok=True)
         self._benchmark_cache[test_dir] = {
             "root": full_path,
             "statistics": os.path.join(full_path, "statistics"),
@@ -274,6 +274,8 @@ class SegmentationTester:
         segmenter = self.methods[method_name]
 
         # Замер времени
+        if str(self.device) == "cuda":
+            torch.cuda.synchronize()
         start_time: float = time.perf_counter()
         result_opt: BinaryMask
         mask_opt: Optional[ProbabilityMask]
@@ -282,6 +284,8 @@ class SegmentationTester:
             raise ValueError(f"{method_name}.segment_with_mask() returned None")
         result: np.ndarray = result_opt
         mask: np.ndarray = mask_opt
+        if str(self.device) == "cuda":
+            torch.cuda.synchronize()
         execution_time: float = time.perf_counter() - start_time
 
         # Конвертация изображения для сохранения
@@ -654,10 +658,14 @@ class SegmentationTester:
         segmenter = self.methods[method_name]
 
         # Измеряем время выполнения
+        if str(self.device) == "cuda":
+            torch.cuda.synchronize()
         start_time: float = time.perf_counter()
         result_img: BinaryMask
         pred_mask: Optional[ProbabilityMask]
         result_img, pred_mask = segmenter.segment_with_mask(image)
+        if str(self.device) == "cuda":
+            torch.cuda.synchronize()
         execution_time: float = time.perf_counter() - start_time
 
         if gt_mask is not None:
@@ -1424,6 +1432,8 @@ class SegmentationTester:
                 input_arg_for_method = image_array
 
             for run in range(n_runs):
+                if str(self.device) == "cuda":
+                    torch.cuda.synchronize()
                 start_time: float = time.perf_counter()
                 result: np.ndarray
                 mask: np.ndarray
@@ -1440,6 +1450,8 @@ class SegmentationTester:
                         continue
                     result = result_opt
                     mask = mask_opt
+                    if str(self.device) == "cuda":
+                        torch.cuda.synchronize()
                     times.append(time.perf_counter() - start_time)
                     if run == 0:
                         masks_list.append(mask)
@@ -1986,9 +1998,13 @@ class SegmentationTester:
             times: List[float] = []
             last_result = None
             for _ in range(n_runs):
+                if str(self.device) == "cuda":
+                    torch.cuda.synchronize()
                 t0: float = time.perf_counter()
                 try:
                     result_img, mask = segmenter.segment_with_mask(image)
+                    if str(self.device) == "cuda":
+                        torch.cuda.synchronize()
                     times.append(time.perf_counter() - t0)
                     last_result = (result_img, mask)
                 except Exception as e:

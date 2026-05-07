@@ -12,6 +12,7 @@ import pytest
 import numpy as np
 import torch
 import warnings
+from metrics.SegmentationMetrics import SegmentationMetrics
 from segmenters.NewTorchSegmenter import TorchSegmenter2
 
 
@@ -21,6 +22,11 @@ from segmenters.NewTorchSegmenter import TorchSegmenter2
 @pytest.fixture
 def test_image() -> np.ndarray:
     """Тестовое RGB изображение 256x256"""
+    return np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
+
+@pytest.fixture
+def sample_image() -> np.ndarray:
+    """Тестовое изображение для проверки точности (256×256 RGB)"""
     return np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
 
 
@@ -253,6 +259,136 @@ class TestTorchSegmenter2_Advanced:
 
         if os.path.exists("./test_export"):
             shutil.rmtree("./test_export")
+
+"""
+Тест корректности и производительности для всех поддерживаемых точностей.
+Проверяет:
+1. Числовую согласованность результатов (IoU между fp32 и low-precision)
+2. Относительное ускорение/замедление
+3. Стабильность (отсутствие NaN/Inf)
+"""
+
+# ──────────────────────────────────────────────────────────────────────
+@pytest.mark.parametrize("precision", ["fp32", "fp16", "bf16"])
+@pytest.mark.parametrize("method", [
+    "global_thresholding", "otsu_thresholding", "sobel_edge", 
+    "prewitt_edge", "scharr_edge", "canny_edge"
+])
+def test_precision_correctness(precision: str, method: str, sample_image: np.ndarray):
+    """
+    Проверяет, что результат в low-precision не отклоняется от fp32 более чем на допуск.
+    """
+    if precision in ["fp16", "bf16"] and not torch.cuda.is_available():
+        pytest.skip("Low-precision тесты требуют CUDA")
+    
+    if precision == "bf16":
+        cap = torch.cuda.get_device_capability(0)
+        if cap[0] < 8:  # Ampere+ для полноценной bf16
+            pytest.skip("bf16 требует GPU с compute capability >= 8")
+    
+    # Референс в fp32
+    ref_segmenter = TorchSegmenter2(method=method, device="cuda", precision="fp32")
+    ref_mask = ref_segmenter.segment(sample_image)
+    
+    # Тестируемая точность
+    test_segmenter = TorchSegmenter2(method=method, device="cuda", precision=precision)
+    test_mask = test_segmenter.segment(sample_image)
+    
+    # Проверка на NaN/Inf
+    assert not np.any(np.isnan(test_mask)), f"{method}/{precision}: обнаружен NaN"
+    assert not np.any(np.isinf(test_mask)), f"{method}/{precision}: обнаружен Inf"
+    
+    # IoU между референсом и тестом (допуск зависит от точности)
+    iou = SegmentationMetrics.calculate_iou(ref_mask, test_mask)
+    tolerance = {"fp32": 0.999, "fp16": 0.95, "bf16": 0.97}[precision]
+    
+    assert iou >= tolerance, (
+        f"{method}/{precision}: IoU={iou:.4f} < {tolerance}. "
+        "Возможна численная нестабильность."
+    )
+
+# ──────────────────────────────────────────────────────────────────────
+@pytest.mark.benchmark(group="precision")
+@pytest.mark.parametrize("precision", ["fp32", "fp16", "bf16"])
+def test_precision_performance(benchmark, precision: str, sample_image: np.ndarray):
+    """
+    Замер производительности для каждой точности.
+    """
+    if precision in ["fp16", "bf16"] and not torch.cuda.is_available():
+        pytest.skip("Требуется CUDA")
+    
+    segmenter = TorchSegmenter2(
+        method="sobel_edge",  # можно параметризовать
+        device="cuda", 
+        precision=precision,
+        use_compile=True
+    )
+    
+    # Прогрев
+    _ = segmenter.segment(sample_image)
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+    
+    # Замер
+    def run():
+        return segmenter.segment(sample_image)
+    
+    result = benchmark(run)
+    
+    # Логирование для анализа
+    benchmark.extra_info.update({
+        "precision": precision,
+        "output_dtype": str(result.dtype),
+        "device": str(segmenter.device)
+    })
+
+# ──────────────────────────────────────────────────────────────────────
+def test_autocast_consistency(sample_image: np.ndarray):
+    """
+    Проверяет, что PrecisionManager.autocast корректно переключает контекст.
+    """
+    if not torch.cuda.is_available():
+        pytest.skip("Требуется CUDA")
+    
+    from segmenters.NewTorchSegmenter import PrecisionManager
+    
+    pm = PrecisionManager(default_precision="fp32")
+    
+    # Тест для каждой поддерживаемой точности
+    for precision in ["fp32", "fp16", "bf16"]:
+        if precision == "bf16" and torch.cuda.get_device_capability(0)[0] < 8:
+            continue
+            
+        dtype = pm.get_dtype(precision)
+        with pm.autocast(precision, enabled=True):
+            x = torch.randn(32, 32, device="cuda")
+            # Проверяем, что операция выполняется в нужной точности
+            y = x @ x.T
+            assert y.dtype == dtype or y.dtype == torch.float32, (
+                f"autocast({precision}): unexpected dtype {y.dtype}"
+            )
+
+
+@pytest.mark.parametrize("method,config", [
+    ("global_thresholding", {"fullgraph": True}),
+    ("adaptive_thresholding", {"fullgraph": False}),
+    ("prewitt_edge", {"fullgraph": True}),
+    ("canny_edge", {"fullgraph": False}),
+])
+def test_compile_config_validity(method: str, config: dict):
+    """
+    Проверяет, что конфигурация компиляции не вызывает ошибок при загрузке.
+    """
+    segmenter = TorchSegmenter2(
+        method=method,
+        device="cuda" if torch.cuda.is_available() else "cpu",
+        use_compile=True,
+        compile_fullgraph=config.get("fullgraph", True),
+        compile_dynamic=config.get("dynamic", True),
+        compile_mode=config.get("mode", "reduce-overhead"),
+    )
+    # Если метод загрузился без исключения — конфигурация валидна
+    assert segmenter._segment_func is not None
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -135,8 +135,12 @@ class CpuCudaBenchmark:
                 if device == "cuda":
                     torch.cuda.synchronize()
 
+                if device == "cuda":
+                    torch.cuda.synchronize()
                 start: float = time.perf_counter()
                 segmenter.segment(image)
+                if device == "cuda":
+                    torch.cuda.synchronize()
                 end: float = time.perf_counter()
 
                 if device == "cuda":
@@ -261,22 +265,22 @@ class CpuCudaBenchmark:
             )
 
             # Тест на CUDA (только если доступно)
-            if torch.cuda.is_available() and self._is_cuda_capable(segmenter):
-                print("   📊 Тестирование на CUDA...")
-                cuda_result = self.benchmark_method(
-                    segmenter, image, method_name, "cuda"
-                )
-                all_results.append(cuda_result)
-                print(
-                    f"      CUDA: {cuda_result['mean_time'] * 1000:.2f}ms ± {cuda_result['std_time'] * 1000:.2f}ms"
-                )
+            # if torch.cuda.is_available() and self._is_cuda_capable(segmenter):
+            print("   📊 Тестирование на CUDA...")
+            cuda_result = self.benchmark_method(
+                segmenter, image, method_name, "cuda"
+            )
+            all_results.append(cuda_result)
+            print(
+                f"      CUDA: {cuda_result['mean_time'] * 1000:.2f}ms ± {cuda_result['std_time'] * 1000:.2f}ms"
+            )
 
-                # Ускорение
-                if cpu_result["mean_time"] > 0 and cuda_result["mean_time"] > 0:
-                    speedup = cpu_result["mean_time"] / cuda_result["mean_time"]
-                    print(f"      ⚡ Ускорение: {speedup:.2f}x")
-            else:
-                print(f"   ⚠️  {method_name}: пропускаем CUDA (CPU-only реализация)")
+            # Ускорение
+            if cpu_result["mean_time"] > 0 and cuda_result["mean_time"] > 0:
+                speedup = cpu_result["mean_time"] / cuda_result["mean_time"]
+                print(f"      ⚡ Ускорение: {speedup:.2f}x")
+            # else:
+            #     print(f"   ⚠️  {method_name}: пропускаем CUDA (CPU-only реализация)")
 
         # Создаем DataFrame
         df: pd.DataFrame = pd.DataFrame(all_results)

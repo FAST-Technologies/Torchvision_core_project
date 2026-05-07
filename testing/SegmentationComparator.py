@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Union, Tuple
 from datetime import datetime
 
+import torch
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -54,6 +55,7 @@ class SegmentationComparator:
     def __init__(self) -> None:
         """Инициализация компаратора с пустым хранилищем результатов."""
         self.results: Dict[str, Dict[str, Any]] = {}
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # ──────────────────────────────────────────────────────────────────────
     # МЕТРИКИ КАЧЕСТВА
@@ -156,14 +158,22 @@ class SegmentationComparator:
         m2_name: Optional[str] = name2 or getattr(segmenter2, "method", "Method2")
 
         # Инференс первого метода
+        if str(self.device) == "cuda":
+            torch.cuda.synchronize()
         start_time_1: float = time.perf_counter()
         mask1: MaskArray = segmenter1.segment(image)
+        if str(self.device) == "cuda":
+            torch.cuda.synchronize()
         time_1: float = time.perf_counter() - start_time_1
         info1: Dict[str, Any] = {"execution_time": time_1, "method": m1_name}
 
         # Инференс второго метода
+        if str(self.device) == "cuda":
+            torch.cuda.synchronize()
         start_time_2: float = time.perf_counter()
         mask2: MaskArray = segmenter2.segment(image)
+        if str(self.device) == "cuda":
+            torch.cuda.synchronize()
         time_2: float = time.perf_counter() - start_time_2
         info2: Dict[str, Any] = {"execution_time": time_2, "method": m2_name}
 
@@ -354,8 +364,12 @@ class SegmentationComparator:
         ref_name: Union[str | Any | None] = reference_name or getattr(
             reference_segmenter, "method", "Reference"
         )
+        if str(self.device) == "cuda":
+            torch.cuda.synchronize()
         start_time_ref: float = time.perf_counter()
         ref_mask: MaskArray = reference_segmenter.segment(image)
+        if str(self.device) == "cuda":
+            torch.cuda.synchronize()
         ref_time: float = time.perf_counter() - start_time_ref
         ref_info: Dict[str, Any] = {"execution_time": ref_time, "method": ref_name}
 
@@ -368,8 +382,12 @@ class SegmentationComparator:
                 print(f"⚠️ Пропущен конфиг без сегментера: {config}")
                 continue
             try:
+                if str(self.device) == "cuda":
+                    torch.cuda.synchronize()
                 start_time_test: float = time.perf_counter()
                 test_mask: MaskArray = segmenter.segment(image)
+                if str(self.device) == "cuda":
+                    torch.cuda.synchronize()
                 test_time: float = time.perf_counter() - start_time_test
                 test_info: Dict[str, Any] = {
                     "execution_time": test_time,
@@ -580,8 +598,12 @@ class SegmentationComparator:
         for name in method_names:
             segmenter = segmenters_map[name]
             try:
+                if device == "cuda":
+                    torch.cuda.synchronize()
                 start_time: float = time.perf_counter()
                 mask: MaskArray = segmenter.segment(image)
+                if device == "cuda":
+                    torch.cuda.synchronize()
                 exec_time: float = time.perf_counter() - start_time
 
                 masks[name] = mask

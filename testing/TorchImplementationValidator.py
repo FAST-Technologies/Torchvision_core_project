@@ -9,7 +9,7 @@ import inspect
 import traceback
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple, Union, Type, Literal
+from typing import List, Dict, Any, Optional, Tuple, Union, Type, Set, Literal
 
 import numpy as np
 import pandas as pd
@@ -78,6 +78,7 @@ class TorchImplementationValidator:
         self.output_dir: str = output_dir
         os.makedirs(output_dir, exist_ok=True)
         self.validation_results: Dict[str, Any] = {}
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # ──────────────────────────────────────────────────────────────
         # КОНФИГУРАЦИИ МЕТОДОВ ПО КАТЕГОРИЯМ
@@ -87,7 +88,7 @@ class TorchImplementationValidator:
             ("otsu_thresholding", {}),
             ("adaptive_thresholding", {"block_size": 11, "C": 2}),
             ("threshold_niblack", {"window_size": 15, "k": -0.2}),
-            # ("threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128}),
+            ("threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128}),
             ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
             (
                 "threshold_phansalkar",
@@ -122,18 +123,18 @@ class TorchImplementationValidator:
                 "gradient_magnitude_direction",
                 {"threshold": 0.1},
             ),
-            # (
-            #     "phase_congruency_edge",
-            #     {
-            #         "nscales": 4,
-            #         "norientations": 4,
-            #         "min_wavelength": 3,
-            #         "mult": 2.0,
-            #         "sigma_onf": 0.55,
-            #         "k_noise": 2.0,
-            #         "threshold": 0.5,
-            #     },
-            # ),
+            (
+                "phase_congruency_edge",
+                {
+                    "nscales": 4,
+                    "norientations": 4,
+                    "min_wavelength": 3,
+                    "mult": 2.0,
+                    "sigma_onf": 0.55,
+                    "k_noise": 2.0,
+                    "threshold": 0.5,
+                },
+            ),
         ]
 
         self.region_methods: List[MethodConfig] = [
@@ -256,7 +257,7 @@ class TorchImplementationValidator:
 
         try:
             sig = inspect.signature(segmenter_class.__init__)
-            valid_params = set(sig.parameters.keys()) - {"self", "kwargs", "kwds"}
+            valid_params: Set[str] = set(sig.parameters.keys()) - {"self", "kwargs", "kwds"}
             # Всегда разрешаем 'postprocess' для совместимости
             valid_params.add("postprocess")
             return {k: v for k, v in params.items() if k in valid_params}
@@ -442,9 +443,13 @@ class TorchImplementationValidator:
                     first_params = self._prepare_torch_params(
                         first_params, use_torch2=True
                     )
+                if str(self.device) == "cuda":
+                    torch.cuda.synchronize()
                 start_method_1_time: float = time.perf_counter()
                 segmenter1 = first_segmenter_class(method=method_name, **params)
                 mask1_raw = segmenter1.segment(img_array, **params)
+                if str(self.device) == "cuda":
+                    torch.cuda.synchronize()
                 execution_method_1_time: float = (
                     time.perf_counter() - start_method_1_time
                 )
@@ -457,9 +462,13 @@ class TorchImplementationValidator:
                     second_segmenter_class, params.copy()
                 )
                 ref_params["postprocess"] = False
+                if str(self.device) == "cuda":
+                    torch.cuda.synchronize()
                 start_method_2_time: float = time.perf_counter()
                 segmenter2 = second_segmenter_class(method=method_name, **ref_params)
                 mask2_raw = segmenter2.segment(img_array, **ref_params)
+                if str(self.device) == "cuda":
+                    torch.cuda.synchronize()
                 execution_method_2_time: float = (
                     time.perf_counter() - start_method_2_time
                 )
@@ -728,13 +737,17 @@ class TorchImplementationValidator:
             # Torch маска
             axes[row, 1].imshow(mask_a_np, cmap="gray")
             axes[row, 1].set_title(
-                f"{first_method_name.upper()}\nIoU: {metrics['iou']:.3f}"
+                f"{method}\n{first_method_name.upper()}\nIoU: {metrics['iou']:.3f}",
+                fontsize=8
             )
             axes[row, 1].axis("off")
 
             # Reference маска
             axes[row, 2].imshow(mask_b_np, cmap="gray")
-            axes[row, 2].set_title(f"{second_method_name.upper()}")
+            axes[row, 2].set_title(
+                f"{method}\n{second_method_name.upper()}",
+                fontsize=8
+            )
             axes[row, 2].axis("off")
 
             # Heatmap разности
@@ -752,13 +765,13 @@ class TorchImplementationValidator:
 
         plt.suptitle(
             f"{validation_type.title()}: {first_method_name} vs {second_method_name}",
-            fontsize=16,
+            fontsize=14,
         )
         plt.tight_layout()
 
         viz_path = os.path.join(
             self.output_dir,
-            f"{validation_type}_{first_method_name}_vs_{second_method_name}_{timestamp}.png",
+            f"{validation_type}_{first_method_name}_vs_{second_method_name}_{timestamp}.jpg",
         )
         plt.savefig(viz_path, dpi=150, bbox_inches="tight")
         plt.close()
@@ -930,7 +943,7 @@ class TorchImplementationValidator:
                 self.threshold_methods,
                 torch_class,
                 SklearnSegmenter,
-                "Torch",
+                "Torch2" if use_torch2 else "Torch",
                 "Sklearn",
                 "ВАЛИДАЦИЯ ПОРОГОВЫХ МЕТОДОВ (Torch + Sklearn)",
                 "threshold",
@@ -941,7 +954,7 @@ class TorchImplementationValidator:
                 self.threshold_methods,
                 torch_class,
                 OpenCVSegmenter,
-                "Torch",
+                "Torch2" if use_torch2 else "Torch",
                 "OpenCV",
                 "ВАЛИДАЦИЯ ПОРОГОВЫХ МЕТОДОВ (Torch + OpenCV)",
                 "threshold",
@@ -963,7 +976,7 @@ class TorchImplementationValidator:
                 self.edge_methods,
                 torch_class,
                 SklearnSegmenter,
-                "Torch",
+                "Torch2" if use_torch2 else "Torch",
                 "Sklearn",
                 "ВАЛИДАЦИЯ ОПЕРАТОРОВ ГРАНИЦ (Torch + Sklearn)",
                 "edge",
@@ -973,7 +986,7 @@ class TorchImplementationValidator:
                 self.edge_methods,
                 torch_class,
                 OpenCVSegmenter,
-                "Torch",
+                "Torch2" if use_torch2 else "Torch",
                 "OpenCV",
                 "ВАЛИДАЦИЯ ОПЕРАТОРОВ ГРАНИЦ (Torch + OpenCV)",
                 "edge",
@@ -1007,6 +1020,36 @@ class TorchImplementationValidator:
             # ('interactive_opencv', self.interactive_methods, torch_class, OpenCVSegmenter, "ВАЛИДАЦИЯ ИНТЕРАКТИВНЫХ МЕТОДОВ (Torch + OpenCV)", 'opencv', 'interactive', 'Torch'),
             # ('interactive_custom', self.interactive_methods, OpenCVSegmenter, SklearnSegmenter, "ВАЛИДАЦИЯ ИНТЕРАКТИВНЫХ МЕТОДОВ (Sklearn + OpenCV)", 'sklearn', 'interactive', 'OpenCV'),
         ]
+
+        # ──────────────────────────────────────────────────────
+        # ПРЯМОЕ СРАВНЕНИЕ: TorchSegmenter2 vs TorchSegmenter
+        # ──────────────────────────────────────────────────────
+        if use_torch2:
+            validation_configs.extend([
+                # Threshold: Torch2 vs Torch1
+                (
+                    "threshold_torch2_vs_torch1",
+                    self.threshold_methods,
+                    TorchSegmenter2,  # first = новая версия
+                    TorchSegmenter,   # second = старая версия
+                    "Torch2",
+                    "Torch1",
+                    "ПРЯМОЕ СРАВНЕНИЕ: TorchSegmenter2 vs TorchSegmenter (пороговые)",
+                    "threshold",
+                ),
+                # Edge: Torch2 vs Torch1
+                (
+                    "edge_torch2_vs_torch1",
+                    self.edge_methods,
+                    TorchSegmenter2,
+                    TorchSegmenter,
+                    "Torch2",
+                    "Torch1", 
+                    "ПРЯМОЕ СРАВНЕНИЕ: TorchSegmenter2 vs TorchSegmenter (граничные)",
+                    "edge",
+                ),
+                # Можно добавить и для других категорий при необходимости
+            ])
 
         for (
             key,

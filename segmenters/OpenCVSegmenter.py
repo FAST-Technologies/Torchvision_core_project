@@ -441,10 +441,7 @@ class OpenCVSegmenter(BaseSegmenter):
             ```
         """
         img_array: GrayImage = self.preprocess_image(image, as_gray=self._needs_gray)
-        # print(f"Image after OpenCV preprocessing: {image}")
-
         mask: MaskArray = self.methods[self.method](img_array, **kwargs)
-        # print(f"Mask after OpenCV segment: {mask}")
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -477,7 +474,6 @@ class OpenCVSegmenter(BaseSegmenter):
             ```
         """
         image = self.preprocess_image(image)
-        # print(f"Image after OpenCV preprocessing with mask: {image}")
         mask: MaskArray = self.segment(image, **kwargs)
 
         if mask.dtype != np.uint8:
@@ -501,14 +497,15 @@ class OpenCVSegmenter(BaseSegmenter):
         result = cv2.addWeighted(overlay, alpha, base_img, 1 - alpha, 0).astype(
             np.uint8
         )
-
-        # print(f"Mask after OpenCV segment_with_mask: {mask}")
-        # print(f"Result after OpenCV segment_with_mask: {result}")
         return result, mask
 
-    # ============ РЕАЛИЗАЦИИ МЕТОДОВ ============
-    # ============ ПОРОГОВЫЕ МЕТОДЫ ============
     # ──────────────────────────────────────────────────────────────────────
+    # РЕАЛИЗАЦИИ МЕТОДОВ
+    # ──────────────────────────────────────────────────────────────────────
+
+    # ──────────────────────────────────────────────────────────────────────
+    # ПОРОГОВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ
+    # ──────────────────────────────────────────────────────────────────────v
     def _opencv_global_thresholding(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """
         Глобальная пороговая сегментация.
@@ -1802,7 +1799,7 @@ class OpenCVSegmenter(BaseSegmenter):
         )
         mask = mask_raw.astype(np.uint8)
 
-        exec_time = time.time() - start_time
+        exec_time: float = time.time() - start_time
         self._log_info(
             "multi_otsu_thresholding_opencv",
             exec_time,
@@ -2006,7 +2003,8 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
+    # ──────────────────────────────────────────────────────────────────────
+    # КРАЕВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ
     # ──────────────────────────────────────────────────────────────────────
     def _opencv_sobel_edge(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """
@@ -2151,11 +2149,21 @@ class OpenCVSegmenter(BaseSegmenter):
             gray: GrayImage = gray_raw.astype(np.uint8)  # type: ignore[assignment]
         else:
             gray = img
-        print(f"Gray after OpenCV_canny_edge: {gray}")
         start_time: float = time.time()
 
-        low: int = int(self.params.get("low", 50))
-        high: int = int(self.params.get("high", 150))
+        low_raw = self.params.get("low", 50)
+        high_raw = self.params.get("high", 150)
+
+        # FIX: поддержка обоих диапазонов — [0,1] (Torch-совместимый) и [0,255] (OpenCV)
+        # Если пороги заданы в [0,1] — конвертируем в [0,255] для cv2.Canny
+        if isinstance(low_raw, float) and low_raw <= 1.0:
+            low = int(low_raw * 255)
+        else:
+            low = int(low_raw)
+        if isinstance(high_raw, float) and high_raw <= 1.0:
+            high = int(high_raw * 255)
+        else:
+            high = int(high_raw)
 
         mask: MaskArray = cv2.Canny(gray, low, high).astype(np.uint8)
 
@@ -2166,9 +2174,6 @@ class OpenCVSegmenter(BaseSegmenter):
             exec_time,
             {"low": low, "high": high, **kwargs},
         )
-        print(f"Mask after OpenCV_canny_edge: {mask}")
-        print(f"Info after OpenCV_canny_edge: {self._log_info}")
-
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3072,113 +3077,114 @@ class OpenCVSegmenter(BaseSegmenter):
             edges = segmenter.segment(large_satellite_image)
             ```
         """
-        # Конвертация в grayscale при необходимости
         if len(img.shape) == 3:
             gray_raw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            gray: GrayImage = gray_raw.astype(np.uint8)  # type: ignore[assignment]
+            gray: GrayImage = gray_raw.astype(np.uint8)
         else:
             gray = img.copy()
-
+        
         start_time: float = time.time()
-
-        # Получение параметров
+        
+        # Параметры
         nscales: int = int(self.params.get("nscales", 4))
         norientations: int = int(self.params.get("norientations", 4))
-        min_wavelength: int = int(self.params.get("min_wavelength", 3))
+        min_wavelength: float = float(self.params.get("min_wavelength", 3.0))
         mult: float = float(self.params.get("mult", 2.0))
         sigma_onf: float = float(self.params.get("sigma_onf", 0.55))
         k_noise: float = float(self.params.get("k_noise", 2.0))
-        threshold = min(float(self.params.get("threshold", 0.3)), 0.99)
-        epsilon: float = 1e-10
-
-        # Нормализация к [0, 1]
-        gray_norm: FloatArray = gray.astype(np.float32)
-        if gray_norm.max() > 1.0:
-            gray_norm = gray_norm / 255.0
-
-        rows: int = gray_norm.shape[0]
-        cols: int = gray_norm.shape[1]
-
-        # FFT изображения
-        img_fft: npt.NDArray[np.complex128] = np.fft.fft2(gray_norm)
-        img_fft_shifted: npt.NDArray[np.complex128] = np.fft.fftshift(img_fft)
-
-        # Частотная сетка
-        y: npt.NDArray[np.float64] = np.fft.fftshift(np.fft.fftfreq(rows))
-        x: npt.NDArray[np.float64] = np.fft.fftshift(np.fft.fftfreq(cols))
-        X, Y = np.meshgrid(x, y)
-        R: FloatArray = np.sqrt(X**2 + Y**2 + epsilon)  # Защита от деления на 0
-        Theta: FloatArray = np.arctan2(-Y, X)  # Угол в радианах
-
-        # Аккумуляторы
-        sum_even: FloatArray = np.zeros((rows, cols), dtype=np.float32)
-        sum_odd: FloatArray = np.zeros((rows, cols), dtype=np.float32)
-        sum_amp: FloatArray = np.zeros((rows, cols), dtype=np.float32)
-        noise_energy: FloatArray = np.zeros((rows, cols), dtype=np.float32)
-
-        orientations: npt.NDArray[np.float64] = np.linspace(
-            0, np.pi, norientations, endpoint=False
-        ).astype(np.float64)
-
+        threshold: float = float(self.params.get("threshold", 0.3))
+        
+        eps: float = 1e-6
+        
+        # Нормализация к [0, 1] в float64 для стабильности
+        gray_norm: np.ndarray = gray.astype(np.float64) / 255.0
+        rows, cols = gray_norm.shape
+        
+        # 🔥 FFT изображения (в float64 для стабильности!)
+        img_fft = np.fft.fft2(gray_norm)
+        img_fft_shifted = np.fft.fftshift(img_fft)
+        
+        # 🔥 Частотная сетка
+        y_freq = np.fft.fftshift(np.fft.fftfreq(rows))
+        x_freq = np.fft.fftshift(np.fft.fftfreq(cols))
+        X, Y = np.meshgrid(x_freq, y_freq)
+        R = np.sqrt(X**2 + Y**2 + eps)
+        Theta = np.arctan2(-Y, X)
+        
+        # 🔥 Аккумуляторы (в float64!)
+        sum_even = np.zeros((rows, cols), dtype=np.float64)
+        sum_odd = np.zeros((rows, cols), dtype=np.float64)
+        sum_amp = np.zeros((rows, cols), dtype=np.float64)
+        noise_energy = np.zeros((rows, cols), dtype=np.float64)
+        
+        orientations = np.linspace(0, np.pi, norientations, endpoint=False)
+        
         for scale in range(nscales):
-            wavelength: float = min_wavelength * (mult**scale)
-            fo: float = 1.0 / wavelength
-
-            # Log-Gabor фильтр (радиальная часть)
-            # sigma_f: float = sigma_onf * fo
-            log_ratio: FloatArray = np.log(R / fo + epsilon) / np.log(
-                sigma_onf + epsilon
-            )
-            log_gabor: FloatArray = np.exp(-0.5 * log_ratio**2)
-            log_gabor[0, 0] = 0.0  # DC = 0
-
+            wavelength = min_wavelength * (mult ** scale)
+            fo = 1.0 / wavelength
+            
+            # 🔥 Log-Gabor фильтр (радиальная часть)
+            log_ratio = np.log(R / fo + eps) / np.log(sigma_onf + eps)
+            log_gabor = np.exp(-0.5 * log_ratio**2)
+            
+            # 🔥 FIX: Обнуляем DC компонент правильно
+            log_gabor[rows//2, cols//2] = 0.0
+            
             for angle in orientations:
-                # Угловая часть (Гауссов разброс)
-                angular_spread: float = np.pi / 2 / norientations
-                d_theta: FloatArray = np.abs(Theta - angle)
+                # 🔥 Угловая часть
+                angular_spread = np.pi / 2 / norientations
+                d_theta = np.abs(Theta - angle)
                 d_theta = np.minimum(d_theta, 2 * np.pi - d_theta)
-                angular: FloatArray = np.exp(-0.5 * (d_theta / angular_spread) ** 2)
-
-                # Полный фильтр в частотной области
-                filter_f: FloatArray = log_gabor * angular
-                product = img_fft_shifted * filter_f
-
-                # Свёртка в частотной области
-                response = np.fft.ifft2(np.fft.ifftshift(product))
-                even_resp: FloatArray = np.real(response).astype(np.float32)
-                odd_resp: FloatArray = np.imag(response).astype(np.float32)
-
-                # Амплитуда отклика
-                amp: FloatArray = np.sqrt(even_resp**2 + odd_resp**2 + epsilon)
-
-                # Оценка шума (MAD) для текущего фильтра
-                med = np.median(amp)
-                noise_est: float = 2.0 * (med / 0.6745)
-
-                # Накопление
+                angular = np.exp(-0.5 * (d_theta / angular_spread) ** 2)
+                
+                # 🔥 Полный фильтр
+                filter_f = log_gabor * angular
+                
+                # 🔥 FIX: Правильный порядок FFT shift для NumPy
+                response = np.fft.ifft2(np.fft.ifftshift(img_fft_shifted * filter_f))
+                
+                even_resp = np.real(response).astype(np.float64)
+                odd_resp = np.imag(response).astype(np.float64)
+                
+                # 🔥 Амплитуда
+                amp = np.sqrt(even_resp**2 + odd_resp**2 + eps)
+                
+                # 🔥 FIX: Оценка шума через MAD (median absolute deviation)
+                med = np.median(np.abs(amp - np.median(amp)))
+                noise_est = med / 0.6745  # MAD scaling factor
+                
+                # 🔥 Накопление
                 sum_even += even_resp
                 sum_odd += odd_resp
                 sum_amp += amp
                 noise_energy += noise_est**2
+        
+        # 🔥 Вычисление фазовой конгруэнтности
+        local_energy = np.sqrt(sum_even**2 + sum_odd**2 + eps)
+        
+        # 🔥 Компенсация шума (Ковези)
+        T = np.sqrt(noise_energy) * k_noise
+        pc_map = np.maximum(local_energy - T, 0) / (sum_amp + eps)
 
-        # Вычисление фазовой конгруэнтности
-        local_energy: FloatArray = np.sqrt(sum_even**2 + sum_odd**2 + epsilon)
-
-        # Компенсация шума (Ковези)
-        T: np.ndarray = noise_energy * k_noise
-        pc_map: FloatArray = np.maximum(local_energy - T, 0) / (sum_amp + epsilon)
-
-        # Ограничение [0, 1]
-        # pc_map = cv2.normalize(pc_map, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
+        print(f" pc_map stats: min={pc_map.min():.4f}, max={pc_map.max():.4f}, mean={pc_map.mean():.4f}")
+        print(f"🎯 Threshold: {threshold}")
+        print(f"📈 Unique values > threshold: {(pc_map > threshold).sum()}")
+        
+        # 🔥 Ограничение [0, 1]
         pc_map = np.clip(pc_map, 0, 1)
+        
+        # 🔥 FIX: Более низкий порог для NumPy версии
+        if threshold > 1.0:  # Уже в [0, 255]
+            thresh_normalized = threshold / 255.0
+        else:  # В [0, 1]
+            thresh_normalized = threshold
+        mask: MaskArray = (pc_map > thresh_normalized).astype(np.uint8) * 255
 
-        # Бинаризация
-        # _, mask = cv2.threshold(pc_map, threshold, 255, cv2.THRESH_BINARY)
-        # mask = mask.astype(np.uint8)
-        mask = (pc_map > threshold).astype(np.uint8) * 255
-
+        print(f" pc_map stats: min={pc_map.min():.4f}, max={pc_map.max():.4f}, mean={pc_map.mean():.4f}")
+        print(f"🎯 Threshold: {threshold}")
+        print(f"📈 Unique values > threshold: {(pc_map > threshold).sum()}")
+        
         exec_time: float = time.time() - start_time
-
         self._log_info(
             "phase_congruency_edge_opencv",
             exec_time,
@@ -3193,10 +3199,10 @@ class OpenCVSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
         return mask
 
-    # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============
+    # ──────────────────────────────────────────────────────────────────────
+    # РЕГИОНАЛЬНЫЕ МЕТОДЫ СЕГМЕНТАЦИИ
     # ──────────────────────────────────────────────────────────────────────
     def _opencv_region_growing(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """
@@ -3611,7 +3617,8 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask_final
 
-    # ============ КЛАСТЕРИЗАЦИЯ ============
+    # ──────────────────────────────────────────────────────────────────────
+    # МЕТОДЫ КЛАСТЕРИЗАЦИИ
     # ──────────────────────────────────────────────────────────────────────
     def _opencv_kmeans_segmentation(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """
@@ -3965,7 +3972,8 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    # ============ АКТИВНЫЕ КОНТУРЫ ============
+    # ──────────────────────────────────────────────────────────────────────
+    # МЕТОДЫ АКТИВНЫХ КОНТУРОВ
     # ──────────────────────────────────────────────────────────────────────
     def _opencv_active_contour(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """
@@ -4491,7 +4499,8 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    # ============ WATERSHED И ГРАФОВЫЕ ============
+    # ──────────────────────────────────────────────────────────────────────
+    # ГРАФОВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ
     # ──────────────────────────────────────────────────────────────────────
     def _opencv_watershed(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """
@@ -4735,7 +4744,8 @@ class OpenCVSegmenter(BaseSegmenter):
 
         return mask
 
-    # ============ SUPER-PIXEL МЕТОДЫ ============
+    # ──────────────────────────────────────────────────────────────────────
+    # SUPER-PIXEL МЕТОДЫ СЕГМЕНТАЦИИ
     # ──────────────────────────────────────────────────────────────────────
     def _opencv_quickshift(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """
@@ -5148,6 +5158,8 @@ class OpenCVSegmenter(BaseSegmenter):
     #     return result_mask
 
     # ──────────────────────────────────────────────────────────────────────
+    # ИНТЕРАКТИВНЫЕ МЕТОДЫ СЕГМЕНТАЦИИ
+    # ───────────────────────────────────────────────────────────────────────
     def _opencv_grabcut(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """
         Интерактивная сегментация GrabCut.

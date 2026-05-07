@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Literal, Union
 from collections import defaultdict
 from datetime import datetime
+import torch
 
 import numpy as np
 import pandas as pd
@@ -201,6 +202,7 @@ class BatchClassicTester:
         self.image_size: Tuple[int, int] = image_size
         self.autosave_interval: int = autosave_interval
         self.resume: bool = resume
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Параметры сохранения масок
         self.save_masks: bool = save_masks
@@ -498,8 +500,12 @@ class BatchClassicTester:
             seg_a_class = self._get_segmenter_class(lib_a)
             seg_a = seg_a_class(method=method_name, **params)
 
+            if str(self.device) == "cuda":
+                torch.cuda.synchronize()
             start_a: float = time.perf_counter()
             mask_a: np.ndarray = seg_a.segment(image, **params)
+            if str(self.device) == "cuda":
+                torch.cuda.synchronize()
             time_a: float = time.perf_counter() - start_a
 
             # ──────────────────────────────────────────────────────
@@ -510,8 +516,12 @@ class BatchClassicTester:
             params_b["postprocess"] = False  # 🔧 Отключаем постобработку
 
             seg_b = seg_b_class(method=method_name, **params_b)
+            if str(self.device) == "cuda":
+                torch.cuda.synchronize()
             start_b: float = time.perf_counter()
             mask_b: np.ndarray = seg_b.segment(image, **params_b)
+            if str(self.device) == "cuda":
+                torch.cuda.synchronize()
             time_b: float = time.perf_counter() - start_b
 
             # ──────────────────────────────────────────────────────
