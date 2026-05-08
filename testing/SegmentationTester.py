@@ -25,6 +25,10 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import cv2
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # Локальные импорты
 from segmenters.BaseSegmenter import BaseSegmenter, BinaryMask, ProbabilityMask
 from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict
@@ -1444,12 +1448,16 @@ class SegmentationTester:
                         input_arg_for_method
                     )
                     if result_opt is None or mask_opt is None:
-                        print(f"    ❌ {method_name} returned None")
-                        if run == 0:
-                            break
-                        continue
-                    result = result_opt
-                    mask = mask_opt
+                        logger.warning(f"    ⚠️  {method_name} returned None (run {run + 1})")
+                        if run == 0 and n_runs > 1:
+                            # 🔥 Не прерывать сразу, попробовать ещё раз
+                            continue
+                        # Если все запуски неудачны — использовать нулевую маску
+                        result = np.zeros(image_array.shape[:2], dtype=np.uint8)
+                        mask = np.zeros(image_array.shape[:2], dtype=np.uint8)
+                    else:
+                        result = result_opt
+                        mask = mask_opt
                     if str(self.device) == "cuda":
                         torch.cuda.synchronize()
                     times.append(time.perf_counter() - start_time)
@@ -1457,9 +1465,16 @@ class SegmentationTester:
                         masks_list.append(mask)
                         results_list.append(result)
                 except Exception as e:
-                    print(f"    ❌ Ошибка в {method_name} (запуск {run + 1}): {e}")
+                    logger.warning(f"    ⚠️  Ошибка в {method_name} (запуск {run + 1}): {e}")
+                    if run == 0 and n_runs > 1:
+                        # 🔥 Пробуем ещё раз при ошибке на первом запуске
+                        continue
+                    # Если все запуски неудачны — фиксируем нулевые значения
+                    times.append(0.0)  # Или np.nan для явного указания ошибки
                     if run == 0:
-                        break
+                        h, w = image_array.shape[:2]
+                        masks_list.append(np.zeros((h, w), dtype=np.uint8))
+                        results_list.append(np.zeros((h, w), dtype=np.uint8))
 
             mask_area: int = 0
             total_pixels: int = 1

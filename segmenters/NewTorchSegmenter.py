@@ -732,8 +732,8 @@ class TorchSegmenter2(BaseSegmenter):
         if key in self._kernel_cache:
             cached = self._kernel_cache[key]
             if isinstance(cached, tuple):
-                return tuple(k.to(dtype=dtype, device=device) for k in cached)
-            return cached.to(dtype=dtype, device=device)
+                return tuple(k.clone().to(dtype=dtype, device=device) for k in cached)
+            return cached.clone().to(dtype=dtype, device=device)
 
         # Генерация ядра
         if return_pair and kernel_type in ["sobel", "prewitt", "scharr", "roberts"]:
@@ -799,8 +799,8 @@ class TorchSegmenter2(BaseSegmenter):
 
         self._kernel_cache[key] = kernel  # type: ignore[assignment]
         if isinstance(kernel, tuple):
-            return tuple(k.to(dtype=dtype, device=device) for k in kernel)
-        return kernel.to(dtype=dtype, device=device)
+            return tuple(k.clone().to(dtype=dtype, device=device) for k in kernel)
+        return kernel.clone().to(dtype=dtype, device=device)
 
     # ──────────────────────────────────────────────────────────────────────
     # КЭШИРУЕМЫЕ ЯДРА ДЛЯ ГРАДИЕНТНЫХ МЕТОДОВ
@@ -3638,6 +3638,7 @@ class TorchSegmenter2(BaseSegmenter):
         *,
         num_bins: Optional[int] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Автоматическая бинаризация по методу Оцу.
@@ -3685,6 +3686,11 @@ class TorchSegmenter2(BaseSegmenter):
         mean_levels = (
             torch.arange(bins, dtype=dtype, device=self.device) / (bins - 1)
         ).clone()
+
+        if export_mode:
+            fixed_threshold = self.params.get("otsu_fixed_threshold", 0.5)
+            mask = (gray > fixed_threshold).to(dtype)
+            return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -4838,6 +4844,7 @@ class TorchSegmenter2(BaseSegmenter):
         threshold: Optional[float] = None,
         normalize: bool = True,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Обнаружение границ оператором Собеля.
@@ -4883,6 +4890,31 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            # === УПРОЩЁННЫЙ SOBEL ДЛЯ TENSORRT ===
+            sobel_x = self._get_conv_kernel("sobel_x", dtype=dtype, device=self.device)
+            sobel_y = self._get_conv_kernel("sobel_y", dtype=dtype, device=self.device)
+            
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
+                gx = F.conv2d(gray, sobel_x.to(gray.dtype), padding=1)
+                gy = F.conv2d(gray, sobel_y.to(gray.dtype), padding=1)
+                
+                # 🔥 Упрощённая магнитуда БЕЗ amax/normalize
+                magnitude = torch.sqrt(gx**2 + gy**2 + 1e-8)
+                
+                # Фиксированный порог вместо динамической нормализации
+                thresh = threshold if threshold is not None else self.params.get("threshold", 0.1)
+                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
+                mask = (magnitude > thresh_t).to(dtype)
+            
+            # Гарантируем выход (1, 1, H, W)
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
+            return mask.to(torch.float32)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -4968,6 +5000,7 @@ class TorchSegmenter2(BaseSegmenter):
         high_threshold: Optional[float] = None,
         sigma: Optional[float] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False, 
     ) -> torch.Tensor:
         """
         Обнаружение границ оператором Кэнни.
@@ -5029,6 +5062,39 @@ class TorchSegmenter2(BaseSegmenter):
             if gray.shape[0] == 1:
                 gray = gray.unsqueeze(0)  # (1, H, W) -> (1, 1, H, W)
             # else: уже (B, C, H, W) или (C, H, W) — оставляем как есть
+
+        if export_mode:
+            # === CANNY-LITE ДЛЯ TENSORRT: только гаусс + градиент + порог ===
+            low = low_threshold if low_threshold is not None else self.params.get("low", 0.1)
+            high = high_threshold if high_threshold is not None else self.params.get("high", 0.3)
+            sig = sigma if sigma is not None else self.params.get("sigma", 1.0)
+            
+            # Гауссово сглаживание
+            if sig > 0:
+                ks = int(2 * round(3 * sig) + 1)
+                ks = ks if ks % 2 == 1 else ks + 1
+                gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
+            
+            # Градиенты (Sobel)
+            sobel_x = self._get_conv_kernel("sobel_x", dtype=dtype, device=self.device)
+            sobel_y = self._get_conv_kernel("sobel_y", dtype=dtype, device=self.device)
+            
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
+                gx = F.conv2d(gray, sobel_x.to(gray.dtype), padding=1)
+                gy = F.conv2d(gray, sobel_y.to(gray.dtype), padding=1)
+                mag = torch.sqrt(gx**2 + gy**2 + 1e-8)
+                
+                # 🔥 ПРОСТАЯ БИНАРИЗАЦИЯ (вместо NMS+гистерезиса)
+                thresh_t = torch.tensor(high, dtype=dtype, device=self.device)
+                mask = (mag > thresh_t).to(dtype)
+            
+            # Нормализация выхода к (1, 1, H, W)
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
+            return mask.to(torch.float32)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()

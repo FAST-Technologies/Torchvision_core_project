@@ -48,7 +48,7 @@ from segmenters.NewTorchSegmenter import TorchSegmenter2
 from segmenters.ModelTrainer import ModelTrainer, TrainingConfig, TrainingResult
 from segmenters.NeuralModelFactory import NeuralModelFactory
 from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
-from utils.backend_exporter import export_method_to_trt_dynamo, export_method_to_onnx_safe
+from utils.backend_exporter import export_method_to_trt_dynamo, export_method_to_onnx_safe, export_method_to_trt_jit
 from testing.SegmentationTester import SegmentationTester
 from testing.SegmentationComparator import SegmentationComparator
 from testing.SegmentationBenchmark import SegmentationBenchmark, export_comparison_table
@@ -288,8 +288,11 @@ def main(use_optimizations: bool = True) -> Tuple[
         print("🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT")
 
         # 🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT
-        target_methods_for_research = ["otsu_thresholding", "sobel_edge", "canny_edge"]
+        target_methods_for_research = ["otsu_thresholding", "sobel_edge"]
         print("\n🔬 Запуск сравнения бэкендов (PyTorch / ONNX / TensorRT)...")
+
+        real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]  # PIL: (W, H)
+        print(f"📐 Реальный размер изображения: {real_w}x{real_h}")
         
         if first_img_pil is not None:
             # Берём базовый TorchSegmenter2 для экспорта
@@ -297,14 +300,16 @@ def main(use_optimizations: bool = True) -> Tuple[
             backend_methods = _create_backend_methods(
                 base_torch,
                 target_methods_for_research,
-                output_dir="./data/backend_comparison"
+                output_dir="./data/backend_comparison",
+                input_shape=(1, 3, real_h, real_w),
+                force_reexport=True,
             )
             # Регистрируем все бэкенды в тестер
             for name, seg in backend_methods.items():
                 tester.add_method(name, seg)
             # Запускаем стандартный бенчмарк
             backend_results = tester.benchmark_methods(
-                image=np.array(first_img_pil),  # ✅ Теперь безопасно
+                image=np.array(first_img_pil),
                 n_runs=10,
                 force_warmup=True,
                 test_name="backend_comparison"
@@ -4293,53 +4298,134 @@ def _filter_classical_methods(all_methods: SegmenterDict) -> SegmenterDict:
     }
 
 def _create_backend_methods(
-    base_segmenter: TorchSegmenter2,
-    methods_list: List[str],
-    output_dir: str = "./data/backends"
-) -> Dict[str, BaseSegmenter]:
-    """Создаёт методы для всех трёх бэкендов"""
+    base_segmenter,
+    methods_list: list,
+    output_dir: str = "./data/backends",
+    precision: str = "fp32",
+    force_reexport: bool = False,
+    input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
+) -> dict:
+    """
+    Создаёт методы для PyTorch / ONNX / TensorRT.
+    """
+    from utils.backend_exporter import (
+        export_method_to_onnx_safe,
+        export_method_to_trt_dynamo,
+        load_trt_model,
+        export_method_to_trt_jit
+    )
     import os
     os.makedirs(output_dir, exist_ok=True)
     methods = {}
-    
+
     for method_name in methods_list:
-        # 1. Чистый PyTorch (уже есть, но для единообразия)
+        print(f"\n--- Backend export: {method_name} ---")
+
+        # 1. PyTorch
         methods[f"{method_name}_Torch"] = base_segmenter
-        
-        # 2. ONNX (опционально, с обработкой ошибок)
+
+        # 2. ONNX
         onnx_path = os.path.join(output_dir, f"{method_name}.onnx")
+        if force_reexport and os.path.exists(onnx_path):
+            os.remove(onnx_path)
         if not os.path.exists(onnx_path):
-            export_method_to_onnx_safe(base_segmenter, method_name, onnx_path, opset_version=15)
-        
+            export_method_to_onnx_safe(
+                base_segmenter, method_name, onnx_path,
+                opset_version=17, precision=precision,
+            )
         if os.path.exists(onnx_path):
             try:
+                from segmenters.BackendSegmenters import ONNXSegmenter
                 methods[f"{method_name}_ONNX"] = ONNXSegmenter(
-                    method_name, onnx_path, device="cuda", input_shape=(1, 3, 512, 512)
+                    method_name, onnx_path,
+                    device="cuda" if torch.cuda.is_available() else "cpu",
+                    input_shape=input_shape,
                 )
-                print(f"✅ Loaded ONNX: {method_name}")
+                print(f"  ONNX OK: {method_name}")
             except Exception as e:
-                print(f"⚠️ ONNXSegmenter init failed for {method_name}: {e}")
-        
-        # 3. TensorRT (через Dynamo - основной путь)
-        trt_path = os.path.join(output_dir, f"{method_name}_fp32.trt")
-        trt_model = None
-        
+                print(f"  ONNX init failed {method_name}: {e}")
+
+        # 3. TensorRT
+        if not torch.cuda.is_available():
+            continue
+        trt_path = os.path.join(output_dir, f"{method_name}_{precision}.trt")
+        if force_reexport and os.path.exists(trt_path):
+            os.remove(trt_path)
         if not os.path.exists(trt_path):
-            export_method_to_trt_dynamo(
-                base_segmenter, method_name, trt_path, precision="fp32"
+            # export_method_to_trt_dynamo(
+            #     base_segmenter, method_name, trt_path, precision=precision,
+            # )
+            export_method_to_trt_jit( 
+                base_segmenter, 
+                method_name, 
+                trt_path, 
+                precision=precision,
+                input_shape=input_shape,  # opt_shape
+                min_shape=(1, 3, 256, 256),    # ← Добавьте
+                max_shape=(1, 3, 1024, 1024),  # ← Добавьте
             )
-        
         if os.path.exists(trt_path):
             try:
-                trt_model = torch.jit.load(trt_path)
-                methods[f"{method_name}_TRT"] = TRTSegmenter(
-                    method_name, trt_model, device="cuda"
-                )
-                print(f"✅ Loaded TensorRT: {method_name}")
+                from segmenters.BackendSegmenters import TRTSegmenter
+                trt_model = load_trt_model(trt_path)
+                if trt_model is not None:
+                    methods[f"{method_name}_TRT"] = TRTSegmenter(
+                        method_name, trt_model, device="cuda"
+                    )
+                    print(f"  TRT OK: {method_name}")
             except Exception as e:
-                print(f"⚠️ TRTSegmenter init failed for {method_name}: {e}")
-        
+                print(f"  TRT init failed {method_name}: {e}")
+
     return methods
+
+# def _create_backend_methods(
+#     base_segmenter: TorchSegmenter2,
+#     methods_list: List[str],
+#     output_dir: str = "./data/backends"
+# ) -> Dict[str, BaseSegmenter]:
+#     """Создаёт методы для всех трёх бэкендов"""
+#     import os
+#     os.makedirs(output_dir, exist_ok=True)
+#     methods = {}
+    
+#     for method_name in methods_list:
+#         # 1. Чистый PyTorch (уже есть, но для единообразия)
+#         methods[f"{method_name}_Torch"] = base_segmenter
+        
+#         # 2. ONNX (опционально, с обработкой ошибок)
+#         onnx_path = os.path.join(output_dir, f"{method_name}.onnx")
+#         if not os.path.exists(onnx_path):
+#             export_method_to_onnx_safe(base_segmenter, method_name, onnx_path, opset_version=15)
+        
+#         if os.path.exists(onnx_path):
+#             try:
+#                 methods[f"{method_name}_ONNX"] = ONNXSegmenter(
+#                     method_name, onnx_path, device="cuda", input_shape=(1, 3, 512, 512)
+#                 )
+#                 print(f"✅ Loaded ONNX: {method_name}")
+#             except Exception as e:
+#                 print(f"⚠️ ONNXSegmenter init failed for {method_name}: {e}")
+        
+#         # 3. TensorRT (через Dynamo - основной путь)
+#         trt_path = os.path.join(output_dir, f"{method_name}_fp32.trt")
+#         trt_model = None
+        
+#         if not os.path.exists(trt_path):
+#             export_method_to_trt_dynamo(
+#                 base_segmenter, method_name, trt_path, precision="fp32"
+#             )
+        
+#         if os.path.exists(trt_path):
+#             try:
+#                 trt_model = torch.jit.load(trt_path)
+#                 methods[f"{method_name}_TRT"] = TRTSegmenter(
+#                     method_name, trt_model, device="cuda"
+#                 )
+#                 print(f"✅ Loaded TensorRT: {method_name}")
+#             except Exception as e:
+#                 print(f"⚠️ TRTSegmenter init failed for {method_name}: {e}")
+        
+#     return methods
 
 
 # ──────────────────────────────────────────────────────────────────────
