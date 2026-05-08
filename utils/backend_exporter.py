@@ -455,15 +455,14 @@ class SegmenterMethodWrapper(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         result = self.func(self.segmenter, x, precision=self.precision, export_mode=True)
-        # 🔥 НЕ использовать view с динамическими размерами!
-        # Фиксируем выход к форме входа (без изменения volume)
+        # Гарантируем (1,1,H,W) через view — без dim()-зависимых веток
+        # (они фиксируют конкретный branch при ONNX-трассировке)
         if result.dim() == 2:
             result = result.unsqueeze(0).unsqueeze(0)
         elif result.dim() == 3:
             result = result.unsqueeze(0)
-        # 🔥 Возвращаем результат в форме (B, 1, H, W) БЕЗ изменения H, W
-        # TensorRT engine скомпилирован под input_shape, поэтому output должен совпадать
-        return result.to(torch.float32)
+        b, _, h, w = x.shape
+        return result.view(b, 1, h, w).float()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -516,7 +515,7 @@ def export_method_to_onnx_safe(
                 opset_version=opset_version,
                 dynamic_axes={
                     "input":  {0: "batch", 2: "height", 3: "width"},
-                    "output": {0: "batch", 1: "channel", 2: "height", 3: "width"}
+                    "output": {0: "batch", 2: "height", 3: "width"},
                 },
                 do_constant_folding=True,
                 training=torch.onnx.TrainingMode.EVAL,
@@ -667,86 +666,32 @@ def export_method_to_trt_dynamo(
 # ──────────────────────────────────────────────────────────────────────────────
 # Загрузка TRT модели
 # ──────────────────────────────────────────────────────────────────────────────
-# def load_trt_model(path: str, sample_input: Optional[torch.Tensor] = None):
-#     """
-#     Загружает TRT модель. Поддерживает оба формата: torch.jit и torch_tensorrt.
-#     """
-#     try:
-#         import torch_tensorrt as torchtrt
-#         model = torchtrt.load(path)
-#         print(f"✅ TRT loaded via torch_tensorrt.load: {path}")
-#         return model
-#     except Exception:
-#         pass
-
-#     try:
-#         model = torch.jit.load(path)
-#         print(f"✅ TRT loaded via torch.jit.load: {path}")
-#         return model
-#     except Exception as e:
-#         print(f"❌ TRT load failed: {path}: {e}")
-#         return None
-
 def load_trt_model(path: str, sample_input: Optional[torch.Tensor] = None):
     """
-    Загружает TRT модель с авто-детекцией формата.
-    
-    Поддерживаемые форматы:
-    1. TorchScript (torch.jit.save) — основной для export_method_to_trt_jit
-    2. TensorRT engine (torchtrt.save) — для dynamo-compiled моделей
+    Загружает TRT модель. Поддерживает оба формата: torch.jit и torch_tensorrt.
     """
-    import os
-    
-    if not os.path.exists(path):
-        print(f"❌ TRT файл не найден: {path}")
-        return None
-    
-    # 🔥 КЛЮЧЕВОЕ: Сначала torch.jit.load! (основной формат для export_method_to_trt_jit)
-    try:
-        model = torch.jit.load(path, map_location='cuda' if torch.cuda.is_available() else 'cpu')
-        # Валидация через тестовый прогон
-        if sample_input is not None:
-            with torch.no_grad():
-                _ = model(sample_input)
-        print(f"✅ TRT loaded via torch.jit.load: {path}")
-        return model
-    except Exception as e_jit:
-        print(f"⚠️  torch.jit.load failed: {e_jit}")
-    
-    # 🔍 Попытка 2: torch_tensorrt.load (для dynamo-compiled)
     try:
         import torch_tensorrt as torchtrt
         model = torchtrt.load(path)
-        if sample_input is not None:
-            with torch.no_grad():
-                _ = model(sample_input)
         print(f"✅ TRT loaded via torch_tensorrt.load: {path}")
         return model
-    except Exception as e_trt:
-        print(f"⚠️  torch_tensorrt.load failed: {e_trt}")
-    
-    # 🔍 Попытка 3: Диагностика через magic bytes
+    except Exception:
+        pass
+
     try:
-        with open(path, 'rb') as f:
-            magic = f.read(8)
-            if magic[:2] == b'PK':
-                print(f"⚠️  Файл {path} имеет ZIP-сигнатуру (TorchScript), но не загружается")
-            else:
-                print(f"⚠️  Неизвестный формат: {magic[:8].hex()}")
-    except Exception as e_magic:
-        print(f"⚠️  Не удалось прочитать magic bytes: {e_magic}")
+        model = torch.jit.load(path)
+        print(f"✅ TRT loaded via torch.jit.load: {path}")
+        return model
+    except Exception as e:
+        print(f"❌ TRT load failed: {path}: {e}")
+        return None
     
-    print(f"❌ TRT load failed для {path}: все методы исчерпаны")
-    return None
-    
-# utils/backend_exporter.py — НОВАЯ ФУНКЦИЯ ПОСЛЕ существующих
-# utils/backend_exporter.py
 def export_method_to_trt_jit(
     segmenter,
     method_name: str,
     output_path: str,
     precision: str = "fp32",
-    input_shape: Tuple[int, ...] = (1, 3, 512, 512),  # ← Явно передаём
+    input_shape: Tuple[int, ...] = (1, 3, 512, 512),
     min_shape: Optional[Tuple[int, ...]] = None,
     max_shape: Optional[Tuple[int, ...]] = None,
 ) -> bool:
@@ -840,4 +785,4 @@ def export_method_to_trt_jit(
             return export_method_to_trt_jit(
                 segmenter, method_name, output_path, precision="fp32", input_shape=input_shape
             )
-        return False
+        return False 
