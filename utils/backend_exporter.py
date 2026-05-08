@@ -24,8 +24,8 @@
 #     Ключевое: все параметры должны быть явно объявлены в __init__ и использованы в forward.
 #     """
 #     def __init__(
-#         self, 
-#         bound_method, 
+#         self,
+#         bound_method,
 #         fixed_kwargs: Optional[Dict[str, Any]] = None,
 #         precision: Optional[str] = None
 #     ):
@@ -39,7 +39,7 @@
 #         for k, v in self.fixed_kwargs.items():
 #             if isinstance(v, (int, float, str, bool)):
 #                 setattr(self, f'_param_{k}', v)
-    
+
 #     def forward(self, x: torch.Tensor) -> torch.Tensor:
 #         # 🔥 Собираем kwargs из атрибутов модуля (torch.export-friendly)
 #         kwargs = {}
@@ -67,35 +67,35 @@
 #     except ImportError:
 #         print("❌ torch-tensorrt not installed: pip install torch-tensorrt")
 #         return False
-    
+
 #     # Подготовка входного тензора
 #     if sample_input is None:
 #         sample_input = torch.randn(*input_shape, device=segmenter.device)
-    
+
 #     # Получаем функцию метода
 #     if method_name not in segmenter.method_map:
 #         print(f"❌ Method {method_name} not found")
 #         return False
-    
+
 #     class TRTWrapper(torch.nn.Module):
 #         def __init__(self, func, precision: str):
 #             super().__init__()
 #             self.func = func
 #             self.precision = precision  # 🔥 Атрибут для tracing
-            
+
 #         def forward(self, x: torch.Tensor) -> torch.Tensor:
 #             return self.func(x, precision=self.precision)
-    
+
 #     func = segmenter.method_map[method_name]
 #     # Распаковка если скомпилирована
 #     if hasattr(func, '_torchdynamo_orig_callable'):
 #         func = func._torchdynamo_orig_callable
-    
+
 #     wrapper = TRTWrapper(func, precision).eval().to(segmenter.device)
-    
+
 #     # 🔥 Тестовый прогон для инициализации
 #     _ = wrapper(sample_input)
-    
+
 #     # Экспорт через torch.export (новый стабильный API)
 #     try:
 #         exported_program = torch.export.export(
@@ -117,7 +117,7 @@
 #         except Exception as e2:
 #             print(f"❌ Export fallback failed: {e2}")
 #             return False
-        
+
 #     # if precision == "fp16":
 #     #     if not torch.cuda.is_available():
 #     #         print("⚠️  fp16 requires CUDA")
@@ -129,7 +129,7 @@
 #     #             precision = "fp32"
 #     # Настройка precision
 #     target_dtype = torch.float16 if precision == "fp16" and torch.cuda.is_available() else torch.float32
-    
+
 #     # Подготовка спецификации входа для TensorRT
 #     input_spec = torchtrt.Input(
 #         min_shape=input_shape,
@@ -137,7 +137,7 @@
 #         max_shape=input_shape,
 #         dtype=target_dtype
 #     )
-    
+
 #     # Компиляция в TensorRT через Dynamo IR
 #     try:
 #         trt_model = torchtrt.dynamo.compile(
@@ -149,12 +149,12 @@
 #             debug=True,
 #             truncate_long_and_double=True,
 #         )
-        
+
 #         # Сохранение как TorchScript модуля
 #         torch.jit.save(trt_model, output_path)
 #         print(f"✅ TensorRT engine saved: {output_path}")
 #         return True
-        
+
 #     except Exception as e:
 #         error_msg = str(e)
 #         # 🔥 Специальная обработка stoi error
@@ -164,7 +164,7 @@
 #             print(f"💡 Или используйте precision='fp32' вместо 'fp16'")
 #         print(f"❌ TensorRT compilation failed: {e}")
 #         return False
-    
+
 # # ✅ Исправленная функция export_method_to_trt_dynamo
 # # def export_method_to_trt_dynamo(
 # #     segmenter: TorchSegmenter2,
@@ -178,18 +178,18 @@
 # #     except ImportError:
 # #         print("❌ torch-tensorrt not installed")
 # #         return False
-    
+
 # #     # Подготовка входного тензора
 # #     sample_input = torch.randn(1, 3, 512, 512, device=segmenter.device)
-    
+
 # #     if method_name not in segmenter.method_map:
 # #         return False
-    
+
 # #     func = segmenter.method_map[method_name]
 # #     # Распаковка компилированной функции
 # #     if hasattr(func, '_torchdynamo_orig_callable'):
 # #         func = func._torchdynamo_orig_callable
-    
+
 # #     # 🔥 Простая обёртка без лишних параметров
 # #     class TRTWrapper(torch.nn.Module):
 # #         def __init__(self, func):
@@ -197,9 +197,9 @@
 # #             self.func = func
 # #         def forward(self, x):
 # #             return self.func(x)
-    
+
 # #     wrapper = TRTWrapper(func).eval().to(segmenter.device)
-    
+
 # #     # Экспорт через torch.export
 # #     try:
 # #         exported_program = torch.export.export(
@@ -208,17 +208,17 @@
 # #     except Exception as e:
 # #         print(f"⚠️ torch.export failed: {e}")
 # #         return False
-    
+
 # #     # 🔥 Настройка precision БЕЗ enabled_precisions при use_explicit_typing
 # #     target_dtype = torch.float16 if precision == "fp16" else torch.float32
-    
+
 # #     # 🔥 КЛЮЧЕВОЕ: Используем ir="dynamo" и убираем конфликтные параметры
 # #     try:
 # #         trt_model = torchtrt.dynamo.compile(
 # #             exported_program,
 # #             inputs=[torchtrt.Input(
 # #                 min_shape=(1, 3, 256, 256),
-# #                 opt_shape=(1, 3, 512, 512), 
+# #                 opt_shape=(1, 3, 512, 512),
 # #                 max_shape=(1, 3, 1024, 1024),
 # #                 dtype=target_dtype
 # #             )],
@@ -253,36 +253,36 @@
 #     try:
 #         import torch_tensorrt
 #         from torch.export import export
-        
+
 #         # Получаем функцию метода
 #         if method_name not in segmenter.method_map:
 #             print(f"❌ Метод {method_name} не найден")
 #             return False
-        
+
 #         func = segmenter.method_map[method_name]
-        
+
 #         # Создаём dummy input
 #         example_input = torch.randn(
-#             1, 3, 512, 512, 
-#             device=segmenter.device, 
+#             1, 3, 512, 512,
+#             device=segmenter.device,
 #             dtype=torch.float32  # 🔥 Всегда fp32 для экспорта
 #         )
-        
+
 #         # 🔥 Экспорт через torch.export (вместо torch.compile)
 #         exported_program = export(func, (example_input,))
-        
+
 #         # Конвертация в TensorRT
 #         trt_gm = torch_tensorrt.dynamo.compile(
 #             exported_program,
 #             inputs=[example_input],
 #             enabled_precisions={torch.float16 if precision == "fp16" else torch.float32},
 #         )
-        
+
 #         # Сохранение через torch.jit
 #         torch.jit.save(trt_gm, output_path)
 #         print(f"✅ TensorRT engine сохранён: {output_path}")
 #         return True
-        
+
 #     except Exception as e:
 #         print(f"❌ TRT compile failed: {e}")
 #         return False
@@ -300,13 +300,13 @@
 #     """
 #     if sample_input is None:
 #         sample_input = torch.randn(1, 3, 512, 512, device=segmenter.device)
-    
+
 #     if method_name not in segmenter.method_map:
 #         print(f"❌ Method {method_name} not found")
 #         return False
-    
+
 #     func = segmenter.method_map[method_name]
-    
+
 #     # Обёртка с фиксированными параметрами для ONNX-совместимости
 #     class ONNXWrapper(torch.nn.Module):
 #         def __init__(self, segmenter: TorchSegmenter2, method_name: str, precision: str):
@@ -319,22 +319,22 @@
 #             if hasattr(func, '_torchdynamo_orig_callable'):
 #                 func = func._torchdynamo_orig_callable
 #             self.func = func
-            
+
 #         def forward(self, x: torch.Tensor) -> torch.Tensor:
 #             # 🔥 Явный вызов с именованными параметрами (без **kwargs)
 #             return self.func(x, precision=self.precision)
-    
+
 #     # Получение оригинальной функции если она скомпилирована
 #     if hasattr(func, '_torchdynamo_orig_callable'):
 #         func = func._torchdynamo_orig_callable
 #     elif hasattr(func, '__wrapped__'):
 #         func = func.__wrapped__
-    
+
 #     wrapper = ONNXWrapper(segmenter, method_name, segmenter.precision_manager.default_precision)
 #     wrapper.eval().to(segmenter.device)
 
 #     _ = wrapper(sample_input)
-    
+
 #     try:
 #         with torch.no_grad():
 #             torch.onnx.export(
@@ -356,7 +356,7 @@
 #     except Exception as e:
 #         print(f"❌ ONNX export failed: {e}")
 #         return False
-    
+
 # # ✅ Исправленный экспорт ONNX с фиксацией форм
 # def export_method_to_onnx_safe(
 #     segmenter: TorchSegmenter2,
@@ -365,14 +365,14 @@
 #     opset_version: int = 15,  # 🔥 Более стабильная версия
 # ) -> bool:
 #     sample_input = torch.randn(1, 3, 512, 512, device=segmenter.device)
-    
+
 #     if method_name not in segmenter.method_map:
 #         return False
-    
+
 #     func = segmenter.method_map[method_name]
 #     if hasattr(func, '_torchdynamo_orig_callable'):
 #         func = func._torchdynamo_orig_callable
-    
+
 #     # 🔥 Обёртка с явным возвратом фиксированной формы
 #     class ONNXWrapper(torch.nn.Module):
 #         def __init__(self, func):
@@ -386,12 +386,12 @@
 #             elif result.dim() == 3:
 #                 result = result.unsqueeze(0)
 #             return result
-    
+
 #     wrapper = ONNXWrapper(func).eval().to(segmenter.device)
-    
+
 #     # 🔥 Тестовый прогон для инициализации буферов
 #     _ = wrapper(sample_input)
-    
+
 #     try:
 #         torch.onnx.export(
 #             wrapper,
@@ -408,14 +408,14 @@
 #             training=torch.onnx.TrainingMode.EVAL,  # 🔥 Явно указываем EVAL
 #             verbose=False,
 #         )
-        
+
 #         # 🔥 Валидация экспортированной модели
 #         import onnx
 #         model = onnx.load(output_path)
 #         onnx.checker.check_model(model)
 #         print(f"✅ ONNX exported & validated: {output_path}")
 #         return True
-        
+
 #     except Exception as e:
 #         print(f"❌ ONNX export failed: {e}")
 #         return False
@@ -437,24 +437,27 @@ class SegmenterMethodWrapper(nn.Module):
     ВАЖНО: func должна быть оригинальной (не скомпилированной) функцией.
     torch.export.export не принимает torch.compile-обёрнутые функции.
     """
+
     def __init__(self, segmenter, method_name: str, precision: str = "fp32"):
         super().__init__()
         # Распаковываем compile-обёртку если есть
         self.segmenter = segmenter  # 🔥 Сохраняем instance
         self.method_name = method_name
         self.precision = precision
-        
+
         # Получаем "сырую" функцию без compile-обёртки
         func = segmenter.method_map[method_name]
-        if hasattr(func, '_torchdynamo_orig_callable'):
+        if hasattr(func, "_torchdynamo_orig_callable"):
             self.func = func._torchdynamo_orig_callable
-        elif hasattr(func, '__wrapped__'):
+        elif hasattr(func, "__wrapped__"):
             self.func = func.__wrapped__
         else:
             self.func = func
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        result = self.func(self.segmenter, x, precision=self.precision, export_mode=True)
+        result = self.func(
+            self.segmenter, x, precision=self.precision, export_mode=True
+        )
         # Гарантируем (1,1,H,W) через view — без dim()-зависимых веток
         # (они фиксируют конкретный branch при ONNX-трассировке)
         if result.dim() == 2:
@@ -514,7 +517,7 @@ def export_method_to_onnx_safe(
                 output_names=["output"],
                 opset_version=opset_version,
                 dynamic_axes={
-                    "input":  {0: "batch", 2: "height", 3: "width"},
+                    "input": {0: "batch", 2: "height", 3: "width"},
                     "output": {0: "batch", 2: "height", 3: "width"},
                 },
                 do_constant_folding=True,
@@ -524,6 +527,7 @@ def export_method_to_onnx_safe(
 
         # Валидация
         import onnx
+
         model = onnx.load(output_path)
         onnx.checker.check_model(model)
         print(f"✅ ONNX exported & validated: {output_path}")
@@ -531,6 +535,7 @@ def export_method_to_onnx_safe(
         # Упрощение через onnx-simplifier (опционально)
         try:
             from onnxsim import simplify
+
             model_simplified, ok = simplify(model)
             if ok:
                 onnx.save(model_simplified, output_path)
@@ -575,8 +580,12 @@ def export_method_to_trt_dynamo(
     except ImportError:
         print("❌ TRT: torch_tensorrt не установлен")
         return False
-    
-    device_obj = torch.device(segmenter.device) if isinstance(segmenter.device, str) else segmenter.device
+
+    device_obj = (
+        torch.device(segmenter.device)
+        if isinstance(segmenter.device, str)
+        else segmenter.device
+    )
 
     if method_name not in segmenter.method_map:
         print(f"❌ TRT: метод '{method_name}' не найден")
@@ -591,7 +600,9 @@ def export_method_to_trt_dynamo(
     if precision == "fp16" and torch.cuda.is_available():
         cap = torch.cuda.get_device_capability()
         if cap[0] < 6:
-            print(f"⚠️  fp16 не поддерживается на compute capability {cap[0]}.{cap[1]}, переключаемся на fp32")
+            print(
+                f"⚠️  fp16 не поддерживается на compute capability {cap[0]}.{cap[1]}, переключаемся на fp32"
+            )
             precision = "fp32"
 
     target_dtype = torch.float16 if precision == "fp16" else torch.float32
@@ -600,7 +611,10 @@ def export_method_to_trt_dynamo(
     # Тестовый прогон
     try:
         with torch.no_grad():
-            _ = wrapper(sample)
+            out = wrapper(sample)
+        print(
+            f"Wrapper output: shape={out.shape}, min={out.min()}, max={out.max()}, unique={out.unique()}"
+        )
     except Exception as e:
         print(f"❌ TRT: тестовый прогон упал для '{method_name}': {e}")
         return False
@@ -619,6 +633,7 @@ def export_method_to_trt_dynamo(
 
     # Шаг 2: TensorRT dynamo compile
     try:
+        print(f"   ✅ trying tensorRT dynamo  for '{method_name}'")
         # Динамические размеры для реальных изображений
         h, w = input_shape[2], input_shape[3]
         trt_input = torchtrt.Input(
@@ -658,7 +673,11 @@ def export_method_to_trt_dynamo(
         if precision == "fp16":
             print(f"💡 Повтор с fp32...")
             return export_method_to_trt_dynamo(
-                segmenter, method_name, output_path, precision="fp32", input_shape=input_shape
+                segmenter,
+                method_name,
+                output_path,
+                precision="fp32",
+                input_shape=input_shape,
             )
         return False
 
@@ -672,6 +691,7 @@ def load_trt_model(path: str, sample_input: Optional[torch.Tensor] = None):
     """
     try:
         import torch_tensorrt as torchtrt
+
         model = torchtrt.load(path)
         print(f"✅ TRT loaded via torch_tensorrt.load: {path}")
         return model
@@ -685,7 +705,8 @@ def load_trt_model(path: str, sample_input: Optional[torch.Tensor] = None):
     except Exception as e:
         print(f"❌ TRT load failed: {path}: {e}")
         return None
-    
+
+
 def export_method_to_trt_jit(
     segmenter,
     method_name: str,
@@ -706,7 +727,7 @@ def export_method_to_trt_jit(
         return False
 
     func = segmenter.method_map[method_name]
-    
+
     # 🔥 Wrapper с фиксированной формой выхода
     class TRTWrapper(torch.nn.Module):
         def __init__(self, seg, method_name, precision, fixed_shape):
@@ -716,9 +737,9 @@ def export_method_to_trt_jit(
             self.precision = precision
             self.fixed_shape = fixed_shape  # 🔥 Запоминаем фиксированную форму
             f = seg.method_map[method_name]
-            if hasattr(f, '_torchdynamo_orig_callable'):
+            if hasattr(f, "_torchdynamo_orig_callable"):
                 f = f._torchdynamo_orig_callable
-            elif hasattr(f, '__wrapped__'):
+            elif hasattr(f, "__wrapped__"):
                 f = f.__wrapped__
             self.func = f
 
@@ -759,12 +780,14 @@ def export_method_to_trt_jit(
         # 🔥 КЛЮЧЕВОЕ: ir="torchscript" + require_full_compilation=True
         trt_model = torchtrt.compile(
             traced,
-            inputs=[torchtrt.Input(
-                min_shape=min_shape,
-                opt_shape=input_shape,
-                max_shape=max_shape,
-                dtype=torch.float32,
-            )],
+            inputs=[
+                torchtrt.Input(
+                    min_shape=input_shape,
+                    opt_shape=input_shape,
+                    max_shape=input_shape,
+                    dtype=torch.float32,
+                )
+            ],
             enabled_precisions=enabled_precisions,
             ir="torchscript",  # 🔥 Явно указываем IR
             require_full_compilation=True,  # 🔥 Отключаем partial compilation
@@ -783,6 +806,10 @@ def export_method_to_trt_jit(
         if precision == "fp16":
             print(f"💡 Повтор с fp32...")
             return export_method_to_trt_jit(
-                segmenter, method_name, output_path, precision="fp32", input_shape=input_shape
+                segmenter,
+                method_name,
+                output_path,
+                precision="fp32",
+                input_shape=input_shape,
             )
-        return False 
+        return False

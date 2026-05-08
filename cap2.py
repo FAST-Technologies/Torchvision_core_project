@@ -10,10 +10,7 @@ for method in methods:
     print(f"\n--- {method} ---")
     seg = TorchSegmenter2(method=method, device="cuda", precision="fp32")
     ok = export_method_to_trt_jit(
-        seg, 
-        method, 
-        f"./test_{method}.trt",
-        input_shape=(1, 3, 512, 512)
+        seg, method, f"./test_{method}.trt", input_shape=(1, 3, 512, 512)
     )
     print(f"{method}: {'✅' if ok else '❌'}")
 

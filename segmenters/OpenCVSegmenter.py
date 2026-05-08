@@ -3082,9 +3082,9 @@ class OpenCVSegmenter(BaseSegmenter):
             gray: GrayImage = gray_raw.astype(np.uint8)
         else:
             gray = img.copy()
-        
+
         start_time: float = time.time()
-        
+
         # Параметры
         nscales: int = int(self.params.get("nscales", 4))
         norientations: int = int(self.params.get("norientations", 4))
@@ -3093,86 +3093,88 @@ class OpenCVSegmenter(BaseSegmenter):
         sigma_onf: float = float(self.params.get("sigma_onf", 0.55))
         k_noise: float = float(self.params.get("k_noise", 2.0))
         threshold: float = float(self.params.get("threshold", 0.3))
-        
+
         eps: float = 1e-6
-        
+
         # Нормализация к [0, 1] в float64 для стабильности
         gray_norm: np.ndarray = gray.astype(np.float64) / 255.0
         rows, cols = gray_norm.shape
-        
+
         # 🔥 FFT изображения (в float64 для стабильности!)
         img_fft = np.fft.fft2(gray_norm)
         img_fft_shifted = np.fft.fftshift(img_fft)
-        
+
         # 🔥 Частотная сетка
         y_freq = np.fft.fftshift(np.fft.fftfreq(rows))
         x_freq = np.fft.fftshift(np.fft.fftfreq(cols))
         X, Y = np.meshgrid(x_freq, y_freq)
         R = np.sqrt(X**2 + Y**2 + eps)
         Theta = np.arctan2(-Y, X)
-        
+
         # 🔥 Аккумуляторы (в float64!)
         sum_even = np.zeros((rows, cols), dtype=np.float64)
         sum_odd = np.zeros((rows, cols), dtype=np.float64)
         sum_amp = np.zeros((rows, cols), dtype=np.float64)
         noise_energy = np.zeros((rows, cols), dtype=np.float64)
-        
+
         orientations = np.linspace(0, np.pi, norientations, endpoint=False)
-        
+
         for scale in range(nscales):
-            wavelength = min_wavelength * (mult ** scale)
+            wavelength = min_wavelength * (mult**scale)
             fo = 1.0 / wavelength
-            
+
             # 🔥 Log-Gabor фильтр (радиальная часть)
             log_ratio = np.log(R / fo + eps) / np.log(sigma_onf + eps)
             log_gabor = np.exp(-0.5 * log_ratio**2)
-            
+
             # 🔥 FIX: Обнуляем DC компонент правильно
-            log_gabor[rows//2, cols//2] = 0.0
-            
+            log_gabor[rows // 2, cols // 2] = 0.0
+
             for angle in orientations:
                 # 🔥 Угловая часть
                 angular_spread = np.pi / 2 / norientations
                 d_theta = np.abs(Theta - angle)
                 d_theta = np.minimum(d_theta, 2 * np.pi - d_theta)
                 angular = np.exp(-0.5 * (d_theta / angular_spread) ** 2)
-                
+
                 # 🔥 Полный фильтр
                 filter_f = log_gabor * angular
-                
+
                 # 🔥 FIX: Правильный порядок FFT shift для NumPy
                 response = np.fft.ifft2(np.fft.ifftshift(img_fft_shifted * filter_f))
-                
+
                 even_resp = np.real(response).astype(np.float64)
                 odd_resp = np.imag(response).astype(np.float64)
-                
+
                 # 🔥 Амплитуда
                 amp = np.sqrt(even_resp**2 + odd_resp**2 + eps)
-                
+
                 # 🔥 FIX: Оценка шума через MAD (median absolute deviation)
                 med = np.median(np.abs(amp - np.median(amp)))
                 noise_est = med / 0.6745  # MAD scaling factor
-                
+
                 # 🔥 Накопление
                 sum_even += even_resp
                 sum_odd += odd_resp
                 sum_amp += amp
                 noise_energy += noise_est**2
-        
+
         # 🔥 Вычисление фазовой конгруэнтности
         local_energy = np.sqrt(sum_even**2 + sum_odd**2 + eps)
-        
+
         # 🔥 Компенсация шума (Ковези)
         T = np.sqrt(noise_energy) * k_noise
         pc_map = np.maximum(local_energy - T, 0) / (sum_amp + eps)
 
-        print(f" pc_map stats: min={pc_map.min():.4f}, max={pc_map.max():.4f}, mean={pc_map.mean():.4f}")
+        print(
+            f" pc_map stats: min={pc_map.min():.4f}, max={pc_map.max():.4f}, mean={pc_map.mean():.4f}"
+        )
         print(f"🎯 Threshold: {threshold}")
         print(f"📈 Unique values > threshold: {(pc_map > threshold).sum()}")
-        
+
         # 🔥 Ограничение [0, 1]
         pc_map = np.clip(pc_map, 0, 1)
-        
+
         # 🔥 FIX: Более низкий порог для NumPy версии
         if threshold > 1.0:  # Уже в [0, 255]
             thresh_normalized = threshold / 255.0
@@ -3180,10 +3182,12 @@ class OpenCVSegmenter(BaseSegmenter):
             thresh_normalized = threshold
         mask: MaskArray = (pc_map > thresh_normalized).astype(np.uint8) * 255
 
-        print(f" pc_map stats: min={pc_map.min():.4f}, max={pc_map.max():.4f}, mean={pc_map.mean():.4f}")
+        print(
+            f" pc_map stats: min={pc_map.min():.4f}, max={pc_map.max():.4f}, mean={pc_map.mean():.4f}"
+        )
         print(f"🎯 Threshold: {threshold}")
         print(f"📈 Unique values > threshold: {(pc_map > threshold).sum()}")
-        
+
         exec_time: float = time.time() - start_time
         self._log_info(
             "phase_congruency_edge_opencv",

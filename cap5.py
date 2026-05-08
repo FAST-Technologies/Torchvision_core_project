@@ -16,7 +16,9 @@ trt_path = "./test_otsu.trt"
 
 # 🔥 Экспортируем под размер входа (512×512)
 export_method_to_trt_jit(
-    seg, "otsu_thresholding", trt_path,
+    seg,
+    "otsu_thresholding",
+    trt_path,
     precision="fp32",
     input_shape=(1, 3, 512, 512),  # Фиксировано!
 )
@@ -24,7 +26,8 @@ export_method_to_trt_jit(
 # 3. Загружаем и тестируем
 trt_model = load_trt_model(trt_path)
 trt_seg = TRTSegmenter(
-    "otsu_thresholding", trt_model,
+    "otsu_thresholding",
+    trt_model,
     device="cuda",
     input_shape=(1, 3, 512, 512),  # Должно совпадать с экспортом!
 )
@@ -35,7 +38,9 @@ mask = trt_seg.segment(img_rgb)
 # 5. Валидация
 print(f"✅ Mask shape: {mask.shape}, dtype: {mask.dtype}")
 print(f"✅ Mask min/max: {mask.min()}/{mask.max()}, unique values: {np.unique(mask)}")
-print(f"✅ Mask area: {np.sum(mask > 0)} pixels ({np.sum(mask > 0) / mask.size * 100:.2f}%)")
+print(
+    f"✅ Mask area: {np.sum(mask > 0)} pixels ({np.sum(mask > 0) / mask.size * 100:.2f}%)"
+)
 
 if mask.shape == (orig_h, orig_w) and mask.max() == 255 and np.sum(mask > 0) > 0:
     print("🎉 TRT сегментация работает корректно!")

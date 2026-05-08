@@ -97,7 +97,9 @@ class SegmentationTester:
             enable_warmup: Если `True`, выполняет warm-up перед первым прогоном каждого метода.
             n_warmup_runs: Количество "разогревочных" итераций для стабилизации производительности.
         """
-        self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device: torch.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
         self.methods: Dict[str, BaseSegmenter] = {}
         self.results: Dict[str, Dict[str, Any]] = {}
         self.base_output_dir: str = str(base_output_dir)
@@ -1447,17 +1449,30 @@ class SegmentationTester:
                     result_opt, mask_opt = self.methods[method_name].segment_with_mask(
                         input_arg_for_method
                     )
-                    if result_opt is None or mask_opt is None:
-                        logger.warning(f"    ⚠️  {method_name} returned None (run {run + 1})")
+                    is_backend = method_name.endswith("_ONNX") or method_name.endswith(
+                        "_TRT"
+                    )
+                    if result_opt is None:
+                        logger.warning(
+                            f"    ⚠️  {method_name} returned None result (run {run + 1})"
+                        )
                         if run == 0 and n_runs > 1:
-                            # 🔥 Не прерывать сразу, попробовать ещё раз
                             continue
-                        # Если все запуски неудачны — использовать нулевую маску
                         result = np.zeros(image_array.shape[:2], dtype=np.uint8)
                         mask = np.zeros(image_array.shape[:2], dtype=np.uint8)
                     else:
                         result = result_opt
-                        mask = mask_opt
+                        # 🔥 FIX: Для бэкендов используем result как маску, т.к. mask_opt = None
+                        if is_backend:
+                            mask = result_opt
+                        else:
+                            mask = mask_opt if mask_opt is not None else result_opt
+
+                    # 🔥 Гарантируем, что mask — numpy array (защита от None)
+                    if mask is None:
+                        mask = np.zeros(image_array.shape[:2], dtype=np.uint8)
+                    if result is None:
+                        result = np.zeros(image_array.shape[:2], dtype=np.uint8)
                     if str(self.device) == "cuda":
                         torch.cuda.synchronize()
                     times.append(time.perf_counter() - start_time)
@@ -1465,7 +1480,9 @@ class SegmentationTester:
                         masks_list.append(mask)
                         results_list.append(result)
                 except Exception as e:
-                    logger.warning(f"    ⚠️  Ошибка в {method_name} (запуск {run + 1}): {e}")
+                    logger.warning(
+                        f"    ⚠️  Ошибка в {method_name} (запуск {run + 1}): {e}"
+                    )
                     if run == 0 and n_runs > 1:
                         # 🔥 Пробуем ещё раз при ошибке на первом запуске
                         continue
@@ -1541,8 +1558,16 @@ class SegmentationTester:
 
                     # Сохраняем overlay (30% оригинал + 70% результат)
                     if image_array is not None:
+                        # 🔥 FIX: Приводим 2D маску к 3 каналам для сложения с RGB
+                        if result_img.ndim == 2:  # (H, W)
+                            result_3ch = np.stack(
+                                [result_img] * 3, axis=-1
+                            )  # (H, W, 3)
+                        else:
+                            result_3ch = result_img
+
                         overlay: np.ndarray = (
-                            image_array * 0.3 + result_img * 0.7
+                            image_array * 0.3 + result_3ch * 0.7
                         ).astype(np.uint8)
                         overlay_path: str = os.path.join(
                             bench_dir, "images", f"{method_name}_overlay.jpg"
@@ -1550,7 +1575,7 @@ class SegmentationTester:
                         overlay_pil = Image.fromarray(overlay)
                         overlay_pil.save(overlay_path)
 
-                        print(f"    💾 Результаты сохранены в {bench_dir}")
+                        print(f"    💾 Overlay сохранён: {overlay_path}")
                 except Exception as e:
                     print(f"    ⚠️ Ошибка сохранения результатов: {e}")
 

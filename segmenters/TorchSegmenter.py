@@ -234,9 +234,9 @@ class TorchSegmenter(BaseSegmenter):
             else:
                 # Если многоканальное — берём среднее по каналам
                 image = np.mean(image, axis=2)
-        kernel: npt.NDArray[np.float64] = np.ones((window_size, window_size), dtype=np.float32) / (
-            window_size**2
-        )
+        kernel: npt.NDArray[np.float64] = np.ones(
+            (window_size, window_size), dtype=np.float32
+        ) / (window_size**2)
         return self.conv2d_numpy(image, kernel)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -255,8 +255,12 @@ class TorchSegmenter(BaseSegmenter):
     # ──────────────────────────────────────────────────────────────────────
     def sobel_numpy(self, image: np.ndarray) -> np.ndarray:
         """Оператор Собеля на numpy"""
-        kernel_x: npt.NDArray[np.float32] = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
-        kernel_y: npt.NDArray[np.float32] = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
+        kernel_x: npt.NDArray[np.float32] = np.array(
+            [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32
+        )
+        kernel_y: npt.NDArray[np.float32] = np.array(
+            [[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32
+        )
         gx: np.ndarray = self.conv2d_numpy(image, kernel_x)
         gy: np.ndarray = self.conv2d_numpy(image, kernel_y)
         return np.sqrt(gx**2 + gy**2)

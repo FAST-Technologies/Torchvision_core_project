@@ -267,9 +267,7 @@ class CpuCudaBenchmark:
             # Тест на CUDA (только если доступно)
             # if torch.cuda.is_available() and self._is_cuda_capable(segmenter):
             print("   📊 Тестирование на CUDA...")
-            cuda_result = self.benchmark_method(
-                segmenter, image, method_name, "cuda"
-            )
+            cuda_result = self.benchmark_method(segmenter, image, method_name, "cuda")
             all_results.append(cuda_result)
             print(
                 f"      CUDA: {cuda_result['mean_time'] * 1000:.2f}ms ± {cuda_result['std_time'] * 1000:.2f}ms"

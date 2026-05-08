@@ -446,7 +446,9 @@ class TorchSegmenter2(BaseSegmenter):
         )
 
         if device is None:
-            self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.device: torch.device = torch.device(
+                "cuda" if torch.cuda.is_available() else "cpu"
+            )
         else:
             self.device = torch.device(device)
 
@@ -1263,16 +1265,12 @@ class TorchSegmenter2(BaseSegmenter):
             dynamic: bool = bool(compile_cfg.get("dynamic", self.compile_dynamic))
             mode: str = str(compile_cfg.get("mode", self.compile_mode))
             self._precache_kernels()
-            if self.method in {
-                "adaptive_thresholding", 
-                "canny_edge", 
-                "watershed"
-            }:
+            if self.method in {"adaptive_thresholding", "canny_edge", "watershed"}:
                 warnings.warn(
                     f"Метод '{self.method}' содержит динамический контроль потока. "
                     "fullgraph=True может не дать ускорения или вызвать ошибки. "
                     "Рекомендуется установить fullgraph=False в _COMPILE_CONFIGS.",
-                    UserWarning
+                    UserWarning,
                 )
             try:
                 print(
@@ -1292,7 +1290,7 @@ class TorchSegmenter2(BaseSegmenter):
                 warnings.warn(
                     f"torch.compile failed for {self.method} "
                     f"[fullgraph={fullgraph}]: {e}. Falling back to eager mode.",
-                    RuntimeWarning
+                    RuntimeWarning,
                 )
                 use_compile = False
 
@@ -1338,7 +1336,9 @@ class TorchSegmenter2(BaseSegmenter):
 
         # Warmup
         for _ in range(warmup):
-            _ = self._segment_func(tensor, precision=self.precision_manager.default_precision)
+            _ = self._segment_func(
+                tensor, precision=self.precision_manager.default_precision
+            )
             if self.device.type == "cuda":
                 torch.cuda.synchronize()
 
@@ -1355,7 +1355,9 @@ class TorchSegmenter2(BaseSegmenter):
             with profiler.record_function(f"segment_{self.method}"):
                 for _ in range(n_runs):
                     start = time.perf_counter()
-                    _ = self._segment_func(tensor, precision=self.precision_manager.default_precision)
+                    _ = self._segment_func(
+                        tensor, precision=self.precision_manager.default_precision
+                    )
                     if self.device.type == "cuda":
                         torch.cuda.synchronize()
                     times.append(time.perf_counter() - start)
@@ -1404,7 +1406,9 @@ class TorchSegmenter2(BaseSegmenter):
         # (требует модификации _segment_func для поддержки batch)
         masks = []
         for i in range(batch.size(0)):
-            mask = self._segment_func(batch[i : i + 1], precision=self.precision_manager.default_precision)
+            mask = self._segment_func(
+                batch[i : i + 1], precision=self.precision_manager.default_precision
+            )
             masks.append(self._tensor_to_numpy(mask))
 
         return masks
@@ -1725,7 +1729,9 @@ class TorchSegmenter2(BaseSegmenter):
         ) as prof:
             with profiler.record_function(f"segment_{self.method}"):
                 for _ in range(n_runs):
-                    _ = self._segment_func(tensor, precision=self.precision_manager.default_precision)
+                    _ = self._segment_func(
+                        tensor, precision=self.precision_manager.default_precision
+                    )
                     if self.device.type == "cuda":
                         torch.cuda.synchronize()
 
@@ -3115,7 +3121,10 @@ class TorchSegmenter2(BaseSegmenter):
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
     def segment(
-        self, image: Union[str, np.ndarray, Image.Image, torch.Tensor], **kwargs
+        self,
+        image: Union[str, np.ndarray, Image.Image, torch.Tensor],
+        export_mode: bool = False,
+        **kwargs: Any,
     ) -> np.ndarray:
         """
         Основной метод сегментации.
@@ -3139,7 +3148,12 @@ class TorchSegmenter2(BaseSegmenter):
                     f"[DEBUG] {self.method}: input dtype={tensor.dtype}, device={tensor.device}"
                 )
                 print(f"[DEBUG] Expected dtype: {self.dtype}, device: {self.device}")
-            mask_tensor = self._segment_func(tensor, precision=self.precision_manager.default_precision)
+            mask_tensor = self._segment_func(
+                tensor,
+                precision=self.precision_manager.default_precision,
+                export_mode=export_mode,  # ← Передаём в метод
+                **kwargs,
+            )
 
             # Преобразуем маску в numpy
             if mask_tensor.dim() >= 3:
@@ -3196,7 +3210,9 @@ class TorchSegmenter2(BaseSegmenter):
             tensor = self.preprocess_image(image_for_profiling)
             for _ in range(3):  # Быстрый тест на 3 прогона
                 t0 = time.perf_counter()
-                _ = self._segment_func(tensor, precision=self.precision_manager.default_precision)
+                _ = self._segment_func(
+                    tensor, precision=self.precision_manager.default_precision
+                )
                 if self.device.type == "cuda":
                     torch.cuda.synchronize()
                 times.append(time.perf_counter() - t0)
@@ -3360,7 +3376,9 @@ class TorchSegmenter2(BaseSegmenter):
             start_time = None
 
         # Выполнение сегментации
-        mask = self._segment_func(tensor, precision=self.precision_manager.default_precision)  # (1, 1, H, W) или (H, W)
+        mask = self._segment_func(
+            tensor, precision=self.precision_manager.default_precision
+        )  # (1, 1, H, W) или (H, W)
 
         # Приведение к единому формату
         mask = mask.squeeze() if mask.dim() > 2 else mask
@@ -3430,6 +3448,7 @@ class TorchSegmenter2(BaseSegmenter):
         threshold: Optional[float] = None,
         invert: bool = False,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Глобальная пороговая сегментация.
@@ -3470,10 +3489,26 @@ class TorchSegmenter2(BaseSegmenter):
             ```
         """
         gray: torch.Tensor = self._to_grayscale(tensor)  # (B, 1, H, W)
-        dtype: torch.dtype = self.precision_manager.get_dtype(
-            precision
-        )
+        dtype: torch.dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            thresh: float = (
+                threshold
+                if threshold is not None
+                else float(self.params.get("threshold", 0.5))
+            )
+            thresh_t: torch.Tensor = torch.scalar_tensor(
+                thresh, dtype=dtype, device=self.device
+            )
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                mask = (gray > thresh_t).to(dtype)
+                if invert:
+                    mask = 1.0 - mask
+            return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -3493,9 +3528,11 @@ class TorchSegmenter2(BaseSegmenter):
         # === БИНАРИЗАЦИЯ ===
         precision_val = precision if precision is not None else "fp32"
         if not torch.compiler.is_compiling():
-            # self.dtype уже содержит правильную точность (fp16/bf16/fp32), 
+            # self.dtype уже содержит правильную точность (fp16/bf16/fp32),
             # установленную в __init__ через PrecisionManager
-            print(f"[DEBUG] Method: {self.method}, Actual Dtype: {self.dtype}, Tensor Dtype: {tensor.dtype}")
+            print(
+                f"[DEBUG] Method: {self.method}, Actual Dtype: {self.dtype}, Tensor Dtype: {tensor.dtype}"
+            )
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
@@ -3510,12 +3547,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "threshold": threshold,
                     "invert": invert,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3528,6 +3567,7 @@ class TorchSegmenter2(BaseSegmenter):
         C: Optional[float] = None,
         method: Literal["mean", "gaussian"] = "gaussian",
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Адаптивная пороговая сегментация (Gaussian/Mean).
@@ -3579,6 +3619,31 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
+        if export_mode:
+            bs = (
+                block_size
+                if block_size is not None
+                else self.params.get("block_size", 11)
+            )
+            bs = bs if bs % 2 == 1 else bs + 1
+            c_val = C if C is not None else self.params.get("C", 2)
+            c_norm = c_val / 255.0
+
+            # Простое ядро (без кэширования)
+            kernel_2d = torch.ones(1, 1, bs, bs, dtype=dtype, device=self.device) / (
+                bs * bs
+            )
+            kernel_2d = kernel_2d.to(dtype=gray.dtype)
+
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                local_stat = F.conv2d(gray, kernel_2d, padding=bs // 2, stride=1)
+                threshold_map = local_stat - c_norm
+                mask = (gray > threshold_map).to(dtype)
+            return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
+
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
         else:
@@ -3622,12 +3687,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "C": C,
                     "method": method,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3734,12 +3801,14 @@ class TorchSegmenter2(BaseSegmenter):
                 "parameters": {
                     "num_bins": num_bins,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3751,6 +3820,7 @@ class TorchSegmenter2(BaseSegmenter):
         window_size: Optional[int] = None,
         k: Optional[float] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Адаптивная пороговая обработка по Ниблаку.
@@ -3799,6 +3869,36 @@ class TorchSegmenter2(BaseSegmenter):
         if gray.max() <= 1.0:
             gray = gray * 255.0
 
+        if export_mode:
+            ws = (
+                window_size
+                if window_size is not None
+                else self.params.get("window_size", 15)
+            )
+            ws = ws if ws % 2 == 1 else ws + 1
+            k_val = k if k is not None else self.params.get("k", -0.2)
+
+            # Простое локальное среднее через conv2d
+            kernel = torch.ones(1, 1, ws, ws, dtype=dtype, device=self.device) / (
+                ws * ws
+            )
+            gray_4d = (
+                gray.unsqueeze(0).unsqueeze(0) if gray.dim() == 2 else gray.unsqueeze(0)
+            )
+
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                local_mean = F.conv2d(
+                    gray_4d, kernel.to(gray_4d.dtype), padding=ws // 2
+                ).squeeze()
+                # Для экспорта упрощаем: используем глобальное std вместо локального
+                global_std = gray.std()
+                threshold = local_mean + k_val * global_std
+                mask = (gray > threshold).to(dtype)
+            return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
+
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
         else:
@@ -3831,12 +3931,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "window_size": window_size,
                     "k": k,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3849,6 +3951,7 @@ class TorchSegmenter2(BaseSegmenter):
         k: Optional[float] = None,
         r: Optional[float] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Улучшенная адаптивная пороговая обработка по Сауволе.
@@ -3937,12 +4040,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "k": k,
                     "r": r,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3955,6 +4060,7 @@ class TorchSegmenter2(BaseSegmenter):
         contrast_threshold: Optional[float] = None,
         use_global_mean: Optional[bool] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Пороговая обработка по методу Бернсена.
@@ -3963,6 +4069,40 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor)  # (B, 1, H, W)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            ws = (
+                window_size
+                if window_size is not None
+                else self.params.get("window_size", 15)
+            )
+            ws = ws if ws % 2 == 1 else ws + 1
+            c_thresh = (
+                contrast_threshold
+                if contrast_threshold is not None
+                else self.params.get("contrast_threshold", 0.1)
+            )
+
+            gray_2d = gray.squeeze() if gray.dim() > 2 else gray
+            pad = ws // 2
+            gray_padded = F.pad(
+                gray_2d.unsqueeze(0).unsqueeze(0), (pad, pad, pad, pad), mode="reflect"
+            )
+
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                # Упрощённый min/max через pooling
+                local_max = F.max_pool2d(
+                    gray_padded, kernel_size=ws, stride=1, padding=0
+                ).squeeze()
+                local_min = -F.max_pool2d(
+                    -gray_padded, kernel_size=ws, stride=1, padding=0
+                ).squeeze()
+                threshold_local = (local_max + local_min) / 2.0
+                mask = (gray_2d > threshold_local).to(dtype)
+            return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -4038,12 +4178,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "contrast_threshold": contrast_threshold,
                     "use_global_mean": use_global_mean,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4057,6 +4199,7 @@ class TorchSegmenter2(BaseSegmenter):
         r: Optional[float] = None,
         m: Optional[float] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Пороговая обработка по методу Фансалкара.
@@ -4153,12 +4296,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "r": r,
                     "m": m,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4169,6 +4314,7 @@ class TorchSegmenter2(BaseSegmenter):
         *,
         percentile: Optional[float] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Процентильная пороговая обработка.
@@ -4210,6 +4356,22 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
+        if export_mode:
+            p = (
+                percentile
+                if percentile is not None
+                else self.params.get("percentile", 90.0)
+            )
+            p_norm = p / 100.0
+            # Фиксированный порог вместо torch.quantile для совместимости с ONNX
+            fixed_thresh = self.params.get("percentile_fixed_threshold", 0.5)
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                mask = (gray > fixed_thresh).to(dtype)
+            return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
+
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
         else:
@@ -4238,12 +4400,14 @@ class TorchSegmenter2(BaseSegmenter):
                 "parameters": {
                     "percentile": percentile,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4254,6 +4418,7 @@ class TorchSegmenter2(BaseSegmenter):
         *,
         num_bins: Optional[int] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Пороговая обработка по методу Киттлера-Иллингворта.
@@ -4295,6 +4460,16 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor).squeeze()  # (H, W)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            # Для экспорта используем фиксированный порог
+            fixed_threshold = self.params.get("kittler_fixed_threshold", 0.5)
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                mask = (gray > fixed_threshold).to(dtype)
+            return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -4353,12 +4528,14 @@ class TorchSegmenter2(BaseSegmenter):
                 "parameters": {
                     "num_bins": num_bins,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4369,6 +4546,7 @@ class TorchSegmenter2(BaseSegmenter):
         *,
         num_bins: Optional[int] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Пороговая обработка на основе максимизации энтропии Капура.
@@ -4410,6 +4588,16 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor).squeeze()  # (H, W)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            # Для экспорта используем фиксированный порог
+            fixed_threshold = self.params.get("kittler_fixed_threshold", 0.5)
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                mask = (gray > fixed_threshold).to(dtype)
+            return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -4467,12 +4655,14 @@ class TorchSegmenter2(BaseSegmenter):
                 "parameters": {
                     "num_bins": num_bins,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4483,6 +4673,7 @@ class TorchSegmenter2(BaseSegmenter):
         *,
         num_bins: Optional[int] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Треугольный метод пороговой обработки.
@@ -4525,6 +4716,16 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor).squeeze()  # (H, W)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            # Для экспорта используем фиксированный порог
+            fixed_threshold = self.params.get("kittler_fixed_threshold", 0.5)
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                mask = (gray > fixed_threshold).to(dtype)
+            return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -4579,12 +4780,14 @@ class TorchSegmenter2(BaseSegmenter):
                 "parameters": {
                     "num_bins": num_bins,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4596,6 +4799,7 @@ class TorchSegmenter2(BaseSegmenter):
         n_thresholds: Optional[int] = None,
         num_bins: Optional[int] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Мульти-пороговый метод Оцу для разделения на несколько классов.
@@ -4637,6 +4841,17 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor).squeeze()  # (H, W)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            # Для экспорта используем последний порог из списка или фиксированный
+            thresholds = self.params.get("multi_otsu_thresholds", [0.3, 0.7])
+            final_threshold = thresholds[-1] if thresholds else 0.5
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                mask = (gray > final_threshold).to(dtype)
+            return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -4711,12 +4926,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "n_thresholds": n_thresholds,
                     "num_bins": num_bins,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4728,6 +4945,7 @@ class TorchSegmenter2(BaseSegmenter):
         window_size: Optional[int] = None,
         contrast_factor: Optional[float] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Локальный контрастный порог.
@@ -4774,6 +4992,32 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor).squeeze()  # (H, W)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray)
+
+        if export_mode:
+            ws = (
+                window_size
+                if window_size is not None
+                else self.params.get("window_size", 15)
+            )
+            ws = ws if ws % 2 == 1 else ws + 1
+            cf = (
+                contrast_factor
+                if contrast_factor is not None
+                else self.params.get("contrast_factor", 0.1)
+            )
+
+            # Упрощённая версия: глобальный контраст вместо локального
+            global_mean = gray.mean()
+            global_contrast = torch.abs(gray - global_mean)
+            # Фиксированный порог вместо torch.quantile
+            threshold = self.params.get("local_contrast_fixed_threshold", 0.3)
+
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                mask = (global_contrast > threshold).to(dtype)
+            return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -4825,12 +5069,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "window_size": window_size,
                     "contrast_factor": contrast_factor,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4895,20 +5141,26 @@ class TorchSegmenter2(BaseSegmenter):
             # === УПРОЩЁННЫЙ SOBEL ДЛЯ TENSORRT ===
             sobel_x = self._get_conv_kernel("sobel_x", dtype=dtype, device=self.device)
             sobel_y = self._get_conv_kernel("sobel_y", dtype=dtype, device=self.device)
-            
+
             precision_val = precision if precision is not None else "fp32"
-            with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
                 gx = F.conv2d(gray, sobel_x.to(gray.dtype), padding=1)
                 gy = F.conv2d(gray, sobel_y.to(gray.dtype), padding=1)
-                
+
                 # 🔥 Упрощённая магнитуда БЕЗ amax/normalize
                 magnitude = torch.sqrt(gx**2 + gy**2 + 1e-8)
-                
+
                 # Фиксированный порог вместо динамической нормализации
-                thresh = threshold if threshold is not None else self.params.get("threshold", 0.1)
+                thresh = (
+                    threshold
+                    if threshold is not None
+                    else self.params.get("threshold", 0.1)
+                )
                 thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
                 mask = (magnitude > thresh_t).to(dtype)
-            
+
             # Гарантируем выход (1, 1, H, W)
             if mask.dim() == 2:
                 mask = mask.unsqueeze(0).unsqueeze(0)
@@ -4969,12 +5221,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "threshold": threshold,
                     "normalize": normalize,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32)
 
     def _safe_pad(
@@ -5000,7 +5254,7 @@ class TorchSegmenter2(BaseSegmenter):
         high_threshold: Optional[float] = None,
         sigma: Optional[float] = None,
         precision: Optional[str] = None,
-        export_mode: bool = False, 
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Обнаружение границ оператором Кэнни.
@@ -5065,30 +5319,40 @@ class TorchSegmenter2(BaseSegmenter):
 
         if export_mode:
             # === CANNY-LITE ДЛЯ TENSORRT: только гаусс + градиент + порог ===
-            low = low_threshold if low_threshold is not None else self.params.get("low", 0.1)
-            high = high_threshold if high_threshold is not None else self.params.get("high", 0.3)
+            low = (
+                low_threshold
+                if low_threshold is not None
+                else self.params.get("low", 0.1)
+            )
+            high = (
+                high_threshold
+                if high_threshold is not None
+                else self.params.get("high", 0.3)
+            )
             sig = sigma if sigma is not None else self.params.get("sigma", 1.0)
-            
+
             # Гауссово сглаживание
             if sig > 0:
                 ks = int(2 * round(3 * sig) + 1)
                 ks = ks if ks % 2 == 1 else ks + 1
                 gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
-            
+
             # Градиенты (Sobel)
             sobel_x = self._get_conv_kernel("sobel_x", dtype=dtype, device=self.device)
             sobel_y = self._get_conv_kernel("sobel_y", dtype=dtype, device=self.device)
-            
+
             precision_val = precision if precision is not None else "fp32"
-            with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
                 gx = F.conv2d(gray, sobel_x.to(gray.dtype), padding=1)
                 gy = F.conv2d(gray, sobel_y.to(gray.dtype), padding=1)
                 mag = torch.sqrt(gx**2 + gy**2 + 1e-8)
-                
+
                 # 🔥 ПРОСТАЯ БИНАРИЗАЦИЯ (вместо NMS+гистерезиса)
                 thresh_t = torch.tensor(high, dtype=dtype, device=self.device)
                 mask = (mag > thresh_t).to(dtype)
-            
+
             # Нормализация выхода к (1, 1, H, W)
             if mask.dim() == 2:
                 mask = mask.unsqueeze(0).unsqueeze(0)
@@ -5241,12 +5505,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "high_threshold": high_threshold,
                     "sigma": sigma,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
 
         if final_mask.dim() == 2:
             mask = final_mask.unsqueeze(0).unsqueeze(0)
@@ -5263,6 +5529,7 @@ class TorchSegmenter2(BaseSegmenter):
         threshold: Optional[float] = None,
         normalize: bool = True,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Обнаружение границ оператором Прюитта.
@@ -5306,6 +5573,37 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            # Упрощённые ядра Прюитта
+            prewitt_x = torch.tensor(
+                [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], dtype=dtype, device=self.device
+            ).view(1, 1, 3, 3)
+            prewitt_y = torch.tensor(
+                [[-1, -1, -1], [0, 0, 0], [1, 1, 1]], dtype=dtype, device=self.device
+            ).view(1, 1, 3, 3)
+
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                gx = F.conv2d(gray, prewitt_x.to(gray.dtype), padding=1)
+                gy = F.conv2d(gray, prewitt_y.to(gray.dtype), padding=1)
+                magnitude = torch.sqrt(gx**2 + gy**2 + 1e-8)
+                # Без нормализации для экспорта
+                thresh = (
+                    threshold
+                    if threshold is not None
+                    else self.params.get("threshold", 0.1)
+                )
+                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
+                mask = (magnitude > thresh_t).to(dtype)
+
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
+            return mask.to(torch.float32)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -5353,14 +5651,13 @@ class TorchSegmenter2(BaseSegmenter):
             exec_time: float = time.time() - start_time
             self.params["execution_info"] = {
                 "method": "prewitt_edge_torch",
-                "parameters": {
-                    "threshold": thresh,
-                    "precision_val": precision_val
-                },
+                "parameters": {"threshold": thresh, "precision_val": precision_val},
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5372,6 +5669,7 @@ class TorchSegmenter2(BaseSegmenter):
         threshold: Optional[float] = None,
         normalize: bool = True,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Обнаружение границ оператором Шарра.
@@ -5415,6 +5713,37 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            # Упрощённые ядра Прюитта
+            prewitt_x = torch.tensor(
+                [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], dtype=dtype, device=self.device
+            ).view(1, 1, 3, 3)
+            prewitt_y = torch.tensor(
+                [[-1, -1, -1], [0, 0, 0], [1, 1, 1]], dtype=dtype, device=self.device
+            ).view(1, 1, 3, 3)
+
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                gx = F.conv2d(gray, prewitt_x.to(gray.dtype), padding=1)
+                gy = F.conv2d(gray, prewitt_y.to(gray.dtype), padding=1)
+                magnitude = torch.sqrt(gx**2 + gy**2 + 1e-8)
+                # Без нормализации для экспорта
+                thresh = (
+                    threshold
+                    if threshold is not None
+                    else self.params.get("threshold", 0.1)
+                )
+                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
+                mask = (magnitude > thresh_t).to(dtype)
+
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
+            return mask.to(torch.float32)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -5462,14 +5791,13 @@ class TorchSegmenter2(BaseSegmenter):
             exec_time: float = time.time() - start_time
             self.params["execution_info"] = {
                 "method": "scharr_edge_torch",
-                "parameters": {
-                    "threshold": thresh,
-                    "precision_val": precision_val
-                },
+                "parameters": {"threshold": thresh, "precision_val": precision_val},
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5482,6 +5810,7 @@ class TorchSegmenter2(BaseSegmenter):
         sigma: Optional[float] = None,
         normalize: bool = True,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Обнаружение границ через лапласиан изображения.
@@ -5528,6 +5857,37 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
+        if export_mode:
+            # Упрощённые ядра Прюитта
+            prewitt_x = torch.tensor(
+                [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], dtype=dtype, device=self.device
+            ).view(1, 1, 3, 3)
+            prewitt_y = torch.tensor(
+                [[-1, -1, -1], [0, 0, 0], [1, 1, 1]], dtype=dtype, device=self.device
+            ).view(1, 1, 3, 3)
+
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                gx = F.conv2d(gray, prewitt_x.to(gray.dtype), padding=1)
+                gy = F.conv2d(gray, prewitt_y.to(gray.dtype), padding=1)
+                magnitude = torch.sqrt(gx**2 + gy**2 + 1e-8)
+                # Без нормализации для экспорта
+                thresh = (
+                    threshold
+                    if threshold is not None
+                    else self.params.get("threshold", 0.1)
+                )
+                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
+                mask = (magnitude > thresh_t).to(dtype)
+
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
+            return mask.to(torch.float32)
+
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
         else:
@@ -5573,12 +5933,14 @@ class TorchSegmenter2(BaseSegmenter):
                 "parameters": {
                     "threshold": thresh,
                     "sigma": sig,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5590,6 +5952,7 @@ class TorchSegmenter2(BaseSegmenter):
         threshold: Optional[float] = None,
         normalize: bool = True,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Обнаружение границ оператором Робертса.
@@ -5634,6 +5997,37 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            # Упрощённые ядра Прюитта
+            prewitt_x = torch.tensor(
+                [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], dtype=dtype, device=self.device
+            ).view(1, 1, 3, 3)
+            prewitt_y = torch.tensor(
+                [[-1, -1, -1], [0, 0, 0], [1, 1, 1]], dtype=dtype, device=self.device
+            ).view(1, 1, 3, 3)
+
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                gx = F.conv2d(gray, prewitt_x.to(gray.dtype), padding=1)
+                gy = F.conv2d(gray, prewitt_y.to(gray.dtype), padding=1)
+                magnitude = torch.sqrt(gx**2 + gy**2 + 1e-8)
+                # Без нормализации для экспорта
+                thresh = (
+                    threshold
+                    if threshold is not None
+                    else self.params.get("threshold", 0.1)
+                )
+                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
+                mask = (magnitude > thresh_t).to(dtype)
+
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
+            return mask.to(torch.float32)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -5687,14 +6081,13 @@ class TorchSegmenter2(BaseSegmenter):
             exec_time: float = time.time() - start_time
             self.params["execution_info"] = {
                 "method": "roberts_edge_torch",
-                "parameters": {
-                    "threshold": thresh,
-                    "precision_val": precision_val
-                },
+                "parameters": {"threshold": thresh, "precision_val": precision_val},
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
 
         return mask.to(torch.float32)
 
@@ -5707,6 +6100,7 @@ class TorchSegmenter2(BaseSegmenter):
         sigma: Optional[float] = None,
         threshold: Optional[float] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Детектор границ Laplacian of Gaussian (LoG).
@@ -5751,6 +6145,41 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            sig = sigma if sigma is not None else self.params.get("sigma", 1.0)
+            thresh = (
+                threshold
+                if threshold is not None
+                else self.params.get("threshold", 0.1)
+            )
+
+            # Упрощённое гауссово размытие
+            if sig > 0:
+                ks = int(2 * round(3 * sig) + 1)
+                ks = ks if ks % 2 == 1 else ks + 1
+                gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
+
+            # Простое ядро Лапласа
+            laplacian_kernel = torch.tensor(
+                [[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=dtype, device=self.device
+            ).view(1, 1, 3, 3)
+
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                laplacian = F.conv2d(gray, laplacian_kernel.to(gray.dtype), padding=1)
+                magnitude = torch.abs(laplacian)
+                # Без zero-crossing для экспорта — просто порог по магнитуде
+                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
+                mask = (magnitude > thresh_t).to(dtype)
+
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
+            return mask.to(torch.float32)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -5809,12 +6238,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "sigma": sigma,
                     "threshold": threshold,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5827,6 +6258,7 @@ class TorchSegmenter2(BaseSegmenter):
         sigma2: Optional[float] = None,
         threshold: Optional[float] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Детектор границ Difference of Gaussian (DoG).
@@ -5872,6 +6304,41 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            sig = sigma if sigma is not None else self.params.get("sigma", 1.0)
+            thresh = (
+                threshold
+                if threshold is not None
+                else self.params.get("threshold", 0.1)
+            )
+
+            # Упрощённое гауссово размытие
+            if sig > 0:
+                ks = int(2 * round(3 * sig) + 1)
+                ks = ks if ks % 2 == 1 else ks + 1
+                gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
+
+            # Простое ядро Лапласа
+            laplacian_kernel = torch.tensor(
+                [[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=dtype, device=self.device
+            ).view(1, 1, 3, 3)
+
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                laplacian = F.conv2d(gray, laplacian_kernel.to(gray.dtype), padding=1)
+                magnitude = torch.abs(laplacian)
+                # Без zero-crossing для экспорта — просто порог по магнитуде
+                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
+                mask = (magnitude > thresh_t).to(dtype)
+
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
+            return mask.to(torch.float32)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -5937,12 +6404,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "sigma2": sigma2,
                     "threshold": threshold,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5954,6 +6423,7 @@ class TorchSegmenter2(BaseSegmenter):
         sigma: Optional[float] = None,
         threshold: Optional[float] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Детектор границ Марра-Хилдрета (улучшенный LoG с нулевым пересечением).
@@ -5997,6 +6467,41 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            sig = sigma if sigma is not None else self.params.get("sigma", 1.0)
+            thresh = (
+                threshold
+                if threshold is not None
+                else self.params.get("threshold", 0.1)
+            )
+
+            # Упрощённое гауссово размытие
+            if sig > 0:
+                ks = int(2 * round(3 * sig) + 1)
+                ks = ks if ks % 2 == 1 else ks + 1
+                gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
+
+            # Простое ядро Лапласа
+            laplacian_kernel = torch.tensor(
+                [[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=dtype, device=self.device
+            ).view(1, 1, 3, 3)
+
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                laplacian = F.conv2d(gray, laplacian_kernel.to(gray.dtype), padding=1)
+                magnitude = torch.abs(laplacian)
+                # Без zero-crossing для экспорта — просто порог по магнитуде
+                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
+                mask = (magnitude > thresh_t).to(dtype)
+
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
+            return mask.to(torch.float32)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -6052,12 +6557,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "sigma": sigma,
                     "threshold": threshold,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -6069,6 +6576,7 @@ class TorchSegmenter2(BaseSegmenter):
         threshold: Optional[float] = None,
         normalize: bool = True,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Вычисление градиента с магнитудой и направлением + подавление немаксимумов.
@@ -6115,6 +6623,40 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
+
+        if export_mode:
+            # Упрощённые ядра Собеля
+            sobel_x = torch.tensor(
+                [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=dtype, device=self.device
+            ).view(1, 1, 3, 3)
+            sobel_y = torch.tensor(
+                [[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=dtype, device=self.device
+            ).view(1, 1, 3, 3)
+
+            precision_val = precision if precision is not None else "fp32"
+            with self.precision_manager.autocast(
+                precision_val, enabled=(dtype != torch.float32)
+            ):
+                gx = F.conv2d(gray, sobel_x.to(gray.dtype), padding=1)
+                gy = F.conv2d(gray, sobel_y.to(gray.dtype), padding=1)
+                magnitude = torch.sqrt(gx**2 + gy**2 + 1e-8)
+                # Без NMS для экспорта
+                if normalize:
+                    mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
+                    magnitude = magnitude / (mag_max + 1e-8)
+                thresh = (
+                    threshold
+                    if threshold is not None
+                    else self.params.get("threshold", 0.1)
+                )
+                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
+                mask = (magnitude > thresh_t).to(dtype)
+
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
+            return mask.to(torch.float32)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -6168,12 +6710,14 @@ class TorchSegmenter2(BaseSegmenter):
                     "threshold": threshold,
                     "normalize": normalize,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+                print(
+                    f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
+                )
         return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -6248,6 +6792,7 @@ class TorchSegmenter2(BaseSegmenter):
         k_noise: Optional[float] = None,
         threshold: Optional[float] = None,
         precision: Optional[str] = None,
+        export_mode: bool = False,
     ) -> torch.Tensor:
         """
         Детектор границ на основе фазовой конгруэнтности (реализация Ковези).
@@ -6310,6 +6855,13 @@ class TorchSegmenter2(BaseSegmenter):
         # Нормализация к [0, 1]
         if gray.max() > 1.0:
             gray = gray / 255.0
+
+        if export_mode:
+            # Для экспорта возвращаем упрощённый Sobel как fallback
+            warnings.warn(
+                "phase_congruency в export_mode использует Sobel как fallback"
+            )
+            return self._sobel_edge(tensor, export_mode=True, precision=precision)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -6430,7 +6982,7 @@ class TorchSegmenter2(BaseSegmenter):
                     "k_noise": k_noise,
                     "threshold": threshold,
                     "precision": precision,
-                    "precision_val": precision_val
+                    "precision_val": precision_val,
                 },
                 "execution_time": exec_time,
             }

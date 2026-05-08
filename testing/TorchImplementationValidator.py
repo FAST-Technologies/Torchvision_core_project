@@ -257,7 +257,11 @@ class TorchImplementationValidator:
 
         try:
             sig = inspect.signature(segmenter_class.__init__)
-            valid_params: Set[str] = set(sig.parameters.keys()) - {"self", "kwargs", "kwds"}
+            valid_params: Set[str] = set(sig.parameters.keys()) - {
+                "self",
+                "kwargs",
+                "kwds",
+            }
             # Всегда разрешаем 'postprocess' для совместимости
             valid_params.add("postprocess")
             return {k: v for k, v in params.items() if k in valid_params}
@@ -738,15 +742,14 @@ class TorchImplementationValidator:
             axes[row, 1].imshow(mask_a_np, cmap="gray")
             axes[row, 1].set_title(
                 f"{method}\n{first_method_name.upper()}\nIoU: {metrics['iou']:.3f}",
-                fontsize=8
+                fontsize=8,
             )
             axes[row, 1].axis("off")
 
             # Reference маска
             axes[row, 2].imshow(mask_b_np, cmap="gray")
             axes[row, 2].set_title(
-                f"{method}\n{second_method_name.upper()}",
-                fontsize=8
+                f"{method}\n{second_method_name.upper()}", fontsize=8
             )
             axes[row, 2].axis("off")
 
@@ -1025,31 +1028,33 @@ class TorchImplementationValidator:
         # ПРЯМОЕ СРАВНЕНИЕ: TorchSegmenter2 vs TorchSegmenter
         # ──────────────────────────────────────────────────────
         if use_torch2:
-            validation_configs.extend([
-                # Threshold: Torch2 vs Torch1
-                (
-                    "threshold_torch2_vs_torch1",
-                    self.threshold_methods,
-                    TorchSegmenter2,  # first = новая версия
-                    TorchSegmenter,   # second = старая версия
-                    "Torch2",
-                    "Torch1",
-                    "ПРЯМОЕ СРАВНЕНИЕ: TorchSegmenter2 vs TorchSegmenter (пороговые)",
-                    "threshold",
-                ),
-                # Edge: Torch2 vs Torch1
-                (
-                    "edge_torch2_vs_torch1",
-                    self.edge_methods,
-                    TorchSegmenter2,
-                    TorchSegmenter,
-                    "Torch2",
-                    "Torch1", 
-                    "ПРЯМОЕ СРАВНЕНИЕ: TorchSegmenter2 vs TorchSegmenter (граничные)",
-                    "edge",
-                ),
-                # Можно добавить и для других категорий при необходимости
-            ])
+            validation_configs.extend(
+                [
+                    # Threshold: Torch2 vs Torch1
+                    (
+                        "threshold_torch2_vs_torch1",
+                        self.threshold_methods,
+                        TorchSegmenter2,  # first = новая версия
+                        TorchSegmenter,  # second = старая версия
+                        "Torch2",
+                        "Torch1",
+                        "ПРЯМОЕ СРАВНЕНИЕ: TorchSegmenter2 vs TorchSegmenter (пороговые)",
+                        "threshold",
+                    ),
+                    # Edge: Torch2 vs Torch1
+                    (
+                        "edge_torch2_vs_torch1",
+                        self.edge_methods,
+                        TorchSegmenter2,
+                        TorchSegmenter,
+                        "Torch2",
+                        "Torch1",
+                        "ПРЯМОЕ СРАВНЕНИЕ: TorchSegmenter2 vs TorchSegmenter (граничные)",
+                        "edge",
+                    ),
+                    # Можно добавить и для других категорий при необходимости
+                ]
+            )
 
         for (
             key,
