@@ -23,6 +23,7 @@ pytest-cov>=7.1.0
 black==24.2.0
 flake8==7.3.0
 mypy==1.20.0
+mypy_extensions>=1.1.0
 bandit==1.9.4
 safety==3.7.0
 types-requests>=2.33.0.20260402
@@ -35,12 +36,15 @@ graphviz>=0.21
 streamlit>=1.56.0
 ultralytics>=8.4.21
 vulture>=2.16
-tensorrt>=10.16.1.11          # Для TensorRT
+tensorrt>=10.15.1.29          # Для TensorRT
 
 # ONNX конвертация (альтернатива torch2trt)
 onnx>=1.21.0            # Для ONNX экспорта
+onnx-ir>=0.2.1
 onnxruntime-gpu>=1.25.0  # Для бенчмарка ONNX
 onnx-simplifier>=0.5.0
+onnx2torch>=1.5.15
+onnxscript>=0.7.0
 
 # Профилирование
 pytorch_memlab>=0.3.0
@@ -48,3 +52,5 @@ line_profiler>=4.1.0
 
 # torch2trt>=0.4.0         # Для конвертации
 # nvidia-pyindex          # Для доступа к TRT пакетам
+
+psutil>=7.1.3
