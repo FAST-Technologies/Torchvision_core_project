@@ -58,6 +58,7 @@ from testing.SegmentationComparator import SegmentationComparator
 from testing.SegmentationBenchmark import SegmentationBenchmark, export_comparison_table
 from testing.TorchImplementationValidator import TorchImplementationValidator
 from testing.BatchClassicTester import BatchClassicTester
+from testing.CpuCudaBenchmark import CpuCudaBenchmark
 from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict
 from utils.warmup import SegmentationWarmUp
 from utils.threshold_warmup import ThresholdWarmUp
@@ -292,6 +293,90 @@ def main(use_optimizations: bool = True) -> Tuple[
     # ──────────────────────────────────────────────────────────────
 
     if test_classic_logic:
+        print("🔬 ИССЛЕДОВАНИЕ: Мульти-бэкенд бенчмарк (PyTorch / ONNX / TensorRT)")
+        target_methods_for_research = ["otsu_thresholding", "sobel_edge"]
+
+        real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]
+        print(f"📐 Размер изображения: {real_w}x{real_h}")
+
+        if first_img_pil is not None:
+            # 🔥 Регистрация с поддержкой множественных точностей
+            backend_registration = _register_backend_methods_with_precision(
+                tester=tester,
+                target_methods=target_methods_for_research,
+                output_base_dir="./exported_models",
+                precisions=[
+                    "fp32",
+                    "fp16",
+                    "bf16",
+                ],  # Явное указание или авто-определение
+                input_shape=(1, 3, real_h, real_w),
+            )
+
+            print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+            print("   (нажмите Ctrl+C для отмены, если нужно)")
+            try:
+                time.sleep(15)  # 🔥 Задержка 15 секунд
+            except KeyboardInterrupt:
+                print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+                return tester, None, None
+
+            # Запуск бенчмарка
+            backend_results = tester.benchmark_methods(
+                image=np.array(first_img_pil),
+                n_runs=10,
+                force_warmup=True,
+                test_name="backend_precision_comparison",
+            )
+
+            # 🔥 Фильтрация и группировка результатов по точности
+            if backend_results is not None and not backend_results.empty:
+                # Добавляем колонки для удобной группировки
+                backend_results["Backend"] = backend_results["Method"].apply(
+                    lambda x: x.split("_")[-2] if x.count("_") >= 2 else "Unknown"
+                )
+                backend_results["Precision"] = backend_results["Method"].apply(
+                    lambda x: x.split("_")[-1] if x.count("_") >= 2 else "fp32"
+                )
+                backend_results["BaseMethod"] = backend_results["Method"].apply(
+                    lambda x: "_".join(x.split("_")[:-2]) if x.count("_") >= 2 else x
+                )
+
+                # Сводная таблица: метод × бэкенд × точность
+                summary = backend_results.pivot_table(
+                    index=["BaseMethod", "Backend"],
+                    columns="Precision",
+                    values="Mean_Time_s",
+                    aggfunc="mean",
+                )
+
+                print("\n⚡ Сравнение времени выполнения (мс) по точностям:")
+                print(summary.round(4).to_string())
+
+                # Speedup относительно fp32
+                if "fp32" in summary.columns:
+                    for backend in ["ONNX", "TRT"]:
+                        if backend in summary.index.get_level_values("Backend"):
+                            print(f"\n🚀 Speedup {backend} относительно PyTorch/fp32:")
+                            for precision in ["fp16", "bf16"]:
+                                if precision in summary.columns:
+                                    subset = summary.xs(
+                                        backend, level="Backend", drop_level=False
+                                    )
+                                    if (
+                                        precision in subset.columns
+                                        and "fp32" in subset.columns
+                                    ):
+                                        speedup = subset["fp32"] / subset[precision]
+                                        print(
+                                            f"   {precision}: {speedup.mean():.2f}x (среднее)"
+                                        )
+
+            print("✅ Сравнение бэкендов завершено. Результаты сохранены.")
+        else:
+            print("⚠️ Пропуск сравнения бэкендов: нет тестового изображения")
+
+    if test_classic_logic:
         print("🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT")
 
         # 🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT
@@ -302,17 +387,6 @@ def main(use_optimizations: bool = True) -> Tuple[
         print(f"📐 Реальный размер изображения: {real_w}x{real_h}")
 
         if first_img_pil is not None:
-            # Берём базовый TorchSegmenter2 для экспорта
-            base_torch = TorchSegmenter2(
-                method="otsu_thresholding", device="cuda", precision="fp32"
-            )
-            backend_methods = _create_backend_methods(
-                base_torch,
-                target_methods_for_research,
-                output_dir="./data/backend_comparison",
-                input_shape=(1, 3, real_h, real_w),
-                force_reexport=True,
-            )
 
             exported_methods = export_all_classical_methods(
                 output_base_dir="./exported_models",
@@ -325,8 +399,48 @@ def main(use_optimizations: bool = True) -> Tuple[
             )
 
             # Регистрируем все бэкенды в тестер
-            for name, seg in backend_methods.items():
-                tester.add_method(name, seg)
+            for method_name in target_methods_for_research:
+                # PyTorch (оригинал)
+                pt_seg = TorchSegmenter2(
+                    method=method_name,
+                    device="cuda",
+                    precision="fp32",
+                    use_compile=False,
+                )
+                tester.add_method(f"{method_name}_Torch", pt_seg)
+
+                # ONNX
+                onnx_path = f"./exported_models/onnx/fp32/{method_name}.onnx"
+                if os.path.exists(onnx_path):
+                    try:
+                        onnx_seg = ONNXSegmenter(
+                            method_name,
+                            onnx_path,
+                            device="cuda" if torch.cuda.is_available() else "cpu",
+                            input_shape=(1, 3, real_h, real_w),
+                        )
+                        tester.add_method(f"{method_name}_ONNX", onnx_seg)
+                        print(f"✅ Загружен {method_name}_ONNX")
+                    except Exception as e:
+                        print(f"⚠️ Не загружен {method_name}_ONNX: {e}")
+
+                # TensorRT
+                if torch.cuda.is_available():
+                    from utils.backend_exporter import load_trt_model
+
+                    trt_path = f"./exported_models/tensorrt/fp32/{method_name}.trt"
+                    if os.path.exists(trt_path):
+                        try:
+                            trt_model = load_trt_model(trt_path)
+                            if trt_model is not None:
+                                trt_seg = TRTSegmenter(
+                                    method_name, trt_model, device="cuda"
+                                )
+                                tester.add_method(f"{method_name}_TRT", trt_seg)
+                                print(f"✅ Загружен {method_name}_TRT")
+                        except Exception as e:
+                            print(f"⚠️ Не загружен {method_name}_TRT: {e}")
+
             print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
             print("   (нажмите Ctrl+C для отмены, если нужно)")
             try:
@@ -335,12 +449,13 @@ def main(use_optimizations: bool = True) -> Tuple[
                 print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
                 return tester, None, None
             # Запускаем стандартный бенчмарк
-            backend_results = tester.benchmark_methods(
+            backend_results: pd.DataFrame = tester.benchmark_methods(
                 image=np.array(first_img_pil),
                 n_runs=10,
                 force_warmup=True,
                 test_name="backend_comparison",
             )
+            print(backend_results)
             print("✅ Сравнение бэкендов завершено. Результаты сохранены.")
         else:
             print("⚠️  Пропуск сравнения бэкендов: нет тестового изображения")
@@ -457,25 +572,47 @@ def main(use_optimizations: bool = True) -> Tuple[
 
     # 4.10 Тестирование CPU/CUDA бенчмарка
     if test_classic_logic:
-        # Выбираем тестовое изображение
+        print("\n" + "=" * 80)
+        print("🧪 ЗАПУСК MULTI-BACKEND CPU/CUDA БЕНЧМАРКА")
+        print("=" * 80)
+
+        # 1. Собираем все методы в один словарь
+        all_benchmark_methods: SegmenterDict = {}
+        all_benchmark_methods.update(cv2_methods)
+        all_benchmark_methods.update(sklearn_methods)
+        all_benchmark_methods.update(torch_methods)
+
+        # 2. Добавляем экспортированные ONNX/TRT методы (если они уже зарегистрированы в tester)
+        # Можно взять их из tester.methods или создать напрямую
+        for name, seg in tester.methods.items():
+            if "ONNX" in name or "TRT" in name:
+                all_benchmark_methods[name] = seg
+
+        # 3. Выбираем изображение
         test_image = None
-        for img_name, (img_path, img_pil, gt_mask) in tqdm(
-            test_images.items(), desc="CUDA/CPU benchmark"
+        for img_name, (_, img_pil, _) in tqdm(
+            test_images.items(), desc="CUDA/CPU benchmark (Выбор изображения)"
         ):
             test_image = np.array(img_pil)
             print(f"✅ Используем изображение: {img_name} ({test_image.shape})")
             break
 
         if test_image is not None:
-            # Бенчмарк CPU vs CUDA для классических методов
             cpu_cuda_results: BenchmarkResult = run_cpu_cuda_benchmark(
-                cv2_methods=cv2_methods,
-                sklearn_methods=sklearn_methods,
-                torch_methods=torch_methods,
+                all_benchmark_methods=all_benchmark_methods,
                 test_image=test_image,
+                n_runs=10,  # Увеличил прогонов для стабильности
+                warmup_runs=5,
             )
+            print(cpu_cuda_results.sort_values("mean_time"))
 
-        print(cpu_cuda_results)
+            # Сортировка и вывод топ-10 по времени
+            top10: BenchmarkResult = (
+                cpu_cuda_results[cpu_cuda_results["error"].isna()]
+                .sort_values("mean_time")
+                .head(10)
+            )
+            print(top10[["method", "device", "mean_time", "backend", "precision"]])
 
     # ──────────────────────────────────────────────────────────────
     # 5. МАССОВОЕ ТЕСТИРОВАНИЕ КЛАССИЧЕСКИХ МЕТОДОВ
@@ -497,6 +634,134 @@ def main(use_optimizations: bool = True) -> Tuple[
     print("✓ Результаты в: ./data/")
 
     return tester, results_df, None
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 🔥 РЕГИСТРАЦИЯ БЭКЕНДОВ С ПОДДЕРЖКОЙ МНОЖЕСТВЕННЫХ ТОЧНОСТЕЙ
+# ──────────────────────────────────────────────────────────────────────
+def _register_backend_methods_with_precision(
+    tester: SegmentationTester,
+    target_methods: List[str],
+    output_base_dir: str = "./exported_models",
+    precisions: List[str] = None,
+    input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
+) -> Dict[str, Any]:
+    """
+    Регистрирует методы для разных бэкендов (PyTorch/ONNX/TensorRT)
+    и точностей (fp32/fp16/bf16) с суффиксами в названиях.
+
+    Формат имени метода: {method_name}_{backend}_{precision}
+    Пример: otsu_thresholding_TRT_bf16, sobel_edge_ONNX_fp16
+    """
+    if precisions is None:
+        # Авто-определение доступных точностей
+        precisions = ["fp32"]
+        if torch.cuda.is_available():
+            precisions.append("fp16")
+            if torch.cuda.get_device_capability(0)[0] >= 8:  # Ampere+
+                precisions.append("bf16")
+
+    registered: Dict[str, Any] = {"success": [], "failed": [], "skipped": []}
+
+    for method_name in target_methods:
+        print(f"\n🔹 Регистрация бэкендов: {method_name}")
+
+        # ──────────────────────────────────────────────────
+        # 1. PyTorch (оригинал) — только fp32 как референс
+        # ──────────────────────────────────────────────────
+        try:
+            pt_seg = TorchSegmenter2(
+                method=method_name,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+                precision="fp32",
+                use_compile=False,  # Чистый eager mode для сравнения
+            )
+            method_key = f"{method_name}_Torch_fp32"
+            tester.add_method(method_key, pt_seg)
+            registered["success"].append(method_key)
+            print(f"   ✅ {method_key}")
+        except Exception as e:
+            registered["failed"].append(f"{method_name}_Torch_fp32: {e}")
+            print(f"   ❌ {method_name}_Torch_fp32: {e}")
+
+        # ──────────────────────────────────────────────────
+        # 2. ONNX для каждой доступной точности
+        # ──────────────────────────────────────────────────
+        for precision in precisions:
+            onnx_path = f"{output_base_dir}/onnx/{precision}/{method_name}.onnx"
+            if not os.path.exists(onnx_path):
+                registered["skipped"].append(
+                    f"{method_name}_ONNX_{precision} (файл не найден)"
+                )
+                continue
+
+            try:
+                onnx_seg = ONNXSegmenter(
+                    method_name,
+                    onnx_path,
+                    device="cuda" if torch.cuda.is_available() else "cpu",
+                    input_shape=input_shape,
+                    precision=precision,  # Передаём точность для корректной инициализации
+                )
+                method_key = f"{method_name}_ONNX_{precision}"
+                tester.add_method(method_key, onnx_seg)
+                registered["success"].append(method_key)
+                print(f"   ✅ {method_key}")
+            except Exception as e:
+                registered["failed"].append(f"{method_name}_ONNX_{precision}: {e}")
+                print(f"   ❌ {method_name}_ONNX_{precision}: {e}")
+
+        # ──────────────────────────────────────────────────
+        # 3. TensorRT для каждой доступной точности (только CUDA)
+        # ──────────────────────────────────────────────────
+        if not torch.cuda.is_available():
+            continue
+
+        for precision in precisions:
+            trt_path = f"{output_base_dir}/tensorrt/{precision}/{method_name}.trt"
+            if not os.path.exists(trt_path):
+                registered["skipped"].append(
+                    f"{method_name}_TRT_{precision} (файл не найден)"
+                )
+                continue
+
+            try:
+                from utils.backend_exporter import load_trt_model
+
+                trt_model = load_trt_model(trt_path)
+                if trt_model is not None:
+                    trt_seg = TRTSegmenter(
+                        method_name,
+                        trt_model,
+                        device="cuda",
+                        precision=precision,
+                    )
+                    method_key = f"{method_name}_TRT_{precision}"
+                    tester.add_method(method_key, trt_seg)
+                    registered["success"].append(method_key)
+                    print(f"   ✅ {method_key}")
+                else:
+                    registered["failed"].append(
+                        f"{method_name}_TRT_{precision} (модель=None)"
+                    )
+            except Exception as e:
+                registered["failed"].append(f"{method_name}_TRT_{precision}: {e}")
+                print(f"   ❌ {method_name}_TRT_{precision}: {e}")
+
+    # ──────────────────────────────────────────────────
+    # Сводка регистрации
+    # ──────────────────────────────────────────────────
+    print(f"\n📊 Сводка регистрации бэкендов:")
+    print(f"   ✅ Успешно: {len(registered['success'])}")
+    print(f"   ❌ Ошибки: {len(registered['failed'])}")
+    print(f"   ⚠️  Пропущено: {len(registered['skipped'])}")
+
+    if registered["failed"]:
+        print(f"\n⚠️  Ошибки:")
+        for err in registered["failed"][:5]:  # Показываем первые 5
+            print(f"   • {err}")
+
+    return registered
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -4231,9 +4496,7 @@ def test_neural_segmentation_variants() -> (
 
 # ──────────────────────────────────────────────────────────────────────
 def run_cpu_cuda_benchmark(
-    cv2_methods: SegmenterDict,
-    sklearn_methods: SegmenterDict,
-    torch_methods: SegmenterDict,
+    all_benchmark_methods: Dict[SegmenterDict],
     test_image: ImageArray,
     n_runs: int = 5,
     warmup_runs: int = 2,
@@ -4270,34 +4533,23 @@ def run_cpu_cuda_benchmark(
         print(f"Средний speedup: {cuda_methods['speedup'].mean():.2f}x")
         ```
     """
-    from testing.CpuCudaBenchmark import CpuCudaBenchmark
 
     print("\n" + "=" * 80)
     print("ЗАПУСК БЕНЧМАРКА: CPU vs CUDA")
     print("=" * 80)
 
-    # Объединяем все классические методы
-    all_classical_methods: SegmenterDict = {
-        **cv2_methods,
-        **sklearn_methods,
-        **torch_methods,
-    }
-    classical_only: SegmenterDict = _filter_classical_methods(all_classical_methods)
+    classical_only: SegmenterDict = _filter_classical_methods(all_benchmark_methods)
 
     print(f"Количество классических методов: {len(classical_only)}")
 
-    # Инициализация и запуск бенчмарка
+    # Бенчмарк CPU vs CUDA для классических методов
     benchmark: CpuCudaBenchmark = CpuCudaBenchmark(
         base_output_dir="./data/cpu_cuda_benchmark",
         n_runs=n_runs,
         warmup_runs=warmup_runs,
     )
-
-    # Запускаем бенчмарк
     df_results: BenchmarkResult = benchmark.benchmark_all_methods(
-        methods_dict=classical_only,
-        image=test_image,
-        test_name="classical_methods_cpu_cuda",
+        methods_dict=classical_only, image=test_image, test_name="multi_backend_full"
     )
 
     # Вывод сводки
@@ -4368,81 +4620,7 @@ def _filter_classical_methods(all_methods: SegmenterDict) -> SegmenterDict:
     }
 
 
-# def _create_backend_methods(
-#     base_segmenter,
-#     methods_list: list,
-#     output_dir: str = "./data/backends",
-#     precision: str = "fp32",
-#     force_reexport: bool = False,
-# ) -> dict:
-#     """
-#     Создаёт методы для PyTorch / ONNX / TensorRT.
-#     """
-#     from utils.backend_exporter import (
-#         export_method_to_onnx_safe,
-#         export_method_to_trt_dynamo,
-#         load_trt_model,
-#         export_method_to_trt_jit
-#     )
-#     import os
-#     os.makedirs(output_dir, exist_ok=True)
-#     methods = {}
-
-#     for method_name in methods_list:
-#         print(f"\n--- Backend export: {method_name} ---")
-
-#         # 1. PyTorch
-#         methods[f"{method_name}_Torch"] = base_segmenter
-
-#         # 2. ONNX
-#         onnx_path = os.path.join(output_dir, f"{method_name}.onnx")
-#         if force_reexport and os.path.exists(onnx_path):
-#             os.remove(onnx_path)
-#         if not os.path.exists(onnx_path):
-#             export_method_to_onnx_safe(
-#                 base_segmenter, method_name, onnx_path,
-#                 opset_version=17, precision=precision,
-#             )
-#         if os.path.exists(onnx_path):
-#             try:
-#                 from segmenters.BackendSegmenters import ONNXSegmenter
-#                 methods[f"{method_name}_ONNX"] = ONNXSegmenter(
-#                     method_name, onnx_path,
-#                     device="cuda" if torch.cuda.is_available() else "cpu",
-#                     input_shape=(1, 3, 512, 512),
-#                 )
-#                 print(f"  ONNX OK: {method_name}")
-#             except Exception as e:
-#                 print(f"  ONNX init failed {method_name}: {e}")
-
-#         # 3. TensorRT
-#         if not torch.cuda.is_available():
-#             continue
-#         trt_path = os.path.join(output_dir, f"{method_name}_{precision}.trt")
-#         if force_reexport and os.path.exists(trt_path):
-#             os.remove(trt_path)
-#         if not os.path.exists(trt_path):
-#             # export_method_to_trt_dynamo(
-#             #     base_segmenter, method_name, trt_path, precision=precision,
-#             # )
-#             export_method_to_trt_jit(
-#                 base_segmenter, method_name, trt_path, precision=precision,
-#             )
-#         if os.path.exists(trt_path):
-#             try:
-#                 from segmenters.BackendSegmenters import TRTSegmenter
-#                 trt_model = load_trt_model(trt_path)
-#                 if trt_model is not None:
-#                     methods[f"{method_name}_TRT"] = TRTSegmenter(
-#                         method_name, trt_model, device="cuda"
-#                     )
-#                     print(f"  TRT OK: {method_name}")
-#             except Exception as e:
-#                 print(f"  TRT init failed {method_name}: {e}")
-
-#     return methods
-
-
+# ──────────────────────────────────────────────────────────────────────
 def _create_backend_methods(
     base_segmenter,
     methods_list: list,

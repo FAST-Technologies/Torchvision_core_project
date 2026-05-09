@@ -1,9 +1,14 @@
 # utils/batch_exporter.py
+
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
 from typing import List, Dict, Any, Optional, Tuple, Literal
 import torch
 import os
 from segmenters.NewTorchSegmenter import TorchSegmenter2
 
+# ──────────────────────────────────────────────────────────────────────────────
 # Списки методов для экспорта
 THRESHOLD_METHODS: List[str] = [
     "global_thresholding",
@@ -21,6 +26,7 @@ THRESHOLD_METHODS: List[str] = [
     "threshold_local_contrast",
 ]
 
+# ──────────────────────────────────────────────────────────────────────────────
 EDGE_METHODS: List[str] = [
     "sobel_edge",
     "canny_edge",
@@ -36,10 +42,11 @@ EDGE_METHODS: List[str] = [
 ]
 
 
+# ──────────────────────────────────────────────────────────────────────────────
 def export_all_classical_methods(
     output_base_dir: str = "./exported_models",
-    precisions: List[str] = None,
-    methods: List[str] = None,
+    precisions: Optional[List[str]] = None,
+    methods: Optional[List[str]] = None,
     input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
     force_reexport: bool = False,
     export_onnx: bool = True,
@@ -112,7 +119,6 @@ def export_all_classical_methods(
                             opset_version=17,
                             precision=precision,
                             input_shape=input_shape,
-                            export_mode=True,  # 🔥 Ключевой параметр!
                         )
                         results[method_name][f"onnx_{precision}"] = "✅ OK"
                         print(f"  │  └─ ONNX: {onnx_path}")
@@ -141,7 +147,6 @@ def export_all_classical_methods(
                             input_shape=input_shape,
                             min_shape=(1, 3, 256, 256),
                             max_shape=(1, 3, 1024, 1024),
-                            export_mode=True,  # 🔥 Ключевой параметр!
                         )
                         results[method_name][f"trt_{precision}"] = "✅ OK"
                         print(f"  │  └─ TRT: {trt_path}")
@@ -156,6 +161,7 @@ def export_all_classical_methods(
     return results
 
 
+# ──────────────────────────────────────────────────────────────────────────────
 def _print_export_summary(results: Dict[str, Dict[str, Any]]) -> None:
     """Печатает сводку по экспорту."""
     print("\n" + "=" * 70)

@@ -1905,7 +1905,7 @@ class SegmentationTester:
                 )
 
             plt.tight_layout()
-            plots_path = os.path.join(metrics_dir, "metrics_comparison_plots.jpg")
+            plots_path: str = os.path.join(metrics_dir, "metrics_comparison_plots.jpg")
             plt.savefig(plots_path, dpi=150, bbox_inches="tight")
             plt.close(fig)
             print(f"📊 Графики метрик сохранены: {plots_path}")
@@ -1927,7 +1927,7 @@ class SegmentationTester:
             ax.set_ylabel("IoU")
             ax.set_title("Соотношение точности и скорости")
             ax.grid(True, alpha=0.3)
-            scatter_path = os.path.join(metrics_dir, "iou_vs_time_scatter.jpg")
+            scatter_path: str = os.path.join(metrics_dir, "iou_vs_time_scatter.jpg")
             plt.savefig(scatter_path, dpi=150, bbox_inches="tight")
             plt.close(fig)
 

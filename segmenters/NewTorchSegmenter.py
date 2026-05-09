@@ -510,10 +510,9 @@ class TorchSegmenter2(BaseSegmenter):
                 "fullgraph": False,
                 "dynamic": True,
                 "mode": "reduce-overhead",
-                "use_cudagraphs": False,
             },
             "prewitt_edge": {
-                "fullgraph": False,
+                "fullgraph": True,
                 "dynamic": True,
                 "mode": "reduce-overhead",
             },
@@ -3516,14 +3515,12 @@ class TorchSegmenter2(BaseSegmenter):
             start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
-        thresh: float = (
+        thresh = (
             threshold
             if threshold is not None
             else float(self.params.get("threshold", 0.5))
         )
-        thresh_t: torch.Tensor = torch.scalar_tensor(
-            thresh, dtype=dtype, device=self.device
-        )
+        thresh_t = torch.scalar_tensor(thresh, dtype=dtype, device=self.device)
 
         # === БИНАРИЗАЦИЯ ===
         precision_val = precision if precision is not None else "fp32"
@@ -6306,7 +6303,7 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
         if export_mode:
-            sig = sigma if sigma is not None else self.params.get("sigma", 1.0)
+            sigma = sigma1 if sigma1 is not None else self.params.get("sigma1", 1.0)
             thresh = (
                 threshold
                 if threshold is not None
@@ -6314,10 +6311,12 @@ class TorchSegmenter2(BaseSegmenter):
             )
 
             # Упрощённое гауссово размытие
-            if sig > 0:
-                ks = int(2 * round(3 * sig) + 1)
+            if sigma > 0:
+                ks = int(2 * round(3 * sigma) + 1)
                 ks = ks if ks % 2 == 1 else ks + 1
-                gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
+                gray = tv_gaussian_blur(
+                    gray, kernel_size=[ks, ks], sigma=[sigma, sigma]
+                )
 
             # Простое ядро Лапласа
             laplacian_kernel = torch.tensor(

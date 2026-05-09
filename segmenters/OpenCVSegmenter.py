@@ -1799,7 +1799,7 @@ class OpenCVSegmenter(BaseSegmenter):
         )
         mask = mask_raw.astype(np.uint8)
 
-        exec_time: float = time.time() - start_time
+        exec_time = time.time() - start_time
         self._log_info(
             "multi_otsu_thresholding_opencv",
             exec_time,

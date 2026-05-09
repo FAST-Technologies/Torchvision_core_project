@@ -518,7 +518,7 @@ class SegmentationComparator:
             axes[1, 0].set_ylabel("Pixels")
 
         # График 4: Корреляционная матрица метрик
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        numeric_cols: pd.Index = df.select_dtypes(include=[np.number]).columns
         if len(numeric_cols) > 1:
             corr_matrix: pd.DataFrame = df[numeric_cols].corr()
             im = axes[1, 1].imshow(corr_matrix, cmap="coolwarm", vmin=-1, vmax=1)
@@ -598,11 +598,11 @@ class SegmentationComparator:
         for name in method_names:
             segmenter = segmenters_map[name]
             try:
-                if device == "cuda":
+                if str(self.device) == "cuda":
                     torch.cuda.synchronize()
                 start_time: float = time.perf_counter()
                 mask: MaskArray = segmenter.segment(image)
-                if device == "cuda":
+                if str(self.device) == "cuda":
                     torch.cuda.synchronize()
                 exec_time: float = time.perf_counter() - start_time
 

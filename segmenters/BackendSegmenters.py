@@ -10,6 +10,11 @@
   4. Оба класса — segment_with_mask реализован корректно
 """
 
+# ──────────────────────────────────────────────────────────────────────
+# ИМПОРТЫ
+# ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations
+
 from segmenters.BaseSegmenter import (
     BaseSegmenter,
     ImagePath,
@@ -22,87 +27,146 @@ from segmenters.BaseSegmenter import (
     ProbabilityMask,
 )
 import numpy as np
+import numpy.typing as npt
 import onnxruntime as ort
 import torch
 import torch_tensorrt
-from typing import Optional, Dict, Any, Union, Literal, Tuple
+from typing import (
+    Optional,
+    Dict,
+    Any,
+    Union,
+    Literal,
+    Tuple,
+    List,
+    cast,
+    TYPE_CHECKING,
+)
 import logging
+
+if TYPE_CHECKING:
+    from torch_tensorrt import Module as TRTModule
 
 logger = logging.getLogger(__name__)
 
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES
+# ──────────────────────────────────────────────────────────────────────
+ONNXSession = ort.InferenceSession
+"""Тип сессии ONNX Runtime."""
+
+TRTModel = Union[torch.nn.Module, "TRTModule"]
+"""Тип модели TensorRT: PyTorch Module или скомпилированный TRT модуль."""
+
+PreprocessedTensor = npt.NDArray[np.float32]
+"""Тип предобработанного тензора: (1, 3, H, W), float32, [0, 1]."""
+
+RawOutput = npt.NDArray[Any]
+"""Тип сырого вывода модели: может быть любой размерности и dtype."""
+
 
 class ONNXSegmenter(BaseSegmenter):
-    """Сегментер на базе ONNX Runtime"""
+    """Сегментер на базе ONNX Runtime."""
 
     def __init__(
         self,
         method_name: str,
         onnx_path: str,
-        device: str = "cuda",
+        device: Literal["cuda", "cpu"] = "cuda",
         input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
+        """
+        Инициализация ONNX сегментера.
+
+        Args:
+            method_name: Имя метода для логирования.
+            onnx_path: Путь к .onnx файлу модели.
+            device: Устройство выполнения: "cuda" или "cpu".
+            input_shape: Ожидаемая форма входа: (B, C, H, W).
+            **kwargs: Дополнительные параметры.
+        """
         super().__init__()
-        self.method = method_name
-        self.params = kwargs
-        self.device_str = device
-        self.input_shape = input_shape
+        self.method: str = method_name
+        self.params: Dict[str, Any] = kwargs
+        self.device_str: Literal["cuda", "cpu"] = device
+        self.input_shape: Tuple[int, int, int, int] = input_shape
         try:
             import onnxruntime as ort
         except ImportError:
             raise ImportError(
                 "onnxruntime-gpu не установлен: pip install onnxruntime-gpu"
             )
-        providers = (
+        providers: List[str] = (
             ["CUDAExecutionProvider", "CPUExecutionProvider"]
             if device == "cuda"
             else ["CPUExecutionProvider"]
         )
-        # self.session = ort.InferenceSession(onnx_path, providers=providers)
-        sess_options = ort.SessionOptions()
+        sess_options: ort.SessionOptions = ort.SessionOptions()
         sess_options.graph_optimization_level = (
             ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         )
 
-        self.session = ort.InferenceSession(
+        self.session: ort.InferenceSession = ort.InferenceSession(
             onnx_path, sess_options=sess_options, providers=providers
         )
-        self.input_name = self.session.get_inputs()[0].name
-        self.output_name = self.session.get_outputs()[0].name
+        self.input_name: str = self.session.get_inputs()[0].name
+        self.output_name: str = self.session.get_outputs()[0].name
 
         # Проверяем реальный output shape из модели
-        out_shape = self.session.get_outputs()[0].shape
+        out_shape: Tuple[Union[str, int], ...] = self.session.get_outputs()[0].shape
         logger.info(
             f"ONNX '{method_name}': input={self.input_name}, "
             f"output={self.output_name}, output_shape={out_shape}"
         )
 
-    def _preprocess(self, image: np.ndarray) -> np.ndarray:
-        """Конвертирует изображение в (1,3,H,W) float32 [0,1]."""
+    def _preprocess(self, image: npt.NDArray[np.uint8]) -> PreprocessedTensor:
+        """
+        Конвертирует изображение в формат (1, 3, H, W), float32, [0, 1].
+
+        Args:
+            image: Входное изображение (H, W) или (H, W, 3), uint8.
+
+        Returns:
+            PreprocessedTensor: Тензор формы (1, 3, H, W), float32, нормализованный к [0, 1].
+        """
         if image.ndim == 2:
             image = np.stack([image] * 3, axis=-1)
         if image.ndim == 3 and image.shape[2] == 3:
-            tensor = np.transpose(image, (2, 0, 1)).astype(np.float32) / 255.0
+            tensor: npt.NDArray[np.float32] = (
+                np.transpose(image, (2, 0, 1)).astype(np.float32) / 255.0
+            )
             return np.expand_dims(tensor, 0)  # (1,3,H,W)
         # Уже (B,C,H,W)
         return image.astype(np.float32)
 
-    def segment(self, image: np.ndarray, **kwargs) -> np.ndarray:
+    def segment(self, image, **kwargs: Any) -> BinaryMask:
         """
         Запускает ONNX инференс.
 
+        Алгоритм:
+        1. Предобработка изображения → (1, 3, H, W), float32, [0, 1].
+        2. Запуск сессии ONNX.
+        3. Пост-обработка вывода: squeeze → бинаризация → uint8.
+
+        Args:
+            image: Входное изображение (H, W) или (H, W, 3), uint8.
+            **kwargs: Дополнительные параметры (игнорируются).
+
         Returns:
-            np.ndarray: бинарная маска (H,W) uint8, значения {0,255}.
-            При ошибке возвращает пустую маску того же размера.
+            BinaryMask: Бинарная маска формы (H, W), uint8, значения {0, 255}.
+                       При ошибке возвращает пустую маску того же размера.
         """
         try:
-            tensor = self._preprocess(image)
-            outputs = self.session.run([self.output_name], {self.input_name: tensor})
+            tensor: PreprocessedTensor = self._preprocess(image)
+            outputs: List[RawOutput] = self.session.run(
+                [self.output_name], {self.input_name: tensor}
+            )
             if not outputs or outputs[0] is None:
                 logger.error(f"ONNX '{self.method}' returned None output")
                 return np.zeros(image.shape[:2], dtype=np.uint8)
 
-            mask = outputs[0]
+            mask: RawOutput = outputs[0]
             # Flatten до (H,W)
             while mask.ndim > 2:
                 mask = mask.squeeze(0)
@@ -118,7 +182,7 @@ class ONNXSegmenter(BaseSegmenter):
             else:
                 mask = mask.astype(np.uint8)
 
-            return mask
+            return cast(BinaryMask, mask)
 
         except Exception as e:
             logger.error(f"ONNX '{self.method}' inference error: {e}")
@@ -147,51 +211,85 @@ class ONNXSegmenter(BaseSegmenter):
         import numpy as np
         from PIL import Image as PILImageModule
 
+        # Конвертация входного изображения в numpy
         if not isinstance(image, np.ndarray):
             if isinstance(image, PILImageModule.Image):
-                image = np.array(image)
-        binary_mask = self.segment(image, **kwargs)
+                image_np: npt.NDArray[np.uint8] = np.array(image)
+            elif isinstance(image, str):
+                image_np = np.array(PILImageModule.open(image).convert("RGB"))
+            elif isinstance(image, torch.Tensor):
+                image_np = image.cpu().numpy()
+                if image_np.ndim == 3 and image_np.shape[0] in (1, 3):
+                    image_np = np.transpose(image_np, (1, 2, 0))
+            else:
+                raise TypeError(f"Unsupported image type: {type(image)}")
+        else:
+            image_np = image
+        binary_mask: BinaryMask = self.segment(image, **kwargs)
         return binary_mask, None
 
 
 class TRTSegmenter(BaseSegmenter):
-    """Сегментер на базе TensorRT (через torch_tensorrt)"""
+    """Сегментер на базе TensorRT (через torch_tensorrt)."""
 
     def __init__(
         self,
         method_name: str,
-        trt_model_or_path,
-        device: str = "cuda",
-        **kwargs,
-    ):
+        trt_model_or_path: Union[str, TRTModel],
+        device: Literal["cuda", "cpu"] = "cuda",
+        **kwargs: Any,
+    ) -> None:
+        """
+        Инициализация TensorRT сегментера.
+
+        Args:
+            method_name: Имя метода для логирования.
+            trt_model_or_path: Путь к .trt файлу или уже загруженная TRT-модель.
+            device: Устройство выполнения (только "cuda" поддерживается).
+            **kwargs: Дополнительные параметры.
+        """
         super().__init__()
-        self.method = method_name
-        self.params = kwargs
-        self.device = device
+        self.method: str = method_name
+        self.params: Dict[str, Any] = kwargs
+        self.device: torch.device = torch.device(device)
         if isinstance(trt_model_or_path, str):
             from utils.backend_exporter import load_trt_model
 
-            self.model = load_trt_model(trt_model_or_path)
-            if self.model is None:
+            loaded_model: Optional[TRTModel] = load_trt_model(trt_model_or_path)
+            if loaded_model is None:
                 raise RuntimeError(
                     f"Не удалось загрузить TRT модель: {trt_model_or_path}"
                 )
+            self.model: TRTModel = loaded_model
         else:
             self.model = trt_model_or_path
         self.model.eval()
 
-    def segment(self, image: np.ndarray, **kwargs) -> np.ndarray:
+    def segment(self, image, **kwargs: Any) -> BinaryMask:
         """
         Запускает TRT инференс.
 
+        Алгоритм:
+        1. Конвертация numpy → torch.Tensor (C, H, W), float32, [0, 1].
+        2. Добавление batch-измерения и перенос на устройство.
+        3. Инференс модели с torch.no_grad().
+        4. Пост-обработка: squeeze → numpy → uint8 [0, 255].
+
+        Args:
+            image: Входное изображение (H, W) или (H, W, 3), uint8.
+            **kwargs: Дополнительные параметры (игнорируются).
+
         Returns:
-            np.ndarray: бинарная маска (H,W) uint8, значения {0,255}.
+            BinaryMask: Бинарная маска формы (H, W), uint8, значения {0, 255}.
+                       При ошибке возвращает пустую маску того же размера.
         """
         try:
+            # Конвертация в 3 канала если нужно
             if image.ndim == 2:
                 image = np.stack([image] * 3, axis=-1)
 
-            tensor = (
+            # Нормализация и конвертация в torch
+            tensor: torch.Tensor = (
                 torch.from_numpy(image)
                 .permute(2, 0, 1)
                 .float()
@@ -201,14 +299,17 @@ class TRTSegmenter(BaseSegmenter):
             )
 
             with torch.no_grad():
-                out = self.model(tensor)
+                out: torch.Tensor = self.model(tensor)
 
             # Flatten до (H,W)
-            mask_tensor = out.squeeze()
+            mask_tensor: torch.Tensor = out.squeeze()
             if mask_tensor.dim() > 2:
                 mask_tensor = mask_tensor.squeeze(0)
 
-            mask = (mask_tensor.cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+            # Конвертация в uint8 [0, 255]
+            mask: BinaryMask = (
+                (mask_tensor.cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+            )
             return mask
 
         except Exception as e:
@@ -219,10 +320,37 @@ class TRTSegmenter(BaseSegmenter):
     def segment_with_mask(
         self, image: ImageInput, **kwargs: Any
     ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
-        if not isinstance(image, np.ndarray):
-            from PIL import Image as PILImageModule
+        """
+        Сегментация с возвратом бинарной и вероятностной масок.
 
+        Для TRT-модели возвращаем только бинарную маску,
+        вероятностная маска не поддерживается.
+
+        Args:
+            image: Входное изображение (путь, PIL, numpy или torch).
+            **kwargs: Дополнительные параметры.
+
+        Returns:
+            Tuple[BinaryMask, Optional[ProbabilityMask]]:
+            - Бинарная маска: значения {0, 255}, форма (H, W).
+            - Вероятностная маска: None (не поддерживается для TRT).
+        """
+        import numpy as np
+        from PIL import Image as PILImageModule
+
+        # Конвертация входного изображения в numpy
+        if not isinstance(image, np.ndarray):
             if isinstance(image, PILImageModule.Image):
-                image = np.array(image)
-        binary_mask = self.segment(image, **kwargs)
+                image_np: npt.NDArray[np.uint8] = np.array(image)
+            elif isinstance(image, str):
+                image_np = np.array(PILImageModule.open(image).convert("RGB"))
+            elif isinstance(image, torch.Tensor):
+                image_np = image.cpu().numpy()
+                if image_np.ndim == 3 and image_np.shape[0] in (1, 3):
+                    image_np = np.transpose(image_np, (1, 2, 0))
+            else:
+                raise TypeError(f"Unsupported image type: {type(image)}")
+        else:
+            image_np = image
+        binary_mask: BinaryMask = self.segment(image, **kwargs)
         return binary_mask, None
