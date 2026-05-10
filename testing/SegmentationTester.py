@@ -3,6 +3,8 @@
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+
 import os
 import sys
 import json
@@ -27,7 +29,16 @@ import cv2
 
 import logging
 
-logger = logging.getLogger(__name__)
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 # Локальные импорты
 from segmenters.BaseSegmenter import BaseSegmenter, BinaryMask, ProbabilityMask
@@ -35,7 +46,7 @@ from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict
 from utils.warmup import SegmentationWarmUp
 
 # Настройка путей проекта
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+project_root: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 

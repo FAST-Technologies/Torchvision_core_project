@@ -3,6 +3,8 @@
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+
 from typing import (
     Tuple,
     Dict,
@@ -59,6 +61,19 @@ try:
 except ImportError:
     SAM_AVAILABLE = False
     print("⚠️ Warning: ultralytics not installed")
+
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & CONSTANTS

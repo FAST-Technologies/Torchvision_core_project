@@ -3,6 +3,8 @@
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+
 import os
 import time
 import itertools
@@ -16,6 +18,19 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from metrics.SegmentationMetrics import SegmentationMetrics
+
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES

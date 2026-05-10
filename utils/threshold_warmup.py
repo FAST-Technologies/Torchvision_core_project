@@ -3,6 +3,7 @@
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
 import time
 import numpy as np
 from typing import (
@@ -12,6 +13,19 @@ from typing import (
     Any,
     Tuple,
 )
+
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & TYPEDDICTS
@@ -154,6 +168,8 @@ class ThresholdWarmUp:
                     except Exception:
                         times.append(float("inf"))
 
+                print(segmenter.params["execution_info"])
+
                 method_results["sizes"][str(size)] = WarmupMetrics(
                     mean_ms=float(np.mean(times) * 1000),
                     std_ms=float(np.std(times) * 1000),
@@ -234,6 +250,8 @@ class ThresholdWarmUp:
                     n_runs=len(times),
                 )
 
+            # Доступ к метаданным выполнения
+            print(segmenter.params["execution_info"])
             results[name] = method_results
             print(f"✅ {name}: {method_results['patterns']}")
 

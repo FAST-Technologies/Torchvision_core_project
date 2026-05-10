@@ -3,6 +3,8 @@
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+
 import os
 import sys
 import uuid
@@ -33,7 +35,7 @@ from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("validate")
 
-router = APIRouter(prefix="/api/validate", tags=["validate"])
+router: APIRouter = APIRouter(prefix="/api/validate", tags=["validate"])
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & TASK STORAGE

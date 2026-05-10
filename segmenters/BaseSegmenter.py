@@ -3,6 +3,8 @@
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+
 import torch
 import cv2
 import numpy as np
@@ -22,6 +24,19 @@ from typing import (
 )
 from typing_extensions import TypeAlias
 from metrics.SegmentationMetrics import SegmentationMetrics
+
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES

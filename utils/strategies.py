@@ -3,6 +3,7 @@
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
 import sys
 import time
 
@@ -38,6 +39,19 @@ from utils.utils import (
 from utils.palettes import ade_palette
 from utils.paths import ADE20K_DIR, ensure_dirs
 
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & CONSTANTS
 # ──────────────────────────────────────────────────────────────────────
@@ -71,7 +85,7 @@ ModelType = Literal[
 ]
 InferFunc = Callable[[Any, Any, Image.Image, str], Tuple[MaskArray, Image.Image]]
 
-project_root = Path(__file__).resolve().parents[1]
+project_root: Path = Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 

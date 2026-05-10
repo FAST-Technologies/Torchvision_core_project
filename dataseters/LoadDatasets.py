@@ -28,6 +28,8 @@ Example:
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+
 import os
 import sys
 import json
@@ -67,6 +69,19 @@ except ImportError:
     HF_AVAILABLE = False
     load_dataset = None  # type: ignore
     yaml = None  # type: ignore
+
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
@@ -365,7 +380,7 @@ class DatasetManager:
             "error": "❌",
         }
 
-        print(
+        logger.info(
             f"[{timestamp}] {colors.get(level, '')}{prefix.get(level, '•')} {message}{colors['reset']}"
         )
 
@@ -555,18 +570,18 @@ class DatasetManager:
         """
         config: DatasetConfig = self.get_config(dataset_name)
 
-        print(f"\n{'=' * 70}")
-        print(
+        logger.info(f"\n{'=' * 70}")
+        logger.info(
             f"📦 ЗАГРУЗКА ДАТАСЕТА: {config.name.upper()} ({config.dataset_type.name})..."
         )
-        print(f"{'=' * 70}")
-        print(f"Тип: {config.dataset_type.name}")
-        print(f"Источник: {config.source_type.name.upper()}")
-        print(f"Классы: {config.num_classes}")
+        logger.info(f"{'=' * 70}")
+        logger.info(f"Тип: {config.dataset_type.name}")
+        logger.info(f"Источник: {config.source_type.name.upper()}")
+        logger.info(f"Классы: {config.num_classes}")
         if isinstance(config, MedicalConfig):
-            print(f"Модальность: {config.modality}")
-        print(f"Целевая директория: {config.full_path}")
-        print(f"{'=' * 70}\n")
+            logger.info(f"Модальность: {config.modality}")
+        logger.info(f"Целевая директория: {config.full_path}")
+        logger.info(f"{'=' * 70}\n")
 
         if config.full_path.exists() and not force:
             if self._validate_dataset(config):
@@ -618,13 +633,13 @@ class DatasetManager:
         Args:
             config: Конфигурация датасета.
         """
-        print(f"\n📊 СВОДКА ПО ДАТАСЕТУ: {config.name.upper()}")
-        print(f"{'=' * 50}")
-        print(f"Тип: {config.dataset_type.value}")
-        print(f"Классы: {config.num_classes}")
+        logger.info(f"\n📊 СВОДКА ПО ДАТАСЕТУ: {config.name.upper()}")
+        logger.info(f"{'=' * 50}")
+        logger.info(f"Тип: {config.dataset_type.value}")
+        logger.info(f"Классы: {config.num_classes}")
         if isinstance(config, MedicalConfig):
-            print(f"Модальность: {config.modality}")
-        print(f"Путь: {config.full_path}")
+            logger.info(f"Модальность: {config.modality}")
+        logger.info(f"Путь: {config.full_path}")
 
         for split_name, split_dir in config.splits.items():
             img_dir: Path = config.full_path / "images" / split_dir
@@ -637,9 +652,11 @@ class DatasetManager:
                     if ann_dir.exists()
                     else 0
                 )
-                print(f"   {split_name:12s}: {n_images:5d} images, {n_masks:5d} masks")
+                logger.info(
+                    f"   {split_name:12s}: {n_images:5d} images, {n_masks:5d} masks"
+                )
 
-        print(f"{'-' * 50}")
+        logger.info(f"{'-' * 50}")
 
     # ──────────────────────────────────────────────────────────────────────
     def _download_huggingface(self, config: DatasetConfig) -> None:
@@ -658,7 +675,7 @@ class DatasetManager:
         try:
             if config.name in ["coco", "cityscapes"]:
                 if not self._check_disk_space(self.base_dir, required_gb=20.0):
-                    print("❌ Недостаточно места на диске для датасета")
+                    logger.error("❌ Недостаточно места на диске для датасета")
                     return
 
                 self._log("📊 Загрузка через datasets library...")
@@ -669,7 +686,7 @@ class DatasetManager:
                 self._create_index_from_hf_dataset(config, hf_dataset)
                 return
 
-            print("📦 Скачивание файлов датасета...")
+            logger.info("📦 Скачивание файлов датасета...")
             snapshot_download(  # type: ignore
                 repo_id=config.source_url,
                 repo_type="dataset",
@@ -679,7 +696,7 @@ class DatasetManager:
                 cache_dir=None,
                 force_download=False,
             )
-            print("✅ Скачивание завершено")
+            logger.info("✅ Скачивание завершено")
 
         except Exception as e:
             error_msg: str = str(e)
@@ -733,7 +750,7 @@ class DatasetManager:
         ]:
             if not file_list:
                 continue
-            print(f"{desc}: {len(file_list)} файлов")
+            logger.info(f"{desc}: {len(file_list)} файлов")
             for filename in tqdm(
                 file_list, desc=f"{config.name}/{desc.split()[1]}", unit="files"
             ):
@@ -778,7 +795,7 @@ class DatasetManager:
                     local_dir=str(local_dir),
                 )
         except Exception as e:
-            print(
+            logger.warn(
                 f"⚠️ API-скачивание не удалось: {e}. Переключаюсь на стандартный метод..."
             )
             # Fallback на стандартный метод
@@ -796,26 +813,26 @@ class DatasetManager:
             ValueError: При обнаружении небезопасных путей в архиве.
         """
         zip_path: Path = config.full_path.with_suffix(".zip")
-        print(f"📦 ЗАГРУЗКА АРХИВА: {config.name}")
-        print(f"{'-' * 50}")
+        logger.info(f"📦 ЗАГРУЗКА АРХИВА: {config.name}")
+        logger.info(f"{'-' * 50}")
 
         if not zip_path.exists():
             self._log("📥 Скачивание архива...")
             self._log(f"   URL: {config.source_url}")
             if config.checksum:
-                print(f"   SHA256: {config.checksum[:16]}...")
+                logger.info(f"   SHA256: {config.checksum[:16]}...")
             try:
                 head = requests.head(config.source_url, allow_redirects=True)
                 size_bytes: int = int(head.headers.get("content-length", 0))
-                print(f"   Размер: ~{size_bytes / (1024 * 1024 * 1024):.1f} GB")
+                logger.info(f"   Размер: ~{size_bytes / (1024 * 1024 * 1024):.1f} GB")
             except Exception:
-                print("   Размер: неизвестен")
+                logger.error("   Размер: неизвестен")
             self._streaming_download(config.source_url, zip_path, config.checksum)
             zip_size: float = os.path.getsize(zip_path) / (1024 * 1024 * 1024)
-            print(f"✅ Скачивание завершено! Размер: {zip_size:.2f} GB")
+            logger.info(f"✅ Скачивание завершено! Размер: {zip_size:.2f} GB")
         else:
             zip_size = os.path.getsize(zip_path) / (1024 * 1024 * 1024)
-            print(f"✅ Архив уже существует: {zip_path} ({zip_size:.2f} GB)")
+            logger.warn(f"✅ Архив уже существует: {zip_path} ({zip_size:.2f} GB)")
 
         extract_dir: Path = config.full_path / "temp_extract"
         if not (config.full_path / "images").exists():
@@ -824,7 +841,7 @@ class DatasetManager:
 
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
                 members: List[str] = zip_ref.namelist()
-                print(f"   Всего файлов в архиве: {len(members)}")
+                logger.info(f"   Всего файлов в архиве: {len(members)}")
                 for member in tqdm(members, desc="Распаковка", unit="files"):
                     # Безопасная распаковка (защита от path traversal)
                     target_path: Path = extract_dir / member
@@ -833,16 +850,16 @@ class DatasetManager:
                     ):
                         raise ValueError(f"Unsafe path in archive: {member}")
                     zip_ref.extract(member, extract_dir)
-            print("✅ Распаковка завершена!")
-            print("\n🔍 Анализ структуры распакованных файлов...")
+            logger.info("✅ Распаковка завершена!")
+            logger.info("\n🔍 Анализ структуры распакованных файлов...")
             self._reorganize_ade_structure(extract_dir, config.full_path)
-            print("\n🧹 Очистка временных файлов...")
+            logger.warn("\n🧹 Очистка временных файлов...")
             shutil.rmtree(extract_dir, ignore_errors=True)
             if config.checksum:
                 zip_path.unlink()
-                print("✅ Архив удалён")
+                logger.info("✅ Архив удалён")
         else:
-            print(f"✅ Датасет уже распакован в {config.full_path}")
+            logger.info(f"✅ Датасет уже распакован в {config.full_path}")
 
     # ──────────────────────────────────────────────────────────────────────
     def _download_tar(self, config: DatasetConfig) -> None:
@@ -856,12 +873,12 @@ class DatasetManager:
             ValueError: При обнаружении небезопасных путей в архиве.
         """
         tar_path: Path = config.full_path.with_suffix(".tar.gz")
-        print(f"📦 ЗАГРУЗКА TAR-АРХИВА: {config.name}")
+        logger.info(f"📦 ЗАГРУЗКА TAR-АРХИВА: {config.name}")
 
         if not tar_path.exists():
             self._log("📥 Скачивание архива...")
             self._streaming_download(config.source_url, tar_path, config.checksum)
-            print("✅ Скачивание завершено")
+            logger.info("✅ Скачивание завершено")
 
         # Распаковка
         extract_dir: Path = config.full_path / "temp_extract"
@@ -871,7 +888,7 @@ class DatasetManager:
 
             with tarfile.open(tar_path, "r:gz") as tar_ref:
                 members = tar_ref.getmembers()
-                print(f"   Всего файлов: {len(members)}")
+                logger.info(f"   Всего файлов: {len(members)}")
                 for member in tqdm(members, desc="Распаковка", unit="files"):
                     target_path = extract_dir / member.name
                     if not str(target_path.resolve()).startswith(
@@ -885,7 +902,7 @@ class DatasetManager:
             if config.checksum:
                 tar_path.unlink()
         else:
-            print("✅ Датасет уже распакован")
+            logger.info("✅ Датасет уже распакован")
 
     # ──────────────────────────────────────────────────────────────────────
     def _download_direct(self, config: DatasetConfig) -> None:
@@ -994,7 +1011,7 @@ class DatasetManager:
             if "images" in dirs and "annotations" in dirs:
                 src_images: Path = Path(root) / "images"
                 src_annotations: Path = Path(root) / "annotations"
-                print(f"✅ Найдена структура в: {root}")
+                logger.info(f"✅ Найдена структура в: {root}")
                 found_structure = True
 
                 for split in ["training", "validation"]:
@@ -1011,9 +1028,9 @@ class DatasetManager:
                         img_files: List[Path] = list(src_img_split.glob("*.jpg"))
                         ann_files: List[Path] = list(src_ann_split.glob("*.png"))
 
-                        print(f"\n   📋 {split}:")
-                        print(f"      Изображения: {len(img_files)} файлов")
-                        print(f"      Маски: {len(ann_files)} файлов")
+                        logger.info(f"\n   📋 {split}:")
+                        logger.info(f"      Изображения: {len(img_files)} файлов")
+                        logger.info(f"      Маски: {len(ann_files)} файлов")
 
                         for img_file in tqdm(
                             img_files,
@@ -1028,20 +1045,20 @@ class DatasetManager:
                             unit="files",
                         ):
                             shutil.copy2(ann_file, tgt_ann_split / ann_file.name)
-                print(f"\n✅ Файлы организованы в: {target}")
+                logger.info(f"\n✅ Файлы организованы в: {target}")
                 return
         if not found_structure:
-            print("❌ Не удалось найти папки images и annotations")
-            print("\n📂 Содержимое распакованной папки:")
+            logger.error("❌ Не удалось найти папки images и annotations")
+            logger.info("\n📂 Содержимое распакованной папки:")
             for root, dirs, files in os.walk(source):
                 level: int = root.replace(str(source), "").count(os.sep)
                 indent: str = " " * 2 * level
-                print(f"{indent}{Path(root).name}/")
+                logger.info(f"{indent}{Path(root).name}/")
                 subindent: str = " " * 2 * (level + 1)
                 for d in dirs[:5]:
-                    print(f"{subindent}📁 {d}/")
+                    logger.info(f"{subindent}📁 {d}/")
                 for f in files[:5]:
-                    print(f"{subindent}📄 {f}")
+                    logger.info(f"{subindent}📄 {f}")
             raise ValueError("Could not find images/annotations structure in archive")
 
         if (
@@ -1054,9 +1071,9 @@ class DatasetManager:
                     if src.exists() and not tgt.exists():
                         tgt.parent.mkdir(parents=True, exist_ok=True)
                         os.symlink(src.relative_to(tgt.parent), tgt)
-                        print(f"   🔗 Создана ссылка: {tgt} -> {src}")
+                        logger.info(f"   🔗 Создана ссылка: {tgt} -> {src}")
             except (OSError, PermissionError) as e:
-                print(f"⚠️ Не удалось создать символические ссылки: {e}")
+                logger.error(f"⚠️ Не удалось создать символические ссылки: {e}")
 
     # ──────────────────────────────────────────────────────────────────────
     def _postprocess_dataset(self, config: DatasetConfig) -> None:
@@ -1075,16 +1092,16 @@ class DatasetManager:
 
         parquet_files: List[Path] = list(config.full_path.rglob("*.parquet"))
         if parquet_files:
-            print(f"📊 Обнаружено Parquet-файлов: {len(parquet_files)}")
+            logger.info(f"Обнаружено Parquet-файлов: {len(parquet_files)}")
             self._convert_parquet_to_files(config)
 
         if isinstance(config, MedicalConfig):
-            print("🏥 Применение медицинской пост-обработки...")
+            logger.info("🏥 Применение медицинской пост-обработки...")
             self._medical_postprocess(config)
 
-        print("📄 Создание индексного файла...")
+        logger.info("Создание индексного файла...")
         self._create_index(config)
-        print("✅ Пост-обработка завершена")
+        logger.info("✅ Пост-обработка завершена")
 
     # ──────────────────────────────────────────────────────────────────────
     def _decode_image_from_hf(
@@ -1205,7 +1222,7 @@ class DatasetManager:
         if not parquet_files:
             self._log("⚠️ Parquet-файлы не найдены", "warning")
             return
-        print(f"📁 Найдено Parquet-файлов: {len(parquet_files)}")
+        logger.info(f"Найдено Parquet-файлов: {len(parquet_files)}")
 
         # Создаём целевые директории
         for split in ["training", "validation", "train", "val", "test"]:
@@ -1259,11 +1276,11 @@ class DatasetManager:
                     )
                     continue
 
-                print(f"   🖼️  Ключ изображения: '{img_key}'")
+                logger.info(f"   🖼️  Ключ изображения: '{img_key}'")
                 if mask_key:
-                    print(f"   🎭 Ключ маски: '{mask_key}'")
+                    logger.info(f"   🎭 Ключ маски: '{mask_key}'")
                 if split_key:
-                    print(f"   📑 Ключ split: '{split_key}'")
+                    logger.info(f"   📑 Ключ split: '{split_key}'")
 
                 for idx, row in tqdm(
                     df.iterrows(), total=len(df), desc="   Конвертация", unit="rows"
@@ -1345,18 +1362,18 @@ class DatasetManager:
             f"✅ Converted {converted_count} samples, {error_count} errors", "success"
         )
 
-        print(f"\n{'=' * 50}")
-        print("📊 СТАТИСТИКА КОНВЕРТАЦИИ")
-        print(f"{'-' * 50}")
-        print(f"   Всего обработано строк: {total_rows}")
-        print(f"   ✅ Успешно конвертировано: {converted_count}")
-        print(f"   ❌ Ошибок: {error_count}")
+        logger.info(f"\n{'=' * 50}")
+        logger.info("📊 СТАТИСТИКА КОНВЕРТАЦИИ")
+        logger.info(f"{'-' * 50}")
+        logger.info(f"   Всего обработано строк: {total_rows}")
+        logger.info(f"   ✅ Успешно конвертировано: {converted_count}")
+        logger.info(f"   ❌ Ошибок: {error_count}")
         if total_rows > 0:
             success_rate: float = (converted_count / total_rows) * 100
-            print(f"   📈 Успешность: {success_rate:.1f}%")
-        print(f"{'-' * 50}")
+            logger.info(f"   📈 Успешность: {success_rate:.1f}%")
+        logger.info(f"{'-' * 50}")
         self._create_index(config)
-        print("✅ Конвертация завершена")
+        logger.info("✅ Конвертация завершена")
 
     # ──────────────────────────────────────────────────────────────────────
     def _medical_postprocess(self, config: MedicalConfig) -> None:
@@ -1396,7 +1413,7 @@ class DatasetManager:
             self._log("⚠️ OpenCV не установлен, пропускаем CLAHE", "warning")
             return
 
-        print("🔧 Применение CLAHE к изображениям...")
+        logger.info("🔧 Применение CLAHE к изображениям...")
         for img_path in tqdm(
             list(images_dir.rglob("*.jpg")), desc="CLAHE", unit="imgs"
         ):
@@ -1421,7 +1438,7 @@ class DatasetManager:
             masks_dir: Директория с масками.
             num_classes: Количество классов (2 для бинарных).
         """
-        print("🎭 Нормализация масок...")
+        logger.info("🎭 Нормализация масок...")
         for mask_path in tqdm(list(masks_dir.rglob("*.png")), desc="Normalizing masks"):
             try:
                 mask: np.ndarray = np.array(Image.open(mask_path))
@@ -1696,10 +1713,10 @@ class DatasetManager:
                 if "image" in dataset.features:
                     return dataset[0]["image"].convert("RGB")
                 else:
-                    print(f"   ⚠️  Нет признака 'image' в {repo_id}")
+                    logger.warn(f"   ⚠️  Нет признака 'image' в {repo_id}")
                     return None
         except Exception as e:
-            print(f"   ❌ Ошибка загрузки {repo_id}: {e}")
+            logger.error(f"   ❌ Ошибка загрузки {repo_id}: {e}")
             return None
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1745,7 +1762,7 @@ class DatasetManager:
             # ──────────────────────────────────────────────────────────────────────
             def _log(self, msg: str) -> None:
                 if getattr(self, "verbose", True):
-                    print(f"[{self.config.name}/{self.split_dir}] {msg}")
+                    logger.info(f"[{self.config.name}/{self.split_dir}] {msg}")
 
             # ──────────────────────────────────────────────────────────────────────
             def __len__(self) -> int:
@@ -1919,14 +1936,14 @@ def main():
     manager = DatasetManager(base_dir=args.base_dir)
 
     if args.list:
-        print("\n📋 Available datasets:")
+        logger.info("\n📋 Available datasets:")
         for name, config in manager._registry.items():
             med_tag = " [MEDICAL]" if isinstance(config, MedicalConfig) else ""
-            print(
+            logger.info(
                 f"  • {name:15s} {med_tag:10s} {config.dataset_type.name:12s} [{config.source_type}]"
             )
             if isinstance(config, MedicalConfig):
-                print(
+                logger.info(
                     f"    └─ Modality: {config.modality}, Classes: {config.num_classes}"
                 )
         return
@@ -1948,9 +1965,9 @@ def main():
     for dataset_name in datasets:
         try:
             path = manager.download(dataset_name, force=args.force)
-            print(f"\n📁 {dataset_name} available at: {path}")
+            logger.info(f"\n📁 {dataset_name} available at: {path}")
         except Exception as e:
-            print(f"\n❌ Failed to download {dataset_name}: {e}")
+            logger.error(f"\n❌ Failed to download {dataset_name}: {e}")
             continue
 
     # Загрузка примера
@@ -1958,17 +1975,17 @@ def main():
         try:
             name, split, idx = args.sample.split(":")
             img, mask = manager.load_sample(name, split, int(idx))
-            print(f"\n🖼️  Loaded sample from {name}/{split}#{idx}")
-            print(f"   Image: {img.size}, Mode: {img.mode}")
+            logger.info(f"\n🖼️  Loaded sample from {name}/{split}#{idx}")
+            logger.info(f"   Image: {img.size}, Mode: {img.mode}")
             if mask:
-                print(f"   Mask:  {mask.size}, Mode: {mask.mode}")
+                logger.info(f"   Mask:  {mask.size}, Mode: {mask.mode}")
                 output = Path(args.base_dir) / "samples"
                 output.mkdir(exist_ok=True)
                 img.save(output / f"{name}_{split}_{idx}_img.jpg")
                 mask.save(output / f"{name}_{split}_{idx}_mask.png")
-                print(f"   Saved to {output}/")
+                logger.info(f"   Saved to {output}/")
         except Exception as e:
-            print(f"❌ Failed to load sample: {e}")
+            logger.error(f"❌ Failed to load sample: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1999,33 +2016,33 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     manager = DatasetManager(base_dir=args.base_dir)
-    print("\n Cityscapes Dataset...")
+    logger.info("\n Cityscapes Dataset...")
     cityscapes_img = manager.load_test_image_from_hf("Chris1/cityscapes", split="train")
-    if cityscapes_img is not None:  # 🔥 Проверка
+    if cityscapes_img is not None:
         cityscapes_img.save("./../data/cityscapes_img.jpg")
     else:
-        print("⚠️ Не удалось загрузить изображение cityscapes")
-    print("\n COCO Dataset...")
+        logger.warn("⚠️ Не удалось загрузить изображение cityscapes")
+    logger.info("\n COCO Dataset...")
     coco_img = manager.load_test_image_from_hf("detection-datasets/coco", split="train")
     if coco_img is not None:
         coco_img.save("./../data/coco_img.jpg")
-    print("\n Medical Dataset (ISIC - Skin Lesion)...")
+    logger.info("\n Medical Dataset (ISIC - Skin Lesion)...")
     isic_img = manager.load_test_image_from_hf(
         "researchjyotsna/isic2018_10", split="train"
     )
     if isic_img is not None:
         isic_img.save("./../data/isic_img.jpg")
-    print("\n Chest X-Ray Segmentation...")
+    logger.info("\n Chest X-Ray Segmentation...")
     chest_x_ray = manager.load_test_image_from_hf("danjacobellis/chexpert")
     if chest_x_ray is not None:
         chest_x_ray.save("./../data/chest_x_ray.jpg")
 
-    print("\n" + "=" * 70)
-    print("✅ DATASET DOWNLOAD COMPLETE")
-    print("=" * 70)
-    print("\n📁 Available test images:")
-    print("   • ADE20K:     ADE20K_img.jpg")
-    print("   • Cityscapes: cityscapes_img.jpg")
-    print("   • COCO:       coco_img.jpg")
-    print("   • Medical:    isic_img.jpg")
-    print("   • Medical:    chest_x_ray.jpg")
+    logger.info("\n" + "=" * 70)
+    logger.info("✅ DATASET DOWNLOAD COMPLETE")
+    logger.info("=" * 70)
+    logger.info("\n📁 Available test images:")
+    logger.info("   • ADE20K:     ADE20K_img.jpg")
+    logger.info("   • Cityscapes: cityscapes_img.jpg")
+    logger.info("   • COCO:       coco_img.jpg")
+    logger.info("   • Medical:    isic_img.jpg")
+    logger.info("   • Medical:    chest_x_ray.jpg")

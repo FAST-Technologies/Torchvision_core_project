@@ -3,6 +3,8 @@
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+
 from segmenters.BaseSegmenter import BaseSegmenter
 from typing import List, Union, Tuple, Dict, Any, Optional, Callable, Literal
 import numpy as np
@@ -87,6 +89,19 @@ from skimage.segmentation import (
 import cv2
 import torch
 from typing_extensions import TypeAlias
+
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 SKIMAGE_AVAILABLE = True
 

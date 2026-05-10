@@ -14,6 +14,8 @@
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+
 import warnings
 from typing import List, Tuple, Dict, Any, Optional, Union
 
@@ -31,6 +33,19 @@ from sklearn.metrics import (
     davies_bouldin_score,
     mean_absolute_error,
 )
+
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
@@ -62,7 +77,7 @@ class SegmentationMetrics:
             threshold=0.5,
             include_hausdorff=True,
         )
-        print(f"IoU: {metrics['iou']:.3f}, Dice: {metrics['dice']:.3f}")
+        logging.info(f"IoU: {metrics['iou']:.3f}, Dice: {metrics['dice']:.3f}")
         ```
     """
 
@@ -282,17 +297,14 @@ class SegmentationMetrics:
         r_custom: MetricValue = tp / (tp + fn + 1e-8)
 
         if verbose:
-            print("--- Сравнение Precision/Recall ---")
-            print(f"TP: {tp}, FP: {fp}, FN: {fn}, TN: {tn}")
-            print(
+            logging.info("--- Сравнение Precision/Recall ---")
+            logging.info(f"TP: {tp}, FP: {fp}, FN: {fn}, TN: {tn}")
+            logging.info(
                 f"Precision: Sklearn={p_sklearn:.6f} | Custom={p_custom:.6f} | Diff={abs(p_sklearn - p_custom):.2e}"
             )
-            print(
+            logging.info(
                 f"Recall:    Sklearn={r_sklearn:.6f} | Custom={r_custom:.6f} | Diff={abs(r_sklearn - r_custom):.2e}"
             )
-
-        # print(f"Check difference precision: sklearn {p_custom} && custom {p_sklearn}")
-        # print(f"Check difference recall: sklearn {r_custom} && custom {r_sklearn}")
 
         return float(p_custom), float(r_custom)
 
@@ -334,7 +346,7 @@ class SegmentationMetrics:
 
         f1_sklearn: MetricValue = f1_score(gt_binary.ravel(), pred_binary.ravel())
         if verbose:
-            print(
+            logging.info(
                 f"F1-Score: Sklearn={f1_sklearn:.6f} | Custom={f1_custom:.6f} | Diff={abs(f1_sklearn - f1_custom):.2e}"
             )
         return float(f1_custom)
@@ -383,7 +395,7 @@ class SegmentationMetrics:
         # Sklearn
         if verbose:
             mae_sklearn: MetricValue = mean_absolute_error(gt_norm, pred_norm)
-            print(
+            logging.info(
                 f"MAE: Sklearn={mae_sklearn:.6f} | Custom={mae_custom:.6f} | Diff={abs(mae_sklearn - mae_custom):.2e}"
             )
         return float(mae_custom)
@@ -582,7 +594,7 @@ class SegmentationMetrics:
         metrics["jaccard_score"] = iou_sklearn
 
         if verbose_comparison:
-            print(
+            logging.info(
                 f"IoU Check: Custom={iou_custom:.6f} | Sklearn={iou_sklearn:.6f} | Diff={abs(iou_custom - iou_sklearn):.2e}"
             )
 

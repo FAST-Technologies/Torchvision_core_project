@@ -13,6 +13,7 @@ import json
 import warnings
 import traceback
 import time
+import yaml
 from io import BytesIO
 from pathlib import Path
 from typing import (
@@ -37,6 +38,7 @@ import torch
 import requests
 from PIL import Image
 from huggingface_hub import hf_hub_download
+from tabulate import tabulate
 
 # Локальные импорты
 from segmenters.BaseSegmenter import BaseSegmenter
@@ -64,6 +66,19 @@ from utils.warmup import SegmentationWarmUp
 from utils.threshold_warmup import ThresholdWarmUp
 from utils.strategies import _create_overlay_standalone, segment_image_unified
 from utils.batch_exporter import export_all_classical_methods
+
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES И КОНСТАНТЫ
@@ -115,6 +130,12 @@ warnings.filterwarnings("ignore")
 num_classes: int = 150
 
 
+def _load_config(config_path: str = "configs/main_config.yaml") -> Dict[str, Any]:
+    """Загружает конфигурацию из YAML-файла."""
+    with open(config_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
 # ──────────────────────────────────────────────────────────────────────
 # УТИЛИТЫ ДЛЯ ОПРЕДЕЛЕНИЯ ОПТИМАЛЬНЫХ ПАРАМЕТРОВ
 # ──────────────────────────────────────────────────────────────────────
@@ -125,15 +146,19 @@ def get_optimal_precision(device: torch.device) -> str:
         str: 'bf16' для Ampere+, 'fp16' для Pascal+, 'fp32' для остальных.
     """
     if device.type != "cuda":
-        return "fp32"
+        precision: str = "fp32"
 
-    props = torch.cuda.get_device_properties(device.index or 0)
-    if props.major >= 8:  # Ampere+
-        return "bf16"
-    elif props.major >= 6:  # Pascal+
-        return "fp16"
+    if torch.cuda.is_available():
+        props = torch.cuda.get_device_properties(device.index or 0)
+        if props.major >= 8:  # Ampere+
+            precision = "bf16"  # Лучший баланс скорости и стабильности
+        elif props.major >= 6:  # Pascal+
+            precision = "fp16"  # Хорошая скорость, но следите за стабильностью
+        else:
+            precision = "fp32"  # Старые GPU
     else:
-        return "fp32"
+        precision = "fp32"  # На CPU только fp32 или int8
+    return precision
 
 
 def get_compile_config(method_name: str, device: torch.device) -> Dict[str, Any]:
@@ -213,8 +238,9 @@ def main(use_optimizations: bool = True) -> Tuple[
     # ──────────────────────────────────────────────────────────────
     # 1. КОНФИГУРАЦИЯ И ИНИЦИАЛИЗАЦИЯ
     # ──────────────────────────────────────────────────────────────
+    config: Dict[str, Any] = _load_config()
     test_neural_logic: bool = False
-    test_classic_logic: bool = True
+    test_classic_logic: bool = config["test_settings"]["test_classic_logic"]
     use_torch_v1: bool = True
     use_torch_v2: bool = True
     enable_profiling: bool = True  # Включить профилирование
@@ -294,12 +320,51 @@ def main(use_optimizations: bool = True) -> Tuple[
 
     if test_classic_logic:
         print("🔬 ИССЛЕДОВАНИЕ: Мульти-бэкенд бенчмарк (PyTorch / ONNX / TensorRT)")
-        target_methods_for_research = ["otsu_thresholding", "sobel_edge"]
+        target_methods_for_research = [
+            "global_thresholding",
+            "adaptive_thresholding",
+            "otsu_thresholding",
+            "threshold_niblack",
+            "threshold_sauvola",
+            "threshold_bernsen",
+            "threshold_phansalkar",
+            "threshold_percentile",
+            "threshold_kittler_illingworth",
+            "threshold_entropy_kapur",
+            "threshold_triangle",
+            "threshold_multi_otsu",
+            "threshold_local_contrast",
+            "sobel_edge",
+            "canny_edge",
+            "prewitt_edge",
+            "scharr_edge",
+            "laplacian_edge",
+            "roberts_cross_edge",
+            "log_edge",
+            "dog_edge",
+            "marr_hildreth_edge",
+            "gradient_magnitude_direction",
+            "phase_congruency_edge",
+        ]
 
         real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]
         print(f"📐 Размер изображения: {real_w}x{real_h}")
 
         if first_img_pil is not None:
+            run_optimization_benchmarks(
+                "test_images/animals.jpg", target_methods_for_research
+            )
+            # img_large = img.resize((1920, 1080), Image.Resampling.LANCZOS)  # Full HD
+            # img_xlarge = img.resize((3840, 2160), Image.Resampling.LANCZOS)  # 4K
+
+            print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+            print("   (нажмите Ctrl+C для отмены, если нужно)")
+            try:
+                time.sleep(15)  # 🔥 Задержка 15 секунд
+            except KeyboardInterrupt:
+                print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+                return tester, None, None
+
             # 🔥 Регистрация с поддержкой множественных точностей
             backend_registration = _register_backend_methods_with_precision(
                 tester=tester,
@@ -312,6 +377,7 @@ def main(use_optimizations: bool = True) -> Tuple[
                 ],  # Явное указание или авто-определение
                 input_shape=(1, 3, real_h, real_w),
             )
+            print(backend_registration)
 
             print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
             print("   (нажмите Ctrl+C для отмены, если нужно)")
@@ -380,7 +446,33 @@ def main(use_optimizations: bool = True) -> Tuple[
         print("🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT")
 
         # 🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT
-        target_methods_for_research = ["otsu_thresholding", "sobel_edge"]
+        target_methods_for_research: List[str] = [
+            "global_thresholding",
+            "adaptive_thresholding",
+            "otsu_thresholding",
+            "threshold_niblack",
+            "threshold_sauvola",
+            "threshold_bernsen",
+            "threshold_phansalkar",
+            "threshold_percentile",
+            "threshold_kittler_illingworth",
+            "threshold_entropy_kapur",
+            "threshold_triangle",
+            "threshold_multi_otsu",
+            "threshold_local_contrast",
+            "sobel_edge",
+            "canny_edge",
+            "prewitt_edge",
+            "scharr_edge",
+            "laplacian_edge",
+            "roberts_cross_edge",
+            "log_edge",
+            "dog_edge",
+            "marr_hildreth_edge",
+            "gradient_magnitude_direction",
+            "phase_congruency_edge",
+        ]
+
         print("\n🔬 Запуск сравнения бэкендов (PyTorch / ONNX / TensorRT)...")
 
         real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]  # PIL: (W, H)
@@ -844,13 +936,13 @@ def _log_environment_info() -> None:
 
     print(f"🚀 CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
+        props: Any = torch.cuda.get_device_properties(0)
         print("🔥 CUDA available:")
         print(f"   Device: {torch.cuda.get_device_name(0)}")
-        vram_gb: float = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        vram_gb: float = props.total_memory / 1024**3
         print(f"   VRAM: {vram_gb:.1f} GB")
-        print(
-            f"   GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB"
-        )
+        print(f"   GPU Memory: {props.total_memory / 1e9:.2f} GB")
+        print(f"Full props: {props}")
     else:
         print("💻 CUDA not available, using CPU")
 
@@ -1330,15 +1422,25 @@ def _run_profiling_demo(
         print("-" * 40)
 
         try:
-            # 🔥 Профилирование с детекцией трансферов
+            # Профилирование с детекцией трансферов
             profile = segmenter.profile_with_transfer_detection(
                 image=img_array,
                 n_runs=10,
                 detect_transfers=True,
             )
 
-            print(f"   ⏱️  Среднее время: {profile['avg_time_ms']:.2f} мс")
+            print(f"   ⏱️  Среднее время выполнения: {profile['avg_time_ms']:.2f} мс")
             print(f"   💾 Память: {profile['memory_mb']:.1f} МБ")
+
+            print(profile["profiler_table"])
+            if profile["transfer_warnings"]:
+                print("\n⚠️  Предупреждения о трансферах:")
+                for w in profile["transfer_warnings"]:
+                    print(f"  {w}")
+            else:
+                print(
+                    "✅ Трансферов не обнаружено. Память и GPU используются оптимально."
+                )
 
             # Предупреждения о трансферах
             if profile.get("transfer_warnings"):
@@ -1355,6 +1457,12 @@ def _run_profiling_demo(
                 print(
                     f"   ⚡ Время: {exec_info.get('execution_time', 0) * 1000:.2f} мс"
                 )
+                # Доступ к метаданным выполнения
+                print(segmenter.params["execution_info"])
+
+            segmenter.profile_with_tracing(
+                segmenter, img_array, output_dir="./profiling/tests"
+            )
 
         except Exception as e:
             print(f"   ❌ Ошибка профилирования: {e}")
@@ -1412,6 +1520,7 @@ def _run_precision_benchmark_demo(
                         "time_ms": time_ms,
                     }
                 )
+            print(segmenter.params["execution_info"])
 
         except Exception as e:
             print(f"   ❌ Ошибка: {e}")
@@ -1567,6 +1676,7 @@ def _load_single_neural_model(
         )
         tester.add_method(config["name"], segmenter)
         print(f"   ✅ {config['name']}")
+        print(segmenter.params["execution_info"])
         segmenter.get_class_info()
 
     except Exception as e:
@@ -3117,6 +3227,7 @@ def run_ground_truth_evaluation(
                     f"   {status} {name}: IoU={iou:.4f}, Dice={metrics.get('dice', 0):.4f}, t={exec_time:.3f}s"
                 )
                 print(f"Mask after {name} segment: {pred_mask[:3, :3]}")
+                print(segmenter.params["execution_info"])
 
             except Exception as e:
                 print(f"   💥 Критическая ошибка в методе {name}: {e}")
@@ -4629,9 +4740,7 @@ def _create_backend_methods(
     force_reexport: bool = False,
     input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
 ) -> dict:
-    """
-    Создаёт методы для PyTorch / ONNX / TensorRT.
-    """
+    """Создаёт методы для PyTorch / ONNX / TensorRT."""
     from utils.backend_exporter import (
         export_method_to_onnx_safe,
         export_method_to_trt_dynamo,
@@ -4712,6 +4821,318 @@ def _create_backend_methods(
 
 
 # ──────────────────────────────────────────────────────────────────────
+def get_device_capabilities():
+    """Проверяет возможности CUDA для автоматического подбора настроек."""
+    if not torch.cuda.is_available():
+        return {"cuda": False, "bf16_support": False, "int8_support": True}
+
+    props = torch.cuda.get_device_properties(0)
+    # BF16 поддерживается на Ampere (RTX 3000/A100) и новее (Compute Capability 8.0+)
+    bf16_support = props.major >= 8
+    # Int8 квантование (INT8 Tensor Cores) поддерживается на Volta (T4/V100) и новее (Compute Capability 7.0+)
+    int8_support = props.major >= 7
+
+    return {
+        "cuda": True,
+        "bf16_support": bf16_support,
+        "int8_support": int8_support,
+        "device_name": props.name,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────
+def create_segmenter_config(method_name, device, **kwargs):
+    """Фабрика для создания сегментера с нужными флагами оптимизации."""
+    try:
+        seg = TorchSegmenter2(method=method_name, device=device, **kwargs)
+        return seg
+    except Exception as e:
+        print(f"[WARNING] Не удалось создать конфиг для {method_name} ({device}): {e}")
+        return None
+
+
+# ──────────────────────────────────────────────────────────────────────
+def _get_device_metrics(device: str) -> Dict[str, Any]:
+    """Возвращает словарь с характеристиками устройства и метриками памяти."""
+    if device == "cuda" and torch.cuda.is_available():
+        return {
+            "GPU_Name": torch.cuda.get_device_name(0),
+            "Compute_Cap": torch.cuda.get_device_capability(0),
+            "Total_VRAM_GB": round(
+                torch.cuda.get_device_properties(0).total_memory / 1024**3, 2
+            ),
+            "Curr_Alloc_MB": round(torch.cuda.memory_allocated() / 1024**2, 2),
+            "Peak_Alloc_MB": round(torch.cuda.max_memory_allocated() / 1024**2, 2),
+            "Curr_Reserv_MB": round(torch.cuda.memory_reserved() / 1024**2, 2),
+            "Peak_Reserv_MB": round(torch.cuda.max_memory_reserved() / 1024**2, 2),
+        }
+    return {
+        "GPU_Name": "CPU",
+        "Compute_Cap": "N/A",
+        "Total_VRAM_GB": "N/A",
+        "Curr_Alloc_MB": 0,
+        "Peak_Alloc_MB": 0,
+        "Curr_Reserv_MB": 0,
+        "Peak_Reserv_MB": 0,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────
+def run_optimization_benchmarks(image_path, methods_list):
+    """
+    Запускает серию тестов производительности для списка методов.
+    """
+    caps = get_device_capabilities()
+    print(f"🖥️  System Info: {caps['device_name'] if caps['cuda'] else 'CPU'}")
+    print(
+        f" CUDA BF16 Support: {caps['bf16_support']} | INT8 Support: {caps['int8_support']}"
+    )
+    print("=" * 80)
+
+    # --- НАСТРОЙКИ ТЕСТА (МАТРИЦА) ---
+    # Здесь вы определяете, какие комбинации хотите протестировать
+
+    from PIL import Image
+    import numpy as np
+
+    try:
+        img = Image.open(image_path).convert("RGB")
+        # img_large = img.resize((1920, 1080), Image.Resampling.LANCZOS)  # Full HD
+        # # Или даже больше для стресс-теста
+        # img_xlarge = img.resize((3840, 2160), Image.Resampling.LANCZOS)  # 4K
+        img_array = np.array(img)
+        print(f"✅ Изображение загружено: {img_array.shape}")
+    except Exception as e:
+        print(f"❌ Ошибка загрузки изображения {image_path}: {e}")
+        return
+
+    configs = [
+        {
+            "name": "Baseline (FP32 Eager)",
+            "device": "cuda",
+            "kwargs": {"precision": "fp32", "use_compile": False},
+        },
+        {
+            "name": "Optimized (FP32 Compile)",
+            "device": "cuda",
+            "kwargs": {
+                "precision": "fp32",
+                "use_compile": True,
+                "compile_mode": "reduce-overhead",
+            },
+        },
+        {
+            "name": "Max Perf (FP32 Max-Autotune)",
+            "device": "cuda",
+            "kwargs": {
+                "precision": "fp32",
+                "use_compile": True,
+                "compile_mode": "max-autotune",
+            },
+        },
+    ]
+
+    if caps["bf16_support"]:
+        configs.append(
+            {
+                "name": "BF16 Native (Ampere+)",
+                "device": "cuda",
+                "kwargs": {"precision": "bf16", "use_compile": False},
+            }
+        )
+        configs.append(
+            {
+                "name": "BF16 + Compile",
+                "device": "cuda",
+                "kwargs": {
+                    "precision": "bf16",
+                    "use_compile": True,
+                    "compile_mode": "reduce-overhead",
+                },
+            }
+        )
+
+    # CPU с квантованием
+    configs.append(
+        {
+            "name": "CPU Int8 Quantized",
+            "device": "cpu",
+            "kwargs": {
+                "precision": "fp32",
+                "use_quantization": True,
+                "use_compile": False,
+            },
+        }
+    )
+
+    all_results = []
+
+    for method in methods_list:
+        print(f"\n🧪 Тестирование метода: {method.upper()}")
+        print("-" * 40)
+
+        # Базовый результат для расчета Speedup
+        baseline_time = None
+
+        for cfg in configs:
+            print(f"   ▶ Запуск: {cfg['name']} ... ", end="", flush=True)
+
+            # 1. Создание модели
+            seg = create_segmenter_config(method, cfg["device"], **cfg["kwargs"])
+            if seg is None:
+                print("❌ Пропуск")
+                continue
+
+            if cfg["device"] == "cuda" and torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats()
+
+            # 2. Профилирование
+            # n_runs=5 для быстрого теста, увеличьте для точности
+            try:
+                stats = seg.profile_segmentation(
+                    segmenter=seg, image=img_array, n_runs=100, warmup=20
+                )
+                mean_time_ms = stats["mean_time_s"] * 1000
+                print(
+                    f"⏱️ {stats['method']} | {stats['mean_time_s'] * 1000:.2f}ms | Device: {stats['device']}"
+                )
+
+                dev_metrics = _get_device_metrics(cfg["device"])
+
+                # Расчет ускорения относительно первого (базового) запуска этого метода
+                speedup = 1.0
+                if baseline_time is None:
+                    baseline_time = mean_time_ms
+                else:
+                    if mean_time_ms > 0:
+                        speedup = baseline_time / mean_time_ms
+
+                all_results.append(
+                    {
+                        "Method": method,
+                        "Config": cfg["name"],
+                        "Device": dev_metrics["GPU_Name"],
+                        "Compute_Cap": dev_metrics["Compute_Cap"],
+                        "Total_VRAM_GB": dev_metrics["Total_VRAM_GB"],
+                        "Time (ms)": round(mean_time_ms, 2),
+                        "Speedup": round(speedup, 2),
+                        "Device1": cfg["device"],
+                        "Params": cfg["kwargs"],
+                        "Peak_Alloc_MB": dev_metrics["Peak_Alloc_MB"],
+                        "Peak_Reserv_MB": dev_metrics["Peak_Reserv_MB"],
+                    }
+                )
+                print(
+                    f"✅ {mean_time_ms:.2f} ms ({speedup:.2f}x) | Mem: {dev_metrics['Peak_Alloc_MB']:.1f}MB"
+                )
+
+            except Exception as e:
+                print(f"❌ Ошибка профилирования: {e}")
+
+    # --- ИТОГОВАЯ ТАБЛИЦА ---
+    print("\n" + "=" * 80)
+    print("📊 СВОДНАЯ ТАБЛИЦА ПРОИЗВОДИТЕЛЬНОСТИ")
+    print("=" * 80)
+    if all_results:
+        df_summary = pd.DataFrame(all_results)
+        df_summary = df_summary.sort_values(
+            ["Method", "Time (ms)"], ascending=[True, True]
+        )
+        display_cols = [
+            "Method",
+            "Config",
+            "Device",
+            "Compute_Cap",
+            "Total_VRAM_GB",
+            "Time (ms)",
+            "Speedup",
+            "Peak_Alloc_MB",
+            "Peak_Reserv_MB",
+        ]
+        for col in display_cols:
+            if col not in df_summary.columns:
+                df_summary[col] = "N/A" if "Cap" in col or "VRAM" in col else 0.0
+        df_display = df_summary[display_cols].copy()
+        df_display["Time (ms)"] = df_summary["Time (ms)"].apply(lambda x: f"{x:.2f}")
+        df_display["Speedup"] = df_summary["Speedup"].apply(lambda x: f"{x:.2f}x")
+        df_display["Peak_Alloc_MB"] = df_summary["Peak_Alloc_MB"].apply(
+            lambda x: f"{x:.1f}"
+        )
+        df_display["Peak_Reserv_MB"] = df_summary["Peak_Reserv_MB"].apply(
+            lambda x: f"{x:.1f}"
+        )
+        df_display["Total_VRAM_GB"] = df_summary["Total_VRAM_GB"].apply(
+            lambda x: f"{x:.1f}" if isinstance(x, float) else str(x)
+        )
+        df_display["Compute_Cap"] = df_summary["Compute_Cap"].apply(
+            lambda x: f"{x[0]}.{x[1]}" if isinstance(x, tuple) else str(x)
+        )
+        # Преобразуем список словарей в формат для tabulate
+        # Выбираем только нужные колонки для вывода
+        # display_data = [
+        #     [r["Method"], r["Config"], r["Time (ms)"], r["Speedup"]]
+        #     for r in all_results
+        # ]
+        # print(tabulate(display_data, headers=["Method", "Configuration", "Time (ms)", "Speedup"], tablefmt="grid"))
+
+        print(tabulate(df_display, headers="keys", tablefmt="grid", showindex=False))
+
+        # 💡 Опционально: мгновенное сохранение для дальнейшего анализа
+        csv_path = "optimization_benchmark.csv"
+        df_summary.to_csv(csv_path, index=False)
+        print(f"\n💾 Таблица сохранена: {csv_path}")
+    else:
+        print("Нет данных для отображения.")
+
+
+def benchmark_with_baseline(segmenter, image, configurations):
+    """Сравнение различных конфигураций относительно baseline"""
+    results = {}
+
+    # Запускаем baseline
+    baseline_seg = TorchSegmenter2(
+        method=segmenter.method,
+        device="cuda",
+        precision="fp32",
+        use_compile=False,
+    )
+    baseline_time = baseline_seg.profile_method(image, n_runs=100)["mean_time_ms"]
+    results["baseline_fp32_eager"] = baseline_time
+
+    # Тестируем конфигурации
+    for config_name, config_params in configurations.items():
+        seg = TorchSegmenter2(method=segmenter.method, device="cuda", **config_params)
+        time_ms = seg.profile_method(image, n_runs=100)["mean_time_ms"]
+        results[config_name] = {
+            "time_ms": time_ms,
+            "speedup": baseline_time / time_ms if time_ms > 0 else float("inf"),
+        }
+
+    return results
+
+
+# # Конфигурации для тестирования
+# configs = {
+#     "fp32_compile": {"precision": "fp32", "use_compile": True, "compile_mode": "reduce-overhead"},
+#     "bf16_native": {"precision": "bf16", "use_compile": False},
+#     "bf16_compile": {"precision": "bf16", "use_compile": True},
+# }
+
+# # Тестируем
+# results = benchmark_with_baseline(segmenter, large_image, configs)
+
+# # Вывод
+# print("\n📊 Результаты бенчмарка:")
+# print(f"{'Конфигурация':<30} {'Время (мс)':<15} {'Speedup':<10}")
+# print("-" * 60)
+# for name, data in results.items():
+#     if isinstance(data, dict):
+#         print(f"{name:<30} {data['time_ms']:<15.4f} {data['speedup']:.2f}x")
+#     else:
+#         print(f"{name:<30} {data:<15.4f} 1.00x")
+
+
+# ──────────────────────────────────────────────────────────────────────
 # СОХРАНЕНИЕ СТАРОЙ ВЕРСИИ ДЛЯ СРАВНЕНИЯ
 # ──────────────────────────────────────────────────────────────────────
 def main_legacy() -> Tuple[
@@ -4719,10 +5140,7 @@ def main_legacy() -> Tuple[
     Optional[BenchmarkResult],
     Optional[SegmentationComparator],
 ]:
-    """
-    LEGACY версия main() — для сравнения с оптимизированной.
-    Использует старые параметры TorchSegmenter без оптимизаций.
-    """
+    """LEGACY версия main() — для сравнения с оптимизированной. Использует старые параметры TorchSegmenter без оптимизаций."""
     # Копия основной логики, но с созданием методов БЕЗ оптимизаций:
     # - Без precision параметра
     # - Без use_compile
@@ -4730,7 +5148,7 @@ def main_legacy() -> Tuple[
     # - Без профилирования
 
     # Для экономии места — просто вызов с флагом
-    return main(use_optimizations=False)  # 🔥 Реализовать в основной функции
+    return main(use_optimizations=False)
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -29,6 +29,8 @@ Example:
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+
 import os
 import random
 import traceback
@@ -51,6 +53,19 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import functional as TF
 from torchvision import transforms
 from PIL import Image
+
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
@@ -140,7 +155,7 @@ class ADE20KDataset(Dataset):
         self.images_dir: str = os.path.join(base_dir, "images", split)
         self.masks_dir: str = os.path.join(base_dir, "annotations", split)
 
-        print(f"📂 Загрузка {split} датасета...")
+        logger.info(f"📂 Загрузка {split} датасета...")
 
         if not os.path.exists(self.images_dir):
             raise FileNotFoundError(f"Images dir not found: {self.images_dir}")
@@ -150,19 +165,19 @@ class ADE20KDataset(Dataset):
         self.image_files: List[str] = sorted(
             [f for f in os.listdir(self.images_dir) if f.endswith(".jpg")]
         )
-        print(f"   Найдено {len(self.image_files)} изображений")
+        logger.info(f"   Найдено {len(self.image_files)} изображений")
 
         self.valid_indices: List[int] = []
         for i, img_file in enumerate(self.image_files):
             mask_file: str = img_file.replace(".jpg", ".png")
             if os.path.exists(os.path.join(self.masks_dir, mask_file)):
                 self.valid_indices.append(i)
-        print(f"   Валидных пар: {len(self.valid_indices)}")
+        logger.info(f"   Валидных пар: {len(self.valid_indices)}")
 
         if subset_fraction is not None and subset_fraction < 1.0:
             n: int = int(len(self.valid_indices) * subset_fraction)
             self.valid_indices = self.valid_indices[:n]
-            print(f"   Используем {n} образцов ({subset_fraction * 100:.0f}%)")
+            logger.info(f"   Используем {n} образцов ({subset_fraction * 100:.0f}%)")
 
         self.img_transform: transforms.Compose = transforms.Compose(
             [
@@ -347,7 +362,7 @@ class ADE20KDataset(Dataset):
                 f"random_affine_{angle:.2f}°_translate={translate}_scale={scale}_shear={shear}"
             )
         if transforms_applied and self.augment:
-            print(f"🔧 Applied: {', '.join(transforms_applied)}")
+            logger.warn(f"🔧 Applied: {', '.join(transforms_applied)}")
 
         return img, mask
 
@@ -611,9 +626,9 @@ def test_dataloader() -> bool:
     Returns:
         bool: `True` если все тесты пройдены, иначе `False`.
     """
-    print("\n" + "=" * 50)
-    print("Тестирование загрузчика ADE20K")
-    print("=" * 50)
+    logger.info("\n" + "=" * 50)
+    logger.info("Тестирование загрузчика ADE20K")
+    logger.info("=" * 50)
     try:
         train_dataset = ADE20KDataset(
             root_dir="./data/ade20k",
@@ -636,16 +651,16 @@ def test_dataloader() -> bool:
             num_workers=0,
             pin_memory=False,
         )
-        print(f"✅ DataLoader ready: {len(train_loader)} batches")
-        print("\n📊 Проверка загрузки данных:")
+        logger.info(f"✅ DataLoader ready: {len(train_loader)} batches")
+        logger.info("\n📊 Проверка загрузки данных:")
         for batch_idx, batch in enumerate(train_loader):
             images: torch.Tensor = batch["image"]
             masks: torch.Tensor = batch["mask"]
-            print(f"\nBatch {batch_idx + 1}:")
-            print(
+            logger.info(f"\nBatch {batch_idx + 1}:")
+            logger.info(
                 f"   Images: {images.shape}, dtype={images.dtype}, range=[{images.min():.3f}, {images.max():.3f}]"
             )
-            print(
+            logger.info(
                 f"   Masks: {masks.shape}, dtype={masks.dtype}, unique={torch.unique(masks)[:15].tolist()}"
             )
             assert not torch.isnan(images).any(), "NaN in images!"
@@ -657,10 +672,10 @@ def test_dataloader() -> bool:
                 assert (
                     non_ignore.min() >= 1 and non_ignore.max() <= 149
                 ), f"Non-ignore mask values out of range: [{non_ignore.min()}, {non_ignore.max()}]"
-            print("   ✅ Batch valid")
+            logger.info("   ✅ Batch valid")
             if batch_idx >= 2:
                 break
-        print("\n🔍 Визуализация аугментаций...")
+        logger.info("\n🔍 Визуализация аугментаций...")
         fig, axes = plt.subplots(2, 4, figsize=(20, 10))
 
         for i in range(4):
@@ -684,10 +699,10 @@ def test_dataloader() -> bool:
 
         plt.tight_layout()
         plt.savefig("./data/ade20k_augmentations_preview.png", dpi=150)
-        print("   ✅ Preview saved to ./data/ade20k_augmentations_preview.png")
-        print("\n✅ Все тесты пройдены!")
+        logger.info("   ✅ Preview saved to ./data/ade20k_augmentations_preview.png")
+        logger.info("\n✅ Все тесты пройдены!")
         return True
     except Exception as e:
-        print(f"❌ Ошибка: {e}")
+        logger.error(f"❌ Ошибка: {e}")
         traceback.print_exc()
         return False

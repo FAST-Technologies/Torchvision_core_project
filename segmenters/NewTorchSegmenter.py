@@ -3,6 +3,8 @@
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+
 from segmenters.BaseSegmenter import BaseSegmenter
 
 import os
@@ -40,17 +42,70 @@ from torchvision.transforms import functional as TF
 import cv2
 from torchvision.transforms.functional import gaussian_blur as tv_gaussian_blur
 
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
 
 # ──────────────────────────────────────────────────────────────────────
 class PrecisionManager:
     """Управление точностью вычислений для оптимизации скорости/памяти"""
 
     PRECISION_MAP: Dict[str, torch.dtype] = {
+        # Floating point types
         "fp64": torch.float64,
+        "float64": torch.float64,
         "fp32": torch.float32,
+        "float32": torch.float32,
         "fp16": torch.float16,
+        "float16": torch.float16,
         "bf16": torch.bfloat16,
+        "bfloat16": torch.bfloat16,
+        # Experimental float8 types (PyTorch 2.1+)
+        "float8_e4m3fn": getattr(torch, "float8_e4m3fn", None) or torch.float16,
+        "float8_e4m3fnuz": getattr(torch, "float8_e4m3fnuz", None) or torch.float16,
+        "float8_e5m2": getattr(torch, "float8_e5m2", None) or torch.float16,
+        "float8_e5m2fnuz": getattr(torch, "float8_e5m2fnuz", None) or torch.float16,
+        "float8_e8m0fnu": getattr(torch, "float8_e8m0fnu", None) or torch.float16,
+        # Experimental float4 type
+        "float4_e2m1fn_x2": getattr(torch, "float4_e2m1fn_x2", None) or torch.float16,
+        # Integer types (signed)
         "int8": torch.int8,
+        "int16": torch.int16,
+        "int32": torch.int32,
+        "int64": torch.int64,
+        # Unsigned integer types
+        "uint8": torch.uint8,
+        "uint16": getattr(torch, "uint16", None) or torch.uint8,
+        "uint32": getattr(torch, "uint32", None) or torch.uint8,
+        "uint64": getattr(torch, "uint64", None) or torch.uint8,
+        # Boolean
+        "bool": torch.bool,
+    }
+
+    # NumPy dtype mapping for conversion
+    NUMPY_TO_TORCH_MAP: Dict[str, torch.dtype] = {
+        "float16": torch.float16,
+        "float32": torch.float32,
+        "float64": torch.float64,
+        "int8": torch.int8,
+        "int16": torch.int16,
+        "int32": torch.int32,
+        "int64": torch.int64,
+        "uint8": torch.uint8,
+        "uint16": torch.uint8,  # Fallback
+        "uint32": torch.uint8,  # Fallback
+        "uint64": torch.uint8,  # Fallback
+        "bool": torch.bool,
     }
 
     def __init__(self, default_precision: str = "fp32") -> None:
@@ -59,48 +114,290 @@ class PrecisionManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def get_dtype(self, precision: Optional[str] = None) -> torch.dtype:
-        return self.PRECISION_MAP.get(
-            precision or self.default_precision, torch.float32
-        )
+        """Получить torch.dtype по имени точности"""
+        if precision is None:
+            precision = self.default_precision
+
+        dtype = self.PRECISION_MAP.get(precision.lower(), torch.float32)
+
+        # Если тип не поддерживается в этой версии PyTorch, возвращаем fallback
+        if dtype is None:
+            warnings.warn(
+                f"Тип {precision} не поддерживается в этой версии PyTorch. "
+                f"Используем fp32 как fallback.",
+                UserWarning,
+            )
+            return torch.float32
+
+        return dtype
+
+    # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def get_torch_dtype_info(dtype: torch.dtype) -> Dict[str, Any]:
+        """Получить информацию о типе данных"""
+        info: Dict[str, Any] = {
+            "dtype": dtype,
+            "name": (
+                str(dtype).split(".")[-1] if hasattr(dtype, "__name__") else str(dtype)
+            ),
+            "is_floating_point": dtype.is_floating_point,
+            "is_complex": dtype.is_complex,
+            "is_signed": dtype.is_signed if hasattr(dtype, "is_signed") else None,
+        }
+
+        # Добавляем размер в битах
+        if dtype == torch.float64:
+            info["bits"] = 64
+        elif dtype in [torch.float32, torch.int32]:
+            info["bits"] = 32
+        elif dtype in [torch.float16, torch.bfloat16, torch.int16]:
+            info["bits"] = 16
+        elif dtype in [torch.int8, torch.uint8]:
+            info["bits"] = 8
+        elif dtype in [torch.int64]:
+            info["bits"] = 64
+        else:
+            info["bits"] = None
+
+        return info
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def can_use_fp64(device: torch.device) -> bool:
-        """Проверяет поддержку FP64 на устройстве"""
+        """Проверяет поддержку FP64 на устройстве."""
         if device.type == "cuda":
             return torch.cuda.get_device_capability(device.index or 0)[0] >= 6
-        return False
+        return True  # CPU поддерживает FP64
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def can_use_fp16(device: torch.device) -> bool:
-        """Проверяет поддержку FP16 на устройстве"""
+        """Проверяет поддержку FP16 на устройстве."""
         if device.type == "cuda":
             return torch.cuda.get_device_capability(device.index or 0)[0] >= 6
-        return False
+        return False  # CPU не поддерживает FP16 эффективно
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def can_use_bf16(device: torch.device) -> bool:
-        """Проверяет поддержку BF16 (Ampere+)"""
+        """Проверяет поддержку BF16 (Ampere+)."""
         if device.type == "cuda":
             return torch.cuda.get_device_capability(device.index or 0)[0] >= 8
         return False
 
     # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def can_use_float8(device: torch.device, float_type: str = "float8_e4m3fn") -> bool:
+        """Проверяет поддержку float8 типов (требует PyTorch 2.1+ и Hopper+)"""
+        if device.type != "cuda":
+            return False
+
+        # Проверяем наличие атрибута в torch
+        if not hasattr(torch, float_type):
+            return False
+
+        # Требуется compute capability >= 9.0 (Hopper) для полноценной поддержки
+        capability = torch.cuda.get_device_capability(device.index or 0)
+        return capability[0] >= 9
+
+    # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def can_use_int8(device: torch.device) -> bool:
+        """Проверяет поддержку INT8 (квантование)"""
+        if device.type == "cuda":
+            return torch.cuda.get_device_capability(device.index or 0)[0] >= 6
+        return True  # CPU поддерживает INT8
+
+    # ──────────────────────────────────────────────────────────────────────
+    def get_optimal_precision(
+        self,
+        device: torch.device,
+        operation: str = "general",
+        memory_limit: Optional[float] = None,
+    ) -> str:
+        """
+        Автоматический выбор оптимальной точности
+
+        Args:
+            device: Устройство выполнения
+            operation: Тип операции ("training", "inference", "general")
+            memory_limit: Ограничение памяти в GB (если есть)
+
+        Returns:
+            Рекомендованная точность
+        """
+        if device.type != "cuda":
+            return "fp32"
+
+        capability = torch.cuda.get_device_capability(device.index or 0)
+
+        # Hopper (9.0+) - полная поддержка float8
+        if capability[0] >= 9 and operation == "inference":
+            if memory_limit is not None and memory_limit < 8:
+                return "float8_e4m3fn"
+            return "bf16"
+
+        # Ampere (8.0+) - поддержка bf16
+        if capability[0] >= 8:
+            if memory_limit is not None and memory_limit < 8:
+                return "fp16"
+            return "bf16"
+
+        # Turing/Volta (7.0-7.5)
+        if capability[0] >= 7:
+            return "fp16"
+
+        # Pascal (6.0-6.1)
+        if capability[0] >= 6:
+            return "fp16"
+
+        # Older GPUs
+        return "fp32"
+
+    # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def numpy_to_torch_dtype(np_dtype) -> torch.dtype:
+        """Конвертация numpy dtype в torch dtype"""
+        import numpy as np
+
+        dtype_name = str(np_dtype).lower()
+
+        # Прямое соответствие
+        if dtype_name in PrecisionManager.NUMPY_TO_TORCH_MAP:
+            return PrecisionManager.NUMPY_TO_TORCH_MAP[dtype_name]
+
+        # Обработка специфичных numpy типов
+        if np_dtype == np.float128:
+            warnings.warn("np.float128 не поддерживается в PyTorch, используем float64")
+            return torch.float64
+        if np_dtype == np.longdouble or np_dtype == np.longlong:
+            return torch.float64
+        if np_dtype in [np.intc, np.int_]:
+            return torch.int32 if np.dtype(np.intc).itemsize == 4 else torch.int64
+
+        # Fallback
+        warnings.warn(f"Неизвестный numpy dtype {np_dtype}, используем float32")
+        return torch.float32
+
+    # ──────────────────────────────────────────────────────────────────────
     @contextmanager
     def autocast(self, precision: str = "fp16", enabled: bool = True):
-        """Контекстный менеджер для AMP"""
+        """Контекстный менеджер для AMP (Automatic Mixed Precision)"""
         if not enabled:
             yield
             return
 
         dtype: torch.dtype = self.get_dtype(precision)
+
+        if "float8" in precision.lower():
+            if not torch.cuda.is_available():
+                warnings.warn("float8 требует CUDA, используем fp16")
+                dtype = torch.float16
+            elif not hasattr(torch, "float8_e4m3fn"):
+                warnings.warn("float8 требует PyTorch 2.1+, используем fp16")
+                dtype = torch.float16
+
         if torch.cuda.is_available() and dtype in [torch.float16, torch.bfloat16]:
             with torch.autocast(device_type="cuda", dtype=dtype):
                 yield
         else:
             yield
+
+    # ──────────────────────────────────────────────────────────────────────
+    @contextmanager
+    def autocast_float8(self, enabled: bool = True):
+        """
+        Специальный контекстный менеджер для float8 (PyTorch 2.1+)
+        Требует: torch >= 2.1, CUDA compute capability >= 9.0
+        """
+        if not enabled:
+            yield
+            return
+
+        if not torch.cuda.is_available():
+            warnings.warn("float8 требует CUDA")
+            yield
+            return
+
+        if not hasattr(torch, "float8_e4m3fn"):
+            warnings.warn("float8 требует PyTorch 2.1+")
+            yield
+            return
+
+        # Используем torch.float8_e4m3fn для активаций
+        try:
+            from torch._dynamo import config as dynamo_config
+
+            # В будущих версиях PyTorch будет полноценная поддержка
+            with torch.autocast(device_type="cuda", dtype=torch.float16):
+                yield
+        except Exception as e:
+            warnings.warn(f"float8 autocast failed: {e}, fallback to fp16")
+            with torch.autocast(device_type="cuda", dtype=torch.float16):
+                yield
+
+    # ──────────────────────────────────────────────────────────────────────
+    def get_supported_precisions(self, device: torch.device) -> List[str]:
+        """Получить список поддерживаемых точностей для устройства"""
+        supported = ["fp32", "fp64"]
+
+        if device.type == "cpu":
+            supported.extend(["int8", "int16", "int32", "int64", "uint8"])
+            return supported
+
+        # CUDA device
+        capability = torch.cuda.get_device_capability(device.index or 0)
+
+        if capability[0] >= 6:
+            supported.extend(["fp16", "int8"])
+
+        if capability[0] >= 8:
+            supported.append("bf16")
+
+        if capability[0] >= 9 and hasattr(torch, "float8_e4m3fn"):
+            supported.extend(
+                [
+                    "float8_e4m3fn",
+                    "float8_e4m3fnuz",
+                    "float8_e5m2",
+                    "float8_e5m2fnuz",
+                ]
+            )
+
+        return supported
+
+    # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def get_memory_footprint(dtype: torch.dtype, num_elements: int) -> float:
+        """
+        Вычислить объем памяти в байтах
+
+        Args:
+            dtype: Тип данных
+            num_elements: Количество элементов
+
+        Returns:
+            Объем памяти в байтах
+        """
+        dtype_sizes: Dict[torch.dtype, int] = {
+            torch.float64: 8,
+            torch.float32: 4,
+            torch.float16: 2,
+            torch.bfloat16: 2,
+            torch.int64: 8,
+            torch.int32: 4,
+            torch.int16: 2,
+            torch.int8: 1,
+            torch.uint8: 1,
+            torch.bool: 1,
+        }
+
+        # Для float8 типов
+        if hasattr(torch, "float8_e4m3fn") and dtype == torch.float8_e4m3fn:
+            return num_elements * 1.0  # 1 байт на элемент
+
+        size = dtype_sizes.get(dtype, 4)  # Default to 4 bytes (fp32)
+        return num_elements * size
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -340,16 +637,18 @@ def _make_kernel_key(
     return_pair: bool,
 ) -> str:
     """Создаёт детерминированный строковый ключ"""
-    key_data: Dict[str, Any] = {
-        "type": kernel_type,
-        "size": size,
-        "sigma": sigma,
-        "dtype": str(dtype),
-        "device": str(device),
-        "pair": return_pair,
-    }
-    key_str: str = json.dumps(key_data, sort_keys=True, default=str)
-    return hashlib.md5(key_str.encode()).hexdigest()
+    # key_data: Dict[str, Any] = {
+    #     "type": kernel_type,
+    #     "size": size,
+    #     "sigma": sigma,
+    #     "dtype": str(dtype),
+    #     "device": str(device),
+    #     "pair": return_pair,
+    # }
+    # key_str: str = json.dumps(key_data, sort_keys=True, default=str)
+    # return hashlib.md5(key_str.encode()).hexdigest()
+    sigma_str = f"{sigma:.3f}" if sigma is not None else "None"
+    return f"{kernel_type}_{size}_{sigma_str}_{dtype}_{device.type}_{return_pair}"
 
 
 def _compute_image_hash(image: Union[np.ndarray, torch.Tensor]) -> str:
@@ -453,7 +752,7 @@ class TorchSegmenter2(BaseSegmenter):
             self.device = torch.device(device)
 
         if torch.cuda.is_available():
-            print(
+            logger.info(
                 f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB"
             )
         else:
@@ -479,12 +778,12 @@ class TorchSegmenter2(BaseSegmenter):
                 "mode": "reduce-overhead",
             },
             "threshold_niblack": {
-                "fullgraph": True,
+                "fullgraph": False,
                 "dynamic": True,
                 "mode": "reduce-overhead",
             },
             "threshold_sauvola": {
-                "fullgraph": True,
+                "fullgraph": False,
                 "dynamic": True,
                 "mode": "reduce-overhead",
             },
@@ -596,7 +895,7 @@ class TorchSegmenter2(BaseSegmenter):
                     UserWarning,
                 )
         if kwargs.get("use_quantization", False) and self.device.type == "cpu":
-            print("🔧 Применяем динамическое квантование (int8)...")
+            logger.info("🔧 Применяем динамическое квантование (int8)...")
             # Оборачиваем _segment_func, если это nn.Module
             if isinstance(self._segment_func, nn.Module):
                 self._segment_func = self._apply_dynamic_quantization(
@@ -629,7 +928,7 @@ class TorchSegmenter2(BaseSegmenter):
         cache_key: str = f"{name}_{str(dtype)}_{str(device)}"
 
         if cache_key not in self._static_kernels:
-            # 🔥 Создаём ядро в eager mode (вне torch.compile)
+            # Создаём ядро в eager mode (вне torch.compile)
             kernel = torch.tensor(data, dtype=dtype, device=device)
             kernel = kernel.view(1, 1, size, size)
             self._static_kernels[cache_key] = kernel
@@ -681,7 +980,7 @@ class TorchSegmenter2(BaseSegmenter):
 
         method = method_name or self.method
         if method not in self.method_map:
-            print(f"❌ Метод {method} не найден")
+            logger.error(f"❌ Метод {method} не найден")
             return False
 
         func = self.method_map[method]
@@ -697,20 +996,20 @@ class TorchSegmenter2(BaseSegmenter):
             scripted = torch.jit.script(func)
             path = os.path.join(output_path, f"{method}_scripted.pt")
             scripted.save(path)
-            print(f"✅ TorchScript сохранён: {path}")
+            logger.info(f"✅ TorchScript сохранён: {path}")
             return True
         except Exception as e:
-            print(f"⚠️  torch.jit.script failed: {e}")
+            logger.warning(f"⚠️  torch.jit.script failed: {e}")
 
         # Fallback: tracing
         try:
             traced = torch.jit.trace(func, example_input, check_trace=False)
             path = os.path.join(output_path, f"{method}_traced.pt")
             traced.save(path)
-            print(f"✅ TorchScript (trace) сохранён: {path}")
+            logger.info(f"✅ TorchScript (trace) сохранён: {path}")
             return True
         except Exception as e2:
-            print(f"❌ Trace тоже не удался: {e2}")
+            logger.error(f"❌ Trace тоже не удался: {e2}")
             return False
 
     def _get_conv_kernel(
@@ -989,17 +1288,14 @@ class TorchSegmenter2(BaseSegmenter):
         device = gray.device
 
         # Кэш ключ для ядра
-        kernel_key = _make_kernel_key("ones", window_size, None, dtype, device, False)
-        if kernel_key not in self._kernel_cache:
-            kernel = torch.ones(
-                1, 1, window_size, window_size, device=device, dtype=dtype
-            )
-            self._kernel_cache[kernel_key] = kernel / (window_size**2)  # type: ignore[assignment]
-        cached_value = self._kernel_cache[kernel_key]
-        if isinstance(cached_value, tuple):
-            raise TypeError(f"Expected Tensor, got tuple for kernel type 'ones'")
-        kernel = cast(torch.Tensor, cached_value)
-        kernel = kernel.to(dtype=gray.dtype)
+        kernel = self._get_conv_kernel(
+            "ones",
+            size=window_size,
+            sigma=None,
+            dtype=dtype,
+            device=device,
+            return_pair=False,
+        )
 
         # Приводим к 4D для conv2d: (1, 1, H, W)
         if gray.dim() == 2:
@@ -1011,6 +1307,8 @@ class TorchSegmenter2(BaseSegmenter):
 
         # Создаём ядро усреднения (с учётом dtype и device)
         pad = window_size // 2
+
+        kernel = kernel.to(dtype=gray_4d.dtype)
 
         # Локальное среднее: E[X]
         local_mean_4d = F.conv2d(gray_4d, kernel, padding=pad, stride=1)
@@ -1113,14 +1411,14 @@ class TorchSegmenter2(BaseSegmenter):
 
             # Сохранение
             torch.jit.save(trt_module, trt_path)
-            print(f"✅ TensorRT engine сохранён: {trt_path}")
+            logger.info(f"✅ TensorRT engine сохранён: {trt_path}")
             return True
 
         except ImportError:
-            print("⚠️  torch-tensorrt не установлен: pip install torch-tensorrt")
+            logger.warn("⚠️  torch-tensorrt не установлен: pip install torch-tensorrt")
             return False
         except Exception as e:
-            print(f"⚠️  Ошибка экспорта в TensorRT: {e}")
+            logger.warn(f"⚠️  Ошибка экспорта в TensorRT: {e}")
             return False
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1272,7 +1570,7 @@ class TorchSegmenter2(BaseSegmenter):
                     UserWarning,
                 )
             try:
-                print(
+                logger.info(
                     f"🔧 Компиляция '{self.method}' "
                     f"[mode={mode}, fullgraph={fullgraph}]..."
                 )
@@ -1283,9 +1581,11 @@ class TorchSegmenter2(BaseSegmenter):
                     dynamic=dynamic,
                     backend="inductor",  # или "cudagraphs" для CUDA
                 )
-                print("✅ Компиляция завершена")
+                logger.info("✅ Компиляция завершена")
             except Exception as e:
-                print(f"⚠️  Не удалось скомпилировать: {e}. Используем обычный режим.")
+                logger.warn(
+                    f"⚠️  Не удалось скомпилировать: {e}. Используем обычный режим."
+                )
                 warnings.warn(
                     f"torch.compile failed for {self.method} "
                     f"[fullgraph={fullgraph}]: {e}. Falling back to eager mode.",
@@ -1300,6 +1600,11 @@ class TorchSegmenter2(BaseSegmenter):
         device: torch.device = self.device
 
         # Пороговые методы не требуют ядер, пропускаем
+        for ws in [11, 15, 25, 35]:  # типичные window_size
+            key = _make_kernel_key("ones", ws, None, dtype, device, False)
+            if key not in self._kernel_cache:
+                kernel = torch.ones(1, 1, ws, ws, device=device, dtype=dtype)
+                self._kernel_cache[key] = (kernel / (ws**2)).clone()
 
         # Граничные методы
         edge_kernels: Dict[str, List[List[int]]] = {
@@ -1324,42 +1629,75 @@ class TorchSegmenter2(BaseSegmenter):
     def profile_method(
         self,
         image: np.ndarray,
-        n_runs: int = 10,
-        warmup: int = 3,
+        n_runs: int = 100,
+        warmup: int = 10,
         return_trace: bool = False,
+        use_cuda_events: bool = True,  # Используем CUDA events для точности
+        test_event: bool = True,
     ) -> Dict[str, Any]:
         """Детальное профилирование метода сегментации"""
         import torch.profiler as profiler
 
         tensor = self.preprocess_image(image)
 
+        # CUDA events для точного замера времени на GPU
+        if test_event:
+            if self.device.type == "cuda" and use_cuda_events:
+                start_event = torch.cuda.Event(enable_timing=True)
+                end_event = torch.cuda.Event(enable_timing=True)
+
         # Warmup
         for _ in range(warmup):
             _ = self._segment_func(
                 tensor, precision=self.precision_manager.default_precision
             )
-            if self.device.type == "cuda":
-                torch.cuda.synchronize()
+
+        if self.device.type == "cuda":
+            torch.cuda.synchronize()
+            torch.cuda.reset_peak_memory_stats()
 
         # Замеры
         times = []
-        if self.device.type == "cuda":
-            torch.cuda.reset_peak_memory_stats()
 
-        with profiler.profile(
-            activities=[profiler.ProfilerActivity.CPU, profiler.ProfilerActivity.CUDA],
-            record_shapes=True,
-            profile_memory=True,
-        ) as prof:
-            with profiler.record_function(f"segment_{self.method}"):
-                for _ in range(n_runs):
+        if test_event:
+            for _ in range(n_runs):
+                if self.device.type == "cuda" and use_cuda_events:
+                    start_event.record()
+                    _ = self._segment_func(
+                        tensor, precision=self.precision_manager.default_precision
+                    )
+                    end_event.record()
+                    torch.cuda.synchronize()
+                    times.append(start_event.elapsed_time(end_event))  # Время в мс
+                else:
                     start = time.perf_counter()
                     _ = self._segment_func(
                         tensor, precision=self.precision_manager.default_precision
                     )
                     if self.device.type == "cuda":
                         torch.cuda.synchronize()
-                    times.append(time.perf_counter() - start)
+                    times.append((time.perf_counter() - start))  # Конвертируем в мс
+        else:
+            with profiler.profile(
+                activities=[
+                    profiler.ProfilerActivity.CPU,
+                    profiler.ProfilerActivity.CUDA,
+                ],
+                record_shapes=True,
+                profile_memory=True,
+                with_flops=True,
+                with_modules=True,
+                with_stack=True,
+            ) as prof:
+                with profiler.record_function(f"segment_{self.method}"):
+                    for _ in range(n_runs):
+                        start = time.perf_counter()
+                        _ = self._segment_func(
+                            tensor, precision=self.precision_manager.default_precision
+                        )
+                        if self.device.type == "cuda":
+                            torch.cuda.synchronize()
+                        times.append(time.perf_counter() - start)
 
         result = {
             "method": self.method,
@@ -1367,13 +1705,17 @@ class TorchSegmenter2(BaseSegmenter):
             "dtype": str(self.dtype),
             "mean_time_ms": np.mean(times) * 1000,
             "std_time_ms": np.std(times) * 1000,
+            "min_time_ms": np.min(times) * 1000,
+            "max_time_ms": np.max(times) * 1000,
+            "median_time_ms": np.median(times) * 1000,
             "image_shape": tuple(tensor.shape),
+            "total_runs": n_runs,
         }
 
         if self.device.type == "cuda":
             result["peak_memory_mb"] = torch.cuda.max_memory_allocated() / 1e6
 
-        if return_trace:
+        if return_trace and not test_event:
             result["trace"] = prof.key_averages().table(
                 sort_by=(
                     "cuda_time_total"
@@ -1467,18 +1809,18 @@ class TorchSegmenter2(BaseSegmenter):
 
         # Авто-коррекция для неподдерживаемых типов
         if dtype == torch.float16 and not torch.cuda.is_available():
-            print("⚠️  fp16 не поддерживается на CPU, используем fp32")
+            logger.warn("⚠️  fp16 не поддерживается на CPU, используем fp32")
             return torch.float32
 
         if dtype == torch.bfloat16:
             if not torch.cuda.is_available():
-                print("⚠️  bf16 не поддерживается на CPU, используем fp32")
+                logger.warn("⚠️  bf16 не поддерживается на CPU, используем fp32")
                 return torch.float32
             # Проверка поддержки bf16 на текущей GPU
             if torch.cuda.is_available():
                 props = torch.cuda.get_device_properties(0)
                 if props.major < 8:  # Ampere+ для полноценной поддержки
-                    print(
+                    logger.warn(
                         f"⚠️  bf16 может работать медленно на GPU compute capability {props.major}.{props.minor}"
                     )
 
@@ -1826,7 +2168,7 @@ class TorchSegmenter2(BaseSegmenter):
 
         os.makedirs(output_dir, exist_ok=True)
         tensor = segmenter.preprocess_image(image)
-        print(tensor)
+        logger.info(tensor)
 
         with profiler.profile(
             activities=[
@@ -1841,7 +2183,7 @@ class TorchSegmenter2(BaseSegmenter):
                 _ = segmenter.segment(image)
 
         # Вывод таблицы
-        print(
+        logger.info(
             prof.key_averages().table(
                 sort_by=(
                     "cuda_time_total"
@@ -1855,8 +2197,8 @@ class TorchSegmenter2(BaseSegmenter):
         # Экспорт для визуализации
         trace_path = os.path.join(output_dir, f"trace_{segmenter.method}.json")
         prof.export_chrome_trace(trace_path)
-        print(f"📊 Trace сохранён: {trace_path}")
-        print(
+        logger.info(f"📊 Trace сохранён: {trace_path}")
+        logger.info(
             "💡 Откройте chrome://tracing и загрузите файл для интерактивного анализа"
         )
 
@@ -1869,7 +2211,7 @@ class TorchSegmenter2(BaseSegmenter):
         🔹 Поддерживает Linear, Conv2d
         """
         if self.device.type != "cpu":
-            print("⚠️  Квантование доступно только на CPU")
+            logger.warn("⚠️  Квантование доступно только на CPU")
             return module
 
         try:
@@ -1881,7 +2223,7 @@ class TorchSegmenter2(BaseSegmenter):
                 dtype=torch.qint8,
             )
         except ImportError:
-            print("⚠️  torch.ao.quantization недоступен, пропускаем квантование")
+            logger.warn("⚠️  torch.ao.quantization недоступен, пропускаем квантование")
             return module
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3143,10 +3485,12 @@ class TorchSegmenter2(BaseSegmenter):
         try:
             tensor: torch.Tensor = self.preprocess_image(image)
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: input dtype={tensor.dtype}, device={tensor.device}"
                 )
-                print(f"[DEBUG] Expected dtype: {self.dtype}, device: {self.device}")
+                logger.info(
+                    f"[DEBUG] Expected dtype: {self.dtype}, device: {self.device}"
+                )
             mask_tensor = self._segment_func(
                 tensor,
                 precision=self.precision_manager.default_precision,
@@ -3193,7 +3537,7 @@ class TorchSegmenter2(BaseSegmenter):
         self, image: Union[np.ndarray, Image.Image, torch.Tensor]
     ) -> None:
         """Запускает диагностику при первом вызове в режиме debug"""
-        print(
+        logger.info(
             f"\n🔍 [DEBUG MODE] Запуск автоматической диагностики для метода '{self.method}'..."
         )
         try:
@@ -3229,9 +3573,9 @@ class TorchSegmenter2(BaseSegmenter):
                 except Exception as e:
                     transfer_msg = f"Ошибка при проверке трансферов: {e}"
 
-            print(f"⏱️  Среднее время выполнения: {avg_ms:.2f} ms")
-            print(f"🔄 Трансферы данных: {transfer_msg}")
-            print(f"💾 Устройство: {self.device}")
+            logger.info(f"⏱️  Среднее время выполнения: {avg_ms:.2f} ms")
+            logger.info(f"🔄 Трансферы данных: {transfer_msg}")
+            logger.info(f"💾 Устройство: {self.device}")
             compiled_status = "Unknown"
             if hasattr(self._segment_func, "_torchdynamo_orig_callable"):
                 compiled_status = "ON"
@@ -3239,14 +3583,14 @@ class TorchSegmenter2(BaseSegmenter):
                 compiled_status = "ON"
             else:
                 compiled_status = "OFF"
-            print(f"⚡ Режим компиляции: {compiled_status}")
-            print("=" * 60 + "\n")
+            logger.info(f"⚡ Режим компиляции: {compiled_status}")
+            logger.info("=" * 60 + "\n")
         except Exception as e:
-            print(f"⚠️ Ошибка при авто-диагностике: {e}\n")
+            logger.warning(f"⚠️ Ошибка при авто-диагностике: {e}\n")
 
     # ──────────────────────────────────────────────────────────────────────
     def segment_with_mask(
-        self, image: Union[str, np.ndarray, Image.Image, torch.Tensor], **kwargs
+        self, image: Union[str, np.ndarray, Image.Image, torch.Tensor], **kwargs: Any
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Сегментация с возвратом визуализации и маски.
@@ -3527,7 +3871,7 @@ class TorchSegmenter2(BaseSegmenter):
         if not torch.compiler.is_compiling():
             # self.dtype уже содержит правильную точность (fp16/bf16/fp32),
             # установленную в __init__ через PrecisionManager
-            print(
+            logger.info(
                 f"[DEBUG] Method: {self.method}, Actual Dtype: {self.dtype}, Tensor Dtype: {tensor.dtype}"
             )
         with self.precision_manager.autocast(
@@ -3549,7 +3893,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32)
@@ -3689,7 +4033,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32)
@@ -3803,7 +4147,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
@@ -3863,8 +4207,12 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
         # Масштабируем к [0, 255] для стабильности при low precision
-        if gray.max() <= 1.0:
-            gray = gray * 255.0
+        if not torch.compiler.is_compiling():
+            if gray.max().item() <= 1.0:
+                gray = gray * 255.0
+        else:
+            # В режиме компиляции: torch.where + .clone() для избежания алиасинга
+            gray = torch.where(gray.max() <= 1.0, (gray * 255.0).clone(), gray.clone())
 
         if export_mode:
             ws = (
@@ -3910,12 +4258,13 @@ class TorchSegmenter2(BaseSegmenter):
         ws = ws if ws % 2 == 1 else ws + 1  # ensure odd
         k_val = k if k is not None else self.params.get("k", -0.2)
 
+        local_mean, local_std = self._local_stats_torch(gray, ws)
+
         # === ЛОКАЛЬНАЯ СТАТИСТИКА (полностью на GPU) ===
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            local_mean, local_std = self._local_stats_torch(gray, ws)
             # Формула Ниблака: T = μ + k·σ
             threshold = local_mean + k_val * local_std
             mask = (gray > threshold).to(dtype)
@@ -3933,7 +4282,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
@@ -4000,8 +4349,12 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        if gray.max() <= 1.0:
-            gray = gray * 255.0
+        if not torch.compiler.is_compiling():
+            if gray.max().item() <= 1.0:
+                gray = gray * 255.0
+        else:
+            # В режиме компиляции: torch.where + .clone() для избежания алиасинга
+            gray = torch.where(gray.max() <= 1.0, (gray * 255.0).clone(), gray.clone())
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -4018,12 +4371,13 @@ class TorchSegmenter2(BaseSegmenter):
         k_val = k if k is not None else self.params.get("k", 0.2)
         r_val = r if r is not None else self.params.get("r", 128.0)
 
+        local_mean, local_std = self._local_stats_torch(gray, ws)
+
         # === ЛОКАЛЬНАЯ СТАТИСТИКА + ПОРОГ САУВОЛЫ ===
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            local_mean, local_std = self._local_stats_torch(gray, ws)
             # Формула Сауволы: T = μ * (1 + k * (σ/R - 1))
             threshold = local_mean * (1.0 + k_val * (local_std / r_val - 1.0))
             mask = (gray > threshold).to(dtype)
@@ -4042,7 +4396,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
@@ -4180,7 +4534,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask
@@ -4249,8 +4603,12 @@ class TorchSegmenter2(BaseSegmenter):
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        if gray.max() <= 1.0:
-            gray = gray * 255.0
+        if not torch.compiler.is_compiling():
+            if gray.max().item() <= 1.0:
+                gray = gray * 255.0
+        else:
+            # В режиме компиляции: torch.where + .clone() для избежания алиасинга
+            gray = torch.where(gray.max() <= 1.0, (gray * 255.0).clone(), gray.clone())
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -4268,12 +4626,13 @@ class TorchSegmenter2(BaseSegmenter):
         r_val = r if r is not None else self.params.get("r", 128.0)
         m_val = m if m is not None else self.params.get("m", 0.5)
 
+        local_mean, local_std = self._local_stats_torch(gray, ws)
+
         # === ЛОКАЛЬНАЯ СТАТИСТИКА + ПОРОГ ФАНСАЛКАРА ===
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            local_mean, local_std = self._local_stats_torch(gray, ws)
             # Формула: T = μ + k·σ·(σ/R) + m·(μ/128 - 1)
             sigma_r = local_std / r_val
             threshold = (
@@ -4298,7 +4657,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
@@ -4402,7 +4761,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
@@ -4530,7 +4889,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
@@ -4657,7 +5016,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
@@ -4782,7 +5141,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
@@ -4928,7 +5287,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
@@ -5071,10 +5430,68 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # УТИЛИТЫ ДЛЯ БЕЗОПАСНОЙ СВЁРТКИ
+    # ──────────────────────────────────────────────────────────────────────
+    def _prepare_kernel_for_conv(
+        self,
+        kernel: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        target_dtype: torch.dtype,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Безопасно конвертирует ядро(а) к целевому dtype.
+        Поддерживает как одиночные ядра, так и кортежи (для парных операторов).
+
+        Оптимизация: не создаёт копию, если dtype уже совпадает.
+
+        Args:
+            kernel: Ядро или кортеж ядер (например, для Sobel: (kx, ky)).
+            target_dtype: Целевой тип данных (обычно dtype входного изображения).
+
+        Returns:
+            Ядро(а) с гарантированным совпадением dtype.
+        """
+        if isinstance(kernel, tuple):
+            return tuple(
+                k if k.dtype == target_dtype else k.to(target_dtype, non_blocking=True)
+                for k in kernel
+            )
+        return (
+            kernel
+            if kernel.dtype == target_dtype
+            else kernel.to(target_dtype, non_blocking=True)
+        )
+
+    # ──────────────────────────────────────────────────────────────────────
+    def _safe_conv2d(
+        self,
+        input: torch.Tensor,
+        kernel: torch.Tensor,
+        **kwargs: Any,
+    ) -> torch.Tensor:
+        """
+        Безопасная свёртка с автоматическим выравниванием dtype.
+
+        Решает проблему: autocast может изменить dtype input,
+        а ядро остаётся в исходном dtype → RuntimeError или silent degradation.
+
+        Args:
+            input: Входной тензор (обычно изображение в градациях серого).
+            kernel: Сверточное ядро формы (1, 1, kH, kW).
+            **kwargs: Дополнительные аргументы для F.conv2d (padding, stride, etc.).
+
+        Returns:
+            torch.Tensor: Результат свёртки.
+        """
+        # Выравниваем dtype ядра под вход (без копий если уже совпадает)
+        if kernel.dtype != input.dtype:
+            kernel = kernel.to(input.dtype, non_blocking=True)
+        return F.conv2d(input, kernel, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     # КРАЕВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ
@@ -5191,8 +5608,11 @@ class TorchSegmenter2(BaseSegmenter):
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            gx = F.conv2d(gray, sobel_x.to(gray.dtype), padding=1)
-            gy = F.conv2d(gray, sobel_y.to(gray.dtype), padding=1)
+            sobel_x, sobel_y = self._prepare_kernel_for_conv(
+                (sobel_x, sobel_y), gray.dtype
+            )
+            gx = self._safe_conv2d(gray, sobel_x, padding=1)
+            gy = self._safe_conv2d(gray, sobel_y, padding=1)
             magnitude = torch.sqrt(
                 gx.square() + gy.square() + 1e-8
             )  # eps для стабильности fp16
@@ -5223,23 +5643,10 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32)
-
-    def _safe_pad(
-        self,
-        tensor: torch.Tensor,
-        pad: Tuple[int, int, int, int],
-        mode: str = "reflect",
-    ) -> torch.Tensor:
-        """Безопасный паддинг с нормализацией размерности"""
-        if tensor.dim() == 2:
-            tensor = tensor.unsqueeze(0).unsqueeze(0)
-        elif tensor.dim() == 3:
-            tensor = tensor.unsqueeze(0)
-        return F.pad(tensor, pad, mode=mode)
 
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
@@ -5407,8 +5814,11 @@ class TorchSegmenter2(BaseSegmenter):
             # === ГРАДИЕНТЫ ===
             # 🔥 FIX: Приводим ядра к актуальному dtype входа ВНУТРИ autocast.
             # Autocast может изменить gray_4d.dtype на bf16/fp16, ядра должны совпадать.
-            gx = F.conv2d(gray, sobel_x.to(gray.dtype), padding=1)
-            gy = F.conv2d(gray, sobel_y.to(gray.dtype), padding=1)
+            sobel_x, sobel_y = self._prepare_kernel_for_conv(
+                (sobel_x, sobel_y), gray.dtype
+            )
+            gx = self._safe_conv2d(gray, sobel_x, padding=1)
+            gy = self._safe_conv2d(gray, sobel_y, padding=1)
             mag = torch.sqrt(gx**2 + gy**2)
             angle = torch.atan2(gy, gx)
             angle_deg = torch.abs(torch.rad2deg(angle))  # [0, 180]
@@ -5507,7 +5917,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
 
@@ -5584,8 +5994,11 @@ class TorchSegmenter2(BaseSegmenter):
             with self.precision_manager.autocast(
                 precision_val, enabled=(dtype != torch.float32)
             ):
-                gx = F.conv2d(gray, prewitt_x.to(gray.dtype), padding=1)
-                gy = F.conv2d(gray, prewitt_y.to(gray.dtype), padding=1)
+                prewitt_x, prewitt_y = self._prepare_kernel_for_conv(
+                    (prewitt_x, prewitt_y), gray.dtype
+                )
+                gx = F.conv2d(gray, prewitt_x, padding=1)
+                gy = F.conv2d(gray, prewitt_y, padding=1)
                 magnitude = torch.sqrt(gx**2 + gy**2 + 1e-8)
                 # Без нормализации для экспорта
                 thresh = (
@@ -5633,8 +6046,8 @@ class TorchSegmenter2(BaseSegmenter):
             prewitt_y = (
                 prewitt_y.to(gray.dtype) if prewitt_y.dtype != gray.dtype else prewitt_y
             )
-            gx = F.conv2d(gray, prewitt_x, padding=1)
-            gy = F.conv2d(gray, prewitt_y, padding=1)
+            gx = self._safe_conv2d(gray, prewitt_x, padding=1)
+            gy = self._safe_conv2d(gray, prewitt_y, padding=1)
             magnitude = torch.sqrt(gx.square() + gy.square() + 1e-8)
 
             if normalize:
@@ -5652,7 +6065,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32)
@@ -5767,14 +6180,11 @@ class TorchSegmenter2(BaseSegmenter):
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            scharr_x = (
-                scharr_x.to(gray.dtype) if scharr_x.dtype != gray.dtype else scharr_x
+            scharr_x, scharr_y = self._prepare_kernel_for_conv(
+                (scharr_x, scharr_y), gray.dtype
             )
-            scharr_y = (
-                scharr_y.to(gray.dtype) if scharr_y.dtype != gray.dtype else scharr_y
-            )
-            gx = F.conv2d(gray, scharr_x, padding=1)
-            gy = F.conv2d(gray, scharr_y, padding=1)
+            gx = self._safe_conv2d(gray, scharr_x, padding=1)
+            gy = self._safe_conv2d(gray, scharr_y, padding=1)
             magnitude = torch.sqrt(gx.square() + gy.square() + 1e-8)
 
             if normalize:
@@ -5792,7 +6202,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32)
@@ -5913,7 +6323,10 @@ class TorchSegmenter2(BaseSegmenter):
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            laplacian = F.conv2d(gray, laplacian_kernel.to(gray.dtype), padding=1)
+            laplacian_kernel = self._prepare_kernel_for_conv(
+                laplacian_kernel, gray.dtype
+            )
+            laplacian = self._safe_conv2d(gray, laplacian_kernel, padding=1)
             magnitude = torch.abs(laplacian)
 
             if normalize:
@@ -5935,7 +6348,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32)
@@ -6053,18 +6466,11 @@ class TorchSegmenter2(BaseSegmenter):
         ):
             # Паддинг 1×1 для сохранения размера при 2×2 ядре
             gray_pad = F.pad(gray, (0, 1, 0, 1), mode="reflect")
-            roberts_x = (
-                roberts_x.to(gray_pad.dtype)
-                if roberts_x.dtype != gray_pad.dtype
-                else roberts_x
+            roberts_x, roberts_y = self._prepare_kernel_for_conv(
+                (roberts_x, roberts_y), gray_pad.dtype
             )
-            roberts_y = (
-                roberts_y.to(gray_pad.dtype)
-                if roberts_y.dtype != gray_pad.dtype
-                else roberts_y
-            )
-            gx = F.conv2d(gray_pad, roberts_x, padding=0)
-            gy = F.conv2d(gray_pad, roberts_y, padding=0)
+            gx = self._safe_conv2d(gray, roberts_x, padding=0)
+            gy = self._safe_conv2d(gray, roberts_y, padding=0)
             magnitude = torch.sqrt(gx.square() + gy.square() + 1e-8)
 
             if normalize:
@@ -6082,7 +6488,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
 
@@ -6206,7 +6612,10 @@ class TorchSegmenter2(BaseSegmenter):
             precision_val, enabled=(dtype != torch.float32)
         ):
             # Применяем лапласиан
-            laplacian = F.conv2d(gray, laplacian_kernel.to(gray.dtype), padding=1)
+            laplacian_kernel = self._prepare_kernel_for_conv(
+                laplacian_kernel, gray.dtype
+            )
+            laplacian = self._safe_conv2d(gray, laplacian_kernel, padding=0)
 
             # === ZERO-CROSSING DETECTION (векторизованный) ===
             sign = torch.sign(laplacian)
@@ -6240,7 +6649,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32)
@@ -6408,7 +6817,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32)
@@ -6529,7 +6938,8 @@ class TorchSegmenter2(BaseSegmenter):
         with self.precision_manager.autocast(
             precision_val, enabled=(dtype != torch.float32)
         ):
-            laplacian = F.conv2d(gray, laplacian_5x5.to(gray.dtype), padding=2)
+            laplacian_5x5 = self._prepare_kernel_for_conv(laplacian_5x5, gray.dtype)
+            laplacian = self._safe_conv2d(gray, laplacian_5x5, padding=2)
 
             # === ZERO-CROSSING С ПРОВЕРКОЙ МАГНИТУДЫ ===
             sign = torch.sign(laplacian)
@@ -6561,7 +6971,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32)
@@ -6682,10 +7092,11 @@ class TorchSegmenter2(BaseSegmenter):
             precision_val, enabled=(dtype != torch.float32)
         ):
             # === ГРАДИЕНТЫ ===
-            sobel_x = sobel_x.to(gray.dtype) if sobel_x.dtype != gray.dtype else sobel_x
-            sobel_y = sobel_y.to(gray.dtype) if sobel_y.dtype != gray.dtype else sobel_y
-            gx = F.conv2d(gray, sobel_x, padding=1)
-            gy = F.conv2d(gray, sobel_y, padding=1)
+            sobel_x, sobel_y = self._prepare_kernel_for_conv(
+                (sobel_x, sobel_y), gray.dtype
+            )
+            gx = self._safe_conv2d(gray, sobel_x, padding=1)
+            gy = self._safe_conv2d(gray, sobel_y, padding=1)
             magnitude = torch.sqrt(gx.square() + gy.square() + 1e-8)
             direction = torch.atan2(gy, gx)  # Радианы от -π до π
 
@@ -6714,7 +7125,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(
+                logger.info(
                     f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}"
                 )
         return mask.to(torch.float32)
@@ -6986,7 +7397,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "execution_time": exec_time,
             }
             if self._debug_mode:
-                print(f"[DEBUG] {self.method}: precision_val={precision_val}")
+                logger.info(f"[DEBUG] {self.method}: precision_val={precision_val}")
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -7214,7 +7625,7 @@ class TorchSegmenter2(BaseSegmenter):
             "parameters": {"seed": seed, "tolerance": tolerance, **kwargs},
             "execution_time": exec_time,
         }
-        print(info)
+        logger.info(info)
         return mask.float().unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -7246,7 +7657,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "parameters": {"seed": seed, "tolerance": tolerance, **kwargs},
                 "execution_time": exec_time,
             }
-            print(info)
+            logger.info(info)
             return mask.float().unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────

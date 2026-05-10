@@ -15,12 +15,27 @@
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+
 from typing import Dict, Any, Optional, Union
 from pathlib import Path
 from io import BytesIO
 
 import pandas as pd
 from PIL import Image
+
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
@@ -77,7 +92,7 @@ def main() -> None:
     mask_dir.mkdir(parents=True, exist_ok=True)
 
     total_rows: int = len(df)
-    print(f"📊 Processing {total_rows} rows from {pq_file.name}...")
+    logger.info(f"📊 Processing {total_rows} rows from {pq_file.name}...")
 
     for idx, row in df.iterrows():
         # ── Изображение ──────────────────────────────────────────────
@@ -97,9 +112,9 @@ def main() -> None:
 
         # ── Прогресс ────────────────────────────────────────────────
         if idx % BATCH_LOG_INTERVAL == 0:
-            print(f"Processed {idx}/{total_rows}")
+            logger.info(f"Processed {idx}/{total_rows}")
 
-    print("✅ Done!")
+    logger.info("✅ Done!")
 
 
 if __name__ == "__main__":

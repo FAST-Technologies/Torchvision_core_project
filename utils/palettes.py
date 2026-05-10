@@ -3,10 +3,24 @@
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
 from typing import (
     List,
     Dict,
 )
+
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -165,8 +179,8 @@ def get_ade_class_names() -> Dict[int, str]:
         148: "clock",
         149: "flag",
     }
-    print(f"✅ ADE20K classes loaded: {len(ade20k_class_names)} classes")
-    print(
+    logger.info(f"✅ ADE20K classes loaded: {len(ade20k_class_names)} classes")
+    logger.info(
         f"   Range: [{min(ade20k_class_names.keys())}..{max(ade20k_class_names.keys())}]"
     )
     return ade20k_class_names
@@ -415,8 +429,10 @@ def get_coco_class_names() -> Dict[int, str]:
         78: "hair drier",
         79: "toothbrush",
     }
-    print(f"✅ COCO classes loaded: {len(COCO_class_names)} classes")
-    print(f"   Range: [{min(COCO_class_names.keys())}..{max(COCO_class_names.keys())}]")
+    logger.info(f"✅ COCO classes loaded: {len(COCO_class_names)} classes")
+    logger.info(
+        f"   Range: [{min(COCO_class_names.keys())}..{max(COCO_class_names.keys())}]"
+    )
     return COCO_class_names
 
 
@@ -546,10 +562,10 @@ def get_cityscapes_extended_class_names() -> Dict[int, str]:
         32: "ego vehicle",
         33: "rectification border",
     }
-    print(
+    logger.info(
         f"✅ Cityscapes Extended classes loaded: {len(cityscapes_extended_class_names)} classes"
     )
-    print(
+    logger.info(
         f"   Range: [{min(cityscapes_extended_class_names.keys())}..{max(cityscapes_extended_class_names.keys())}]"
     )
     return cityscapes_extended_class_names
@@ -621,8 +637,8 @@ def get_cityscapes_class_names() -> Dict[int, str]:
         17: "motorcycle",
         18: "bicycle",
     }
-    print(f"✅ Cityscapes classes loaded: {len(cityscapes_class_names)} classes")
-    print(
+    logger.info(f"✅ Cityscapes classes loaded: {len(cityscapes_class_names)} classes")
+    logger.info(
         f"   Range: [{min(cityscapes_class_names.keys())}..{max(cityscapes_class_names.keys())}]"
     )
     return cityscapes_class_names
@@ -681,8 +697,8 @@ def get_chexpert_observation_class_names() -> Dict[int, str]:
         1: "lung",  # Lung field (left + right)
     }
 
-    print(f"✅ CheXpert observations: {len(chexpert_observation_names)} classes")
-    print(
+    logger.info(f"✅ CheXpert observations: {len(chexpert_observation_names)} classes")
+    logger.info(
         f"✅ Chest segmentation: {len(chest_segmentation_class_names)} classes (binary)"
     )
     return chexpert_observation_names
@@ -718,8 +734,8 @@ def get_isic_class_names() -> Dict[int, str]:
         1: "lesion",  # Skin lesion (melanoma, nevus, etc.)
     }
 
-    print(f"✅ ISIC classes loaded: {len(isic_class_names)} classes (binary)")
-    print(f"   Classes: {list(isic_class_names.values())}")
+    logger.info(f"✅ ISIC classes loaded: {len(isic_class_names)} classes (binary)")
+    logger.info(f"   Classes: {list(isic_class_names.values())}")
     return isic_class_names
 
 

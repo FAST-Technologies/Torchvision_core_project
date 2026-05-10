@@ -44,6 +44,8 @@ Example:
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+
 import os
 from typing import Callable, TypeVar, ParamSpec
 
@@ -75,6 +77,19 @@ from enum import Enum
 
 # Локальные импорты (для совместимости с экосистемой)
 from segmenters.BaseSegmenter import BaseSegmenter, ProbabilityMask, BinaryMask
+
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES

@@ -3,6 +3,8 @@
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
+from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+
 from segmenters.BaseSegmenter import BaseSegmenter, ImageInput, BinaryMask
 from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType, ModelTuple
 from utils.strategies import segment_image_unified as infer_unified
@@ -26,6 +28,19 @@ from PIL import Image
 import numpy as np
 from scipy.ndimage import zoom
 import torch
+
+import logging
+
+# Настройка логгера
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & CONSTANTS

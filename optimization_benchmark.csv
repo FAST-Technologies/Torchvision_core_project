@@ -1,0 +1,145 @@
+Method,Config,Device,Compute_Cap,Total_VRAM_GB,Time (ms),Speedup,Device1,Params,Peak_Alloc_MB,Peak_Reserv_MB
+adaptive_thresholding,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.88,1.03,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",75.8,146.0
+adaptive_thresholding,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.89,1.01,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",75.82,146.0
+adaptive_thresholding,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.9,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",431.18,500.0
+adaptive_thresholding,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.9,1.0,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",28.3,86.0
+adaptive_thresholding,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.91,0.99,cuda,"{'precision': 'bf16', 'use_compile': False}",78.68,146.0
+adaptive_thresholding,CPU Int8 Quantized,CPU,N/A,N/A,132.93,0.01,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+canny_edge,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.67,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",1490.69,1598.0
+canny_edge,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.67,1.0,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",226.82,340.0
+canny_edge,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.72,0.99,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",226.83,340.0
+canny_edge,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.72,0.99,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",189.17,340.0
+canny_edge,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.87,0.95,cuda,"{'precision': 'bf16', 'use_compile': False}",226.83,340.0
+canny_edge,CPU Int8 Quantized,CPU,N/A,N/A,79.48,0.05,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+dog_edge,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.06,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",450.15,572.0
+dog_edge,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.13,0.97,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",125.8,216.0
+dog_edge,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.13,0.97,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",125.82,216.0
+dog_edge,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.13,0.97,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",128.15,216.0
+dog_edge,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.14,0.97,cuda,"{'precision': 'bf16', 'use_compile': False}",128.17,216.0
+dog_edge,CPU Int8 Quantized,CPU,N/A,N/A,230.37,0.01,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+global_thresholding,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.3,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",56.42,72.0
+global_thresholding,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.36,0.84,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",65.82,84.0
+global_thresholding,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.36,0.84,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",28.28,84.0
+global_thresholding,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.36,0.85,cuda,"{'precision': 'bf16', 'use_compile': False}",56.44,124.0
+global_thresholding,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.36,0.84,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",67.67,124.0
+global_thresholding,CPU Int8 Quantized,CPU,N/A,N/A,2.09,0.15,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+gradient_magnitude_direction,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.87,1.04,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",163.63,264.0
+gradient_magnitude_direction,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.87,1.04,cuda,"{'precision': 'bf16', 'use_compile': False}",163.63,264.0
+gradient_magnitude_direction,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.88,1.03,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",163.61,264.0
+gradient_magnitude_direction,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.91,1.02,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",163.63,264.0
+gradient_magnitude_direction,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.98,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",163.61,264.0
+gradient_magnitude_direction,CPU Int8 Quantized,CPU,N/A,N/A,44.27,0.07,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+laplacian_edge,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.84,1.04,cuda,"{'precision': 'bf16', 'use_compile': False}",88.2,340.0
+laplacian_edge,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.85,1.03,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",85.85,340.0
+laplacian_edge,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.87,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",85.83,340.0
+laplacian_edge,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.89,0.98,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",88.21,340.0
+laplacian_edge,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.91,0.96,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",85.84,340.0
+laplacian_edge,CPU Int8 Quantized,CPU,N/A,N/A,24.84,0.04,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+log_edge,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,1.37,1.04,cuda,"{'precision': 'bf16', 'use_compile': False}",109.33,196.0
+log_edge,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,1.38,1.04,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",106.99,196.0
+log_edge,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,1.39,1.03,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",106.97,196.0
+log_edge,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,1.41,1.02,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",109.34,196.0
+log_edge,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,1.43,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",1338.82,1470.0
+log_edge,CPU Int8 Quantized,CPU,N/A,N/A,26.42,0.05,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+marr_hildreth_edge,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.61,1.0,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",126.68,236.0
+marr_hildreth_edge,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.62,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",1342.87,1454.0
+marr_hildreth_edge,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.62,1.0,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",126.66,236.0
+marr_hildreth_edge,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.64,0.99,cuda,"{'precision': 'bf16', 'use_compile': False}",126.56,236.0
+marr_hildreth_edge,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,2.65,0.99,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",126.58,236.0
+marr_hildreth_edge,CPU Int8 Quantized,CPU,N/A,N/A,41.95,0.06,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+otsu_thresholding,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.44,1.39,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",67.72,126.0
+otsu_thresholding,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.49,1.26,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",67.71,126.0
+otsu_thresholding,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.49,1.26,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",28.33,86.0
+otsu_thresholding,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.54,1.15,cuda,"{'precision': 'bf16', 'use_compile': False}",56.51,126.0
+otsu_thresholding,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.62,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",65.87,126.0
+otsu_thresholding,CPU Int8 Quantized,CPU,N/A,N/A,3.51,0.18,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+phase_congruency_edge,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,31.82,1.33,cuda,"{'precision': 'bf16', 'use_compile': False}",276.28,414.0
+phase_congruency_edge,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,31.87,1.33,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",276.3,414.0
+phase_congruency_edge,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,42.21,1.0,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",300.27,414.0
+phase_congruency_edge,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,42.22,1.0,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",300.26,414.0
+phase_congruency_edge,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,42.35,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",300.24,414.0
+phase_congruency_edge,CPU Int8 Quantized,CPU,N/A,N/A,400.15,0.11,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+prewitt_edge,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.63,1.03,cuda,"{'precision': 'bf16', 'use_compile': False}",102.23,340.0
+prewitt_edge,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.65,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",102.23,340.0
+prewitt_edge,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.66,0.97,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",102.24,340.0
+prewitt_edge,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.66,0.98,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",102.26,340.0
+prewitt_edge,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.67,0.97,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",102.24,340.0
+prewitt_edge,CPU Int8 Quantized,CPU,N/A,N/A,22.04,0.03,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+roberts_cross_edge,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.99,1.04,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",111.66,196.0
+roberts_cross_edge,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.99,1.05,cuda,"{'precision': 'bf16', 'use_compile': False}",111.66,196.0
+roberts_cross_edge,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,1.01,1.03,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",111.66,196.0
+roberts_cross_edge,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,1.04,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",1350.14,1616.0
+roberts_cross_edge,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,1.05,0.99,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",111.64,196.0
+roberts_cross_edge,CPU Int8 Quantized,CPU,N/A,N/A,22.8,0.05,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+scharr_edge,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.61,1.02,cuda,"{'precision': 'bf16', 'use_compile': False}",102.25,340.0
+scharr_edge,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.62,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",102.24,340.0
+scharr_edge,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.63,0.98,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",102.26,340.0
+scharr_edge,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.64,0.96,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",102.26,340.0
+scharr_edge,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.66,0.94,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",102.24,340.0
+scharr_edge,CPU Int8 Quantized,CPU,N/A,N/A,22.55,0.03,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+sobel_edge,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.64,1.04,cuda,"{'precision': 'bf16', 'use_compile': False}",131.75,216.0
+sobel_edge,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.65,1.03,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",131.74,216.0
+sobel_edge,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.66,1.01,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",131.76,216.0
+sobel_edge,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.67,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",1372.17,2222.0
+sobel_edge,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.68,0.99,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",131.73,216.0
+sobel_edge,CPU Int8 Quantized,CPU,N/A,N/A,13.91,0.05,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+threshold_bernsen,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.28,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",123.2,224.0
+threshold_bernsen,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.28,1.0,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",122.48,224.0
+threshold_bernsen,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.28,1.0,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",122.49,224.0
+threshold_bernsen,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.32,0.99,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",118.64,224.0
+threshold_bernsen,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.35,0.98,cuda,"{'precision': 'bf16', 'use_compile': False}",118.63,224.0
+threshold_bernsen,CPU Int8 Quantized,CPU,N/A,N/A,1066.34,0.0,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+threshold_entropy_kapur,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.6,1.08,cuda,"{'precision': 'bf16', 'use_compile': False}",56.6,254.0
+threshold_entropy_kapur,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.64,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",56.6,254.0
+threshold_entropy_kapur,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.64,1.01,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",56.6,254.0
+threshold_entropy_kapur,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.7,0.91,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",56.59,254.0
+threshold_entropy_kapur,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.72,0.89,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",56.62,254.0
+threshold_entropy_kapur,CPU Int8 Quantized,CPU,N/A,N/A,3.0,0.21,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+threshold_kittler_illingworth,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.69,1.03,cuda,"{'precision': 'bf16', 'use_compile': False}",56.59,254.0
+threshold_kittler_illingworth,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.71,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",56.58,254.0
+threshold_kittler_illingworth,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.75,0.95,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",56.59,254.0
+threshold_kittler_illingworth,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.76,0.94,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",56.6,254.0
+threshold_kittler_illingworth,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.78,0.91,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",56.59,254.0
+threshold_kittler_illingworth,CPU Int8 Quantized,CPU,N/A,N/A,2.88,0.25,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+threshold_local_contrast,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.27,1.02,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",179.44,944.0
+threshold_local_contrast,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.28,1.02,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",179.46,944.0
+threshold_local_contrast,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.3,1.01,cuda,"{'precision': 'bf16', 'use_compile': False}",179.46,944.0
+threshold_local_contrast,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.3,1.01,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",179.47,944.0
+threshold_local_contrast,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,3.34,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",179.43,944.0
+threshold_local_contrast,CPU Int8 Quantized,CPU,N/A,N/A,406.95,0.01,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+threshold_multi_otsu,CPU Int8 Quantized,CPU,N/A,N/A,11.71,1.92,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+threshold_multi_otsu,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,22.55,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",667.06,794.0
+threshold_multi_otsu,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,22.76,0.99,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",779.77,914.0
+threshold_multi_otsu,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,22.82,0.99,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",779.7,914.0
+threshold_multi_otsu,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,22.93,0.98,cuda,"{'precision': 'bf16', 'use_compile': False}",742.1,914.0
+threshold_multi_otsu,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,23.01,0.98,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",704.55,914.0
+threshold_niblack,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.56,1.04,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",84.68,146.0
+threshold_niblack,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.56,1.04,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",84.69,166.0
+threshold_niblack,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.6,1.03,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",28.36,106.0
+threshold_niblack,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.73,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",423.11,502.0
+threshold_niblack,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.74,1.0,cuda,"{'precision': 'bf16', 'use_compile': False}",80.0,166.0
+threshold_niblack,CPU Int8 Quantized,CPU,N/A,N/A,515.1,0.01,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+threshold_percentile,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,1.19,1.01,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",113.72,254.0
+threshold_percentile,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,1.19,1.0,cuda,"{'precision': 'bf16', 'use_compile': False}",113.69,254.0
+threshold_percentile,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,1.2,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",113.69,254.0
+threshold_percentile,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,1.2,0.99,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",113.71,254.0
+threshold_percentile,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,1.2,0.99,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",113.71,254.0
+threshold_percentile,CPU Int8 Quantized,CPU,N/A,N/A,99.31,0.01,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+threshold_phansalkar,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.74,1.03,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",94.14,224.0
+threshold_phansalkar,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.8,1.01,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",94.12,224.0
+threshold_phansalkar,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.8,1.01,cuda,"{'precision': 'bf16', 'use_compile': False}",94.14,224.0
+threshold_phansalkar,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.82,1.01,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",94.12,224.0
+threshold_phansalkar,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.87,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",94.11,224.0
+threshold_phansalkar,CPU Int8 Quantized,CPU,N/A,N/A,538.23,0.01,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+threshold_sauvola,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.75,1.02,cuda,"{'precision': 'bf16', 'use_compile': False}",80.03,166.0
+threshold_sauvola,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.76,1.02,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",77.66,166.0
+threshold_sauvola,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.81,1.01,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",77.68,166.0
+threshold_sauvola,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.82,1.01,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",80.04,166.0
+threshold_sauvola,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,4.87,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",77.65,166.0
+threshold_sauvola,CPU Int8 Quantized,CPU,N/A,N/A,512.58,0.01,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0
+threshold_triangle,BF16 Native (Ampere+),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.47,1.03,cuda,"{'precision': 'bf16', 'use_compile': False}",56.62,254.0
+threshold_triangle,Baseline (FP32 Eager),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.49,1.0,cuda,"{'precision': 'fp32', 'use_compile': False}",56.62,254.0
+threshold_triangle,Max Perf (FP32 Max-Autotune),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.5,0.97,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'max-autotune'}",56.62,254.0
+threshold_triangle,BF16 + Compile,NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.51,0.95,cuda,"{'precision': 'bf16', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",56.63,254.0
+threshold_triangle,Optimized (FP32 Compile),NVIDIA RTX 4000 SFF Ada Generation,"(8, 9)",19.55,0.54,0.9,cuda,"{'precision': 'fp32', 'use_compile': True, 'compile_mode': 'reduce-overhead'}",56.6,254.0
+threshold_triangle,CPU Int8 Quantized,CPU,N/A,N/A,1.99,0.24,cpu,"{'precision': 'fp32', 'use_quantization': True, 'use_compile': False}",0.0,0.0

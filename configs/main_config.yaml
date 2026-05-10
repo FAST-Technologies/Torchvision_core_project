@@ -1,0 +1,16 @@
+test_settings:
+  test_neural_logic: false
+  test_classic_logic: true
+  max_images: 50
+  image_size: [512, 512]
+
+datasets:
+  ade20k:
+    repo_id: "hf-internal-testing/fixtures_ade20k"
+    split: "validation"
+    num_classes: 150
+
+output:
+  base_dir: "./data"
+  save_masks: true
+  save_visualizations: true
