@@ -8,6 +8,7 @@ from __future__ import annotations  # PEP 563: отложенная оценка
 from typing import List, Dict, Any, Optional, Tuple
 import torch
 import os
+import time
 from segmenters.NewTorchSegmenter import TorchSegmenter2
 
 import logging
@@ -170,6 +171,13 @@ def export_all_classical_methods(
                         print(f"  │  └─ TRT error: {e}")
                 else:
                     results[method_name][f"trt_{precision}"] = "⏭️ Exists"
+
+            print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+            print("   (нажмите Ctrl+C для отмены, если нужно)")
+            try:
+                time.sleep(15)  # 🔥 Задержка 15 секунд
+            except KeyboardInterrupt:
+                print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
 
     # Сводный отчёт
     _print_export_summary(results)

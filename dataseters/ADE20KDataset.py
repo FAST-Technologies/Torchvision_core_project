@@ -362,7 +362,7 @@ class ADE20KDataset(Dataset):
                 f"random_affine_{angle:.2f}°_translate={translate}_scale={scale}_shear={shear}"
             )
         if transforms_applied and self.augment:
-            logger.warn(f"🔧 Applied: {', '.join(transforms_applied)}")
+            logger.warning(f"🔧 Applied: {', '.join(transforms_applied)}")
 
         return img, mask
 

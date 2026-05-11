@@ -354,6 +354,8 @@ def main(use_optimizations: bool = True) -> Tuple[
             run_optimization_benchmarks(
                 "test_images/animals.jpg", target_methods_for_research
             )
+
+
             # img_large = img.resize((1920, 1080), Image.Resampling.LANCZOS)  # Full HD
             # img_xlarge = img.resize((3840, 2160), Image.Resampling.LANCZOS)  # 4K
 
@@ -442,6 +444,14 @@ def main(use_optimizations: bool = True) -> Tuple[
         else:
             print("⚠️ Пропуск сравнения бэкендов: нет тестового изображения")
 
+    print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    print("   (нажмите Ctrl+C для отмены, если нужно)")
+    try:
+        time.sleep(15)  # 🔥 Задержка 15 секунд
+    except KeyboardInterrupt:
+        print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+        return tester, None, None
+
     if test_classic_logic:
         print("🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT")
 
@@ -489,6 +499,7 @@ def main(use_optimizations: bool = True) -> Tuple[
                 export_onnx=True,
                 export_trt=torch.cuda.is_available(),
             )
+            print(exported_methods)
 
             # Регистрируем все бэкенды в тестер
             for method_name in target_methods_for_research:
@@ -532,6 +543,13 @@ def main(use_optimizations: bool = True) -> Tuple[
                                 print(f"✅ Загружен {method_name}_TRT")
                         except Exception as e:
                             print(f"⚠️ Не загружен {method_name}_TRT: {e}")
+
+                print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+                print("   (нажмите Ctrl+C для отмены, если нужно)")
+                try:
+                    time.sleep(15)  # 🔥 Задержка 15 секунд
+                except KeyboardInterrupt:
+                    print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
 
             print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
             print("   (нажмите Ctrl+C для отмены, если нужно)")
@@ -840,6 +858,13 @@ def _register_backend_methods_with_precision(
                 registered["failed"].append(f"{method_name}_TRT_{precision}: {e}")
                 print(f"   ❌ {method_name}_TRT_{precision}: {e}")
 
+        print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+        print("   (нажмите Ctrl+C для отмены, если нужно)")
+        try:
+            time.sleep(15)  # 🔥 Задержка 15 секунд
+        except KeyboardInterrupt:
+            print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+
     # ──────────────────────────────────────────────────
     # Сводка регистрации
     # ──────────────────────────────────────────────────
@@ -957,50 +982,50 @@ def _create_cv2_methods() -> SegmenterDict:
     """
     return {
         # --- Пороговые методы (Threshold) ---
-        "Global_Threshold_CV2": OpenCVSegmenter("global_thresholding", threshold=0.5),
-        "Otsu_Thresholding_CV2": OpenCVSegmenter("otsu_thresholding"),
-        "Adaptive_Threshold_CV2": OpenCVSegmenter(
+        "global_thresholding_CV2": OpenCVSegmenter("global_thresholding", threshold=0.5),
+        "otsu_thresholding_CV2": OpenCVSegmenter("otsu_thresholding"),
+        "adaptive_thresholding_CV2": OpenCVSegmenter(
             "adaptive_thresholding", block_size=11, C=2
         ),
-        "Niblack_Thresholding_CV2": OpenCVSegmenter(
+        "threshold_niblack_CV2": OpenCVSegmenter(
             "threshold_niblack", window_size=15, k=-0.2
         ),
-        "Sauvola_Thresholding_CV2": OpenCVSegmenter(
+        "threshold_sauvola_CV2": OpenCVSegmenter(
             "threshold_sauvola", window_size=15, k=0.5, r=128
         ),
-        "Bernsen_Thresholding_CV2": OpenCVSegmenter(
+        "threshold_bernsen_CV2": OpenCVSegmenter(
             "threshold_bernsen", window_size=15, contrast_threshold=0.15
         ),
-        "Phansalkar_Thresholding_CV2": OpenCVSegmenter(
+        "threshold_phansalkar_CV2": OpenCVSegmenter(
             "threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5
         ),
-        "Kittler_Illingworth_CV2": OpenCVSegmenter(
+        "threshold_kittler_illingworth_CV2": OpenCVSegmenter(
             "threshold_kittler_illingworth", num_bins=256
         ),
-        "Kapur_Entropy_CV2": OpenCVSegmenter("threshold_entropy_kapur", num_bins=256),
-        "Triangle_Threshold_CV2": OpenCVSegmenter("threshold_triangle", num_bins=256),
-        "Multi_Otsu_CV2": OpenCVSegmenter("threshold_multi_otsu", n_thresholds=2),
-        "Percentile_Threshold_CV2": OpenCVSegmenter(
+        "threshold_entropy_kapur_CV2": OpenCVSegmenter("threshold_entropy_kapur", num_bins=256),
+        "threshold_triangle_CV2": OpenCVSegmenter("threshold_triangle", num_bins=256),
+        "threshold_multi_otsu_CV2": OpenCVSegmenter("threshold_multi_otsu", n_thresholds=2),
+        "threshold_percentile_CV2": OpenCVSegmenter(
             "threshold_percentile", percentile=90
         ),
-        "Local_Contrast_CV2": OpenCVSegmenter(
+        "threshold_local_contrast_CV2": OpenCVSegmenter(
             "threshold_local_contrast", window_size=15, contrast_factor=0.1
         ),
         # --- Граничные методы (Edge) ---
-        "Sobel_CV2": OpenCVSegmenter("sobel_edge", threshold=0.1),
-        "Canny_CV2": OpenCVSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
-        "Prewitt_CV2": OpenCVSegmenter("prewitt_edge", threshold=0.1),
-        "Scharr_CV2": OpenCVSegmenter("scharr_edge", threshold=0.1),
-        "Roberts_Cross_CV2": OpenCVSegmenter("roberts_cross_edge", threshold=0.1),
-        "LoG_CV2": OpenCVSegmenter("log_edge", sigma=1.0, threshold=0.01),
-        "DoG_CV2": OpenCVSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
-        "Marr_Hildreth_CV2": OpenCVSegmenter(
+        "sobel_edge_CV2": OpenCVSegmenter("sobel_edge", threshold=0.1),
+        "canny_edge_CV2": OpenCVSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
+        "prewitt_edge_CV2": OpenCVSegmenter("prewitt_edge", threshold=0.1),
+        "scharr_edge_CV2": OpenCVSegmenter("scharr_edge", threshold=0.1),
+        "roberts_cross_edge_CV2": OpenCVSegmenter("roberts_cross_edge", threshold=0.1),
+        "log_edge_CV2": OpenCVSegmenter("log_edge", sigma=1.0, threshold=0.01),
+        "dog_edge_CV2": OpenCVSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
+        "marr_hildreth_edge_CV2": OpenCVSegmenter(
             "marr_hildreth_edge", sigma=1.5, threshold=0.01
         ),
-        "Gradient_Mag_Dir_CV2": OpenCVSegmenter(
+        "gradient_magnitude_direction_CV2": OpenCVSegmenter(
             "gradient_magnitude_direction", threshold=0.1
         ),
-        "Phase_Congruency_CV2": OpenCVSegmenter(
+        "phase_congruency_edge_CV2": OpenCVSegmenter(
             "phase_congruency_edge",
             nscales=4,
             norientations=4,
@@ -1039,58 +1064,58 @@ def _create_sklearn_methods() -> SegmenterDict:
     """
     return {
         # --- Пороговые методы (Threshold) ---
-        "Global_Threshold_Sklearn": SklearnSegmenter(
+        "global_thresholding_Sklearn": SklearnSegmenter(
             "global_thresholding", threshold=0.5
         ),
-        "Otsu_Thresholding_Sklearn": SklearnSegmenter("otsu_thresholding"),
-        "Adaptive_Threshold_Sklearn": SklearnSegmenter(
+        "otsu_thresholding_Sklearn": SklearnSegmenter("otsu_thresholding"),
+        "adaptive_thresholding_Sklearn": SklearnSegmenter(
             "adaptive_thresholding", block_size=11, C=2
         ),
-        "Niblack_Thresholding_Sklearn": SklearnSegmenter(
+        "threshold_niblack_Sklearn": SklearnSegmenter(
             "threshold_niblack", window_size=15, k=-0.2
         ),
-        "Sauvola_Thresholding_Sklearn": SklearnSegmenter(
+        "threshold_sauvola_Sklearn": SklearnSegmenter(
             "threshold_sauvola", window_size=15, k=0.5, r=128
         ),
-        "Bernsen_Thresholding_Sklearn": SklearnSegmenter(
+        "threshold_bernsen_Sklearn": SklearnSegmenter(
             "threshold_bernsen", window_size=15, contrast_threshold=0.15
         ),
-        "Phansalkar_Thresholding_Sklearn": SklearnSegmenter(
+        "threshold_phansalkar_Sklearn": SklearnSegmenter(
             "threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5
         ),
-        "Kittler_Illingworth_Sklearn": SklearnSegmenter(
+        "threshold_kittler_illingworth_Sklearn": SklearnSegmenter(
             "threshold_kittler_illingworth", num_bins=256
         ),
-        "Kapur_Entropy_Sklearn": SklearnSegmenter(
+        "threshold_entropy_kapur_Sklearn": SklearnSegmenter(
             "threshold_entropy_kapur", num_bins=256
         ),
-        "Triangle_Threshold_Sklearn": SklearnSegmenter(
+        "threshold_triangle_Sklearn": SklearnSegmenter(
             "threshold_triangle", num_bins=256
         ),
-        "Multi_Otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2),
-        "Percentile_Threshold_Sklearn": SklearnSegmenter(
+        "threshold_multi_otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2),
+        "threshold_percentile_Sklearn": SklearnSegmenter(
             "threshold_percentile", percentile=90
         ),
-        "Local_Contrast_Sklearn": SklearnSegmenter(
+        "threshold_local_contrast_Sklearn": SklearnSegmenter(
             "threshold_local_contrast", window_size=15, contrast_factor=0.1
         ),
         # --- Граничные методы (Edge) ---
-        "Sobel_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1),
-        "Canny_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
-        "Prewitt_Sklearn": SklearnSegmenter("prewitt_edge", threshold=0.1),
-        "Scharr_Sklearn": SklearnSegmenter("scharr_edge", threshold=0.1),
-        "Roberts_Cross_Sklearn": SklearnSegmenter("roberts_cross_edge", threshold=0.1),
-        "LoG_Sklearn": SklearnSegmenter("log_edge", sigma=1.0, threshold=0.01),
-        "DoG_Sklearn": SklearnSegmenter(
+        "sobel_edge_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1),
+        "canny_edge_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
+        "prewitt_edge_Sklearn": SklearnSegmenter("prewitt_edge", threshold=0.1),
+        "scharr_edge_Sklearn": SklearnSegmenter("scharr_edge", threshold=0.1),
+        "roberts_cross_edge_Sklearn": SklearnSegmenter("roberts_cross_edge", threshold=0.1),
+        "log_edge_Sklearn": SklearnSegmenter("log_edge", sigma=1.0, threshold=0.01),
+        "dog_edge_Sklearn": SklearnSegmenter(
             "dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01
         ),
-        "Marr_Hildreth_Sklearn": SklearnSegmenter(
+        "marr_hildreth_edge_Sklearn": SklearnSegmenter(
             "marr_hildreth_edge", sigma=1.5, threshold=0.01
         ),
-        "Gradient_Mag_Dir_Sklearn": SklearnSegmenter(
+        "gradient_magnitude_direction_Sklearn": SklearnSegmenter(
             "gradient_magnitude_direction", threshold=0.1
         ),
-        "Phase_Congruency_Sklearn": SklearnSegmenter(
+        "phase_congruency_edge_Sklearn": SklearnSegmenter(
             "phase_congruency_edge",
             nscales=4,
             norientations=4,
@@ -1135,42 +1160,42 @@ def _create_torch_methods_factory(
 
     # Базовые списки методов
     threshold_methods: List[Tuple[str, str, Dict[str, Any]]] = [
-        ("Global_Threshold_Torch", "global_thresholding", {"threshold": 0.5}),
-        ("Otsu_Thresholding_Torch", "otsu_thresholding", {}),
+        ("global_thresholding_Torch", "global_thresholding", {"threshold": 0.5}),
+        ("otsu_thresholding_Torch", "otsu_thresholding", {}),
         (
-            "Adaptive_Threshold_Torch",
+            "adaptive_thresholding_Torch",
             "adaptive_thresholding",
             {"block_size": 11, "C": 2},
         ),
         (
-            "Niblack_Thresholding_Torch",
+            "threshold_niblack_Torch",
             "threshold_niblack",
             {"window_size": 15, "k": -0.2},
         ),
         (
-            "Sauvola_Thresholding_Torch",
+            "threshold_sauvola_Torch",
             "threshold_sauvola",
             {"window_size": 15, "k": 0.5, "r": 128},
         ),
         (
-            "Bernsen_Thresholding_Torch",
+            "threshold_bernsen_Torch",
             "threshold_bernsen",
             {"window_size": 15, "contrast_threshold": 0.15},
         ),
         (
-            "Phansalkar_Thresholding_Torch",
+            "threshold_phansalkar_Torch",
             "threshold_phansalkar",
             {"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
         ),
         (
-            "Kittler_Illingworth_Torch",
+            "threshold_kittler_illingworth_Torch",
             "threshold_kittler_illingworth",
             {"num_bins": 256},
         ),
-        ("Kapur_Entropy_Torch", "threshold_entropy_kapur", {"num_bins": 256}),
-        ("Triangle_Threshold_Torch", "threshold_triangle", {"num_bins": 256}),
-        ("Multi_Otsu_Torch", "threshold_multi_otsu", {"n_thresholds": 2}),
-        ("Percentile_Threshold_Torch", "threshold_percentile", {"percentile": 90}),
+        ("threshold_entropy_kapur_Torch", "threshold_entropy_kapur", {"num_bins": 256}),
+        ("threshold_triangle_Torch", "threshold_triangle", {"num_bins": 256}),
+        ("threshold_multi_otsu_Torch", "threshold_multi_otsu", {"n_thresholds": 2}),
+        ("threshold_percentile_Torch", "threshold_percentile", {"percentile": 90}),
         (
             "Local_Contrast_Torch",
             "threshold_local_contrast",
@@ -1179,32 +1204,33 @@ def _create_torch_methods_factory(
     ]
 
     edge_methods: List[Tuple[str, str, Dict[str, Any]]] = [
-        ("Sobel_Torch", "sobel_edge", {"threshold": 0.1}),
-        ("Canny_Torch", "canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
-        ("Prewitt_Torch", "prewitt_edge", {"threshold": 0.1}),
-        ("Scharr_Torch", "scharr_edge", {"threshold": 0.1}),
-        ("Roberts_Cross_Torch", "roberts_cross_edge", {"threshold": 0.1}),
-        ("LoG_Torch", "log_edge", {"sigma": 1.0, "threshold": 0.01}),
-        ("DoG_Torch", "dog_edge", {"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01}),
-        # (
-        #     "Marr_Hildreth_Torch",
-        #     "marr_hildreth_edge",
-        #     {"sigma": 1.5, "threshold": 0.01},
-        # ),
-        # ("Gradient_Mag_Dir_Torch", "gradient_magnitude_direction", {"threshold": 0.1}),
-        # (
-        #     "Phase_Congruency_Torch",
-        #     "phase_congruency_edge",
-        #     {
-        #         "nscales": 4,
-        #         "norientations": 4,
-        #         "min_wavelength": 3,
-        #         "mult": 2.0,
-        #         "sigma_onf": 0.55,
-        #         "k_noise": 2.0,
-        #         "threshold": 0.5,
-        #     },
-        # ),
+        ("sobel_edge_Torch", "sobel_edge", {"threshold": 0.1}),
+        ("canny_edge_Torch", "canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
+        ("prewitt_edge_Torch", "prewitt_edge", {"threshold": 0.1}),
+        ("scharr_edge_Torch", "scharr_edge", {"threshold": 0.1}),
+        ("roberts_cross_edge_Torch", "roberts_cross_edge", {"threshold": 0.1}),
+        ("log_edge_Torch", "log_edge", {"sigma": 1.0, "threshold": 0.01}),
+        ("laplacian_edge_Torch", "laplacian_edge", {"sigma": 1.0, "threshold": 0.1}),
+        ("dog_edge_Torch", "dog_edge", {"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01}),
+        (
+            "marr_hildreth_edge_Torch",
+            "marr_hildreth_edge",
+            {"sigma": 1.5, "threshold": 0.01},
+        ),
+        ("gradient_magnitude_direction_Torch", "gradient_magnitude_direction", {"threshold": 0.1}),
+        (
+            "phase_congruency_edge_Torch",
+            "phase_congruency_edge",
+            {
+                "nscales": 4,
+                "norientations": 4,
+                "min_wavelength": 3,
+                "mult": 2.0,
+                "sigma_onf": 0.55,
+                "k_noise": 2.0,
+                "threshold": 0.5,
+            },
+        ),
     ]
 
     all_methods = threshold_methods + edge_methods

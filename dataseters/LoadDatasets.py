@@ -795,7 +795,7 @@ class DatasetManager:
                     local_dir=str(local_dir),
                 )
         except Exception as e:
-            logger.warn(
+            logger.warning(
                 f"⚠️ API-скачивание не удалось: {e}. Переключаюсь на стандартный метод..."
             )
             # Fallback на стандартный метод
@@ -832,7 +832,7 @@ class DatasetManager:
             logger.info(f"✅ Скачивание завершено! Размер: {zip_size:.2f} GB")
         else:
             zip_size = os.path.getsize(zip_path) / (1024 * 1024 * 1024)
-            logger.warn(f"✅ Архив уже существует: {zip_path} ({zip_size:.2f} GB)")
+            logger.warning(f"✅ Архив уже существует: {zip_path} ({zip_size:.2f} GB)")
 
         extract_dir: Path = config.full_path / "temp_extract"
         if not (config.full_path / "images").exists():
@@ -853,7 +853,7 @@ class DatasetManager:
             logger.info("✅ Распаковка завершена!")
             logger.info("\n🔍 Анализ структуры распакованных файлов...")
             self._reorganize_ade_structure(extract_dir, config.full_path)
-            logger.warn("\n🧹 Очистка временных файлов...")
+            logger.warning("\n🧹 Очистка временных файлов...")
             shutil.rmtree(extract_dir, ignore_errors=True)
             if config.checksum:
                 zip_path.unlink()
@@ -1713,7 +1713,7 @@ class DatasetManager:
                 if "image" in dataset.features:
                     return dataset[0]["image"].convert("RGB")
                 else:
-                    logger.warn(f"   ⚠️  Нет признака 'image' в {repo_id}")
+                    logger.warning(f"   ⚠️  Нет признака 'image' в {repo_id}")
                     return None
         except Exception as e:
             logger.error(f"   ❌ Ошибка загрузки {repo_id}: {e}")
@@ -2021,7 +2021,7 @@ if __name__ == "__main__":
     if cityscapes_img is not None:
         cityscapes_img.save("./../data/cityscapes_img.jpg")
     else:
-        logger.warn("⚠️ Не удалось загрузить изображение cityscapes")
+        logger.warning("⚠️ Не удалось загрузить изображение cityscapes")
     logger.info("\n COCO Dataset...")
     coco_img = manager.load_test_image_from_hf("detection-datasets/coco", split="train")
     if coco_img is not None:

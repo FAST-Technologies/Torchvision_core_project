@@ -59,6 +59,7 @@
 | **Активные контуры** | Active Contour, GVF, Morphological Snakes, Chan-Vese | ✅ FFT-решение + векторизация |
 | **Суперпиксели** | SLIC, Felzenszwalb, QuickShift | ⚠️ Через numpy/scipy (ограниченная оптимизация) |
 | **Интерактивные** | GrabCut | ✅ GMM на PyTorch |
+| **Нейросетевые** | SegFormer, Mask2Former, OneFormer, DeepLabV3+, U-Net, FPN, PSPNet, FCN, SegNet, SAM, DPT, UPerNet, Mask R-CNN |
 
 ### 📊 Метрики оценки
 
@@ -83,6 +84,7 @@
 | 💾 **VRAM оптимизация** | Автоматическое освобождение памяти между моделями |
 | 📈 **Детальные отчёты** | CSV, JSON, HTML, LaTeX + визуализации через matplotlib/seaborn |
 | 🧪 **Cross-backend export** | Экспорт в ONNX/TensorRT с валидацией согласованности результатов |
+| ⚡ **CPU vs CUDA** | Сравнение скорости
 
 ---
 
@@ -157,6 +159,34 @@ npm run dev
 - Разрешение экрана: ≥ 1280×720 (рекомендуется 1920×1080)
 
 > 💡 **Совет**: Для работы с тяжёлыми бенчмарками используй режим «Только результаты» — он отключает предпросмотр масок и ускоряет загрузку.
+
+### 📸 Галерея интерфейса
+
+![Главная панель](docs/screenshots/main_dashboard.png)
+*Интуитивное управление: выбор режима, цели, метода*
+
+![Рекомендации методов](docs/screenshots/recomendations.png)
+*Рекомендации метода для определённой задачи*
+
+![Анализ](docs/screenshots/analysis.png)
+*Анализ изображения с характеристиками и гистограммой интенсивностей*
+
+![Бенчмарк в процессе](docs/screenshots/benchmark_progress.png)
+*Анимированный прогресс с детализацией по этапам*
+
+![Результаты бенчмарка](docs/screenshots/benchmark_progress_results.png)
+*Сравнительная таблица методов и графики метрик*
+
+![Процесс валидации](docs/screenshots/validation_process.png)
+![Результаты валидации](docs/screenshots/validation_results.png)
+![Результаты валидации](docs/screenshots/validation_results_2.png)
+![Результаты валидации](docs/screenshots/validation_results_3.png)
+![Результаты валидации](docs/screenshots/validation_results_4.png)
+![Результаты валидации](docs/screenshots/validation_results_5.png)
+*Сравнение OpenCV vs Torch с метриками и визуализацией*
+
+![Результаты компаратора](docs/screenshots/comparator_results.png)
+*Сравнение сводной визуализации на основе референсного метода*
 
 ---
 
@@ -271,6 +301,8 @@ torchvision_core_project/
 ├── datasets/                        # Загрузчики датасетов
 │   ├── LoadDatasets.py             # Загрузка датасетов с HF
 │   └── ADE20KDataset.py            # Датасет ADE20K с аугментациями
+├── reports/                         # YAML-конфигурации
+│   └── *_report.md                  # Предикты нейросетевых моделей
 │
 ├── utils/                           # Вспомогательные утилиты
 │   ├── warmup.py                   # Warm-up для бенчмарков
@@ -330,6 +362,7 @@ pydocstyle main.py --convention=google
 
 ```python
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
+from segmenters.SklearnSegmenter import SklearnSegmenter
 from segmenters.NewTorchSegmenter import TorchSegmenter2
 from testing.SegmentationTester import SegmentationTester
 from PIL import Image
@@ -345,6 +378,7 @@ tester = SegmentationTester(base_output_dir="./results")
 
 # Добавление методов (включая оптимизированную версию)
 tester.add_method("Otsu_CV2", OpenCVSegmenter("otsu_thresholding"))
+tester.add_method("Otsu_Sklearn", SklearnSegmenter("otsu_thresholding"))
 tester.add_method("Otsu_Torch_v2", TorchSegmenter2(
     method="otsu_thresholding",
     device="cuda" if torch.cuda.is_available() else "cpu",
@@ -355,7 +389,7 @@ tester.add_method("Otsu_Torch_v2", TorchSegmenter2(
 # Запуск сравнения
 results = tester.compare_methods(
     image=img_array,
-    method_names=["Otsu_CV2", "Otsu_Torch_v2"],
+    method_names=["Otsu_CV2", "Otsu_Torch_v2", "Otsu_Sklearn"],
     save_comparison=True
 )
 
@@ -391,6 +425,28 @@ segmenter = TorchSegmenter2(
 # Запуск сегментации
 mask = segmenter.segment(np.array(Image.open("test.jpg")))
 print(f"Маска: {mask.shape}, dtype: {mask.dtype}")
+```
+
+### 4. Бенчмарк нейросетевой модели
+
+```python
+from segmenters.NeuralSegmenter import NeuralSegmenter
+from testing.SegmentationBenchmark import SegmentationBenchmark
+
+# Загрузка предобученной модели
+segmenter = NeuralSegmenter(
+    model_type="segformer",
+    model_name="nvidia/segformer-b5-finetuned-ade-640-640",
+    num_classes=150
+)
+
+# Бенчмарк
+benchmark = SegmentationBenchmark(device="cuda", num_classes=150)
+benchmark.load_model("segformer_b5", segmenter.model, segmenter.processor, "segformer")
+
+# Запуск инференса
+result = benchmark.run_single("test.jpg", "segformer_b5", alpha=0.6)
+print(f"IoU: {result['metrics'].get('iou', 'N/A'):.4f}")
 ```
 
 ---
