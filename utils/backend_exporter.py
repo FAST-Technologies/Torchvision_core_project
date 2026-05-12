@@ -111,7 +111,7 @@ def export_method_to_onnx_safe(
     segmenter,
     method_name: str,
     output_path: Union[str, Path],
-    opset_version: int = 17,
+    opset_version: int = 25,
     input_shape: ShapeType = (1, 3, 512, 512),
     precision: str = "fp32",
 ) -> bool:
@@ -174,7 +174,14 @@ def export_method_to_onnx_safe(
 
         model: onnx.ModelProto = onnx.load(output_path)
         onnx.checker.check_model(model)
-        print(f"✅ ONNX exported & validated: {output_path}")
+        actual_opset = model.opset_import[0].version
+        if actual_opset < opset_version:
+            logger.warning(
+                f"⚠️ Запрошен opset {opset_version}, но получен {actual_opset}. "
+                f"Некоторые операторы могут использовать более старую версию."
+            )
+        else:
+            logger.info(f"✅ ONNX exported with opset {actual_opset}: {output_path}")
 
         # Упрощение через onnx-simplifier (опционально)
         try:

@@ -28,6 +28,7 @@ from typing import (
 )
 from matplotlib import colormaps
 from tqdm import tqdm
+import re
 
 import numpy as np
 import numpy.typing as npt
@@ -351,10 +352,9 @@ def main(use_optimizations: bool = True) -> Tuple[
         print(f"📐 Размер изображения: {real_w}x{real_h}")
 
         if first_img_pil is not None:
-            run_optimization_benchmarks(
-                "test_images/animals.jpg", target_methods_for_research
-            )
-
+            # run_optimization_benchmarks(
+            #     "test_images/animals.jpg", target_methods_for_research
+            # )
 
             # img_large = img.resize((1920, 1080), Image.Resampling.LANCZOS)  # Full HD
             # img_xlarge = img.resize((3840, 2160), Image.Resampling.LANCZOS)  # 4K
@@ -371,7 +371,7 @@ def main(use_optimizations: bool = True) -> Tuple[
             backend_registration = _register_backend_methods_with_precision(
                 tester=tester,
                 target_methods=target_methods_for_research,
-                output_base_dir="./exported_models",
+                output_base_dir="./exported_models1",
                 precisions=[
                     "fp32",
                     "fp16",
@@ -397,20 +397,14 @@ def main(use_optimizations: bool = True) -> Tuple[
                 test_name="backend_precision_comparison",
             )
 
-            # 🔥 Фильтрация и группировка результатов по точности
             if backend_results is not None and not backend_results.empty:
-                # Добавляем колонки для удобной группировки
-                backend_results["Backend"] = backend_results["Method"].apply(
-                    lambda x: x.split("_")[-2] if x.count("_") >= 2 else "Unknown"
-                )
-                backend_results["Precision"] = backend_results["Method"].apply(
-                    lambda x: x.split("_")[-1] if x.count("_") >= 2 else "fp32"
-                )
-                backend_results["BaseMethod"] = backend_results["Method"].apply(
-                    lambda x: "_".join(x.split("_")[:-2]) if x.count("_") >= 2 else x
-                )
+                # Парсим имена методов надёжным способом
+                parsed = backend_results["Method"].apply(parse_method_name)
+                backend_results["BaseMethod"] = parsed.apply(lambda x: x["BaseMethod"])
+                backend_results["Backend"] = parsed.apply(lambda x: x["Backend"])
+                backend_results["Precision"] = parsed.apply(lambda x: x["Precision"])
 
-                # Сводная таблица: метод × бэкенд × точность
+                # Сводная таблица
                 summary = backend_results.pivot_table(
                     index=["BaseMethod", "Backend"],
                     columns="Precision",
@@ -436,6 +430,10 @@ def main(use_optimizations: bool = True) -> Tuple[
                                         and "fp32" in subset.columns
                                     ):
                                         speedup = subset["fp32"] / subset[precision]
+                                        # Фильтруем inf/nan для корректного среднего
+                                        # valid = speedup[speedup.notna() & speedup.notinf()]
+                                        # if not valid.empty:
+                                        #     print(f"   {precision}: {valid.mean():.2f}x (среднее)")
                                         print(
                                             f"   {precision}: {speedup.mean():.2f}x (среднее)"
                                         )
@@ -491,7 +489,7 @@ def main(use_optimizations: bool = True) -> Tuple[
         if first_img_pil is not None:
 
             exported_methods = export_all_classical_methods(
-                output_base_dir="./exported_models",
+                output_base_dir="./exported_models1",
                 precisions=["bf16", "fp16", "fp32"],
                 methods=target_methods_for_research,
                 input_shape=(1, 3, real_h, real_w),
@@ -513,7 +511,7 @@ def main(use_optimizations: bool = True) -> Tuple[
                 tester.add_method(f"{method_name}_Torch", pt_seg)
 
                 # ONNX
-                onnx_path = f"./exported_models/onnx/fp32/{method_name}.onnx"
+                onnx_path = f"./exported_models1/onnx/fp32/{method_name}.onnx"
                 if os.path.exists(onnx_path):
                     try:
                         onnx_seg = ONNXSegmenter(
@@ -531,7 +529,7 @@ def main(use_optimizations: bool = True) -> Tuple[
                 if torch.cuda.is_available():
                     from utils.backend_exporter import load_trt_model
 
-                    trt_path = f"./exported_models/tensorrt/fp32/{method_name}.trt"
+                    trt_path = f"./exported_models1/tensorrt/fp32/{method_name}.trt"
                     if os.path.exists(trt_path):
                         try:
                             trt_model = load_trt_model(trt_path)
@@ -744,6 +742,50 @@ def main(use_optimizations: bool = True) -> Tuple[
     print("✓ Результаты в: ./data/")
 
     return tester, results_df, None
+
+
+def parse_method_name(method_name: str) -> Dict[str, str]:
+    """
+    Надёжно парсит имя метода вида 'base_method_Backend_precision'.
+
+    Поддерживает:
+    - Базовые имена с подчёркиваниями (gradient_magnitude_direction)
+    - Известные бэкенды: Torch, ONNX, TRT, CV2, Sklearn
+    - Известные точности: fp32, fp16, bf16, v1, v2
+    """
+    # 🔥 Известные значения — ключ к надёжному парсингу
+    BACKENDS = {"Torch", "ONNX", "TRT", "CV2", "Sklearn"}
+    PRECISIONS = {"fp32", "fp16", "bf16", "v1", "v2"}
+
+    parts = method_name.split("_")
+
+    # Ищем бэкенд и точность с конца строки
+    backend = "Unknown"
+    precision = "fp32"
+
+    # Проверяем последние 1-2 части
+    for i in range(len(parts) - 1, max(-1, len(parts) - 3), -1):
+        if parts[i] in BACKENDS:
+            backend = parts[i]
+            # Точность — следующая часть после бэкенда
+            if i + 1 < len(parts) and parts[i + 1] in PRECISIONS:
+                precision = parts[i + 1]
+            break
+        elif parts[i] in PRECISIONS and backend == "Unknown":
+            precision = parts[i]
+
+    # Базовое имя — всё до бэкенда
+    if backend != "Unknown" and backend in parts:
+        backend_idx = parts.index(backend)
+        base_method = "_".join(parts[:backend_idx])
+    else:
+        # Fallback: удаляем известные суффиксы
+        base_parts = parts[:]
+        while base_parts and base_parts[-1] in (PRECISIONS | BACKENDS):
+            base_parts.pop()
+        base_method = "_".join(base_parts) if base_parts else method_name
+
+    return {"BaseMethod": base_method, "Backend": backend, "Precision": precision}
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -982,7 +1024,9 @@ def _create_cv2_methods() -> SegmenterDict:
     """
     return {
         # --- Пороговые методы (Threshold) ---
-        "global_thresholding_CV2": OpenCVSegmenter("global_thresholding", threshold=0.5),
+        "global_thresholding_CV2": OpenCVSegmenter(
+            "global_thresholding", threshold=0.5
+        ),
         "otsu_thresholding_CV2": OpenCVSegmenter("otsu_thresholding"),
         "adaptive_thresholding_CV2": OpenCVSegmenter(
             "adaptive_thresholding", block_size=11, C=2
@@ -1002,9 +1046,13 @@ def _create_cv2_methods() -> SegmenterDict:
         "threshold_kittler_illingworth_CV2": OpenCVSegmenter(
             "threshold_kittler_illingworth", num_bins=256
         ),
-        "threshold_entropy_kapur_CV2": OpenCVSegmenter("threshold_entropy_kapur", num_bins=256),
+        "threshold_entropy_kapur_CV2": OpenCVSegmenter(
+            "threshold_entropy_kapur", num_bins=256
+        ),
         "threshold_triangle_CV2": OpenCVSegmenter("threshold_triangle", num_bins=256),
-        "threshold_multi_otsu_CV2": OpenCVSegmenter("threshold_multi_otsu", n_thresholds=2),
+        "threshold_multi_otsu_CV2": OpenCVSegmenter(
+            "threshold_multi_otsu", n_thresholds=2
+        ),
         "threshold_percentile_CV2": OpenCVSegmenter(
             "threshold_percentile", percentile=90
         ),
@@ -1018,7 +1066,9 @@ def _create_cv2_methods() -> SegmenterDict:
         "scharr_edge_CV2": OpenCVSegmenter("scharr_edge", threshold=0.1),
         "roberts_cross_edge_CV2": OpenCVSegmenter("roberts_cross_edge", threshold=0.1),
         "log_edge_CV2": OpenCVSegmenter("log_edge", sigma=1.0, threshold=0.01),
-        "dog_edge_CV2": OpenCVSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
+        "dog_edge_CV2": OpenCVSegmenter(
+            "dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01
+        ),
         "marr_hildreth_edge_CV2": OpenCVSegmenter(
             "marr_hildreth_edge", sigma=1.5, threshold=0.01
         ),
@@ -1092,7 +1142,9 @@ def _create_sklearn_methods() -> SegmenterDict:
         "threshold_triangle_Sklearn": SklearnSegmenter(
             "threshold_triangle", num_bins=256
         ),
-        "threshold_multi_otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2),
+        "threshold_multi_otsu_Sklearn": SklearnSegmenter(
+            "threshold_multi_otsu", n_thresholds=2
+        ),
         "threshold_percentile_Sklearn": SklearnSegmenter(
             "threshold_percentile", percentile=90
         ),
@@ -1101,10 +1153,14 @@ def _create_sklearn_methods() -> SegmenterDict:
         ),
         # --- Граничные методы (Edge) ---
         "sobel_edge_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1),
-        "canny_edge_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
+        "canny_edge_Sklearn": SklearnSegmenter(
+            "canny_edge", low=0.1, high=0.3, sigma=1.0
+        ),
         "prewitt_edge_Sklearn": SklearnSegmenter("prewitt_edge", threshold=0.1),
         "scharr_edge_Sklearn": SklearnSegmenter("scharr_edge", threshold=0.1),
-        "roberts_cross_edge_Sklearn": SklearnSegmenter("roberts_cross_edge", threshold=0.1),
+        "roberts_cross_edge_Sklearn": SklearnSegmenter(
+            "roberts_cross_edge", threshold=0.1
+        ),
         "log_edge_Sklearn": SklearnSegmenter("log_edge", sigma=1.0, threshold=0.01),
         "dog_edge_Sklearn": SklearnSegmenter(
             "dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01
@@ -1197,7 +1253,7 @@ def _create_torch_methods_factory(
         ("threshold_multi_otsu_Torch", "threshold_multi_otsu", {"n_thresholds": 2}),
         ("threshold_percentile_Torch", "threshold_percentile", {"percentile": 90}),
         (
-            "Local_Contrast_Torch",
+            "threshold_local_contrast_Torch",
             "threshold_local_contrast",
             {"window_size": 15, "contrast_factor": 0.1},
         ),
@@ -1211,13 +1267,21 @@ def _create_torch_methods_factory(
         ("roberts_cross_edge_Torch", "roberts_cross_edge", {"threshold": 0.1}),
         ("log_edge_Torch", "log_edge", {"sigma": 1.0, "threshold": 0.01}),
         ("laplacian_edge_Torch", "laplacian_edge", {"sigma": 1.0, "threshold": 0.1}),
-        ("dog_edge_Torch", "dog_edge", {"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01}),
+        (
+            "dog_edge_Torch",
+            "dog_edge",
+            {"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01},
+        ),
         (
             "marr_hildreth_edge_Torch",
             "marr_hildreth_edge",
             {"sigma": 1.5, "threshold": 0.01},
         ),
-        ("gradient_magnitude_direction_Torch", "gradient_magnitude_direction", {"threshold": 0.1}),
+        (
+            "gradient_magnitude_direction_Torch",
+            "gradient_magnitude_direction",
+            {"threshold": 0.1},
+        ),
         (
             "phase_congruency_edge_Torch",
             "phase_congruency_edge",
@@ -4793,7 +4857,7 @@ def _create_backend_methods(
                 base_segmenter,
                 method_name,
                 onnx_path,
-                opset_version=17,
+                opset_version=25,
                 input_shape=input_shape,
                 precision=precision,
             )

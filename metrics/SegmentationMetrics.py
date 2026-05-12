@@ -556,6 +556,7 @@ class SegmentationMetrics:
         threshold: float = 0.5,
         include_hausdorff: bool = True,
         verbose_comparison: bool = False,
+        metrics_list: Optional[List[str]] = None,
     ) -> MetricsDict:
         """
         Вычисляет все метрики качества сегментации в одном вызове.
@@ -573,60 +574,100 @@ class SegmentationMetrics:
             threshold: Порог для бинаризации.
             include_hausdorff: Включать ли вычисление расстояния Хаусдорфа (медленно!).
             verbose_comparison: Если `True`, выводит сравнение кастомных и sklearn-реализаций.
+            metrics_list: Список метрик для вычисления. Если None — вычисляются все.
 
         Returns:
             Dict[str, float]: Словарь со всеми рассчитанными метриками.
         """
         metrics: MetricsDict = {}
+
+        if metrics_list is None:
+            metrics_list = [
+                "accuracy",
+                "iou",
+                "jaccard_score",
+                "dice",
+                "precision",
+                "recall",
+                "f1_score",
+                "pixel_accuracy",
+                "mae",
+                "hausdorff_distance",
+                "predicted_area",
+                "ground_truth_area",
+                "area_difference",
+                "area_ratio",
+                "true_positive",
+                "false_positive",
+                "false_negative",
+                "true_negative",
+            ]
+
+        def _need(metric_name: str) -> bool:
+            return metric_name in metrics_list
+
         # 1. Точность (Accuracy)
-        metrics["accuracy"] = SegmentationMetrics.calculate_accuracy_sklearn(
-            pred_mask, gt_mask, threshold
-        )
+        if _need("accuracy"):
+            metrics["accuracy"] = SegmentationMetrics.calculate_accuracy_sklearn(
+                pred_mask, gt_mask, threshold
+            )
 
         # 2. IoU / Jaccard
-        iou_custom: MetricValue = SegmentationMetrics.calculate_iou(
-            pred_mask, gt_mask, threshold
-        )
-        iou_sklearn: MetricValue = SegmentationMetrics.calculate_jaccard_sklearn(
-            pred_mask, gt_mask, threshold
-        )
-        metrics["iou"] = iou_custom
-        metrics["jaccard_score"] = iou_sklearn
-
-        if verbose_comparison:
-            logging.info(
-                f"IoU Check: Custom={iou_custom:.6f} | Sklearn={iou_sklearn:.6f} | Diff={abs(iou_custom - iou_sklearn):.2e}"
+        if _need("iou") or _need("jaccard_score"):
+            iou_custom: MetricValue = SegmentationMetrics.calculate_iou(
+                pred_mask, gt_mask, threshold
             )
+            if _need("iou"):
+                metrics["iou"] = iou_custom
+            if _need("jaccard_score"):
+                iou_sklearn: MetricValue = (
+                    SegmentationMetrics.calculate_jaccard_sklearn(
+                        pred_mask, gt_mask, threshold
+                    )
+                )
+                metrics["jaccard_score"] = iou_sklearn
+
+            if verbose_comparison and _need("iou") and _need("jaccard_score"):
+                logging.info(
+                    f"IoU Check: Custom={iou_custom:.6f} | Sklearn={iou_sklearn:.6f} | Diff={abs(iou_custom - iou_sklearn):.2e}"
+                )
 
         # 3. Dice
-        metrics["dice"] = SegmentationMetrics.calculate_dice_coefficient(
-            pred_mask, gt_mask, threshold
-        )
+        if _need("dice"):
+            metrics["dice"] = SegmentationMetrics.calculate_dice_coefficient(
+                pred_mask, gt_mask, threshold
+            )
 
         # 4. Precision & Recall (с внутренней проверкой)
-        metrics["precision"], metrics["recall"] = (
-            SegmentationMetrics.calculate_precision_recall(
+        if _need("precision") or _need("recall") or _need("f1_score"):
+            precision, recall = SegmentationMetrics.calculate_precision_recall(
                 pred_mask, gt_mask, threshold, verbose=verbose_comparison
             )
-        )
+            if _need("precision"):
+                metrics["precision"] = precision
+            if _need("recall"):
+                metrics["recall"] = recall
 
         # 5. F1 Score (с внутренней проверкой)
-        metrics["f1_score"] = SegmentationMetrics.calculate_f1_score(
-            pred_mask, gt_mask, threshold, verbose=verbose_comparison
-        )
+        if _need("f1_score"):
+            metrics["f1_score"] = SegmentationMetrics.calculate_f1_score(
+                pred_mask, gt_mask, threshold, verbose=verbose_comparison
+            )
 
         # 6. Pixel Accuracy
-        metrics["pixel_accuracy"] = SegmentationMetrics.calculate_pixel_accuracy(
-            pred_mask, gt_mask, threshold
-        )
+        if _need("pixel_accuracy"):
+            metrics["pixel_accuracy"] = SegmentationMetrics.calculate_pixel_accuracy(
+                pred_mask, gt_mask, threshold
+            )
 
         # 7. MAE (с внутренней проверкой)
-        metrics["mae"] = SegmentationMetrics.calculate_mae(
-            pred_mask, gt_mask, verbose=verbose_comparison
-        )
+        if _need("mae"):
+            metrics["mae"] = SegmentationMetrics.calculate_mae(
+                pred_mask, gt_mask, verbose=verbose_comparison
+            )
 
         # 8. Hausdorff
-        if include_hausdorff:
+        if _need("hausdorff_distance") and include_hausdorff:
             metrics["hausdorff_distance"] = (
                 SegmentationMetrics.calculate_hausdorff_distance(
                     pred_mask, gt_mask, threshold
@@ -634,38 +675,65 @@ class SegmentationMetrics:
             )
 
         # 9. Статистика областей и Confusion Matrix
-        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(
-            pred_mask, gt_mask, threshold
-        )
+        area_or_cm_metrics = [
+            "predicted_area",
+            "ground_truth_area",
+            "area_difference",
+            "area_ratio",
+            "true_positive",
+            "false_positive",
+            "false_negative",
+            "true_negative",
+        ]
+        if any(_need(m) for m in area_or_cm_metrics):
+            pred_binary, gt_binary = SegmentationMetrics._normalize_masks(
+                pred_mask, gt_mask, threshold
+            )
 
-        # Площади (сумма единичек)
-        pred_area: int = int(np.sum(pred_binary))
-        gt_area: int = int(np.sum(gt_binary))
+            # Площади
+            if _need("predicted_area"):
+                metrics["predicted_area"] = float(np.sum(pred_binary))
+            if _need("ground_truth_area"):
+                metrics["ground_truth_area"] = float(np.sum(gt_binary))
+            if _need("area_difference"):
+                pred_area = int(np.sum(pred_binary))
+                gt_area = int(np.sum(gt_binary))
+                metrics["area_difference"] = float(abs(pred_area - gt_area))
+            if _need("area_ratio"):
+                pred_area = int(np.sum(pred_binary))
+                gt_area = int(np.sum(gt_binary))
+                if max(pred_area, gt_area) > 0:
+                    metrics["area_ratio"] = min(pred_area, gt_area) / max(
+                        pred_area, gt_area
+                    )
+                else:
+                    metrics["area_ratio"] = 0.0
 
-        metrics["predicted_area"] = float(pred_area)
-        metrics["ground_truth_area"] = float(gt_area)
-        metrics["area_difference"] = float(abs(pred_area - gt_area))
-
-        if max(pred_area, gt_area) > 0:
-            metrics["area_ratio"] = min(pred_area, gt_area) / max(pred_area, gt_area)
-        else:
-            metrics["area_ratio"] = 0.0
-
-        # Confusion Matrix Elements
-        try:
-            tn, fp, fn, tp = confusion_matrix(
-                gt_binary.ravel(), pred_binary.ravel(), labels=[0, 1]
-            ).ravel()
-            metrics["true_negative"] = int(tn)
-            metrics["false_positive"] = int(fp)
-            metrics["false_negative"] = int(fn)
-            metrics["true_positive"] = int(tp)
-        except ValueError as e:
-            warnings.warn(f"Не удалось вычислить матрицу ошибок: {e}")
-            metrics["true_negative"] = 0
-            metrics["false_positive"] = 0
-            metrics["false_negative"] = 0
-            metrics["true_positive"] = 0
+            # Confusion Matrix Elements
+            cm_metrics = [
+                "true_positive",
+                "false_positive",
+                "false_negative",
+                "true_negative",
+            ]
+            if any(_need(m) for m in cm_metrics):
+                try:
+                    tn, fp, fn, tp = confusion_matrix(
+                        gt_binary.ravel(), pred_binary.ravel(), labels=[0, 1]
+                    ).ravel()
+                    if _need("true_negative"):
+                        metrics["true_negative"] = int(tn)
+                    if _need("false_positive"):
+                        metrics["false_positive"] = int(fp)
+                    if _need("false_negative"):
+                        metrics["false_negative"] = int(fn)
+                    if _need("true_positive"):
+                        metrics["true_positive"] = int(tp)
+                except ValueError as e:
+                    warnings.warn(f"Не удалось вычислить матрицу ошибок: {e}")
+                    for m in cm_metrics:
+                        if _need(m):
+                            metrics[m] = 0
 
         return metrics
 
