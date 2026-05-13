@@ -82,3 +82,16 @@ Anaconda3-2025.12-2-Linux-x86_64.sh
 exported_models/
 exported_models1/
 additional_files/
+*.db
+*.sql
+*.sqlite
+
+debug_export*/
+device_*/
+cuda_*/
+cpu_*/
+seed_test_*/
+test_*/
+models*/
+
+

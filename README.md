@@ -818,6 +818,367 @@ if profile.get("transfer_warnings"):
         print(f"   • {w}")
 ```
 
+# 📘 Документация: `BatchNeuralTester.py`
+
+## 📖 Обзор
+Модуль для пакетного тестирования, профилирования и анализа нейросетевых моделей семантической сегментации (SMP, TorchVision), обученных с разными стратегиями аугментации на датасете ADE20K. Автоматизирует расчёт метрик, кэширование предсказаний, экспорт моделей и генерацию отчётов.
+
+## 🏗️ Архитектура и Workflow
+1. **Парсинг CLI** → создание `TestConfig`
+2. **Поиск чекпоинтов** в `--models` по шаблону `{model}_{aug}_*.pth`
+3. **Загрузка датасета** (локально или через HuggingFace Hub)
+4. **Цикл тестирования** для каждой модели:
+   - Загрузка через `NeuralSegmenter`
+   - Инференс с поддержкой `--cache` и `--resume`
+   - Расчёт метрик (mIoU, Binary IoU, Dice, Boundary F1, per-class stats)
+   - Генерация оверлеев (`--class-aware-overlays`)
+5. **Агрегация** → `pd.DataFrame` с группировкой по `(model, augmentation, precision)`
+6. **Статистика** → ANOVA, Tukey HSD, сводные таблицы
+7. **Экспорт** → CSV, JSON, Markdown, PNG-графики, ONNX/TensorRT
+8. **Логирование** → MLflow (опционально)
+
+## 📦 Ключевые классы и структуры данных
+
+| Класс / Объект | Назначение |
+|----------------|------------|
+| `TestConfig` (dataclass) | Централизованная конфигурация эксперимента. Содержит все CLI-флаги как поля. |
+| `ModelCheckpoint` (dataclass) | Метаданные чекпоинта: путь, тип модели, уровень аугментации, ключ для агрегации. |
+| `TestResult` (dataclass) | Результат инференса одного изображения: метрики, время, точность, маски. |
+| `PredictionCache` | Дисковый LRU-кэш предсказаний. Ключи генерируются через SHA256 от `(mtime_ckpt, img_path, config_hash)`. |
+| `BatchNeuralTester` | Главный оркестратор. Управляет загрузкой, инференсом, профилированием, экспортом и визуализацией. |
+
+## 🛠️ Основные методы `BatchNeuralTester`
+
+| Метод | Описание |
+|-------|----------|
+| `__init__(config)` | Инициализация кэша, трекеров экспериментов, менеджера точности. |
+| `_find_checkpoints()` | Поиск `.pth` файлов в `config.models_dir`. Группировка по `(model_type, aug_level)`. |
+| `_load_ade20k_images()` | Загрузка пар `(image, mask)`. Поддержка локального пути и HF Hub. |
+| `_calculate_multiclass_iou()` | Расчёт mIoU и per-class IoU с учётом `ignore_index=255`. |
+| `_calculate_binary_metrics()` | Бинарные метрики (IoU, Dice, Precision, Recall, F1, MAE, Hausdorff). |
+| `_calculate_comprehensive_metrics()` | Расширенные метрики: per-class Dice/Precision/Recall + Boundary F1 (dilation⊕erosion). |
+| `_test_single_model()` | Основной цикл инференса для одного чекпоинта. Поддерживает кэш, resume, fp16/autocast. |
+| `_profile_model_inference()` | Профилирование через `torch.profiler`. Экспорт Chrome Trace и стеков. |
+| `_export_model_to_onnx_trt()` | Экспорт в ONNX (с fallback `export_params=False`) и TensorRT (`ir="ts"`). |
+| `run()` | Запуск полного пайплайна. Возвращает `pd.DataFrame` с результатами. |
+| `aggregate_metrics()` | Группировка по `(model, aug, precision)`. Расчёт `mean/std/min/max`. |
+| `statistical_analysis()` | ANOVA по аугментациям, Tukey HSD пост-хок тесты, поиск лучшей комбинации. |
+| `export_results()` | Сохранение CSV, JSON, Markdown-отчёта, оверлеев, графиков. |
+| `plot_results()` / `plot_detailed_results()` | Визуализация: bar-чарты, heatmaps прироста, boxplot/swarmplot распределений. |
+
+## 💻 CLI-флаги (актуальное состояние)
+
+### 🔹 Основные
+| Флаг | По умолчанию | Описание |
+|------|--------------|----------|
+| `--dataset` | `./data/ADE20K` | Путь к датасету или ID HF Hub |
+| `--models` | `./models` | Директория с `.pth` чекпоинтами |
+| `--subset` | `50` | Количество изображений (`0` = весь датасет) |
+| `--output` | `./results/augmentation_analysis` | Папка для результатов |
+| `--seed` | `42` | Random seed для воспроизводимости |
+| `--verbose` | `True` | Подробный лог |
+
+### ⚡ Производительность
+| Флаг | По умолчанию | Описание |
+|------|--------------|----------|
+| `--precision` | `fp32` | Точность инференса: `fp32`, `fp16`, `bf16` |
+| `--device` | `cuda` | Устройство: `cuda` или `cpu` |
+| `--cache` | `False` | Включить кэширование масок |
+| `--cache-dir` | `./cache/predictions` | Путь к кэшу |
+| `--cache-max-gb` | `10.0` | Лимит размера кэша |
+| `--clear-cache` | `False` | Очистить кэш перед запуском |
+| `--resume` | `False` | Пропускать обработанные `(model, image)` |
+| `--batch-size` | `1` | Размер батча (для пакетного инференса) |
+
+### 📦 Экспорт и профилирование
+| Флаг | По умолчанию | Описание |
+|------|--------------|----------|
+| `--export-onnx` | `False` | Экспорт в ONNX |
+| `--export-trt` | `False` | Компиляция в TensorRT |
+| `--trt-precision` | `fp16` | Точность TRT: `fp32`, `fp16` |
+| `--opset` | `17` | Версия ONNX opset |
+| `--dynamic-shapes` | `False` | Динамические размеры в ONNX |
+| `--profile` | `False` | Включить `torch.profiler` |
+| `--profile-output` | `./profiling` | Папка для trace-файлов |
+| `--profile-warmup` | `10` | Итерации прогрева |
+| `--profile-runs` | `50` | Итерации профилирования |
+
+### 📊 Метрики и трекинг
+| Флаг | По умолчанию | Описание |
+|------|--------------|----------|
+| `--compute-boundary-f1` | `False` | Расчёт Boundary F1 (медленно) |
+| `--per-class-metrics` | `False` | Сохранять per-class Precision/Recall/IoU |
+| `--use-mlflow` | `False` | Логировать метрики в MLflow |
+| `--use-wandb` | `False` | Логировать в Weights & Biases *(отложено)* |
+
+### 🎨 Визуализация
+| Флаг | По умолчанию | Описание |
+|------|--------------|----------|
+| `--save-viz` | `False` | Сохранять оверлеи |
+| `--class-aware-overlays` | `False` | Цветные оверлеи с легендой классов |
+| `--overlay-alpha` | `0.5` | Прозрачность наложения |
+| `--overlay-alpha` | `0.5` | Прозрачность маски |
+
+## 📁 Структура выходных файлов
+```text
+{output_dir}/
+├── detailed_results.csv          # Все результаты по изображениям
+├── aggregated_metrics.csv        # Агрегированные метрики (mean/std/min/max)
+├── statistical_analysis.json     # ANOVA, Tukey HSD, лучшая комбинация
+├── report.md                     # Markdown-отчёт с таблицами и приростами
+├── plots/                        # Графики
+│   ├── miou_comparison.png
+│   ├── gain_heatmap.png
+│   ├── miou_distribution.png
+│   ├── inference_time.png
+│   └── augmentation_gain.png
+├── overlays/                     # Визуализации
+│   ├── comparison_{model}.png
+│   └── full_comparison_grid.png
+├── exports/                      # Экспортированные модели
+│   ├── {model_key}.onnx
+│   └── {model_key}.{trt_precision}.trt
+└── .completed.json               # Статус выполненных задач (для --resume)
+```
+
+## 🔧 Готовые `docstring`-шаблоны (для встраивания в код)
+
+```python
+class BatchNeuralTester:
+    """
+    Оркестратор пакетного тестирования моделей сегментации.
+    
+    Поддерживает:
+    - Многоклассовые и бинарные метрики (mIoU, Dice, Boundary F1)
+    - Кэширование предсказаний и возобновление прерванных запусков
+    - Профилирование инференса (CPU/CUDA время, память, FLOPs)
+    - Экспорт в ONNX и TensorRT с fallback-механизмами
+    - Интеграцию с MLflow
+    - Генерацию отчётов (CSV, JSON, Markdown, PNG)
+    """
+
+    def _find_checkpoints(self, models_dir: Optional[PathLike] = None, ...) -> Dict[str, ModelCheckpoint]:
+        """
+        Поиск чекпоинтов по шаблону {model_type}_{aug_level}_*.pth.
+        
+        Args:
+            models_dir: Путь к директории с весами. Если None, берётся из config.
+            model_types: Список архитектур для поиска.
+            augmentation_levels: Список уровней аугментации.
+            
+        Returns:
+            Dict[str, ModelCheckpoint]: Маппинг "{model}_{aug}" → данные чекпоинта.
+        """
+
+    def _test_single_model(self, checkpoint: ModelCheckpoint, image_pairs: List[Tuple[Path, Path]], ...) -> List[TestResult]:
+        """
+        Запуск инференса одной модели на наборе изображений.
+        
+        Поддерживает:
+        - Автоматический переход на fp32 при отсутствии поддержки fp16/bf16
+        - Загрузку предсказаний из кэша
+        - Пропуск обработанных пар при --resume
+        - Расчёт comprehensive метрик и генерацию оверлеев
+        
+        Returns:
+            List[TestResult]: Список результатов по каждому изображению.
+        """
+
+    def run(self) -> pd.DataFrame:
+        """
+        Запуск полного цикла тестирования: поиск чекпоинтов → загрузка данных → инференс → агрегация.
+        
+        Returns:
+            pd.DataFrame: Таблица с метриками, временем инференса и метаданными.
+        """
+
+    def export_results(self, df: pd.DataFrame, aggregated: pd.DataFrame, stats: Optional[Dict[str, Any]] = None) -> Dict[str, Path]:
+        """
+        Экспорт результатов в различные форматы.
+        
+        Returns:
+            Dict[str, Path]: Маппинг имени артефакта → путь к файлу.
+        """
+```
+
+## ⚠️ Известные ограничения и заметки
+| Функция | Статус | Примечание |
+|---------|--------|------------|
+| `--use-wandb` | ⏸️ Отложено | Требуется доработка проверки `api_key` и fallback на offline-режим. |
+| `--export-trt` | ⚠️ Зависит от версии | Ошибка `ValueError: Unknown ir was requested` в новых версиях `torch-tensorrt`. Используется `ir="ts"` как временный workaround. |
+| `--precision fp16` на CPU | 🔄 Авто-fallback | PyTorch не поддерживает fp16-инференс на CPU. Скрипт автоматически переключается на `fp32` с предупреждением. |
+| `--resume` | ✅ Работает | Статус хранится в `output_dir/.completed.json`. Не меняйте `--dataset`, `--subset` или `--models` между запусками с `--resume`. |
+
+## 🧩 Основные классы и функции
+
+### `PredictionCache`
+```python
+"""
+Кэш предсказаний моделей для ускорения повторных запусков.
+
+Использует дисковое хранилище с LRU-политикой вытеснения.
+Ключи генерируются на основе mtime чекпоинта, пути к изображению и хэша конфигурации.
+
+Args:
+    cache_dir: Путь к директории для хранения `.pkl` файлов.
+    max_size_gb: Максимальный размер кэша в гигабайтах.
+
+Returns:
+    PredictionCache: Инициализированный объект кэша.
+
+Note:
+    - При превышении лимита `max_size_gb` удаляются самые старые файлы по `st_mtime`.
+    - Повреждённые pickle-файлы автоматически удаляются при чтении.
+"""
+```
+
+| Метод | Описание |
+|-------|----------|
+| `_get_key()` | Генерация 16-символьного hex-ключа на основе `(mtime, image_path, config_hash)`. |
+| `get()` | Загрузка предсказания из `.pkl`. Возвращает `None` при отсутствии/ошибке. |
+| `set()` | Сохранение массива. Автоматически чистит старые файлы при превышении лимита. |
+| `clear()` | Полная очистка директории кэша. Возвращает количество удалённых файлов. |
+
+---
+
+### `BatchNeuralTester`
+```python
+"""
+Оркестратор пакетного тестирования моделей сегментации.
+
+Управляет загрузкой данных, инференсом, расчётом метрик,
+кэшированием, профилированием, экспортом и визуализацией.
+
+Args:
+    config: Объект TestConfig с параметрами запуска.
+"""
+```
+
+| Метод | Назначение | Ключевые особенности |
+|-------|-----------|---------------------|
+| `__init__()` | Инициализация | Создаёт `PredictionCache`, инициализирует `mlflow`/`wandb`. |
+| `_find_checkpoints()` | Поиск `.pth` | Группирует по `(model, aug)`, берёт newest by `ctime`. |
+| `_load_ade20k_images()` | Загрузка данных | Поддержка локальных путей и HF Hub. Случайный subset. |
+| `_resize_mask()` | Ресайз GT | `scipy.ndimage.zoom` с `order=0` для сохранения целых меток. |
+| `_calculate_multiclass_iou()` | mIoU | Расчёт по валидным пикселям (`ignore_index=255`). |
+| `_calculate_binary_metrics()` | Бинарные метрики | IoU, Dice, F1, Precision, Recall, MAE, Hausdorff. |
+| `_calculate_comprehensive_metrics()` | Расширенные метрики | Per-class статистика + Boundary F1 (dilation⊕erosion). |
+| `_test_single_model()` | Цикл инференса | `autocast`, `torch.no_grad()`, кэш, resume, fallback визуализации. |
+| `_profile_model_inference()` | Профилирование | `torch.profiler` → Chrome Trace, FLOPs, CPU/CUDA время. |
+| `_export_model_to_onnx_trt()` | Экспорт | Fallback `export_params=False`, `ir="ts"` для TRT, очистка CUDA→CPU. |
+| `run()` | Главный пайплайн | Координация всех шагов. Возвращает `pd.DataFrame`. |
+| `aggregate_metrics()` | Агрегация | Группировка `(model, aug, precision)`. `mean/std/min/max`. |
+| `statistical_analysis()` | Статистика | ANOVA, Tukey HSD, поиск лучших комбинаций. |
+| `export_results()` | Сохранение артефактов | CSV, JSON, Markdown-отчёт, PNG, оверлеи. |
+| `plot_results()` / `plot_detailed_results()` | Визуализация | Bar-чарты, heatmaps, box/swarm plots, приросты относительно baseline. |
+
+---
+
+### 🛠️ Вспомогательные функции
+
+| Функция | Описание |
+|---------|----------|
+| `extract_model_aug_from_key()` | Парсинг `"{model}_{aug}_{img}"` → `(model, aug)`. Ищет известные префиксы, fallback по суффиксу. |
+| `safe_inference_context()` | Context manager. Отлавливает OOM/ошибки, чистит память, логирует детали. |
+| `_check_precision_support()` | Проверка совместимости `dtype/device`. bf16 → Ampere+, fp16 на CPU → `False`. |
+| `_resolve_torch_dtype()` | Маппинг `"fp16"/"bf16"/"fp32"` → `torch.dtype`. |
+| `ensure_pil_compatible()` | Нормализация `[0,255]`, конвертация типов, обеспечение 3 каналов RGB. |
+| `save_augmentation_comparison_grid()` | Единая сетка: строки=модели, столбцы=`[none, basic, medium]`. |
+| `save_model_augmentation_comparisons()` | Отдельные PNG по 3 колонки для каждой модели. |
+
+---
+
+## 📁 Структура выходных файлов
+
+```text
+{output_dir}/
+├── detailed_results.csv          # Все результаты по изображениям
+├── aggregated_metrics.csv        # Агрегация (mean/std/min/max)
+├── statistical_analysis.json     # ANOVA, Tukey HSD, лучшие комбинации
+├── report.md                     # Markdown-отчёт с таблицами
+├── plots/                        # Графики
+│   ├── miou_comparison.png
+│   ├── gain_heatmap.png
+│   ├── miou_distribution.png
+│   ├── miou_distribution_swarm.png
+│   ├── inference_time.png
+│   └── augmentation_gain.png
+├── overlays/                     # Визуализации
+│   ├── comparison_{model}.png
+│   └── full_comparison_grid.png
+├── exports/                      # Экспортированные модели
+│   ├── {model_key}.onnx
+│   └── {model_key}.{fp16|fp32}.trt
+├── profiling/                    # Результаты профилирования
+│   ├── trace_{model}.json        # Chrome Trace
+│   └── stacks_{model}.txt
+└── .completed.json               # Статус для --resume
+```
+
+---
+
+## 🚀 Примеры использования CLI
+
+```bash
+# 🔹 Базовый запуск
+python BatchNeuralTester.py --dataset ./data/ADE20K --subset 50 --output ./results
+
+# 🔹 С кэшированием и возобновлением
+python BatchNeuralTester.py --cache --resume --output ./results
+
+# 🔹 Профилирование инференса
+python BatchNeuralTester.py --profile --profile-output ./profiling
+
+# 🔹 Экспорт в ONNX
+python BatchNeuralTester.py --export-onnx --opset 18
+
+# 🔹 Экспорт в ONNX + TensorRT
+python BatchNeuralTester.py --export-onnx --export-trt --trt-precision fp16
+
+# 🔹 Многоклассовые метрики + boundary F1
+python BatchNeuralTester.py --compute-boundary-f1 --per-class-metrics
+
+# 🔹 Тестирование из кастомной папки моделей
+python BatchNeuralTester.py --models ./my_checkpoints --subset 5
+
+# 🔹 Воспроизводимый эксперимент
+python BatchNeuralTester.py --seed 42 --output ./exp_v1
+python BatchNeuralTester.py --seed 42 --output ./exp_v1_retry  # те же данные
+
+# 🔹 Запуск на CPU (для отладки)
+python BatchNeuralTester.py --device cpu --precision fp32 --subset 1
+
+# 🔹 Интеграция с MLflow / Weights & Biases
+python BatchNeuralTester.py --use-mlflow
+python BatchNeuralTester.py --use-wandb  # требует wandb login
+
+# 🔹 Визуализация с легендами классов
+python BatchNeuralTester.py --class-aware-overlays --overlay-alpha 0.6 --save-viz
+```
+
+---
+
+## ⚠️ Известные ограничения и заметки
+
+| Функция | Статус | Примечание |
+|---------|--------|------------|
+| `--use-wandb` | ⏸️ Отложено | Авто-fallback в offline-режим. Требует `wandb login` для онлайн. |
+| `--export-trt` | ⚠️ Workaround | Используется `ir="ts"` (TorchScript) из-за бага `ValueError: Unknown ir` в новых `torch-tensorrt`. |
+| `--precision fp16` на CPU | 🔄 Авто-fallback | Скрипт автоматически переключается на `fp32` с предупреждением. |
+| `--resume` | ✅ Работает | Статус хранится в `output_dir/.completed.json`. Не меняйте `--dataset`/`--models` между запусками. |
+| `--per-class-metrics` | ✅ Работает | Ограничено первыми 20 классами для экономии RAM/CSV размера. |
+
+---
+
+## 🛠️ Как сгенерировать авто-документацию
+
+Если нужно создать HTML/PDF документацию из кода:
+
+```bash
+pip install pdoc  # или mkdocs, sphinx
+pdoc BatchNeuralTester.py --output-dir ./docs
+# Откройте ./docs/index.html в браузере
+```
 ---
 
 ## 🤝 Вклад в проект
