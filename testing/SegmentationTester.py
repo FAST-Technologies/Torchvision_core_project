@@ -144,7 +144,7 @@ class SegmentationTester:
         self.device: torch.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
-        self.methods: Dict[str, BaseSegmenter] = {}
+        self.methods: Dict[str, Any] = {}
         self.results: Dict[str, Dict[str, Any]] = {}
         self.base_output_dir: str = str(base_output_dir)
         self.current_test_id: Optional[str] = None

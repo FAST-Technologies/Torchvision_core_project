@@ -174,7 +174,8 @@ num_classes: int = 150
 def _load_config(config_path: str = "configs/main_config.yaml") -> Dict[str, Any]:
     """Загружает конфигурацию из YAML-файла."""
     with open(config_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        result: Dict[str, Any] = yaml.safe_load(f)
+        return result
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -385,8 +386,9 @@ def main(use_optimizations: bool = True) -> Tuple[
             "phase_congruency_edge",
         ]
 
-        real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]
-        print(f"📐 Размер изображения: {real_w}x{real_h}")
+        if first_img_pil is not None:
+            real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]
+            print(f"📐 Размер изображения: {real_w}x{real_h}")
 
         if first_img_pil is not None:
             # run_optimization_benchmarks(
@@ -491,7 +493,7 @@ def main(use_optimizations: bool = True) -> Tuple[
         print("🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT")
 
         # 🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT
-        target_methods_for_research: List[str] = [
+        target_methods_for_research = [
             "global_thresholding",
             "adaptive_thresholding",
             "otsu_thresholding",
@@ -520,8 +522,9 @@ def main(use_optimizations: bool = True) -> Tuple[
 
         print("\n🔬 Запуск сравнения бэкендов (PyTorch / ONNX / TensorRT)...")
 
-        real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]  # PIL: (W, H)
-        print(f"📐 Реальный размер изображения: {real_w}x{real_h}")
+        if first_img_pil is not None:
+            real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]  # PIL: (W, H)
+            print(f"📐 Реальный размер изображения: {real_w}x{real_h}")
 
         if first_img_pil is not None:
 
@@ -594,7 +597,7 @@ def main(use_optimizations: bool = True) -> Tuple[
                 print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
                 return tester, None, None
             # Запускаем стандартный бенчмарк
-            backend_results: pd.DataFrame = tester.benchmark_methods(
+            backend_results = tester.benchmark_methods(
                 image=np.array(first_img_pil),
                 n_runs=10,
                 force_warmup=True,
@@ -731,7 +734,7 @@ def main(use_optimizations: bool = True) -> Tuple[
         # Можно взять их из tester.methods или создать напрямую
         for name, seg in tester.methods.items():
             if "ONNX" in name or "TRT" in name:
-                all_benchmark_methods[name] = seg
+                all_benchmark_methods[name] = seg  # type: ignore[assignment]
 
         # 3. Выбираем изображение
         test_image = None
@@ -831,7 +834,7 @@ def _register_backend_methods_with_precision(
     tester: SegmentationTester,
     target_methods: List[str],
     output_base_dir: str = "./exported_models",
-    precisions: List[str] = None,
+    precisions: Optional[List[str]] = None,
     input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
 ) -> Dict[str, Any]:
     """Регистрирует методы для разных бэкендов (PyTorch/ONNX/TensorRT) и точностей (fp32/fp16/bf16) с суффиксами в названиях.
@@ -2440,11 +2443,9 @@ def run_neural_segmentation_benchmark(
     processor_maskformer = MaskFormerImageProcessor.from_pretrained(
         model_name_maskformer
     )
-    model_maskformer = (
-        MaskFormerForInstanceSegmentation.from_pretrained(model_name_maskformer)
-        .to(device)
-        .eval()
-    )
+    model_maskformer = MaskFormerForInstanceSegmentation.from_pretrained(model_name_maskformer)
+    model_maskformer.to(device)  # type: ignore[arg-type]
+    model_maskformer.eval()
     class_names_val: Dict[int, str] = NeuralSegmenter.get_ade_class_names()
     result_mf_ade, result_mf_ade_results = segment_image_unified(
         model_maskformer,
@@ -3800,9 +3801,9 @@ def _generate_augmentation_plots(
             if not model_names:
                 continue
 
-            colors = colormaps["viridis"](np.linspace(0, 1, len(model_names)))
+            colors1: np.ndarray = colormaps["viridis"](np.linspace(0, 1, len(model_names)))
             bars = ax.bar(
-                model_names, miou_values, color=colors, edgecolor="black", linewidth=1.5
+                model_names, miou_values, color=colors1, edgecolor="black", linewidth=1.5
             )
 
             ax.set_title(f"Аугментации: {level}", fontsize=12, fontweight="bold")
@@ -4308,8 +4309,10 @@ def _convert_multiclass_to_binary(gt_np: npt.NDArray) -> MaskArray:
     Returns:
         MaskArray: Бинарная маска формы (H, W), dtype=uint8, {0, 255}.
     """
+    unique: np.ndarray
+    counts: np.ndarray
     unique, counts = np.unique(gt_np, return_counts=True)
-    bg_class = unique[np.argmax(counts)]
+    bg_class: np.ndarray = unique[np.argmax(counts)]
     print(
         f"📊 Статистика GT: Всего классов {len(unique)}. Самый частый: {bg_class} ({np.max(counts)} пикселей)"
     )
@@ -4377,10 +4380,10 @@ def generate_precision_report(
         n_runs: Количество измерений для статистики
         compute_metrics: Вычислять ли метрики качества (IoU)
     """
-    results = []
+    results: List[Dict[str, Any]] = []
 
     # Предварительная подготовка референсов для fp32
-    fp32_refs = {}
+    fp32_refs: Dict[str, Any] = {}
     if compute_metrics:
         print("📦 Подготовка референсных масок (fp32)...")
         for method in methods:
@@ -4407,29 +4410,29 @@ def generate_precision_report(
                     )
 
             try:
-                seg = TorchSegmenter2(
+                seg: TorchSegmenter2 = TorchSegmenter2(
                     method=method,
                     precision=precision,
                     device="cuda" if torch.cuda.is_available() else "cpu",
                 )
 
-                # 🔥 Warmup
+                # Warmup
                 for _ in range(n_warmup):
                     _ = seg.segment(image)
                     if torch.cuda.is_available():
                         torch.cuda.synchronize()
 
-                # 🔥 Замер времени
-                times = []
+                # Замер времени
+                times: List[float] = []
                 for _ in range(n_runs):
-                    start = time.perf_counter()
+                    start: float = time.perf_counter()
                     mask = seg.segment(image)
                     if torch.cuda.is_available():
                         torch.cuda.synchronize()
                     times.append(time.perf_counter() - start)
 
-                # 🔥 Вычисление метрик
-                iou = 1.0
+                # Вычисление метрик
+                iou: float = 1.0
                 if compute_metrics and precision != "fp32" and method in fp32_refs:
                     ref_mask = fp32_refs[method]
                     iou = SegmentationMetrics.calculate_iou(ref_mask, mask)
@@ -4457,10 +4460,10 @@ def generate_precision_report(
 
     # Сохранение и вывод
     if results:
-        df = pd.DataFrame(results)
+        df: pd.DataFrame = pd.DataFrame(results)
         df.to_csv(output_path, index=False)
 
-        # 🔥 Pivot-таблица для наглядности
+        # Pivot-таблица для наглядности
         print(f"\n📊 Отчёт сохранён: {output_path}")
         print("\n⏱️  Время выполнения (мс):")
         print(
@@ -4695,7 +4698,7 @@ def test_neural_segmentation_variants() -> (
 
 # ──────────────────────────────────────────────────────────────────────
 def run_cpu_cuda_benchmark(
-    all_benchmark_methods: Dict[SegmenterDict],
+    all_benchmark_methods: Dict,
     test_image: ImageArray,
     n_runs: int = 5,
     warmup_runs: int = 2,
@@ -4835,7 +4838,7 @@ def _create_backend_methods(
     import os
 
     os.makedirs(output_dir, exist_ok=True)
-    methods = {}
+    methods: Dict[str, Any] = {}
 
     for method_name in methods_list:
         print(f"\n--- Backend export: {method_name} ---")
@@ -4844,7 +4847,7 @@ def _create_backend_methods(
         methods[f"{method_name}_Torch"] = base_segmenter
 
         # 2. ONNX
-        onnx_path = os.path.join(output_dir, f"{method_name}.onnx")
+        onnx_path: str = os.path.join(output_dir, f"{method_name}.onnx")
         if force_reexport and os.path.exists(onnx_path):
             os.remove(onnx_path)
         if not os.path.exists(onnx_path):
@@ -4873,7 +4876,7 @@ def _create_backend_methods(
         # 3. TensorRT
         if not torch.cuda.is_available():
             continue
-        trt_path = os.path.join(output_dir, f"{method_name}_{precision}.trt")
+        trt_path: str = os.path.join(output_dir, f"{method_name}_{precision}.trt")
         if force_reexport and os.path.exists(trt_path):
             os.remove(trt_path)
         if not os.path.exists(trt_path):
@@ -4893,7 +4896,7 @@ def _create_backend_methods(
             try:
                 from segmenters.BackendSegmenters import TRTSegmenter
 
-                trt_model = load_trt_model(trt_path)
+                trt_model: Any = load_trt_model(trt_path)
                 if trt_model is not None:
                     methods[f"{method_name}_TRT"] = TRTSegmenter(
                         method_name, trt_model, device="cuda"
@@ -4906,16 +4909,16 @@ def _create_backend_methods(
 
 
 # ──────────────────────────────────────────────────────────────────────
-def get_device_capabilities():
+def get_device_capabilities() -> Dict[str, Any]:
     """Проверяет возможности CUDA для автоматического подбора настроек."""
     if not torch.cuda.is_available():
         return {"cuda": False, "bf16_support": False, "int8_support": True}
 
     props = torch.cuda.get_device_properties(0)
     # BF16 поддерживается на Ampere (RTX 3000/A100) и новее (Compute Capability 8.0+)
-    bf16_support = props.major >= 8
+    bf16_support: bool = props.major >= 8
     # Int8 квантование (INT8 Tensor Cores) поддерживается на Volta (T4/V100) и новее (Compute Capability 7.0+)
-    int8_support = props.major >= 7
+    int8_support: bool = props.major >= 7
 
     return {
         "cuda": True,
@@ -4929,7 +4932,7 @@ def get_device_capabilities():
 def create_segmenter_config(method_name: str, device: Optional[str], **kwargs: Any) -> Any:
     """Фабрика для создания сегментера с нужными флагами оптимизации."""
     try:
-        seg = TorchSegmenter2(method=method_name, device=device, **kwargs)
+        seg: TorchSegmenter2 = TorchSegmenter2(method=method_name, device=device, **kwargs)
         return seg
     except Exception as e:
         print(f"[WARNING] Не удалось создать конфиг для {method_name} ({device}): {e}")
@@ -4963,33 +4966,32 @@ def _get_device_metrics(device: str) -> Dict[str, Any]:
 
 
 # ──────────────────────────────────────────────────────────────────────
-def run_optimization_benchmarks(image_path: str, methods_list) -> Any:
+def run_optimization_benchmarks(
+    image_path: str,
+    methods_list: List[str],
+) -> Optional[pd.DataFrame]:
     """Запускает серию тестов производительности для списка методов."""
-    caps: Dict[str, Optional[bool]] = get_device_capabilities()
-    print(f"🖥️  System Info: {caps['device_name'] if caps['cuda'] else 'CPU'}")
+    # Dict[str, Any] вместо Dict[str, Optional[bool]], т.к. возвращаются также строки
+    caps: Dict[str, Any] = get_device_capabilities()
+    print(f"🖥️  System Info: {caps.get('device_name') if caps.get('cuda') else 'CPU'}")
     print(
-        f" CUDA BF16 Support: {caps['bf16_support']} | INT8 Support: {caps['int8_support']}"
+        f" CUDA BF16 Support: {caps.get('bf16_support')} | INT8 Support: {caps.get('int8_support')}"
     )
     print("=" * 80)
 
     # --- НАСТРОЙКИ ТЕСТА (МАТРИЦА) ---
-    # Здесь вы определяете, какие комбинации хотите протестировать
-
     from PIL import Image
     import numpy as np
 
     try:
-        img = Image.open(image_path).convert("RGB")
-        # img_large = img.resize((1920, 1080), Image.Resampling.LANCZOS)  # Full HD
-        # # Или даже больше для стресс-теста
-        # img_xlarge = img.resize((3840, 2160), Image.Resampling.LANCZOS)  # 4K
-        img_array = np.array(img)
+        img: Image.Image = Image.open(image_path).convert("RGB")
+        img_array: np.ndarray = np.array(img)
         print(f"✅ Изображение загружено: {img_array.shape}")
     except Exception as e:
         print(f"❌ Ошибка загрузки изображения {image_path}: {e}")
-        return
+        return None
 
-    configs = [
+    configs: List[Dict[str, Any]] = [
         {
             "name": "Baseline (FP32 Eager)",
             "device": "cuda",
@@ -5015,7 +5017,7 @@ def run_optimization_benchmarks(image_path: str, methods_list) -> Any:
         },
     ]
 
-    if caps["bf16_support"]:
+    if caps.get("bf16_support"):
         configs.append(
             {
                 "name": "BF16 Native (Ampere+)",
@@ -5048,20 +5050,20 @@ def run_optimization_benchmarks(image_path: str, methods_list) -> Any:
         }
     )
 
-    all_results = []
+    all_results: List[Dict[str, Any]] = []
 
     for method in methods_list:
         print(f"\n🧪 Тестирование метода: {method.upper()}")
         print("-" * 40)
 
-        # Базовый результат для расчета Speedup
-        baseline_time = None
+        baseline_time: Optional[float] = None
 
         for cfg in configs:
             print(f"   ▶ Запуск: {cfg['name']} ... ", end="", flush=True)
 
-            # 1. Создание модели
-            seg = create_segmenter_config(method, cfg["device"], **cfg["kwargs"])
+            seg: Optional[TorchSegmenter2] = create_segmenter_config(
+                method, cfg["device"], **cfg["kwargs"]
+            )
             if seg is None:
                 print("❌ Пропуск")
                 continue
@@ -5069,26 +5071,22 @@ def run_optimization_benchmarks(image_path: str, methods_list) -> Any:
             if cfg["device"] == "cuda" and torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
 
-            # 2. Профилирование
-            # n_runs=5 для быстрого теста, увеличьте для точности
             try:
-                stats = seg.profile_segmentation(
+                stats: Dict[str, Any] = seg.profile_segmentation(
                     segmenter=seg, image=img_array, n_runs=100, warmup=20
                 )
-                mean_time_ms = stats["mean_time_s"] * 1000
+                mean_time_ms: float = cast(float, stats["mean_time_s"]) * 1000
                 print(
-                    f"⏱️ {stats['method']} | {stats['mean_time_s'] * 1000:.2f}ms | Device: {stats['device']}"
+                    f"⏱️ {stats['method']} | {mean_time_ms:.2f}ms | Device: {stats['device']}"
                 )
 
-                dev_metrics = _get_device_metrics(cfg["device"])
+                dev_metrics: Dict[str, Any] = _get_device_metrics(cfg["device"])
 
-                # Расчет ускорения относительно первого (базового) запуска этого метода
-                speedup = 1.0
+                speedup: float = 1.0
                 if baseline_time is None:
                     baseline_time = mean_time_ms
-                else:
-                    if mean_time_ms > 0:
-                        speedup = baseline_time / mean_time_ms
+                elif mean_time_ms > 0:
+                    speedup = baseline_time / mean_time_ms
 
                 all_results.append(
                     {
@@ -5112,16 +5110,16 @@ def run_optimization_benchmarks(image_path: str, methods_list) -> Any:
             except Exception as e:
                 print(f"❌ Ошибка профилирования: {e}")
 
-    # --- ИТОГОВАЯ ТАБЛИЦА ---
     print("\n" + "=" * 80)
     print("📊 СВОДНАЯ ТАБЛИЦА ПРОИЗВОДИТЕЛЬНОСТИ")
     print("=" * 80)
+    
     if all_results:
-        df_summary = pd.DataFrame(all_results)
+        df_summary: pd.DataFrame = pd.DataFrame(all_results)
         df_summary = df_summary.sort_values(
             ["Method", "Time (ms)"], ascending=[True, True]
         )
-        display_cols = [
+        display_cols: List[str] = [
             "Method",
             "Config",
             "Device",
@@ -5135,57 +5133,53 @@ def run_optimization_benchmarks(image_path: str, methods_list) -> Any:
         for col in display_cols:
             if col not in df_summary.columns:
                 df_summary[col] = "N/A" if "Cap" in col or "VRAM" in col else 0.0
-        df_display = df_summary[display_cols].copy()
+                
+        df_display: pd.DataFrame = df_summary[display_cols].copy()
         df_display["Time (ms)"] = df_summary["Time (ms)"].apply(lambda x: f"{x:.2f}")
         df_display["Speedup"] = df_summary["Speedup"].apply(lambda x: f"{x:.2f}x")
-        df_display["Peak_Alloc_MB"] = df_summary["Peak_Alloc_MB"].apply(
-            lambda x: f"{x:.1f}"
-        )
-        df_display["Peak_Reserv_MB"] = df_summary["Peak_Reserv_MB"].apply(
-            lambda x: f"{x:.1f}"
-        )
+        df_display["Peak_Alloc_MB"] = df_summary["Peak_Alloc_MB"].apply(lambda x: f"{x:.1f}")
+        df_display["Peak_Reserv_MB"] = df_summary["Peak_Reserv_MB"].apply(lambda x: f"{x:.1f}")
         df_display["Total_VRAM_GB"] = df_summary["Total_VRAM_GB"].apply(
             lambda x: f"{x:.1f}" if isinstance(x, float) else str(x)
         )
         df_display["Compute_Cap"] = df_summary["Compute_Cap"].apply(
             lambda x: f"{x[0]}.{x[1]}" if isinstance(x, tuple) else str(x)
         )
-        # Преобразуем список словарей в формат для tabulate
-        # Выбираем только нужные колонки для вывода
-        # display_data = [
-        #     [r["Method"], r["Config"], r["Time (ms)"], r["Speedup"]]
-        #     for r in all_results
-        # ]
-        # print(tabulate(display_data, headers=["Method", "Configuration", "Time (ms)", "Speedup"], tablefmt="grid"))
 
         print(tabulate(df_display, headers="keys", tablefmt="grid", showindex=False))
 
-        # 💡 Опционально: мгновенное сохранение для дальнейшего анализа
-        csv_path = "optimization_benchmark.csv"
+        csv_path: str = "optimization_benchmark.csv"
         df_summary.to_csv(csv_path, index=False)
         print(f"\n💾 Таблица сохранена: {csv_path}")
+        return df_summary
     else:
         print("Нет данных для отображения.")
+        return None
 
-
-def benchmark_with_baseline(segmenter, image, configurations):
+# ──────────────────────────────────────────────────────────────────────
+def benchmark_with_baseline(
+    segmenter: TorchSegmenter2,
+    image: np.ndarray,
+    configurations: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
     """Сравнение различных конфигураций относительно baseline."""
-    results = {}
+    results: Dict[str, Any] = {}
 
-    # Запускаем baseline
-    baseline_seg = TorchSegmenter2(
+    baseline_seg: TorchSegmenter2 = TorchSegmenter2(
         method=segmenter.method,
         device="cuda",
         precision="fp32",
         use_compile=False,
     )
-    baseline_time = baseline_seg.profile_method(image, n_runs=100)["mean_time_ms"]
+    # cast нужен, так как profile_method возвращает Dict[str, Any]
+    baseline_time: float = cast(float, baseline_seg.profile_method(image, n_runs=100)["mean_time_ms"])
     results["baseline_fp32_eager"] = baseline_time
 
-    # Тестируем конфигурации
     for config_name, config_params in configurations.items():
-        seg = TorchSegmenter2(method=segmenter.method, device="cuda", **config_params)
-        time_ms = seg.profile_method(image, n_runs=100)["mean_time_ms"]
+        seg: TorchSegmenter2 = TorchSegmenter2(
+            method=segmenter.method, device="cuda", **config_params
+        )
+        time_ms: float = cast(float, seg.profile_method(image, n_runs=100)["mean_time_ms"])
         results[config_name] = {
             "time_ms": time_ms,
             "speedup": baseline_time / time_ms if time_ms > 0 else float("inf"),
