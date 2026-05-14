@@ -1,12 +1,65 @@
 # segmenters/SklearnSegmenter.py
 
+"""Класс для сегментации изображений с использованием scikit-learn и scikit-image.
+
+Поддерживает 80+ методов сегментации, сгруппированных по 10 категориям:
+1. **Пороговые методы** (13): глобальный порог, Оцу, адаптивные методы
+2. **Детекторы границ** (10): Собель, Кэнни, Лапласиан, фазовая конгруэнтность
+3. **Региональные методы** (3): рост регионов, split-and-merge, floodfill
+4. **Кластеризация** (15+): K-Means, DBSCAN, GMM, Spectral, OPTICS
+5. **Активные контуры** (4): Snakes, GVF, морфологические змеи, Чан-Везе
+6. **Watershed и графовые** (2): классический watershed, random walker
+7. **Суперпиксели** (3): SLIC, Felzenszwalb, QuickShift
+8. **ML-классификаторы** (10+): Random Forest, SVM, MLP, Naive Bayes, LDA
+9. **Обнаружение аномалий** (4): Isolation Forest, LOF, One-Class SVM
+10. **Разложение и многообразия** (6): PCA, NMF, t-SNE, Isomap
+
+Все методы возвращают:
+- `segment()`: бинарную маску `MaskArray` (0/255)
+- `segment_with_mask()`: кортеж `(визуализация, маска)`
+
+Quick Start:
+```python
+from segmenters.SklearnSegmenter import SklearnSegmenter
+
+# Пороговая сегментация
+segmenter = SklearnSegmenter("otsu_thresholding")
+mask = segmenter.segment("image.jpg")
+
+# K-Means кластеризация
+segmenter = SklearnSegmenter("kmeans_segmentation", k=3)
+overlay, mask = segmenter.segment_with_mask(image, alpha=0.7)
+
+# С метриками (при наличии GT)
+metrics, pred = segmenter.segment_and_evaluate(image, gt_mask=ground_truth)
+print(f"IoU: {metrics['iou']:.3f}")
+```
+
+Attributes:
+    method (str): Название текущего метода сегментации.
+    params (Dict[str, Any]): Словарь параметров метода.
+    model_name (str): Уникальное имя модели для логирования.
+    methods (Dict[str, SegmentationFunc]): Словарь зарегистрированных методов.
+    _scaler (StandardScaler): Скалер для нормализации признаков.
+    _needs_gray (bool): Флаг необходимости конвертации в grayscale.
+
+Note:
+    - Для методов кластеризации используется автоматическое извлечение признаков:
+        цвет (RGB/Lab) + пространственные координаты + текстура (градиенты).
+    - Все изображения нормализуются к [0, 1] для совместимости с scikit-image.
+    - Методы, требующие обучения (Random Forest, SVM), используют автоматическую
+        генерацию меток: центр = объект, углы = фон.
+    - Для больших изображений (>1000×1000) методы кластеризации используют
+        сэмплирование для ускорения.
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
 from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
 
 from segmenters.BaseSegmenter import BaseSegmenter
-from typing import List, Union, Tuple, Dict, Any, Optional, Callable, Literal
+from typing import List, Union, Tuple, Dict, Any, Optional, Callable, Literal, cast
 import numpy as np
 import numpy.typing as npt
 import warnings
@@ -160,8 +213,7 @@ ClusterLabels = npt.NDArray[np.int32]
 
 # ──────────────────────────────────────────────────────────────────────
 class SklearnSegmenter(BaseSegmenter):
-    """
-    Класс для сегментации изображений с использованием scikit-learn и scikit-image.
+    """Класс для сегментации изображений с использованием scikit-learn и scikit-image.
 
     Поддерживает 80+ методов сегментации, сгруппированных по категориям:
     1. **Пороговые методы** (13 вариантов): глобальный порог, Оцу, адаптивные методы
@@ -225,6 +277,7 @@ class SklearnSegmenter(BaseSegmenter):
     """
 
     def __init__(self, method: str = "global_thresholding", **kwargs: Any) -> None:
+        """Инициализация класса SklearnSegmenter."""
         super().__init__()
         self.method: str = method
         self.params: Dict[str, Any] = kwargs
@@ -272,8 +325,7 @@ class SklearnSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     def _setup_methods(self) -> None:
-        """
-        Регистрация всех доступных методов сегментации в словаре `self.methods`.
+        """Регистрация всех доступных методов сегментации в словаре `self.methods`.
 
         Методы сгруппированы по категориям:
         - Пороговые (13): от простого глобального до сложных адаптивных
@@ -417,8 +469,7 @@ class SklearnSegmenter(BaseSegmenter):
         params: Dict[str, Any],
         **extra: Any,
     ) -> SegmentationInfo:
-        """
-        Вспомогательный метод для логирования информации о выполнении.
+        """Вспомогательный метод для логирования информации о выполнении.
 
         Сохраняет метаданные выполнения в атрибут `self.info` и возвращает словарь.
 
@@ -457,8 +508,7 @@ class SklearnSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     def _get_param(self, key: str, default: Any, **kwargs: Any) -> Any:
-        """
-        Универсальный геттер параметров с приоритетом: kwargs > self.params > default.
+        """Универсальный геттер параметров с приоритетом: kwargs > self.params > default.
 
         Позволяет гибко переопределять параметры метода при вызове сегментации,
         сохраняя значения по умолчанию из `self.params` и fallback на `default`.
@@ -491,8 +541,7 @@ class SklearnSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     def _normalize_image(self, img: np.ndarray) -> NormalizedArray:
-        """
-        Нормализация изображения к диапазону [0, 1].
+        """Нормализация изображения к диапазону [0, 1].
 
         Преобразует входной массив в `float32` и масштабирует пиксели из `[0, 255]` в `[0, 1]`,
         если изображение имеет тип `uint8`. Необходимо для совместимости с алгоритмами scikit-image.
@@ -521,8 +570,7 @@ class SklearnSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     def _ensure_uint8_mask(self, mask: np.ndarray) -> MaskArray:
-        """
-        Гарантирует возврат бинарной маски в формате uint8 [0, 255].
+        """Гарантирует возврат бинарной маски в формате uint8 [0, 255].
 
         Автоматически конвертирует логические или float маски в `uint8`,
         масштабируя значения из `[0, 1]` в `[0, 255]` при необходимости.
@@ -558,8 +606,7 @@ class SklearnSegmenter(BaseSegmenter):
         target_size: Optional[Tuple[int, int]] = None,
         normalize: bool = False,
     ) -> NumpyImage:
-        """
-        Предобработка входного изображения с гарантией использования ITU-R BT.601.
+        """Предобработка входного изображения с гарантией использования ITU-R BT.601.
 
         Переопределяет базовый метод для строгого контроля цветового пространства
         и форматирования данных перед сегментацией. Автоматически обрабатывает
@@ -604,8 +651,7 @@ class SklearnSegmenter(BaseSegmenter):
     def segment(  # type: ignore[override]
         self, image: ImageInput, **kwargs: Any
     ) -> MaskArray:
-        """
-        Основной метод сегментации изображения.
+        """Основной метод сегментации изображения.
 
         Выполняет предобработку, вызывает зарегистрированный алгоритм из `self.methods`,
         постобрабатывает результат и возвращает унифицированную бинарную маску.
@@ -666,8 +712,7 @@ class SklearnSegmenter(BaseSegmenter):
         threshold: float = 0.5,
         **segment_kwargs: Any,  # имя как в базе
     ) -> Tuple[MetricsDict, BinaryMask]:  # типы как в базе
-        """
-        Сегментация с немедленным вычислением метрик качества.
+        """Сегментация с немедленным вычислением метрик качества.
 
         Выполняет сегментацию и сравнивает результат с ground truth маской,
         возвращая словарь метрик и предсказанную маску для быстрой валидации.
@@ -718,8 +763,7 @@ class SklearnSegmenter(BaseSegmenter):
     def segment_with_mask(  # type: ignore[override]
         self, image: ImageInput, alpha: float = 0.9, **kwargs: Any
     ) -> Tuple[ImageArray, MaskArray]:
-        """
-        Сегментация с возвратом визуализации и бинарной маски.
+        """Сегментация с возвратом визуализации и бинарной маски.
 
         Создаёт наложение маски на оригинальное изображение с настраиваемой прозрачностью
         для визуального контроля качества сегментации и презентации результатов.
@@ -771,8 +815,7 @@ class SklearnSegmenter(BaseSegmenter):
     # ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
     # ──────────────────────────────────────────────────────────────────────
     def _extract_features(self, image: ImageArray) -> FloatArray:
-        """
-        Извлечение признаков из изображения для scikit-learn методов.
+        """Извлечение признаков из изображения для scikit-learn методов.
 
         Извлекает три группы признаков:
         1. **Цветовые**: интенсивность (grayscale) или 3 канала (RGB/Lab).
@@ -852,8 +895,7 @@ class SklearnSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     def _to_gray_bt601(self, img: ImageArray) -> GrayImage:
-        """
-        Конвертация в серый по стандарту ITU-R BT.601 (как в OpenCV/Torch).
+        """Конвертация в серый по стандарту ITU-R BT.601 (как в OpenCV/Torch).
 
         Формула:
         ```
@@ -885,8 +927,7 @@ class SklearnSegmenter(BaseSegmenter):
         labels: ClusterLabels,
         shape: Tuple[int, int],
     ) -> MaskArray:
-        """
-        Создание бинарной маски из меток кластеризации.
+        """Создание бинарной маски из меток кластеризации.
 
         Алгоритм:
         1. Преобразование плоских меток в 2D форму.
@@ -923,8 +964,7 @@ class SklearnSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     def _postprocess_mask(self, mask: np.ndarray) -> MaskArray:
-        """
-        Постобработка маски для улучшения качества.
+        """Постобработка маски для улучшения качества.
 
         Args:
             mask: Исходная маска
@@ -971,8 +1011,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Глобальная пороговая сегментация.
+        """Глобальная пороговая сегментация.
 
         Применяет фиксированный порог яркости ко всему изображению:
         ```
@@ -1053,8 +1092,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Адаптивная пороговая сегментация (Gaussian).
+        """Адаптивная пороговая сегментация (Gaussian).
 
         Вычисляет локальный порог для каждой области изображения на основе
         взвешенной суммы соседних пикселей (гауссово ядро).
@@ -1125,8 +1163,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Автоматическая бинаризация по методу Оцу.
+        """Автоматическая бинаризация по методу Оцу.
 
         Находит оптимальный порог, максимизирующий межклассовую дисперсию:
         ```
@@ -1187,8 +1224,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Адаптивная пороговая обработка по Ниблаку.
+        """Адаптивная пороговая обработка по Ниблаку.
 
         Порог вычисляется локально: `T = μ + k·σ`.
         Алгоритм:
@@ -1251,8 +1287,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Улучшенная адаптивная пороговая обработка по Сауволе.
+        """Улучшенная адаптивная пороговая обработка по Сауволе.
 
         Формула: `T = μ·(1 + k·(σ/R - 1))`, где `R` — динамический диапазон.
         Алгоритм:
@@ -1318,8 +1353,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Пороговая обработка по методу Бернсена.
+        """Пороговая обработка по методу Бернсена.
 
         `T = (min + max)/2`, применяется только если `max - min > contrast_threshold`.
         Алгоритм:
@@ -1392,8 +1426,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Пороговая обработка по методу Фансалкара.
+        """Пороговая обработка по методу Фансалкара.
 
         Формула: `T = μ + k·σ·(σ/R) + m·(μ/R - 1)`.
         Алгоритм:
@@ -1460,8 +1493,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Пороговая обработка по методу Киттлера-Иллингуорта.
+        """Пороговая обработка по методу Киттлера-Иллингуорта.
 
         Минимизация ошибки классификации на основе гистограммы:
         ```
@@ -1565,8 +1597,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Пороговая обработка на основе энтропии Капура.
+        """Пороговая обработка на основе энтропии Капура.
 
         Максимизация суммы энтропий фона и объекта:
         ```
@@ -1655,8 +1686,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Пороговая обработка треугольным методом.
+        """Пороговая обработка треугольным методом.
 
         Геометрический поиск порога как точки максимального расстояния от линии пик-минимум.
         Алгоритм:
@@ -1743,8 +1773,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Многоуровневая пороговая обработка по методу Оцу.
+        """Многоуровневая пороговая обработка по методу Оцу.
 
         Расширение Оцу для `n_thresholds` порогов, разделяющих изображение на `n+1` классов.
         Алгоритм:
@@ -1801,8 +1830,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Процентильная пороговая обработка.
+        """Процентильная пороговая обработка.
 
         Порог выбирается как заданный процентиль распределения интенсивностей.
         Алгоритм:
@@ -1846,8 +1874,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Пороговая обработка на основе локального контраста.
+        """Пороговая обработка на основе локального контраста.
 
         Пиксель считается объектом, если его интенсивность значительно отличается от локального среднего.
         Алгоритм:
@@ -1905,8 +1932,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Обнаружение границ оператором Собеля.
+        """Обнаружение границ оператором Собеля.
 
         Вычисляет аппроксимацию градиента через свёртку с ядрами:
         ```
@@ -1969,8 +1995,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Обнаружение границ оператором Кэнни.
+        """Обнаружение границ оператором Кэнни.
 
         Многоэтапный алгоритм: сглаживание → градиент → немаксимумы → гистерезис.
         Алгоритм:
@@ -2046,8 +2071,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Обнаружение границ оператором Превитта.
+        """Обнаружение границ оператором Превитта.
 
         Использует равные веса `[1,1,1]` в ядрах, менее чувствителен к шуму, чем Собель.
         Алгоритм:
@@ -2095,8 +2119,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Обнаружение границ оператором Шара.
+        """Обнаружение границ оператором Шара.
 
         Улучшенная версия Собеля с оптимизированными весами для минимизации ошибки аппроксимации.
         Алгоритм:
@@ -2158,8 +2181,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Обнаружение границ оператором Робертса.
+        """Обнаружение границ оператором Робертса.
 
         Простой оператор 2×2 для диагональных границ:
         ```
@@ -2223,8 +2245,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Обнаружение границ Лапласианом Гауссиана (LoG).
+        """Обнаружение границ Лапласианом Гауссиана (LoG).
 
         `LoG = ∇²[G(σ)*I]`. Границы находятся по zero-crossing.
         Алгоритм:
@@ -2288,8 +2309,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Обнаружение границ разностью Гауссианов (DoG).
+        """Обнаружение границ разностью Гауссианов (DoG).
 
         Аппроксимация LoG: `DoG = G(σ₁)*I - G(σ₂)*I`.
         Алгоритм:
@@ -2352,11 +2372,12 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Обнаружение границ методом Марра-Хилдрета.
+        """Обнаружение границ методом Марра-Хилдрета.
 
         Классический метод: LoG + zero-crossing. Делегируется `_sklearn_log_edge`.
+
         Args/Returns/Note: Идентичны `log_edge`.
+
         Example:
             ```python
             segmenter = SklearnSegmenter("marr_hildreth_edge", sigma=1.5)
@@ -2371,8 +2392,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Границы через магнитуду и направление градиента.
+        """Границы через магнитуду и направление градиента.
 
         Позволяет фильтрацию по углу: `θ = arctan2(Gy, Gx)`.
         Алгоритм:
@@ -2449,8 +2469,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Фазовая конгруэнтность (Kovesi's algorithm).
+        """Фазовая конгруэнтность (Kovesi's algorithm).
 
         Инвариантна к освещению и контрасту. Обнаруживает границы через выравнивание фаз Фурье-компонент.
         Алгоритм:
@@ -2590,8 +2609,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация методом роста регионов (Region Growing).
+        """Сегментация методом роста регионов (Region Growing).
 
         Алгоритм итеративно расширяет область от заданного семени, добавляя соседние пиксели,
         интенсивность которых отличается от начального значения не более чем на `tolerance`.
@@ -2691,8 +2709,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Рекурсивный алгоритм разделения и слияния регионов.
+        """Рекурсивный алгоритм разделения и слияния регионов.
 
         Делит изображение на квадранты до тех пор, пока дисперсия интенсивности
         внутри региона не станет меньше `threshold`. Затем объединяет соседние
@@ -2826,8 +2843,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Рекурсивный алгоритм разделения и слияния регионов.
+        """Рекурсивный алгоритм разделения и слияния регионов.
 
         Делит изображение на квадранты до тех пор, пока дисперсия интенсивности
         внутри региона не станет меньше `threshold`. Затем объединяет соседние
@@ -2931,8 +2947,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация методом заливки (Flood Fill).
+        """Сегментация методом заливки (Flood Fill).
 
         Заполняет связную область, начиная с `seed`, пока разница интенсивности
         между текущим пикселем и семенем не превысит `tolerance`.
@@ -2997,8 +3012,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация методом K-Means кластеризации.
+        """Сегментация методом K-Means кластеризации.
 
         Группирует пиксели по цветовому признаку в K кластеров.
         Самый крупный кластер считается фоном; остальные — объектами.
@@ -3095,8 +3109,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация методом DBSCAN кластеризации.
+        """Сегментация методом DBSCAN кластеризации.
 
         Группирует пиксели на основе плотности. Пиксели, не принадлежащие ни одному кластеру (шум),
         исключаются. Самый крупный кластер считается фоном.
@@ -3179,8 +3192,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация методом MeanShift.
+        """Сегментация методом MeanShift.
 
         Итеративно сдвигает каждый пиксель к локальному центру масс в пространстве признаков
         (цвет + координаты). Результатом является кластеризация пикселей по плотности.
@@ -3249,8 +3261,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        MeanShift кластеризация для сегментации.
+        """Meanshift кластеризация для сегментации.
 
         Args:
             image: Входное изображение
@@ -3320,8 +3331,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация активными контурами (Snakes).
+        """Сегментация активными контурами (Snakes).
 
         Инициализирует замкнутый контур (обычно окружность) и деформирует его под действием
         внутренних (упругость, жесткость) и внешних (притяжение к границам) сил до равновесия.
@@ -3404,8 +3414,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация на основе Gradient Vector Flow (GVF).
+        """Сегментация на основе Gradient Vector Flow (GVF).
 
         Вычисляет векторное поле, распространяющее информацию о градиентах по всему изображению.
         Это позволяет контуру "чувствовать" границы даже на расстоянии. Маска строится по величине GVF.
@@ -3469,8 +3478,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация морфологическими змеями.
+        """Сегментация морфологическими змеями.
 
         Итеративно расширяет или сужает бинарную маску на основе величины градиента.
         Области с низким градиентом "поглощаются", с высоким — отбрасываются.
@@ -3531,8 +3539,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Модель Chan-Vese — активные контуры без градиентов.
+        """Модель Chan-Vese — активные контуры без градиентов.
 
         Энергетическая модель, которая разделяет изображение на две области с минимальной
         внутрирегиональной дисперсией. Подходит для объектов без четких границ.
@@ -3614,8 +3621,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация методом водораздела (Watershed).
+        """Сегментация методом водораздела (Watershed).
 
         Использует морфологические операции и преобразование расстояния для выделения
         надежных маркеров переднего плана и фона. Алгоритм "затопляет" изображение от маркеров,
@@ -3658,8 +3664,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация методом Random Walker.
+        """Сегментация методом Random Walker.
 
         На основе маркеров (пользовательских или автоматических) решается задача на графе:
         каждый пиксель "принадлежит" тому маркеру, до которого "случайное блуждание" короче.
@@ -3714,8 +3719,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация методом Quickshift (реализована через MeanShift как аналог).
+        """Сегментация методом Quickshift (реализована через MeanShift как аналог).
 
         Находит моды в плотности распределения пикселей в пространстве признаков.
         Группирует пиксели, принадлежащие одной моде.
@@ -3769,8 +3773,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.
+        """SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.
 
         Группирует пиксели в компактные, однородные регионы (суперпиксели) на основе пространственной
         и цветовой близости. Самый крупный суперпиксель считается фоном.
@@ -3825,8 +3828,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
+        """Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
 
         Строит сегментацию, начиная с мелких регионов и объединяя их, если внутреннее различие
         меньше межрегионального. Очень эффективен для выделения объектов разного масштаба.
@@ -3879,8 +3881,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Интерактивная сегментация GrabCut.
+        """Интерактивная сегментация GrabCut.
 
         Алгоритм на основе графов и гауссовых смесей (GMM):
         1. Инициализация прямоугольником (фон/объект).
@@ -3993,8 +3994,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Gaussian Mixture Models для сегментации.
+        """Gaussian Mixture Models для сегментации.
 
         Args:
             image: Входное изображение
@@ -4053,8 +4053,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        OPTICS кластеризация для сегментации.
+        """OPTICS кластеризация для сегментации.
 
         Args:
             image: Входное изображение
@@ -4124,8 +4123,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Agglomerative (иерархическая) кластеризация.
+        """Agglomerative (иерархическая) кластеризация.
 
         Args:
             image: Входное изображение
@@ -4193,8 +4191,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Spectral Clustering для сегментации.
+        """Spectral Clustering для сегментации.
 
         Args:
             image: Входное изображение
@@ -4264,8 +4261,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        BIRCH (Balanced Iterative Reducing and Clustering using Hierarchies).
+        """BIRCH (Balanced Iterative Reducing and Clustering using Hierarchies).
 
         Args:
             image: Входное изображение
@@ -4316,8 +4312,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Mini-Batch K-Means для больших изображений.
+        """Mini-Batch K-Means для больших изображений.
 
         Args:
             image: Входное изображение
@@ -4440,8 +4435,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Random Forest для сегментации (полу-автоматический).
+        """Random Forest для сегментации (полу-автоматический).
 
         Обучает ансамбль деревьев на автоматически сгенерированных метках:
         центр = объект, углы = фон. Использует признаки цвета, координат и текстуры.
@@ -4529,8 +4523,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Support Vector Machine для сегментации.
+        """Support Vector Machine для сегментации.
 
         Args:
             image: Входное изображение
@@ -4606,8 +4599,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Logistic Regression для сегментации.
+        """Logistic Regression для сегментации.
 
         Args:
             image: Входное изображение
@@ -4685,8 +4677,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        K-Nearest Neighbors для сегментации.
+        """K-Nearest Neighbors для сегментации.
 
         Args:
             image: Входное изображение
@@ -4763,8 +4754,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Isolation Forest для сегментации (объект как аномалия).
+        """Isolation Forest для сегментации (объект как аномалия).
 
         Строит изолирующие деревья. Пиксели, требующие меньше разбиений
         для изоляции, считаются аномалиями (объектами).
@@ -4834,8 +4824,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Local Outlier Factor для сегментации.
+        """Local Outlier Factor для сегментации.
 
         Args:
             image: Входное изображение
@@ -4891,8 +4880,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        One-Class SVM для сегментации.
+        """One-Class SVM для сегментации.
 
         Args:
             image: Входное изображение
@@ -4954,8 +4942,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        PCA-based сегментация.
+        """PCA-based сегментация.
 
         Снижает размерность признаков до `n_components`, сохраняя максимальную дисперсию.
         Затем применяет K-Means в сжатом пространстве для выделения кластеров.
@@ -5023,8 +5010,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Non-negative Matrix Factorization для сегментации.
+        """Non-negative Matrix Factorization для сегментации.
 
         Args:
             image: Входное изображение
@@ -5070,8 +5056,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        t-SNE для сегментации (визуализация + кластеризация).
+        """t-SNE для сегментации (визуализация + кластеризация).
 
         Args:
             image: Входное изображение
@@ -5132,8 +5117,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Ensemble clustering (комбинация нескольких методов).
+        """Ensemble clustering (комбинация нескольких методов).
 
         Args:
             image: Входное изображение
@@ -5199,8 +5183,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Кластеризация с учетом цвета и пространственных координат.
+        """Кластеризация с учетом цвета и пространственных координат.
 
         Args:
             image: Входное изображение
@@ -5366,8 +5349,7 @@ class SklearnSegmenter(BaseSegmenter):
         method: str = "knn",
         **kwargs: Any,
     ) -> ClusterLabels:
-        """
-        Интерполяция меток с обучающего набора на тестовый.
+        """Интерполяция меток с обучающего набора на тестовый.
 
         Args:
             train_features: Признаки обучающей выборки
@@ -5389,7 +5371,7 @@ class SklearnSegmenter(BaseSegmenter):
             _, indices = nbrs.kneighbors(test_features)
             test_labels = train_labels[indices.flatten()]
 
-        return test_labels
+        return cast(ClusterLabels, test_labels)
 
     # ============ ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ (для полноты) ============
     # ──────────────────────────────────────────────────────────────────────
@@ -6182,7 +6164,7 @@ class SklearnSegmenter(BaseSegmenter):
     # ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
     # ──────────────────────────────────────────────────────────────────────
     def _create_mask_from_labels_vers2(
-        self, labels: np.ndarray, shape: Tuple, **kwargs
+        self, labels: np.ndarray, shape: Tuple, **kwargs: Any
     ) -> np.ndarray:
         """Создание бинарной маски из меток."""
         labels_2d = labels.reshape(shape)
@@ -6201,7 +6183,7 @@ class SklearnSegmenter(BaseSegmenter):
         # Создаем маску (все кроме фона)
         mask = labels_2d != bg_label
 
-        return mask
+        return cast(np.ndarray, mask)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_floodfill(
@@ -6209,8 +6191,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация методом заливки (Flood Fill).
+        """Сегментация методом заливки (Flood Fill).
 
         Заполняет связную область, начиная с `seed`, пока разница интенсивности
         между текущим пикселем и семенем не превысит `tolerance`.
@@ -6284,8 +6265,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация активными контурами (Snakes / Kass-Witkin-Terzopoulos).
+        """Сегментация активными контурами (Snakes / Kass-Witkin-Terzopoulos).
 
         Инициализирует замкнутый контур (окружность) и деформирует его под действием:
         - Внутренних сил (упругость `alpha`, жёсткость `beta`)
@@ -6398,8 +6378,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация на основе Gradient Vector Flow (GVF).
+        """Сегментация на основе Gradient Vector Flow (GVF).
 
         Расширяет область захвата активного контура, распространяя информацию
         о градиентах по всему изображению через диффузионный процесс.
@@ -6496,8 +6475,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Морфологические змеи (Morphological Geodesic Active Contours).
+        """Морфологические змеи (Morphological Geodesic Active Contours).
 
         Эволюция уровня множества через морфологические операции вместо решения PDE.
         Устойчив к топологическим изменениям (разделение/слияние контуров).
@@ -6590,8 +6568,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Модель Чан-Везе — активные контуры без градиентов.
+        """Модель Чан-Везе — активные контуры без градиентов.
 
         Энергетическая модель, минимизирующая внутрирегиональную дисперсию.
         Работает даже при отсутствии чётких границ, опираясь на однородность областей.
@@ -6690,8 +6667,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Watershed (водораздел) сегментация.
+        """Watershed (водораздел) сегментация.
 
         Интерпретирует изображение как топографическую поверхность. «Затопление»
         начинается от маркеров; границы между «водоёмами» становятся контурами объектов.
@@ -6768,8 +6744,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Сегментация методом Random Walker.
+        """Сегментация методом Random Walker.
 
         Решает задачу на графе: каждый пиксель присваивается маркеру,
         до которого случайное блуждание доходит с наибольшей вероятностью.
@@ -6856,8 +6831,8 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Quickshift сегментация.
+        """Quickshift сегментация.
+
         Mode-seeking алгоритм для сегментации в пространстве признаков.
 
         Args:
@@ -6914,8 +6889,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.
+        """SLIC (Simple Linear Iterative Clustering) — суперпиксельная сегментация.
 
         Группирует пиксели в компактные регионы на основе цвета (Lab) и координат.
         Итеративно уточняет центры суперпикселей до сходимости.
@@ -7005,8 +6979,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        Felzenszwalb сегментация — иерархическая на основе MST.
+        """Felzenszwalb сегментация — иерархическая на основе MST.
 
         Строит минимальное остовное дерево в пространстве пикселей.
         Объединяет соседние регионы, если внутреннее различие < межрегионального.
@@ -7085,8 +7058,7 @@ class SklearnSegmenter(BaseSegmenter):
         img: ImageArray,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
-        """
-        GrabCut эмуляция через Random Forest.
+        """Grabcut эмуляция через Random Forest.
 
         Имитирует интерактивный GrabCut: пользователь задаёт прямоугольник,
         алгоритм обучает классификатор на цветах внутри/снаружи и предсказывает маску.

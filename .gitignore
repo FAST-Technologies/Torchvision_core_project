@@ -93,5 +93,8 @@ cpu_*/
 seed_test_*/
 test_*/
 models*/
+cache/
+final_test*/
+profiling/
 
 

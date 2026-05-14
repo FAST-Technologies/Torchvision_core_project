@@ -1,15 +1,63 @@
 # utils/backend_exporter.py
 
-"""
-Экспорт методов TorchSegmenter2 в ONNX и TensorRT.
+"""Экспорт методов TorchSegmenter2 в ONNX и TensorRT.
 
-Исправления:
-  1. TRT: bound method → nn.Module wrapper → torch.export → TRT dynamo compile
-  2. ONNX: убран dim()-зависимый branch (фиксирует случайный path при трассировке)
-     Теперь forward всегда возвращает строго (1,1,H,W) через view()
-  3. ONNX: boolean indexing в canny заменён на torch.where (ONNX-совместимо)
-  4. ONNXSegmenter.segment: добавлена обработка ошибок
-  5. TRT: torch_tensorrt.save вместо torch.jit.save (для dynamo-скомпилированных)
+Поддерживаемые форматы:
+1. **ONNX**: кросс-платформенный формат для инференса через ONNX Runtime, TVM, OpenVINO.
+2. **TensorRT (Dynamo)**: современный pipeline через torch.export + torch_tensorrt.dynamo.
+3. **TensorRT (JIT)**: legacy pipeline через torch.jit.trace + torch_tensorrt.compile.
+
+Ключевые особенности:
+- ✅ SegmenterMethodWrapper: оборачивает bound methods в nn.Module для torch.export/TRT
+- ✅ Фиксация формы выхода: гарантированный (1,1,H,W) через view() — без dim()-веток
+- ✅ ONNX-совместимость: torch.where вместо boolean indexing, удаление динамических if
+- ✅ Валидация и упрощение: onnx.checker + onnx-simplifier (опционально)
+- ✅ Авто-fallback: fp16 → fp32 если не поддерживается, динамические размеры для TRT
+- ✅ Обработка ошибок: очистка битых файлов, подробное логирование
+
+Типичный workflow:
+```python
+from utils.backend_exporter import (
+    export_method_to_onnx_safe,
+    export_method_to_trt_dynamo,
+    load_trt_model
+)
+from segmenters.NewTorchSegmenter import TorchSegmenter2
+import torch
+
+# 1. Инициализация сегментера
+segmenter = TorchSegmenter2(method="canny_edge")
+
+# 2. Экспорт в ONNX
+export_method_to_onnx_safe(
+    segmenter=segmenter,
+    method_name="canny_edge",
+    output_path="./exports/canny.onnx",
+    opset_version=25
+)
+
+# 3. Экспорт в TensorRT (Dynamo, fp16)
+export_method_to_trt_dynamo(
+    segmenter=segmenter,
+    method_name="canny_edge",
+    output_path="./exports/canny.trt",
+    precision="fp16"
+)
+
+# 4. Загрузка и инференс TRT-модели
+trt_model = load_trt_model("./exports/canny.trt")
+with torch.no_grad():
+    input_tensor = torch.randn(1, 3, 512, 512, device="cuda")
+    output = trt_model(input_tensor)  # (1, 1, 512, 512)
+    mask = (output > 0.5).byte() * 255
+```
+
+Note:
+- Для `torch.export` и `torch_tensorrt.dynamo` требуется PyTorch ≥ 2.0.
+- TensorRT требует установленный NVIDIA TensorRT и CUDA-capable GPU.
+- ONNX opset ≥17 рекомендуется для поддержки современных операторов.
+- При экспорте в fp16 автоматически проверяется Compute Capability GPU; при несоответствии — fallback на fp32.
+- Все функции возвращают `bool` для удобства пакетной обработки; детали ошибок логируются.
 """
 
 # ──────────────────────────────────────────────────────────────────────
@@ -67,8 +115,7 @@ PrecisionType = Union[Literal["fp32", "fp16", "bf16"], torch.dtype]
 # Базовый wrapper: bound method → nn.Module
 # ──────────────────────────────────────────────────────────────────────────────
 class SegmenterMethodWrapper(nn.Module):
-    """
-    Оборачивает bound method сегментера в nn.Module для torch.export и TRT.
+    """Оборачивает bound method сегментера в nn.Module для torch.export и TRT.
 
     ВАЖНО: func должна быть оригинальной (не скомпилированной) функцией.
     torch.export.export не принимает torch.compile-обёрнутые функции.
@@ -77,6 +124,7 @@ class SegmenterMethodWrapper(nn.Module):
     def __init__(
         self, segmenter: Any, method_name: str, precision: str = "fp32"
     ) -> None:
+        """Инициализация модуля SegmenterMethodWrapper."""
         super().__init__()
         self.segmenter: Any = segmenter
         self.method_name: str = method_name
@@ -92,6 +140,7 @@ class SegmenterMethodWrapper(nn.Module):
             self.func = func
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Прямой ход для SegmenterMethodWrapper."""
         result: torch.Tensor = self.func(
             self.segmenter, x, precision=self.precision, export_mode=True
         )
@@ -115,8 +164,7 @@ def export_method_to_onnx_safe(
     input_shape: ShapeType = (1, 3, 512, 512),
     precision: str = "fp32",
 ) -> bool:
-    """
-    Экспортирует один метод сегментера в ONNX.
+    """Экспортирует один метод сегментера в ONNX.
 
     Args:
         segmenter: Экземпляр сегментера с attribute `method_map`.
@@ -218,8 +266,7 @@ def export_method_to_trt_dynamo(
     precision: str = "fp32",
     input_shape: ShapeType = (1, 3, 512, 512),
 ) -> bool:
-    """
-    Экспорт метода в TensorRT через torch.export + dynamo.
+    """Экспорт метода в TensorRT через torch.export + dynamo.
 
     Args:
         segmenter: Экземпляр сегментера.
@@ -351,8 +398,7 @@ def load_trt_model(
     path: Union[str, Path],
     sample_input: Optional[torch.Tensor] = None,
 ) -> Optional[Any]:
-    """
-    Загружает TRT модель. Поддерживает оба формата: torch.jit и torch_tensorrt.
+    """Загружает TRT модель. Поддерживает оба формата: torch.jit и torch_tensorrt.
 
     Args:
         path: Путь к файлу .trt.
@@ -389,8 +435,7 @@ def export_method_to_trt_jit(
     min_shape: Optional[ShapeType] = None,
     max_shape: Optional[ShapeType] = None,
 ) -> bool:
-    """
-    Экспорт метода в TensorRT через torch.jit.trace + torch_tensorrt.compile.
+    """Экспорт метода в TensorRT через torch.jit.trace + torch_tensorrt.compile.
 
     Args:
         segmenter: Экземпляр сегментера.

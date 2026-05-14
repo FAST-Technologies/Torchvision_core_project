@@ -1,5 +1,56 @@
 # utils/settings.py
 
+"""Конфигурация приложения через Pydantic Settings.
+
+Загружает переменные окружения из `.env` файла и предоставляет
+типизированный доступ к путям и параметрам моделей.
+
+Attributes:
+    model_config (SettingsConfigDict): Конфигурация Pydantic.
+        - env_file: Имя файла с переменными окружения (".env").
+        - extra: Поведение при неизвестных полях ("ignore").
+    
+    MODEL_DIR (Path): Базовая директория для сохранения/загрузки моделей.
+        По умолчанию: значение из utils.paths.MODELS_DIR.
+        Переопределяется: env var `MODEL_DIR`.
+    
+    DEFAULT_IMAGE (Path): Путь к изображению по умолчанию для тестов.
+        Используется в демо-скриптах и бенчмарках.
+    
+    DEFAULT_GT (Path): Путь к ground truth маске по умолчанию.
+        Используется для валидации и расчёта метрик.
+    
+    SEGFORMER_PATH (str): Имя/путь модели SegFormer.
+        Относительно MODEL_DIR или абсолютный путь.
+    
+    UNET_CHECKPOINT (str): Имя файла чекпоинта U-Net.
+    
+    DEEPLAB_CHECKPOINT (str): Имя файла чекпоинта DeepLabV3+.
+    
+    FPN_MIT_CHECKPOINT (str): Имя файла чекпоинта FPN + MiT-B5.
+    
+    PSP_MIT_CHECKPOINT (str): Имя файла чекпоинта PSPNet + MiT-B5.
+    
+    FCN_RESNET50_CHECKPOINT (str): Имя файла чекпоинта FCN ResNet50.
+    
+    SEGNET_RESNET34_CHECKPOINT (str): Имя файла чекпоинта SegNet ResNet34.
+
+Raises:
+    ValidationError: При несоответствии типов переменных окружения.
+
+Example:
+    ```python
+    from utils.settings import settings
+    
+    # Прямой доступ к атрибутам
+    print(settings.MODEL_DIR)  # Path('/path/to/models')
+    
+    # Использование вспомогательных методов
+    checkpoint = settings.get_model_full_path(settings.UNET_CHECKPOINT)
+    settings.ensure_model_dir_exists()
+    ```
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -36,8 +87,7 @@ PathLike = Union[str, Path]
 
 # ──────────────────────────────────────────────────────────────────────
 class Settings(BaseSettings):
-    """
-    Конфигурация приложения через Pydantic Settings.
+    """Конфигурация приложения через Pydantic Settings.
 
     Загружает переменные окружения из `.env` файла и предоставляет
     типизированный доступ к путям и параметрам моделей.
@@ -80,8 +130,7 @@ class Settings(BaseSettings):
     # HELPER METHODS
     # ──────────────────────────────────────────────────────────────
     def get_model_full_path(self, checkpoint_name: str) -> Path:
-        """
-        Возвращает полный путь к файлу модели.
+        """Возвращает полный путь к файлу модели.
 
         Args:
             checkpoint_name: Имя файла чекпоинта (без директории).

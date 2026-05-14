@@ -1,6 +1,16 @@
 # tests/integration/test_validation_pipeline.py
-"""Интеграционные тесты для пайплайна валидации"""
 
+"""Интеграционные тесты для пайплайна валидации и бенчмаркинга.
+
+Проверяет:
+- Согласованность результатов Torch vs OpenCV/Sklearn
+- Воспроизводимость метрик при повторных вызовах
+- Стабильность бенчмарков (допуск ±50% времени из-за ОС)
+- Корректную работу временных директорий
+- Интеграцию с TorchImplementationValidator и SegmentationTester
+
+Маркер: @pytest.mark.integration
+"""
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -20,8 +30,9 @@ import tempfile
 # ──────────────────────────────────────────────────────────────────────
 @pytest.mark.integration
 class TestValidationPipeline:
+    """Класс тестов для реализации TorchImplementationValidator."""
     def test_torch_vs_opencv_validation(self, rgb_image: np.ndarray) -> None:
-        """Валидация Torch vs OpenCV реализаций"""
+        """Валидация Torch vs OpenCV реализаций."""
         from testing.TorchImplementationValidator import TorchImplementationValidator
         from segmenters.TorchSegmenter import TorchSegmenter
         from segmenters.SklearnSegmenter import SklearnSegmenter
@@ -33,20 +44,20 @@ class TestValidationPipeline:
             results: Dict[str, Any] = validator.validate_segmentation_methods(
                 image_path=rgb_image,
                 methods_list=[("global_thresholding", {"threshold": 0.5})],
-                torch_segmenter_class=TorchSegmenter,
-                reference_segmenter_class=SklearnSegmenter,
-                reference="opencv",
+                first_segmenter_class=TorchSegmenter,
+                second_segmenter_class=SklearnSegmenter,
+                first_method_name="Global_Thresholding_Torch",
+                second_method_name="Global_Thresholding_Skleran",
                 status_message="Test",
                 prefix="test",
                 validation_type="threshold",
-                additional_method="Torch",
             )
 
             assert len(results) >= 0
 
     # ──────────────────────────────────────────────────────────────────────
     def test_metrics_calculation_consistency(self) -> None:
-        """Проверка согласованности метрик между разными вызовами"""
+        """Проверка согласованности метрик между разными вызовами."""
         from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict
 
         gt: np.ndarray = np.zeros((100, 100), dtype=np.uint8)
@@ -61,7 +72,7 @@ class TestValidationPipeline:
 
     # ──────────────────────────────────────────────────────────────────────
     def test_benchmark_reproducibility(self, rgb_image) -> None:
-        """Проверка воспроизводимости бенчмарка"""
+        """Проверка воспроизводимости бенчмарка."""
         from testing.SegmentationTester import SegmentationTester
         from segmenters.TorchSegmenter import TorchSegmenter
 

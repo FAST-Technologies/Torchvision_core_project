@@ -1,5 +1,119 @@
 # utils/batch_exporter.py
 
+"""Модуль массового экспорта классических методов сегментации.
+
+Предоставляет инструменты для пакетного экспорта методов сегментации из библиотеки
+PyTorch в оптимизированные форматы для продакшн-развёртывания: ONNX и TensorRT.
+
+Основные возможности:
+- 🔄 Массовый экспорт пороговых и граничных методов сегментации
+- 🎯 Поддержка множественных точностей: fp32, fp16, bf16
+- 📦 Экспорт в ONNX (кроссплатформенный формат)
+- ⚡ Экспорт в TensorRT (оптимизация для NVIDIA GPU)
+- 📊 Автоматическая генерация отчётов о статусе экспорта
+- ♻️ Поддержка инкрементального экспорта (пропуск существующих файлов)
+
+Поддерживаемые категории методов:
+1. Пороговые методы (THRESHOLD_METHODS):
+   - global_thresholding, otsu_thresholding, adaptive_thresholding
+   - threshold_niblack, threshold_sauvola, threshold_bernsen
+   - threshold_phansalkar, threshold_percentile, threshold_kittler_illingworth
+   - threshold_entropy_kapur, threshold_triangle, threshold_multi_otsu
+   - threshold_local_contrast
+
+2. Граничные методы (EDGE_METHODS):
+   - sobel_edge, canny_edge, prewitt_edge, scharr_edge, laplacian_edge
+   - roberts_cross_edge, log_edge, dog_edge, marr_hildreth_edge
+   - gradient_magnitude_direction, phase_congruency_edge
+
+Архитектура экспорта:
+```
+┌─────────────────────────────────────┐
+│  TorchSegmenter2 (исходный метод)   │
+└─────────────┬───────────────────────┘
+              │
+    ┌─────────┴─────────┐
+    ▼                   ▼
+┌─────────┐      ┌─────────────┐
+│  ONNX   │      │  TensorRT   │
+│ (CPU/GPU)│      │ (GPU only) │
+└─────────┘      └─────────────┘
+```
+
+Структура выходных файлов:
+```
+exported_models/
+├── onnx/
+│   ├── fp32/
+│   │   ├── global_thresholding.onnx
+│   │   ├── otsu_thresholding.onnx
+│   │   └── ...
+│   ├── fp16/
+│   │   └── ...
+│   └── bf16/
+│       └── ...
+└── tensorrt/
+    ├── fp32/
+    │   ├── global_thresholding.trt
+    │   └── ...
+    ├── fp16/
+    │   └── ...
+    └── bf16/
+        └── ...
+```
+
+Примеры использования:
+
+1. Базовый экспорт всех методов:
+```python
+from utils.batch_exporter import export_all_classical_methods
+
+results = export_all_classical_methods(
+    output_base_dir="./exported_models",
+    export_onnx=True,
+    export_trt=torch.cuda.is_available()
+)
+```
+
+2. Экспорт с выбором точностей и методов:
+```python
+results = export_all_classical_methods(
+    precisions=["fp32", "bf16"],
+    methods=["otsu_thresholding", "canny_edge", "sobel_edge"],
+    input_shape=(1, 3, 1024, 1024),  # Full HD
+    force_reexport=True
+)
+```
+
+3. Анализ результатов:
+```python
+for method, backends in results.items():
+    for backend, status in backends.items():
+        if status == "✅ OK":
+            print(f"{method} → {backend}: успешно")
+```
+
+Требования:
+- PyTorch >= 2.0 (для torch.export и Dynamo)
+- onnx >= 1.14 (для экспорта в ONNX)
+- tensorrt >= 8.6 (опционально, для экспорта в TensorRT)
+- CUDA >= 11.8 (для GPU-экспорта и TensorRT)
+
+Примечания:
+- Для экспорта в TensorRT требуется установленный NVIDIA TensorRT и совместимая видеокарта.
+- Методы с `torch.compile` не поддерживаются для экспорта — используйте `use_compile=False`.
+- Входной shape должен соответствовать ожидаемому формату сегментера: (B, C, H, W).
+- Экспорт может занимать значительное время при большом количестве методов и точностей.
+
+See Also:
+- `utils.backend_exporter`: Низкоуровневые функции экспорта в ONNX/TRT
+- `segmenters.NewTorchSegmenter.TorchSegmenter2`: Исходный класс сегментеров
+- `segmenters.BackendSegmenters`: Классы-обёртки для загрузки ONNX/TRT моделей
+
+Author: Vladimir Yamshchikov
+Version: 1.0.0
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -68,8 +182,7 @@ def export_all_classical_methods(
     export_onnx: bool = True,
     export_trt: bool = True,
 ) -> Dict[str, Dict[str, Any]]:
-    """
-    Массовый экспорт классических методов сегментации.
+    """Массовый экспорт классических методов сегментации.
 
     Args:
         output_base_dir: Базовая директория для экспорта

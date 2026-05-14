@@ -1,5 +1,70 @@
 # utils/warmup.py
 
+"""Универсальный warm-up для классических и нейросетевых методов сегментации.
+
+Предназначен для:
+- Прогрева кэшей, JIT-компиляции и CUDA kernels перед бенчмарком.
+- Оценки стабильности времени выполнения (mean/std/min/max).
+- Автоматической адаптации под CPU/CUDA устройства.
+
+Ключевые особенности:
+- ✅ 4 тестовых паттерна: gradient, noise, checkerboard, circles
+- ✅ Авто-определение интерфейса: .segment() или .segment_with_mask()
+- ✅ CUDA-специфичный warm-up: synchronize + empty_cache
+- ✅ Устойчивость к ошибкам: сбойный прогон не прерывает цикл
+- ✅ Типизированная статистика: WarmupStats TypedDict
+- ✅ Поддержка реальных изображений: use_real_image=True
+
+Типичный workflow:
+```python
+from utils.warmup import SegmentationWarmUp
+from segmenters.SklearnSegmenter import SklearnSegmenter
+
+# 1. Инициализация
+warmup = SegmentationWarmUp(n_warmup_runs=5, image_size=(256, 256))
+
+# 2. Прогрев одного метода
+segmenter = SklearnSegmenter("otsu_thresholding")
+stats = warmup.warmup_segmenter(
+    segmenter=segmenter,
+    method_name="otsu",
+    verbose=True
+)
+print(f"Mean: {stats['mean_time_ms']:.2f}ms ± {stats['std_time_ms']:.2f}ms")
+
+# 3. Пакетный прогрев для бенчмарка
+segmenters = {
+    "otsu": SklearnSegmenter("otsu_thresholding"),
+    "canny": OpenCVSegmenter("canny_edge"),
+}
+results = warmup.warmup_all_segmenters(segmenters)
+print(warmup.get_warmup_summary())
+
+# 4. Прогрев с реальным изображением
+import cv2
+real_img = cv2.cvtColor(cv2.imread("test.jpg"), cv2.COLOR_BGR2RGB)
+stats = warmup.warmup_segmenter(
+    segmenter=segmenter,
+    method_name="otsu_real",
+    real_image=real_img,
+    use_real_image=True
+)
+```
+
+Attributes:
+    n_warmup_runs (int): Количество прогонов для каждого метода.
+    image_size (Tuple[int, int]): Размер тестовых изображений (высота, ширина).
+    device (str): Устройство для вычислений ("cuda" или "cpu").
+    warmup_results (Dict[str, List[float]]): Кэш результатов по методам.
+
+Note:
+    - Для CUDA-сегментеров автоматически вызывается `_warmup_cuda()` с синхронизацией.
+    - Время измеряется через `time.perf_counter()` (наивысшая доступная точность).
+    - При ошибке в прогоне время записывается как `inf`, цикл продолжается.
+    - Статистика возвращается в миллисекундах для удобства интерпретации.
+    - Паттерн "gradient" используется по умолчанию — оптимален для большинства методов.
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -39,8 +104,7 @@ ImagePattern = Literal["gradient", "noise", "checkerboard", "circles"]
 
 # ──────────────────────────────────────────────────────────────────────
 class WarmupStats(TypedDict):
-    """
-    Статистика warm-up для одного метода.
+    """Статистика warm-up для одного метода.
 
     Attributes:
         method: Имя метода.
@@ -63,8 +127,7 @@ class WarmupStats(TypedDict):
 
 # ──────────────────────────────────────────────────────────────────────
 class SegmentationWarmUp:
-    """
-    Универсальный warm-up для классических и нейросетевых методов сегментации.
+    """Универсальный warm-up для классических и нейросетевых методов сегментации.
 
     Предназначен для:
     - Прогрева кэшей, JIT-компиляции и CUDA kernels перед бенчмарком.
@@ -95,8 +158,7 @@ class SegmentationWarmUp:
         image_size: Tuple[int, int] = (256, 256),
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
     ) -> None:
-        """
-        Инициализация утилиты warm-up.
+        """Инициализация утилиты warm-up.
 
         Args:
             n_warmup_runs: Количество прогонов для каждого метода.
@@ -110,8 +172,7 @@ class SegmentationWarmUp:
 
     # ──────────────────────────────────────────────────────────────────────
     def create_test_image(self, pattern: ImagePattern = "gradient") -> np.ndarray:
-        """
-        Создаёт тестовое изображение для warm-up.
+        """Создаёт тестовое изображение для warm-up.
 
         Поддерживаемые паттерны:
         - `"gradient"`: Градиент по горизонтали/вертикали (для пороговых методов).
@@ -171,8 +232,7 @@ class SegmentationWarmUp:
         verbose: bool = True,
         use_real_image: bool = False,
     ) -> WarmupStats:
-        """
-        Прогрев конкретного сегментера.
+        """Прогрев конкретного сегментера.
 
         Логика:
         1. Выбирает изображение: `real_image` (если задано и `use_real_image=True`) или сгенерированное.
@@ -265,8 +325,7 @@ class SegmentationWarmUp:
         image: np.ndarray,
         verbose: bool = True,
     ) -> None:
-        """
-        Специальный warm-up для CUDA kernels (Torch-сегментеры).
+        """Специальный warm-up для CUDA kernels (Torch-сегментеры).
 
         Выполняет:
         1. `torch.cuda.synchronize()` перед прогонами.
@@ -313,8 +372,7 @@ class SegmentationWarmUp:
         image: Optional[np.ndarray] = None,
         verbose: bool = True,
     ) -> Dict[str, Any]:
-        """
-        Прогрев всех сегментеров в словаре.
+        """Прогрев всех сегментеров в словаре.
 
         Args:
             segmenters_dict: Словарь `{имя_метода: экземпляр_сегментера}`.
@@ -349,8 +407,7 @@ class SegmentationWarmUp:
 
     # ──────────────────────────────────────────────────────────────────────
     def get_warmup_summary(self) -> str:
-        """
-        Возвращает текстовую сводку результатов warm-up.
+        """Возвращает текстовую сводку результатов warm-up.
 
         Returns:
             str: Форматированный отчёт с методом, средним временем и стандартным отклонением.

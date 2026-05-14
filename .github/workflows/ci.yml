@@ -142,6 +142,179 @@ jobs:
         python -c "from segmenters.OpenCVSegmenter import OpenCVSegmenter; print('✅ OpenCVSegmenter imports OK')"
         python -c "from testing.SegmentationTester import SegmentationTester; print('✅ SegmentationTester imports OK')"
         python -c "from metrics.SegmentationMetrics import SegmentationMetrics; print('✅ SegmentationMetrics imports OK')"
+
+  # ──────────────────────────────────────────────────────────────
+  # 📚 Документация: pdoc + проверка Google-style docstrings
+  # ──────────────────────────────────────────────────────────────
+  docs:
+    runs-on: ubuntu-24.04
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pdoc pydocstyle
+    
+    - name: Check Google-style docstrings with pydocstyle
+      run: |
+        echo "## 🔍 Проверка docstring (Google style)" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        
+        # Проверка основных модулей с игнорированием известных исключений
+        pydocstyle segmenters/ testing/ metrics/ utils/ dataseters/ \
+          --convention=google \
+          --add-ignore=D100,D104,D105,D107,D203,D213 \
+          --match='(?!__init__).*\.py' \
+          2>&1 | tee pydocstyle_report.txt
+        
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        
+        # Считаем количество ошибок (не предупреждений)
+        errors=$(grep -c "^segmenters\|^testing\|^metrics\|^utils\|^dataseters" pydocstyle_report.txt || echo "0")
+        if [ "$errors" -gt 0 ]; then
+          echo "⚠️  Найдено $errors предупреждений по стилю docstring" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "✅ Все docstring соответствуют Google style" >> $GITHUB_STEP_SUMMARY
+        fi
+      continue-on-error: true
+    
+    - name: Generate API documentation with pdoc
+      run: |
+        export PYTHONPATH="${{ github.workspace }}"
+        
+        # Генерация документации для основных модулей
+        pdoc --output-dir ./docs \
+          segmenters.TorchSegmenter \
+          segmenters.SklearnSegmenter \
+          segmenters.OpenCVSegmenter \
+          testing.SegmentationTester \
+          metrics.SegmentationMetrics \
+          --force
+        
+        echo "✅ Документация сгенерирована в ./docs/"
+        echo "## 📚 Generated Documentation" >> $GITHUB_STEP_SUMMARY
+        echo "- 📁 [segmenters](./docs/segmenters/)" >> $GITHUB_STEP_SUMMARY
+        echo "- 📁 [testing](./docs/testing/)" >> $GITHUB_STEP_SUMMARY
+        echo "- 📁 [metrics](./docs/metrics/)" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Deploy documentation to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v4
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs
+        publish_branch: gh-pages
+        force_orphan: true
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  
+  # ──────────────────────────────────────────────────────────────
+  # 🔍 Проверка качества кода: docstring + type hints + complexity
+  # ──────────────────────────────────────────────────────────────
+  code-quality:
+    runs-on: ubuntu-24.04
+    needs: test
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+    
+    - name: Install quality tools
+      run: |
+        pip install --upgrade pip
+        pip install pydocstyle pylint radon
+    
+    - name: Check docstring coverage
+      run: |
+        echo "## 📝 Docstring Coverage Report" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        
+        # Подсчёт процента функций с docstring
+        python -c "
+        import ast, sys
+        from pathlib import Path
+        
+        def count_docstrings(directory):
+            total, documented = 0, 0
+            for py_file in Path(directory).rglob('*.py'):
+                if 'test' in str(py_file) or '__pycache__' in str(py_file):
+                    continue
+                try:
+                    tree = ast.parse(py_file.read_text())
+                    for node in ast.walk(tree):
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                            if node.name.startswith('_') and not node.name.startswith('__'):
+                                continue  # Пропускаем приватные
+                            total += 1
+                            if ast.get_docstring(node):
+                                documented += 1
+                except:
+                    pass
+            return total, documented
+        
+        for module in ['segmenters', 'testing', 'metrics', 'utils']:
+            t, d = count_docstrings(module)
+            pct = (d/t*100) if t > 0 else 100
+            status = '✅' if pct >= 80 else '⚠️' if pct >= 50 else '❌'
+            print(f'{status} {module}: {d}/{t} ({pct:.1f}%) with docstrings')
+            print(f'## 📝 {module}', file=sys.stderr)
+            print(f'- Coverage: **{pct:.1f}%** ({d}/{t})', file=sys.stderr)
+        " 2>> $GITHUB_STEP_SUMMARY
+        
+        echo '```' >> $GITHUB_STEP_SUMMARY
+    
+    - name: Check code complexity with radon
+      run: |
+        echo "## 🔀 Cyclomatic Complexity Report" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        
+        radon cc segmenters/ testing/ metrics/ -a -nb \
+          | grep -E "^[FCM] .* [ABCDEF]" \
+          | head -20 >> $GITHUB_STEP_SUMMARY
+        
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        
+        # Fail если есть функции с сложностью > 15
+        radon cc segmenters/ -nc 15 --exit-code || echo "⚠️  Найдены сложные функции (>15)"
+      continue-on-error: true
+    
+    - name: Pylint quality check
+      run: |
+        echo "## 🔎 Pylint Quality Report" >> $GITHUB_STEP_SUMMARY
+        
+        pylint segmenters/ testing/ metrics/ \
+          --disable=C0111,C0103,R0903,R0913,C0301,W0511 \
+          --max-line-length=127 \
+          --output-format=text \
+          --reports=n \
+          2>&1 | tee pylint_report.txt
+        
+        # Извлекаем оценку
+        score=$(grep "Your code has been rated at" pylint_report.txt | grep -oP '\d+\.\d+' || echo "N/A")
+        echo "- Pylint score: **$score/10**" >> $GITHUB_STEP_SUMMARY
+        
+        if [[ "$score" != "N/A" ]] && (( $(echo "$score < 7.0" | bc -l) )); then
+          echo "❌ Pylint score below threshold (7.0)" >> $GITHUB_STEP_SUMMARY
+          exit 1
+        fi
+      continue-on-error: true
   
   gpu-tests:
     runs-on: ubuntu-latest

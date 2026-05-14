@@ -1,7 +1,6 @@
-# datasets/load_datasets.py
+# dataseters/LoadDatasets.py
 
-"""
-Менеджер загрузки и подготовки датасетов для сегментации.
+"""Менеджер загрузки и подготовки датасетов для сегментации.
 
 Поддержка:
 - ADE20K, Cityscapes, COCO, ISIC, CheXpert
@@ -48,6 +47,7 @@ from typing import (
     Any,
     Union,
     TypeAlias,
+    cast
 )
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -112,8 +112,7 @@ DownloadProgressCallback: TypeAlias = Callable[[int, int], None]
 # ENUMS
 # ──────────────────────────────────────────────────────────────────────
 class DatasetType(Enum):
-    """
-    Типы датасетов для сегментации.
+    """Типы датасетов для сегментации.
 
     Attributes:
         SEMANTIC: Семантическая сегментация (один класс на пиксель).
@@ -125,7 +124,6 @@ class DatasetType(Enum):
         BINARY: Бинарная сегментация (общий случай).
         CUSTOM: Пользовательский датасет.
     """
-
     SEMANTIC = "semantic"  # ADE20K, Cityscapes
     INSTANCE = "instance"  # COCO
     PANOPTIC = "panoptic"
@@ -137,8 +135,7 @@ class DatasetType(Enum):
 
 
 class SourceType(Enum):
-    """
-    Источники данных для загрузки.
+    """Источники данных для загрузки.
 
     Attributes:
         HF: HuggingFace Hub.
@@ -146,7 +143,6 @@ class SourceType(Enum):
         TAR: TAR/GZ архив.
         DIRECT: Прямая ссылка на файл/папку.
     """
-
     HF = "hf"  # HuggingFace Hub
     ZIP = "zip"  # ZIP-архив
     TAR = "tar"  # TAR/GZ архив
@@ -154,8 +150,7 @@ class SourceType(Enum):
 
 
 class DataFormat(Enum):
-    """
-    Поддерживаемые форматы данных.
+    """Поддерживаемые форматы данных.
 
     Attributes:
         JPG: JPEG изображения.
@@ -165,7 +160,6 @@ class DataFormat(Enum):
         NPZ: NumPy архивы.
         HDF5: HDF5 для больших данных.
     """
-
     JPG = "jpg"
     PNG = "png"
     NIFTI = "nii.gz"  # Медицинские 3D
@@ -179,8 +173,7 @@ class DataFormat(Enum):
 # ──────────────────────────────────────────────────────────────────────
 @dataclass
 class DatasetConfig:
-    """
-    Конфигурация одного датасета.
+    """Конфигурация одного датасета.
 
     Attributes:
         name: Уникальное имя датасета.
@@ -200,7 +193,6 @@ class DatasetConfig:
         expected_structure: Ожидаемая структура файлов для валидации.
         postprocess_script: Путь к скрипту пост-обработки (опционально).
     """
-
     name: str
     dataset_type: DatasetType
     source_type: SourceType
@@ -227,8 +219,7 @@ class DatasetConfig:
     # ──────────────────────────────────────────────────────────────────────
     @property
     def full_path(self) -> Path:
-        """
-        Возвращает полный путь к директории датасета.
+        """Возвращает полный путь к директории датасета.
 
         Returns:
             Path: `Path(root_dir) / name`.
@@ -239,8 +230,7 @@ class DatasetConfig:
 # ──────────────────────────────────────────────────────────────────────
 @dataclass
 class MedicalConfig(DatasetConfig):
-    """
-    Расширенная конфигурация для медицинских датасетов.
+    """Расширенная конфигурация для медицинских датасетов.
 
     Наследует все поля `DatasetConfig` + добавляет медицинские специфичные.
 
@@ -253,7 +243,6 @@ class MedicalConfig(DatasetConfig):
         anatomy: Основная анатомическая область (опционально).
         task_type: Тип задачи ("segmentation", "classification", "detection").
     """
-
     modality: Literal["X-Ray", "CT", "MRI", "Ultrasound", "Dermoscopy"] = "X-Ray"
     pixel_spacing: Optional[Tuple[float, float]] = None  # мм/пиксель
     intensity_normalization: Literal["minmax", "zscore", "histogram"] = "zscore"
@@ -267,8 +256,7 @@ class MedicalConfig(DatasetConfig):
 # БАЗОВЫЙ МЕНЕДЖЕР ДАТАСЕТОВ (MAIN CLASS: DatasetManager)
 # ============================================================================
 class DatasetManager:
-    """
-    Универсальный менеджер загрузки и валидации датасетов для сегментации.
+    """Универсальный менеджер загрузки и валидации датасетов для сегментации.
 
     Поддерживает:
     - Загрузку из HuggingFace Hub, ZIP/TAR-архивов, прямых ссылок.
@@ -300,8 +288,7 @@ class DatasetManager:
         base_dir: PathLike = "./data",
         verbose: bool = True,
     ) -> None:
-        """
-        Инициализация менеджера датасетов.
+        """Инициализация менеджера датасетов.
 
         Args:
             base_dir: Базовая директория для сохранения датасетов.
@@ -315,8 +302,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _load_configs(self) -> None:
-        """
-        Загружает конфигурации датасетов из внешнего YAML-файла.
+        """Загружает конфигурации датасетов из внешнего YAML-файла.
 
         Если файл `configs/datasets.yaml` существует, парсит его и регистрирует
         конфигурации. Медицинские датасеты автоматически используют `MedicalConfig`.
@@ -333,8 +319,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def get_config(self, dataset_name: str) -> DatasetConfig:
-        """
-        Возвращает конфигурацию указанного датасета.
+        """Возвращает конфигурацию указанного датасета.
 
         Args:
             dataset_name: Имя датасета (ключ в `_registry`).
@@ -356,8 +341,7 @@ class DatasetManager:
         message: str,
         level: Literal["info", "success", "warning", "error"] = "info",
     ) -> None:
-        """
-        Логирует сообщение с цветным форматированием и таймстампом.
+        """Логирует сообщение с цветным форматированием и таймстампом.
 
         Args:
             message: Текст сообщения.
@@ -386,8 +370,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _check_disk_space(self, path: Path, required_gb: float) -> bool:
-        """
-        Проверяет наличие достаточного свободного места на диске.
+        """Проверяет наличие достаточного свободного места на диске.
 
         Args:
             path: Путь для проверки.
@@ -396,7 +379,6 @@ class DatasetManager:
         Returns:
             bool: `True` если места достаточно, иначе `False`.
         """
-
         total, used, free = shutil.disk_usage(path)
         free_gb: float = free / (1024**3)
 
@@ -410,8 +392,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _compute_sha256(self, filepath: Path) -> str:
-        """
-        Вычисляет SHA256 хеш файла для валидации целостности.
+        """Вычисляет SHA256 хеш файла для валидации целостности.
 
         Args:
             filepath: Путь к файлу.
@@ -427,8 +408,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _register_default_datasets(self) -> None:
-        """
-        Регистрирует стандартные датасеты в `_registry`.
+        """Регистрирует стандартные датасеты в `_registry`.
 
         Включает:
         - ADE20K (семантическая, 150 классов)
@@ -437,7 +417,6 @@ class DatasetManager:
         - ISIC 2018 (медицинская, бинарная, дерматоскопия)
         - CheXpert (медицинская, бинарная, рентген грудной клетки)
         """
-
         # ============================================================================
         # 1. ADE20K (Большой датасет)
         # ============================================================================
@@ -548,8 +527,7 @@ class DatasetManager:
         dataset_name: str,
         force: bool = False,
     ) -> Path:
-        """
-        Скачивает и валидирует датасет.
+        """Скачивает и валидирует датасет.
 
         Логика:
         1. Проверяет наличие и валидность существующей копии.
@@ -627,8 +605,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _print_dataset_summary(self, config: DatasetConfig) -> None:
-        """
-        Печатает сводную информацию о датасете.
+        """Печатает сводную информацию о датасете.
 
         Args:
             config: Конфигурация датасета.
@@ -660,8 +637,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _download_huggingface(self, config: DatasetConfig) -> None:
-        """
-        Загружает датасет из HuggingFace Hub.
+        """Загружает датасет из HuggingFace Hub.
 
         Args:
             config: Конфигурация датасета.
@@ -723,8 +699,7 @@ class DatasetManager:
     def _hf_fallback_download(
         self, config: DatasetConfig, use_api: bool = False
     ) -> None:
-        """
-        Fallback-метод загрузки из HF: пофайловая загрузка.
+        """Fallback-метод загрузки из HF: пофайловая загрузка.
 
         Args:
             config: Конфигурация датасета.
@@ -766,8 +741,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _download_via_api(self, config: DatasetConfig) -> None:
-        """
-        Экспериментальный метод загрузки через HF API.
+        """Экспериментальный метод загрузки через HF API.
 
         Args:
             config: Конфигурация датасета.
@@ -803,8 +777,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _download_zip(self, config: DatasetConfig) -> None:
-        """
-        Скачивает и распаковывает ZIP-архив с прогрессом и валидацией.
+        """Скачивает и распаковывает ZIP-архив с прогрессом и валидацией.
 
         Args:
             config: Конфигурация датасета.
@@ -863,8 +836,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _download_tar(self, config: DatasetConfig) -> None:
-        """
-        Скачивает и распаковывает TAR/GZ архив.
+        """Скачивает и распаковывает TAR/GZ архив.
 
         Args:
             config: Конфигурация датасета.
@@ -906,8 +878,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _download_direct(self, config: DatasetConfig) -> None:
-        """
-        Прямая загрузка файлов по ссылке.
+        """Прямая загрузка файлов по ссылке.
 
         Args:
             config: Конфигурация датасета.
@@ -935,8 +906,7 @@ class DatasetManager:
         destination: Path,
         expected_checksum: Optional[str] = None,
     ) -> None:
-        """
-        Потоковая загрузка с прогрессом и проверкой контрольной суммы.
+        """Потоковая загрузка с прогрессом и проверкой контрольной суммы.
 
         Args:
             url: URL для загрузки.
@@ -984,8 +954,7 @@ class DatasetManager:
         target: Path,
         use_symlinks: bool = False,
     ) -> None:
-        """
-        Приводит структуру распакованного датасета к стандартному формату.
+        """Приводит структуру распакованного датасета к стандартному формату.
 
         Ожидаемая структура:
         ```
@@ -1077,8 +1046,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _postprocess_dataset(self, config: DatasetConfig) -> None:
-        """
-        Выполняет пост-обработку датасета.
+        """Выполняет пост-обработку датасета.
 
         Поддерживает:
         - Конвертацию Parquet → файловая структура.
@@ -1107,8 +1075,7 @@ class DatasetManager:
     def _decode_image_from_hf(
         self, data: Any, convert_to_rgb: bool = True
     ) -> Optional[Image.Image]:
-        """
-        Универсальный декодер для данных из HuggingFace datasets.
+        """Универсальный декодер для данных из HuggingFace datasets.
 
         Поддерживает форматы:
         - `datasets.Image` объект
@@ -1129,9 +1096,8 @@ class DatasetManager:
 
         # 🔹 datasets.Image объект (имеет метод convert)
         if hasattr(data, "convert") and hasattr(data, "mode"):
-            return (
-                data.convert("RGB") if convert_to_rgb and data.mode != "RGB" else data
-            )
+            result = data.convert("RGB") if convert_to_rgb and data.mode != "RGB" else data
+            return cast(Optional[Image.Image], result)
 
         # 🔹 bytes объект
         if isinstance(data, bytes) and len(data) > 0:
@@ -1139,11 +1105,9 @@ class DatasetManager:
                 from PIL import Image
                 from io import BytesIO
 
-                return (
-                    Image.open(BytesIO(data)).convert("RGB")
-                    if convert_to_rgb
-                    else Image.open(BytesIO(data))
-                )
+                img = Image.open(BytesIO(data))
+                result = img.convert("RGB") if convert_to_rgb else img
+                return cast(Optional[Image.Image], result)
             except ImportError:
                 return None
 
@@ -1154,22 +1118,18 @@ class DatasetManager:
                     from PIL import Image
                     from io import BytesIO
 
-                    return (
-                        Image.open(BytesIO(data["bytes"])).convert("RGB")
-                        if convert_to_rgb
-                        else Image.open(BytesIO(data["bytes"]))
-                    )
+                    img = Image.open(BytesIO(data["bytes"]))
+                    result = img.convert("RGB") if convert_to_rgb else img
+                    return cast(Optional[Image.Image], result)
                 except ImportError:
                     return None
             if "path" in data and data["path"] and os.path.exists(data["path"]):
                 try:
                     from PIL import Image
 
-                    return (
-                        Image.open(data["path"]).convert("RGB")
-                        if convert_to_rgb
-                        else Image.open(data["path"])
-                    )
+                    img = Image.open(data["path"])
+                    result = img.convert("RGB") if convert_to_rgb else img
+                    return cast(Optional[Image.Image], result)
                 except ImportError:
                     return None
 
@@ -1181,26 +1141,22 @@ class DatasetManager:
                 from io import BytesIO
 
                 _, encoded = data.split(",", 1)
-                return (
-                    Image.open(BytesIO(base64.b64decode(encoded))).convert("RGB")
-                    if convert_to_rgb
-                    else Image.open(BytesIO(base64.b64decode(encoded)))
-                )
+                img = Image.open(BytesIO(base64.b64decode(encoded)))
+                result = img.convert("RGB") if convert_to_rgb else img
+                return cast(Optional[Image.Image], result)
             except ImportError:
                 return None
 
         # 🔹 PIL.Image (уже готов)
         if hasattr(data, "save") and hasattr(data, "mode"):
-            return (
-                data.convert("RGB") if convert_to_rgb and data.mode != "RGB" else data
-            )
+            result = data.convert("RGB") if convert_to_rgb and data.mode != "RGB" else data
+            return cast(Optional[Image.Image], result)
 
         return None
 
     # ──────────────────────────────────────────────────────────────────────
     def _convert_parquet_to_files(self, config: DatasetConfig) -> None:
-        """
-        Конвертирует Parquet-файлы в файловую структуру изображений/масок.
+        """Конвертирует Parquet-файлы в файловую структуру изображений/масок.
 
         Поддерживает различные форматы данных из HF datasets:
         - `datasets.Image` объекты
@@ -1377,8 +1333,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _medical_postprocess(self, config: MedicalConfig) -> None:
-        """
-        Специальная обработка медицинских датасетов.
+        """Специальная обработка медицинских датасетов.
 
         Применяет:
         - CLAHE для улучшения контраста рентгеновских снимков.
@@ -1400,8 +1355,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _apply_clahe(self, images_dir: Path, clip_limit: float = 2.0) -> None:
-        """
-        Применяет CLAHE для улучшения контраста рентгеновских снимков.
+        """Применяет CLAHE для улучшения контраста рентгеновских снимков.
 
         Args:
             images_dir: Директория с изображениями.
@@ -1429,8 +1383,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _normalize_masks(self, masks_dir: Path, num_classes: int) -> None:
-        """
-        Приводит маски к единому формату.
+        """Приводит маски к единому формату.
 
         Для бинарных медицинских масок: всё кроме 0 → 1.
 
@@ -1454,8 +1407,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _create_index(self, config: DatasetConfig) -> None:
-        """
-        Создаёт индексный файл для быстрого доступа к датасету.
+        """Создаёт индексный файл для быстрого доступа к датасету.
 
         Формат индекса:
         ```json
@@ -1514,8 +1466,7 @@ class DatasetManager:
 
     # ──────────────────────────────────────────────────────────────────────
     def _validate_dataset(self, config: DatasetConfig) -> bool:
-        """
-        Гибкая валидация структуры датасета.
+        """Гибкая валидация структуры датасета.
 
         Поддерживает:
         - Проверку наличия обязательных директорий.
@@ -1608,8 +1559,7 @@ class DatasetManager:
         split: str = "val",
         idx: int = 0,
     ) -> Tuple[Image.Image, Optional[Image.Image]]:
-        """
-        Загружает один пример (изображение + маска) из датасета.
+        """Загружает один пример (изображение + маска) из датасета.
 
         Args:
             dataset_name: Имя датасета.
@@ -1653,8 +1603,7 @@ class DatasetManager:
     def _create_index_from_hf_dataset(
         self, config: DatasetConfig, hf_dataset: Any
     ) -> None:
-        """
-        Создаёт индексный файл для датасета, загруженного через `datasets` library.
+        """Создаёт индексный файл для датасета, загруженного через `datasets` library.
 
         Args:
             config: Конфигурация датасета.
@@ -1693,8 +1642,7 @@ class DatasetManager:
         filename: Optional[str] = None,
         split: str = "validation",
     ) -> Optional[Image.Image]:
-        """
-        Универсальная загрузка тестового изображения из HuggingFace.
+        """Универсальная загрузка тестового изображения из HuggingFace.
 
         Args:
             repo_id: ID репозитория (например, "cityscapes").
@@ -1711,7 +1659,8 @@ class DatasetManager:
             else:
                 dataset = load_dataset(repo_id, split=split)
                 if "image" in dataset.features:
-                    return dataset[0]["image"].convert("RGB")
+                    img = dataset[0]["image"]
+                    return cast(Optional[Image.Image], img.convert("RGB")) 
                 else:
                     logger.warning(f"   ⚠️  Нет признака 'image' в {repo_id}")
                     return None
@@ -1726,8 +1675,7 @@ class DatasetManager:
         split: str = "train",
         transform: Optional[Callable] = None,
     ) -> "torch.utils.data.Dataset":
-        """
-        Создаёт PyTorch Dataset для обучения на указанном датасете.
+        """Создаёт PyTorch Dataset для обучения на указанном датасете.
 
         Args:
             dataset_name: Имя датасета.
@@ -1816,11 +1764,11 @@ class DatasetManager:
 
 
 class MedicalDatasetUtils:
-    """Утилиты для работы с медицинскими изображениями"""
+    """Утилиты для работы с медицинскими изображениями."""
 
     @staticmethod
     def load_dicom_series(series_dir: Path) -> np.ndarray:
-        """Загрузка DICOM серии в 3D numpy массив"""
+        """Загрузка DICOM серии в 3D numpy массив."""
         try:
             import pydicom
         except ImportError:
@@ -1845,7 +1793,7 @@ class MedicalDatasetUtils:
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def load_nifti(path: Path) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """Загрузка NIfTI файла с метаданными"""
+        """Загрузка NIfTI файла с метаданными."""
         try:
             import nibabel as nib
         except ImportError:
@@ -1865,7 +1813,7 @@ class MedicalDatasetUtils:
     def window_ct(
         image: np.ndarray, window_center: float, window_width: float
     ) -> np.ndarray:
-        """Применение CT windowing для визуализации"""
+        """Применение CT windowing для визуализации."""
         min_val: float = window_center - window_width / 2
         max_val: float = window_center + window_width / 2
         image = np.clip(image, min_val, max_val)
@@ -1881,7 +1829,7 @@ class MedicalDatasetUtils:
         prefix: str,
         config: MedicalConfig,
     ) -> None:
-        """Сохранение в формате, готовом для обучения"""
+        """Сохранение в формате, готовом для обучения."""
         output_dir.mkdir(parents=True, exist_ok=True)
         if config.modality == "X-Ray":
             if image.dtype != np.uint8:
@@ -1905,8 +1853,8 @@ class MedicalDatasetUtils:
 # ============================================================================
 
 
-def main():
-    """CLI для загрузки датасетов"""
+def main() -> None:
+    """CLI для загрузки датасетов."""
     import argparse
 
     parser = argparse.ArgumentParser(description="Dataset Manager for Segmentation")

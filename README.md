@@ -917,7 +917,7 @@ if profile.get("transfer_warnings"):
 | `--save-viz` | `False` | Сохранять оверлеи |
 | `--class-aware-overlays` | `False` | Цветные оверлеи с легендой классов |
 | `--overlay-alpha` | `0.5` | Прозрачность наложения |
-| `--overlay-alpha` | `0.5` | Прозрачность маски |
+| `--border-thickness` | `2` | Толщина контуров в оверлеях |
 
 ## 📁 Структура выходных файлов
 ```text
@@ -1180,6 +1180,163 @@ pdoc BatchNeuralTester.py --output-dir ./docs
 # Откройте ./docs/index.html в браузере
 ```
 ---
+
+## 🐳 Запуск в Docker
+
+```bash
+# Сборка образа
+docker build -t torchvision-core .
+
+# Запуск с GPU
+docker run --gpus all -v ./data:/app/data torchvision-core python main.py
+
+# Или через docker-compose
+docker-compose up
+```
+
+### 📄 Dockerfile (пример):
+
+```dockerfile
+FROM pytorch/pytorch:2.6.0-cuda12.0-cudnn8-runtime
+# ... зависимости, копирование кода, entrypoint
+```
+
+## ❓ Частые проблемы
+
+### ❌ "CUDA out of memory"
+```python
+# Решение: уменьшить batch_size или использовать gradient accumulation
+# Или переключиться на точность: precision="bf16"
+```
+
+### ❌ "ModuleNotFoundError: torch_tensorrt"
+```bash
+# TensorRT — опциональная зависимость
+pip install torch-tensorrt  # или пропустить экспорт в TRT
+```
+
+### ❌ "ONNX export failed for method X"
+```python
+# Некоторые методы содержат динамический контроль потока
+# Используйте export_method_to_onnx_safe() с fallback
+```
+
+## ⏱️ Ожидаемое время выполнения
+
+| Метод | Размер изображения | Время (CPU) | Время (CUDA, bf16) |
+|-------|-------------------|-------------|-------------------|
+| otsu_thresholding | 512×512 | ~15 мс | ~2 мс |
+| canny_edge | 512×512 | ~25 мс | ~4 мс |
+| chan_vese | 512×512 | ~400 мс | ~45 мс |
+| segformer-b5 | 512×512 | N/A | ~120 мс |
+
+> ⚠️ Цифры приблизительные, зависят от железа и загрузки системы
+
+
+## 🔐 Приватность и безопасность
+
+- Все вычисления выполняются локально, данные не отправляются в облако
+- Модели загружаются из доверенных источников (HuggingFace, PyTorch Hub)
+- При использовании `--use-mlflow` метрики логируются локально по умолчанию
+
+## 🧪 Тестирование и валидация
+
+Проект включает комплексную систему тестирования для обеспечения качества, корректности и производительности всех компонентов.
+
+### 🔹 Типы тестов
+
+| Тип | Описание | Запуск |
+|-----|----------|--------|
+| **Юнит-тесты** | Проверка отдельных функций и классов | `pytest tests/unit/` |
+| **Интеграционные** | Тестирование полного пайплайна сегментации | `pytest tests/integration/ -m "not slow"` |
+| **Бенчмарки** | Замер времени, памяти, точности (CPU/CUDA) | `pytest tests/benchmarks/ -m benchmark` |
+| **Валидация реализаций** | Сравнение Torch/OpenCV/Sklearn версий методов | `python -m testing.TorchImplementationValidator` |
+| **Ground Truth оценка** | Метрики (IoU, Dice, F1) против размеченных данных | `pytest tests/gt_evaluation/` |
+| **Экспорт-тесты** | Валидация ONNX/TensorRT экспорта | `pytest tests/export/ -m export` |
+
+### 🔹 Быстрый старт
+
+```bash
+# Запустить все тесты (кроме медленных)
+pytest -m "not slow"
+
+# Только юнит-тесты с покрытием
+pytest tests/unit/ --cov=segmenters --cov-report=html
+
+# Бенчмарк производительности на конкретном изображении
+python -m testing.SegmentationBenchmark --image path/to/image.jpg
+
+# Валидация согласованности Torch vs OpenCV
+python -m testing.TorchImplementationValidator --image path/to/image.jpg
+```
+
+### 🔹 Маркеры pytest
+
+```bash
+# Пропустить медленные тесты
+pytest -m "not slow"
+
+# Только GPU-тесты (требует CUDA)
+pytest -m gpu
+
+# Только интеграционные тесты
+pytest -m integration
+
+# Комбинация: быстрые + не GPU
+pytest -m "not slow and not gpu"
+```
+
+### 🔹 Метрики качества
+
+При запуске тестов с Ground Truth автоматически рассчитываются:
+
+- **IoU (Intersection over Union)** — основная метрика качества сегментации
+- **Dice Coefficient** — мера перекрытия предсказания и GT
+- **Precision / Recall / F1-Score** — баланс точности и полноты
+- **Pixel Accuracy** — доля правильно классифицированных пикселей
+- **Hausdorff Distance** — расстояние между границами (для медицинских задач)
+
+Результаты сохраняются в `./data/reports/` в форматах CSV, JSON и Markdown.
+
+### 🔹 Профилирование и отладка
+
+```bash
+# Профилирование времени выполнения метода
+python -c "from segmenters.TorchSegmenter2 import TorchSegmenter2; \
+           s = TorchSegmenter2('otsu_thresholding'); \
+           s.profile_method('image.jpg', n_runs=100)"
+
+# Детальный trace для Chrome DevTools
+python -m testing.TorchImplementationValidator --profile --output ./profiling/
+
+# Сравнение точностей (fp32/fp16/bf16)
+python -m testing.CpuCudaBenchmark --precisions fp32 fp16 bf16
+```
+
+### 🔹 CI/CD интеграция
+
+Конфигурация GitHub Actions (`./.github/workflows/test.yml`) включает:
+
+- ✅ Запуск тестов на Python 3.13
+- ✅ Проверка типов через mypy
+- ✅ Линтинг через ruff/black
+- ✅ Сбор покрытия (требуется ≥80%)
+- ✅ Опциональные GPU-тесты (при наличии runner с CUDA)
+
+```yaml
+# Пример шага в workflow
+- name: Run tests
+  run: |
+    pytest -m "not slow and not gpu" --cov=segmenters --cov-fail-under=80
+```
+
+> 💡 **Совет**: Для локальной отладки используйте флаг `--pdb` для входа в интерактивный отладчик при падении теста:
+> ```bash
+> pytest tests/unit/test_thresholding.py::test_otsu --pdb
+> ```
+
+---
+
 
 ## 🤝 Вклад в проект
 

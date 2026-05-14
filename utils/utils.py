@@ -1,5 +1,48 @@
 # utils/utils.py
 
+"""Утилиты для анализа и оценки результатов сегментации.
+
+Поддерживаемые задачи:
+1. **Вычисление метрик**: mIoU, Pixel Accuracy, Weighted F1, Confusion Matrix
+2. **Анализ предсказаний**: топ-классы, доминирующие классы, покрытие
+3. **Экспорт отчётов**: CSV, Markdown, JSON с детальной статистикой
+4. **Инспекция логов**: извлечение статистики из outputs разных типов моделей
+
+Ключевые особенности:
+- ✅ Поддержка `ignore_index` для игнорируемых пикселей (255 по умолчанию)
+- ✅ Автоматическая валидация диапазона значений масок
+- ✅ Обработка edge cases: пустые маски, классы без представлений, nan-значения
+- ✅ Совместимость с разными типами моделей: HF Transformers, Torchvision, SMP
+- ✅ Векторизованные вычисления для производительности на больших изображениях
+
+Типичный workflow:
+```python
+from utils.utils import compute_metrics, analyze_prediction, export_class_report
+
+# 1. Вычисление метрик
+metrics = compute_metrics(pred_mask, gt_mask, num_classes=150)
+print(f"mIoU: {metrics['mIoU']:.3f}")
+
+# 2. Анализ предсказания с выводом в консоль
+result = analyze_prediction(pred_mask, class_names=ade_classes, top_k=10)
+
+# 3. Генерация и экспорт отчёта
+report = generate_class_report(pred_mask, class_names=ade_classes)
+export_class_report(report, "report.md", format="markdown")
+
+# 4. Инспекция логов модели
+logits_info = extract_logits_info(model_output, model_type="segformer")
+print(f"Logits: {logits_info['shape']}, range=[{logits_info['min']:.2f}, {logits_info['max']:.2f}]")
+```
+
+Note:
+- Все функции работают с `np.ndarray` масками формы `[H, W]`, dtype=int/uint8.
+- Для `compute_metrics()` предсказание и GT должны иметь одинаковую форму.
+- `ignore_index` по умолчанию 255; измените при использовании других стандартов (ADE20K, Cityscapes).
+- При экспорте в Markdown используется `pandas.DataFrame.to_markdown()`; установите `tabulate` для лучшего форматирования.
+- Статистика логов вычисляется на CPU после `.cpu().float()` для совместимости с numpy.
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -38,8 +81,7 @@ def compute_metrics(
     num_classes: int,
     ignore_index: int = 255,
 ) -> Dict[str, Any]:
-    """
-    Вычисляет основные метрики семантической сегментации.
+    """Вычисляет основные метрики семантической сегментации.
 
     Поддерживаемые метрики:
     - Pixel Accuracy: Доля правильно классифицированных пикселей.
@@ -150,8 +192,7 @@ def extract_logits_info(
     outputs: LogitsTensor,
     model_type: str,
 ) -> Dict[str, Any]:
-    """
-    Извлекает статистику о логитах из выходных данных модели.
+    """Извлекает статистику о логитах из выходных данных модели.
 
     Поддерживаемые типы моделей:
     - HuggingFace Transformers: `segformer`, `mask2former`, `oneformer`, `dpt`, `upernet`
@@ -297,8 +338,7 @@ def analyze_prediction(
     ignore_index: int = 255,
     top_k: int = 10,
 ) -> Dict[str, Any]:
-    """
-    Детальный анализ предсказанной маски сегментации.
+    """Детальный анализ предсказанной маски сегментации.
 
     Выводит в консоль:
     - Количество валидных пикселей и процент покрытия.
@@ -384,8 +424,7 @@ def generate_class_report(
     ignore_index: int = 255,
     min_pixels: int = 100,
 ) -> Dict[str, Any]:
-    """
-    Генерирует детальный отчёт по предсказанным классам для экспорта.
+    """Генерирует детальный отчёт по предсказанным классам для экспорта.
 
     Фильтрует шумовые классы (< `min_pixels` пикселей) и сортирует по убыванию покрытия.
 
@@ -464,8 +503,7 @@ def export_class_report(
     output_file: str,
     format: str = "csv",
 ) -> None:
-    """
-    Экспортирует отчёт по классам в файл.
+    """Экспортирует отчёт по классам в файл.
 
     Поддерживаемые форматы:
     - `"csv"`: Таблица в формате CSV (UTF-8).

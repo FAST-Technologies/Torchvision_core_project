@@ -1,5 +1,53 @@
 # utils/palettes.py
 
+"""Цветовые палитры и имена классов для датасетов семантической сегментации.
+
+Поддерживаемые датасеты:
+1. **ADE20K** (150 классов): универсальная сегментация сцен
+2. **COCO** (80 классов): детекция объектов, инстанс-сегментация
+3. **Cityscapes** (19/34 класса): автономное вождение, уличные сцены
+4. **CheXpert** (14 классов): медицинская классификация рентгеновских снимков
+5. **ISIC 2018** (2 класса): бинарная сегментация кожных поражений
+
+Ключевые особенности:
+- ✅ Уникальные цвета: каждый класс получает визуально различимый [R,G,B]
+- ✅ Совместимость: формат [R,G,B] для OpenCV/PIL, 0-индексация
+- ✅ Детерминированность: фиксированные значения для воспроизводимости
+- ✅ Расширяемость: легко добавить новую палитру через List[List[int]]
+- ✅ Логирование: информирование о загрузке классов и диапазоне индексов
+
+Типичный workflow:
+```python
+from utils.palettes import ade_palette, get_ade_class_names
+import numpy as np
+from PIL import Image
+
+# 1. Получение палитры и имён
+palette = ade_palette()  # 150×[R,G,B]
+class_names = get_ade_class_names()  # {0: "wall", 1: "building", ...}
+
+# 2. Визуализация маски
+mask = np.random.randint(0, 150, (512, 512), dtype=np.uint8)
+palette_array = np.array(palette, dtype=np.uint8)
+color_mask = palette_array[mask]  # Векторизованное применение
+Image.fromarray(color_mask).save("result.png")
+
+# 3. Анализ распределения классов
+from collections import Counter
+counts = Counter(mask.flatten())
+for class_id, count in counts.most_common(5):
+    name = class_names.get(class_id, f"Class_{class_id}")
+    print(f"{name}: {count} pixels")
+```
+
+Note:
+- Все палитры возвращают список списков `[R, G, B]` с целочисленными значениями 0–255.
+- Имена классов используют 0-индексацию, соответствующую стандартам PyTorch/TensorFlow.
+- Для бинарной сегментации используйте `binary_palette()` с масками значений {0, 1}.
+- При визуализации убедитесь, что `len(palette) >= mask.max() + 1` для избежания IndexError.
+- Логирование включено на уровне INFO; для отладки установите DEBUG через `logging.getLogger("utils.palettes").setLevel(logging.DEBUG)`.
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -25,6 +73,7 @@ if not logger.handlers:
 
 # ──────────────────────────────────────────────────────────────────────
 def get_ade_class_names() -> Dict[int, str]:
+    """Получение ade20k_class_names."""
     # ADE20K Class Names (0-indexed, 150 classes)
     # Source: http://sceneparsing.csail.mit.edu/
     ade20k_class_names: Dict[int, str] = {
@@ -345,6 +394,7 @@ def ade_palette() -> List[List[int]]:
 
 # ──────────────────────────────────────────────────────────────────────
 def get_coco_class_names() -> Dict[int, str]:
+    """Получение COCO_class_names."""
     # COCO Class Names (0-indexed, 80 classes)
     # Source: https://docs.ultralytics.com/datasets/detect/coco/#dataset-yaml
     COCO_class_names: Dict[int, str] = {
@@ -525,6 +575,7 @@ def coco_palette() -> List[List[int]]:
 
 # ──────────────────────────────────────────────────────────────────────
 def get_cityscapes_extended_class_names() -> Dict[int, str]:
+    """Получение cityscapes_extended_class_names."""
     # Cityscapes Extended (34 classes - includes "grouped" categories)
     cityscapes_extended_class_names: Dict[int, str] = {
         0: "road",
@@ -614,6 +665,7 @@ def cityscapes_extended_palette() -> List[List[int]]:
 
 # ──────────────────────────────────────────────────────────────────────
 def get_cityscapes_class_names() -> Dict[int, str]:
+    """Получение cityscapes_class_names."""
     # Cityscapes Class Names (0-indexed, 19 classes for semantic segmentation)
     # Source: https://www.cityscapes-dataset.com/
     cityscapes_class_names: Dict[int, str] = {
@@ -672,6 +724,7 @@ def cityscapes_palette() -> List[List[int]]:
 
 # ──────────────────────────────────────────────────────────────────────
 def get_chexpert_observation_class_names() -> Dict[int, str]:
+    """Получение chexpert_observation_names."""
     # CheXpert Observation Classes (14 labels for classification)
     # Source: https://stanfordmlgroup.github.io/competitions/chexpert/
     chexpert_observation_names: Dict[int, str] = {
@@ -727,6 +780,7 @@ def chexpert_observation_palette() -> List[List[int]]:
 
 # ──────────────────────────────────────────────────────────────────────
 def get_isic_class_names() -> Dict[int, str]:
+    """Получение isic_class_names."""
     # ISIC 2018 Class Names (Binary: skin lesion segmentation)
     # Source: https://challenge.isic-archive.com/
     isic_class_names: Dict[int, str] = {

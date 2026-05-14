@@ -1,5 +1,60 @@
 # segmenters/BaseSegmenter.py
 
+"""Абстрактный базовый класс для всех методов сегментации изображений.
+
+Модуль определяет унифицированный интерфейс (`BaseSegmenter`) для реализации
+алгоритмов сегментации, обеспечивая совместимость между классическими методами
+(пороговые, граничные, кластеризация) и нейросетевыми архитектурами.
+
+Ключевые компоненты:
+- 🎨 Типизация: Протоколы и TypeAlias для изображений, масок, метрик.
+  • ImageInput: Union[str, np.ndarray, PIL.Image, torch.Tensor]
+  • BinaryMask: np.ndarray формы (H, W), dtype uint8, значения {0, 255}
+  • ProbabilityMask: np.ndarray формы (H, W), dtype float32, значения [0, 1]
+  • MetricsDict: Dict[str, float] для результатов оценки качества
+
+- 🔧 Абстрактные методы (требуют реализации в наследниках):
+  • segment(image, **kwargs) → BinaryMask: Основная сегментация
+  • segment_with_mask(image, **kwargs) → (BinaryMask, Optional[ProbabilityMask]): 
+    Сегментация с возвратом вероятностной маски
+
+- 🛠️ Готовые утилиты (доступны всем наследникам):
+  • preprocess_image(): Конвертация входов → np.ndarray с опциями grayscale/resize/normalize
+  • visualize(): Наложение маски на изображение с альфа-блендингом
+  • evaluate_metrics(): Расчёт метрик через SegmentationMetrics
+  • segment_and_evaluate(): Комбинированный вызов "сегментация + оценка"
+  • _ensure_binary_mask(): Приведение масок к формату {0, 255}
+  • get_info(): Мета-информация о сегментере
+
+- 🔄 Гибкий вызов: Перегрузка __call__ позволяет использовать экземпляр как функцию:
+  • seg(image) → BinaryMask
+  • seg(image, return_mask=True) → (BinaryMask, ProbabilityMask | None)
+
+Особенности реализации:
+- 📦 Поддержка 4 форматов входа: путь к файлу, PIL.Image, np.ndarray, torch.Tensor
+- 🎨 Конвертация цветовых пространств: RGB ↔ BGR ↔ GRAY через OpenCV/PIL
+- 📐 Ресайз с адаптивной интерполяцией: INTER_AREA для уменьшения, INTER_LINEAR для увеличения
+- 🎚️ Нормализация: опциональное приведение [0,255] → [0,1] для нейросетей
+- 🛡️ Валидация: проверка размеров изображения и маски перед визуализацией/оценкой
+- 🔍 Логирование: информативные сообщения об ошибках загрузки и обработки
+
+Workflow для создания нового сегментера:
+1. Наследовать класс: `class MySegmenter(BaseSegmenter):`
+2. Реализовать абстрактные методы: `segment()` и `segment_with_mask()`
+3. (Опционально) Переопределить `preprocess_image()` для специфичной предобработки
+4. Использовать готовые утилиты: `visualize()`, `evaluate_metrics()`, `_ensure_binary_mask()`
+
+Примечание:
+- Все методы сегментации должны возвращать маску в формате `BinaryMask`: 
+  форма `(H, W)`, dtype `uint8`, значения `{0, 255}` (0=фон, 255=объект).
+- Для вероятностных выходов используйте тип `ProbabilityMask` и возвращайте `None`, 
+  если метод не поддерживает вывод уверенности.
+- Метрики рассчитываются через делегирование `SegmentationMetrics.calculate_all_metrics()` — 
+  убедитесь в наличии этого модуля в проекте.
+- Для массового тестирования используйте обёртки: `BatchClassicTester`, 
+  `SegmentationTester`, `TorchImplementationValidator`.
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -65,8 +120,7 @@ MetricsDict: TypeAlias = Dict[str, float]
 # ──────────────────────────────────────────────────────────────────────
 @runtime_checkable
 class SegmentationMetricsProtocol(Protocol):
-    """
-    Протокол для класса метрик сегментации.
+    """Протокол для класса метрик сегментации.
 
     Гарантирует наличие статического метода `calculate_all_metrics`.
     """
@@ -75,8 +129,7 @@ class SegmentationMetricsProtocol(Protocol):
     def calculate_all_metrics(
         pred_mask: BinaryMask, gt_mask: BinaryMask, threshold: float
     ) -> MetricsDict:
-        """
-        Рассчитывает все метрики сегментации.
+        """Рассчитывает все метрики сегментации.
 
         Args:
             pred_mask: Предсказанная бинарная маска.
@@ -94,8 +147,7 @@ T = TypeVar("T", bound="BaseSegmenter")
 
 # ──────────────────────────────────────────────────────────────────────
 class BaseSegmenter(ABC):
-    """
-    Абстрактный базовый класс для всех методов сегментации.
+    """Абстрактный базовый класс для всех методов сегментации.
 
     Определяет единый интерфейс для:
     - Сегментации (`segment()`, `segment_with_mask()`).
@@ -134,8 +186,7 @@ class BaseSegmenter(ABC):
     # ──────────────────────────────────────────────────────────────────────
     @abstractmethod
     def segment(self, image: ImageInput, **kwargs: Any) -> BinaryMask:
-        """
-        Основной метод сегментации.
+        """Основной метод сегментации.
 
         Args:
             image: Входное изображение в любом поддерживаемом формате.
@@ -156,8 +207,7 @@ class BaseSegmenter(ABC):
     def segment_with_mask(
         self, image: ImageInput, **kwargs: Any
     ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
-        """
-        Сегментация с возвратом бинарной и вероятностной масок.
+        """Сегментация с возвратом бинарной и вероятностной масок.
 
         Вероятностная маска может быть `None`, если метод не поддерживает
         вывод вероятностей.
@@ -181,8 +231,7 @@ class BaseSegmenter(ABC):
         target_size: Optional[Tuple[int, int]] = None,
         normalize: bool = False,
     ) -> NumpyImage:
-        """
-        Предобработка изображения к единому формату `np.ndarray`.
+        """Предобработка изображения к единому формату `np.ndarray`.
 
         Поддерживает:
         - Загрузку из файла/URL.
@@ -281,8 +330,7 @@ class BaseSegmenter(ABC):
         overlay_color: OverlayColor = (255, 0, 0),
         return_numpy: bool = False,
     ) -> Union[PILImage, NumpyImage]:
-        """
-        Визуализация результата сегментации: наложение маски на оригинал.
+        """Визуализация результата сегментации: наложение маски на оригинал.
 
         Алгоритм:
         1. Создаёт цветную маску (`overlay_color` для объекта, чёрный для фона).
@@ -317,8 +365,7 @@ class BaseSegmenter(ABC):
     def evaluate_metrics(
         self, pred_mask: BinaryMask, gt_mask: BinaryMask, threshold: float = 0.5
     ) -> MetricsDict:
-        """
-        Оценка качества сегментации с помощью различных метрик.
+        """Оценка качества сегментации с помощью различных метрик.
 
         Делегирует расчёт `SegmentationMetrics.calculate_all_metrics`.
 
@@ -347,8 +394,7 @@ class BaseSegmenter(ABC):
         threshold: float = 0.5,
         **segment_kwargs: Any,
     ) -> Tuple[MetricsDict, BinaryMask]:
-        """
-        Выполняет сегментацию и сразу оценивает результат.
+        """Выполняет сегментацию и сразу оценивает результат.
 
         Удобно для быстрого тестирования метода на одном изображении.
 
@@ -387,13 +433,12 @@ class BaseSegmenter(ABC):
     def __call__(
         self, image: ImageInput, return_mask: bool = False, **kwargs: Any
     ) -> Union[BinaryMask, Tuple[BinaryMask, Optional[ProbabilityMask]]]:
-        """
-        Вызов метода сегментации
+        """Вызов метода сегментации.
 
         Args:
-            image: Входное изображение
-            return_mask: Возвращать ли дополнительную информацию о маске
-            **kwargs: Дополнительные аргументы для метода сегментации
+            image: Входное изображение.
+            return_mask: Возвращать ли дополнительную информацию о маске.
+            **kwargs: Дополнительные аргументы для метода сегментации.
 
         Returns:
             - Если `return_mask=False`: `BinaryMask`.
@@ -407,8 +452,7 @@ class BaseSegmenter(ABC):
     def _ensure_binary_mask(
         self, mask: Union[BinaryMask, ProbabilityMask], threshold: float = 0.5
     ) -> BinaryMask:
-        """
-        Приведение маски к бинарному формату {0, 255}.
+        """Приведение маски к бинарному формату {0, 255}.
 
         Обрабатывает:
         - `uint8` с диапазоном [0, 1] → умножение на 255.
@@ -438,8 +482,7 @@ class BaseSegmenter(ABC):
 
     # ──────────────────────────────────────────────────────────────────────
     def get_info(self) -> Dict[str, Any]:
-        """
-        Возвращает мета-информацию о сегментаторе.
+        """Возвращает мета-информацию о сегментаторе.
 
         Returns:
             Dict[str, Any]:

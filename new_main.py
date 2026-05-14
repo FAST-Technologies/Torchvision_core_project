@@ -1,5 +1,45 @@
 # main.py
 
+"""Основная точка входа фреймворка сегментации.
+    
+Выполняет последовательное тестирование классических и нейросетевых методов:
+1. Инициализация окружения и автоматический подбор точности/компиляции.
+2. Загрузка тестовых изображений (с/без Ground Truth).
+3. Регистрация методов сегментации (OpenCV, scikit-learn, PyTorch v1/v2).
+4. Опциональный запуск исследовательских блоков:
+    - Сравнение бэкендов (PyTorch / ONNX / TensorRT)
+    - Профилирование с детекцией CPU↔GPU трансферов
+    - Бенчмарк точностей (fp32 vs fp16 vs bf16)
+    - Массовое тестирование на ADE20K
+    - CPU vs CUDA сравнение
+5. Генерация отчётов: таблицы, графики, CSV, HTML.
+
+Args:
+    use_optimizations: Если `True`, включает `torch.compile`, AMP и квантование.
+                        Если `False`, запускает legacy-пайплайн без оптимизаций.
+                        
+Returns:
+    Tuple[Optional[SegmentationTester], Optional[BenchmarkResult], Optional[SegmentationComparator]]:
+    - `tester`: Экземпляр тестера с зарегистрированными методами.
+    - `results`: DataFrame с результатами массового тестирования.
+    - `comparator`: Экземпляр компаратора для матричных сравнений.
+    
+Note:
+    - Управляющее поведение задаётся в `configs/main_config.yaml`.
+    - При ошибках в отдельных методах выполнение продолжается (graceful degradation).
+    - Для прерывания длительных бенчмарков используется `Ctrl+C`.
+    
+Example:
+    ```python
+    if __name__ == "__main__":
+        # Запуск с оптимизациями
+        tester, results, _ = main(use_optimizations=True)
+        if results is not None:
+            print(f"Обработано {len(results)} методов")
+            print(results.sort_values("IoU", ascending=False).head(10))
+    ```
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ И TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
@@ -141,8 +181,8 @@ def _load_config(config_path: str = "configs/main_config.yaml") -> Dict[str, Any
 # УТИЛИТЫ ДЛЯ ОПРЕДЕЛЕНИЯ ОПТИМАЛЬНЫХ ПАРАМЕТРОВ
 # ──────────────────────────────────────────────────────────────────────
 def get_optimal_precision(device: torch.device) -> str:
-    """
-    Автоматический выбор оптимальной точности для устройства.
+    """Автоматический выбор оптимальной точности для устройства.
+
     Returns:
         str: 'bf16' для Ampere+, 'fp16' для Pascal+, 'fp32' для остальных.
     """
@@ -163,9 +203,7 @@ def get_optimal_precision(device: torch.device) -> str:
 
 
 def get_compile_config(method_name: str, device: torch.device) -> Dict[str, Any]:
-    """
-    Возвращает конфигурацию torch.compile для метода.
-    """
+    """Возвращает конфигурацию torch.compile для метода."""
     # Методы, которые хорошо компилируются
     well_compiled = {
         "global_thresholding",
@@ -201,8 +239,7 @@ def main(use_optimizations: bool = True) -> Tuple[
     Optional[BenchmarkResult],
     Optional[SegmentationComparator],
 ]:
-    """
-    Основная точка входа фреймворка сегментации.
+    """Основная точка входа фреймворка сегментации.
 
     Выполняет последовательное тестирование классических и нейросетевых методов:
     1. Инициализация окружения и проверка доступности CUDA.
@@ -745,8 +782,7 @@ def main(use_optimizations: bool = True) -> Tuple[
 
 
 def parse_method_name(method_name: str) -> Dict[str, str]:
-    """
-    Надёжно парсит имя метода вида 'base_method_Backend_precision'.
+    """Надёжно парсит имя метода вида 'base_method_Backend_precision'.
 
     Поддерживает:
     - Базовые имена с подчёркиваниями (gradient_magnitude_direction)
@@ -798,9 +834,7 @@ def _register_backend_methods_with_precision(
     precisions: List[str] = None,
     input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
 ) -> Dict[str, Any]:
-    """
-    Регистрирует методы для разных бэкендов (PyTorch/ONNX/TensorRT)
-    и точностей (fp32/fp16/bf16) с суффиксами в названиях.
+    """Регистрирует методы для разных бэкендов (PyTorch/ONNX/TensorRT) и точностей (fp32/fp16/bf16) с суффиксами в названиях.
 
     Формат имени метода: {method_name}_{backend}_{precision}
     Пример: otsu_thresholding_TRT_bf16, sobel_edge_ONNX_fp16
@@ -927,8 +961,7 @@ def _register_backend_methods_with_precision(
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ main()
 # ──────────────────────────────────────────────────────────────────────
 def _extract_method_name_from_key(method_key: str) -> str:
-    """
-    Извлекает внутреннее имя метода из ключа словаря.
+    """Извлекает внутреннее имя метода из ключа словаря.
 
     Примеры:
         "Sobel_Torch_v2" -> "sobel_edge"
@@ -1016,8 +1049,7 @@ def _log_environment_info() -> None:
 
 # ──────────────────────────────────────────────────────────────────────
 def _create_cv2_methods() -> SegmenterDict:
-    """
-    Создаёт словарь методов сегментации на основе OpenCV.
+    """Создаёт словарь методов сегментации на основе OpenCV.
 
     Returns:
         SegmenterDict: Словарь {имя_метода: OpenCVSegmenter}.
@@ -1106,8 +1138,7 @@ def _create_cv2_methods() -> SegmenterDict:
 
 # ──────────────────────────────────────────────────────────────────────
 def _create_sklearn_methods() -> SegmenterDict:
-    """
-    Создаёт словарь методов сегментации на основе scikit-learn.
+    """Создаёт словарь методов сегментации на основе scikit-learn.
 
     Returns:
         SegmenterDict: Словарь {имя_метода: SklearnSegmenter}.
@@ -1208,8 +1239,8 @@ def _create_torch_methods_factory(
     precision: str = "fp32",
     enable_compile: bool = False,
 ) -> SegmenterDict:
-    """
-    🏭 Единая фабрика для создания методов TorchSegmenter v1 и v2.
+    """🏭 Единая фабрика для создания методов TorchSegmenter v1 и v2.
+
     Добавляет суффиксы `_v1` и `_v2` к именам методов для сравнения.
     """
     methods: SegmenterDict = {}
@@ -1325,8 +1356,7 @@ def _create_torch_methods_factory(
 
 
 def _create_torch_methods() -> SegmenterDict:
-    """
-    Создаёт словарь методов сегментации на основе PyTorch.
+    """Создаёт словарь методов сегментации на основе PyTorch.
 
     Returns:
         SegmenterDict: Словарь {имя_метода: TorchSegmenter}.
@@ -1486,9 +1516,7 @@ def _run_profiling_demo(
     test_images: TestImagesDict,
     device: torch.device,
 ) -> None:
-    """
-    Демонстрация профилирования с детекцией трансферов.
-    """
+    """Демонстрация профилирования с детекцией трансферов."""
     print("\n" + "=" * 60)
     print("🔍 ДЕМО ПРОФИЛИРОВАНИЯ")
     print("=" * 60)
@@ -1562,8 +1590,8 @@ def _run_precision_benchmark_demo(
     tester: SegmentationTester,
     test_images: TestImagesDict,
 ) -> None:
-    """
-    Демонстрация бенчмарка точностей (только для TorchSegmenter).
+    """Демонстрация бенчмарка точностей (только для TorchSegmenter).
+
     ⚠️  Медленно: запускает каждый метод с разными точностями.
     """
     if not torch.cuda.is_available():
@@ -1633,8 +1661,7 @@ def _register_classic_methods(
     sklearn_methods: SegmenterDict,
     torch_methods: SegmenterDict,
 ) -> None:
-    """
-    Регистрирует классические методы в тестере с обработкой ошибок.
+    """Регистрирует классические методы в тестере с обработкой ошибок.
 
     Args:
         tester: Экземпляр SegmentationTester для регистрации.
@@ -1666,8 +1693,7 @@ def _clear_gpu_memory() -> None:
 def _run_neural_segmentation_tests(
     tester: SegmentationTester, device: torch.device
 ) -> None:
-    """
-    Запускает тестирование нейросетевых методов сегментации.
+    """Запускает тестирование нейросетевых методов сегментации.
 
     Args:
         tester: Экземпляр тестера для регистрации методов.
@@ -1730,8 +1756,7 @@ def _load_single_neural_model(
     config: Dict[str, Any],
     device: torch.device,
 ) -> None:
-    """
-    Загружает и регистрирует одну нейросетевую модель.
+    """Загружает и регистрирует одну нейросетевую модель.
 
     Args:
         tester: Экземпляр тестера.
@@ -1867,9 +1892,7 @@ def _run_batch_classic_testing_optimized(
     device: torch.device,
     precision: str,
 ) -> Optional[BenchmarkResult]:
-    """
-    Запускает массовое тестирование с учётом оптимизаций.
-    """
+    """Запускает массовое тестирование с учётом оптимизаций."""
     print("\n" + "=" * 80)
     print("🚀 МАССОВОЕ ТЕСТИРОВАНИЕ С ОПТИМИЗАЦИЯМИ")
     print(f"   Устройство: {device}, Точность: {precision}")
@@ -1909,8 +1932,7 @@ def _run_batch_classic_testing_optimized(
 
 # ──────────────────────────────────────────────────────────────────────
 def _print_batch_test_summary(results_df: BenchmarkResult) -> None:
-    """
-    Выводит сводную статистику по результатам массового тестирования.
+    """Выводит сводную статистику по результатам массового тестирования.
 
     Args:
         results_df: DataFrame с результатами бенчмарка.
@@ -1949,8 +1971,7 @@ def _print_batch_test_summary(results_df: BenchmarkResult) -> None:
 
 # ──────────────────────────────────────────────────────────────────────
 def prepare_mask_for_overlay(mask_input: Union[Image.Image, npt.NDArray]) -> MaskArray:
-    """
-    Конвертирует входную маску в 2D numpy array для наложения на изображение.
+    """Конвертирует входную маску в 2D numpy array для наложения на изображение.
 
     Поддерживаемые форматы входа:
     - `PIL.Image` (режимы 'L', 'RGB', 'RGBA')
@@ -1984,7 +2005,6 @@ def prepare_mask_for_overlay(mask_input: Union[Image.Image, npt.NDArray]) -> Mas
         print(np.unique(binary))  # [0, 255]
         ```
     """
-
     # Конвертация PIL → numpy
     mask: npt.NDArray = (
         np.array(mask_input)
@@ -2019,8 +2039,7 @@ def run_performance_benchmark(
     warmup_runs: int = 10,
     output_dir: str = "./data/performance_benchmark",
 ) -> Optional[pd.DataFrame]:
-    """
-    Запуск бенчмарка производительности с сравнением cold/hot запусков.
+    """Запуск бенчмарка производительности с сравнением cold/hot запусков.
 
     Выполняет двухэтапное тестирование:
     1. **Cold benchmark**: Замер времени без предварительного прогрева.
@@ -2281,8 +2300,7 @@ def _compare_cold_hot(
     df_hot: pd.DataFrame,
     image_name: str,
 ) -> pd.DataFrame:
-    """
-    Сравнивает результаты cold и hot бенчмарков.
+    """Сравнивает результаты cold и hot бенчмарков.
 
     Args:
         df_cold: DataFrame с холодными результатами.
@@ -2321,8 +2339,7 @@ def run_neural_segmentation_benchmark(
     output_dir: str = "./data/neural_benchmark",
     repo_id: str = ADE20K_REPO_ID,
 ) -> Optional[Dict[str, Any]]:
-    """
-    Запуск бенчмарка нейросетевых моделей сегментации на датасете ADE20K.
+    """Запуск бенчмарка нейросетевых моделей сегментации на датасете ADE20K.
 
     Выполняет:
     1. Загрузку тестового изображения и ground truth из HuggingFace.
@@ -2640,8 +2657,7 @@ def run_neural_segmentation_benchmark(
 
 # ──────────────────────────────────────────────────────────────────────
 def _load_benchmark_models(benchmark: SegmentationBenchmark, output_dir: str) -> None:
-    """
-    Загружает модели в бенчмарк с обработкой ошибок.
+    """Загружает модели в бенчмарк с обработкой ошибок.
 
     Args:
         benchmark: Экземпляр `SegmentationBenchmark`.
@@ -2749,8 +2765,7 @@ def _load_benchmark_models(benchmark: SegmentationBenchmark, output_dir: str) ->
 def _generate_neural_benchmark_plots(
     benchmark: SegmentationBenchmark, output_dir: str
 ) -> None:
-    """
-    Генерирует визуализации для нейросетевого бенчмарка.
+    """Генерирует визуализации для нейросетевого бенчмарка.
 
     Args:
         benchmark: Экземпляр `SegmentationBenchmark`.
@@ -2808,8 +2823,7 @@ def run_implementation_validation(
     output_dir: str = "./data/validation",
     image_name: str = "mountain",
 ) -> Optional[Dict[str, Any]]:
-    """
-    Валидация согласованности реализаций методов через TorchImplementationValidator.
+    """Валидация согласованности реализаций методов через TorchImplementationValidator.
 
     Выполняет:
     1. Инициализацию валидатора с указанной директорией вывода.
@@ -2975,8 +2989,7 @@ def run_matrix_comparison(
     output_dir: str = "./data/matrix_comparison",
     reference_method: str = "Otsu_Thresholding_Sklearn",
 ) -> Optional[Dict[str, Any]]:
-    """
-    Матричное и пакетное сравнение методов сегментации.
+    """Матричное и пакетное сравнение методов сегментации.
 
     Выполняет три типа сравнений для каждого изображения:
     1. **All-vs-All**: Матрица попарных сравнений всех методов.
@@ -3206,8 +3219,7 @@ def run_ground_truth_evaluation(
     output_dir: str = "./data/gt_evaluation",
     threshold: float = 0.5,
 ) -> Optional[Dict[str, Any]]:
-    """
-    Оценка качества сегментации против Ground Truth.
+    """Оценка качества сегментации против Ground Truth.
 
     Для каждого изображения с доступным GT:
     1. Запускает все классические методы.
@@ -3451,8 +3463,7 @@ def run_augmentation_training_study(
     device: str = "cuda",
     output_dir: str = "./data/augmentation_study",
 ) -> Optional[Dict[str, Any]]:
-    """
-    Исследование влияния уровней аугментаций на качество обучения моделей.
+    """Исследование влияния уровней аугментаций на качество обучения моделей.
 
     Выполняет:
     1. Обучение нескольких архитектур с разными уровнями аугментаций.
@@ -3708,8 +3719,7 @@ def _generate_augmentation_plots(
     augmentation_configs: List[Dict[str, Any]],
     output_dir: str,
 ) -> None:
-    """
-    Генерирует графики сравнения аугментаций.
+    """Генерирует графики сравнения аугментаций.
 
     1. Бар-чарты: влияние аугментаций для каждой модели.
     2. Групповые бар-чарты: сравнение моделей для каждого уровня аугментаций.
@@ -3828,8 +3838,7 @@ def _collect_checkpoints(
     augmentation_levels: List[str],
     checkpoint_dir: str,
 ) -> Dict[str, str]:
-    """
-    Собирает актуальные чекпоинты по паттернам.
+    """Собирает актуальные чекпоинты по паттернам.
 
     Args:
         model_types: Список типов моделей.
@@ -3863,8 +3872,7 @@ def _create_augmentation_summary(
     results_by_model_and_aug: Dict[str, Dict[str, Any]],
     model_types: List[str],
 ) -> pd.DataFrame:
-    """
-    Создаёт сводный DataFrame по результатам обучения.
+    """Создаёт сводный DataFrame по результатам обучения.
 
     Args:
         results_by_model_and_aug: Результаты по моделям и аугментациям.
@@ -3904,8 +3912,7 @@ def _create_augmentation_summary(
 
 # ──────────────────────────────────────────────────────────────────────
 def _generate_augmentation_heatmap(summary_df: pd.DataFrame, output_dir: str) -> None:
-    """
-    Генерирует тепловую карту влияния аугментаций.
+    """Генерирует тепловую карту влияния аугментаций.
 
     Args:
         summary_df: Сводный DataFrame с результатами.
@@ -3961,8 +3968,7 @@ def visualize_gt_results(
     results_dict: Dict[str, Dict[str, MetricsDict]],
     output_dir: str = "./data/gt_visualization",
 ) -> None:
-    """
-    Построение графиков по результатам тестирования с Ground Truth.
+    """Построение графиков по результатам тестирования с Ground Truth.
 
     Генерирует три типа визуализаций:
     1. **Bar Chart**: Сравнение метрик (IoU, Dice, F1) по методам.
@@ -3997,7 +4003,6 @@ def visualize_gt_results(
         # Сохранит: metrics_comparison_bar.png, speed_vs_accuracy.png, ...
         ```
     """
-
     os.makedirs(output_dir, exist_ok=True)
 
     # Сбор данных в единый DataFrame
@@ -4049,8 +4054,7 @@ def visualize_gt_results(
 
 # ──────────────────────────────────────────────────────────────────────
 def _extract_library_from_name(method_name: str) -> str:
-    """
-    Извлекает название библиотеки из имени метода.
+    """Извлекает название библиотеки из имени метода.
 
     Args:
         method_name: Имя метода, например "Otsu_Thresholding_CV2".
@@ -4070,8 +4074,7 @@ def _extract_library_from_name(method_name: str) -> str:
 
 # ──────────────────────────────────────────────────────────────────────
 def _aggregate_metrics_by_method(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Агрегирует метрики по методам: усреднение по всем изображениям.
+    """Агрегирует метрики по методам: усреднение по всем изображениям.
 
     Args:
         df: DataFrame с сырыми результатами.
@@ -4204,8 +4207,7 @@ def load_test_images(
     use_image_with_mask: bool = False,
     dataset_repo: str = ADE20K_REPO_ID,
 ) -> TestImagesDict:
-    """
-    Загружает тестовые изображения для бенчмарка.
+    """Загружает тестовые изображения для бенчмарка.
 
     Поддерживает два режима:
     1. **С Ground Truth** (`use_image_with_mask=True`):
@@ -4293,8 +4295,7 @@ def _load_images_with_ground_truth(
 
 # ──────────────────────────────────────────────────────────────────────
 def _convert_multiclass_to_binary(gt_np: npt.NDArray) -> MaskArray:
-    """
-    Конвертирует многоклассовую маску в бинарную (объект/фон).
+    """Конвертирует многоклассовую маску в бинарную (объект/фон).
 
     Алгоритм:
     1. Найти самый частый класс → считать фоном.
@@ -4365,9 +4366,8 @@ def generate_precision_report(
     n_warmup: int = 3,
     n_runs: int = 10,
     compute_metrics: bool = True,
-):
-    """
-    Генерирует CSV-отчёт: метод × точность × метрики.
+) -> Optional[pd.DataFrame]:
+    """Генерирует CSV-отчёт: метод × точность × метрики.
 
     Args:
         methods: Список названий методов для тестирования
@@ -4559,8 +4559,7 @@ def save_metrics_report(
     indent: int = 2,
     ensure_ascii: bool = False,
 ) -> None:
-    """
-    Сохраняет отчёт с метриками в JSON-формате.
+    """Сохраняет отчёт с метриками в JSON-формате.
 
     Args:
         metrics_all: Словарь метрик: {имя_метода: {метрика: значение}}.
@@ -4597,8 +4596,7 @@ def save_metrics_report(
 def test_neural_segmentation_variants() -> (
     Tuple[Optional[NeuralSegmenter], Optional[Dict[str, Any]]]
 ):
-    """Тестирование различных вариантов нейросетевой сегментации"""
-
+    """Тестирование различных вариантов нейросетевой сегментации."""
     print("\n" + "=" * 60)
     print("ТЕСТИРОВАНИЕ ВАРИАНТОВ НЕЙРОСЕТЕВОЙ СЕГМЕНТАЦИИ")
     print("=" * 60)
@@ -4702,8 +4700,7 @@ def run_cpu_cuda_benchmark(
     n_runs: int = 5,
     warmup_runs: int = 2,
 ) -> BenchmarkResult:
-    """
-    Запуск бенчмарка CPU vs CUDA для классических методов.
+    """Запуск бенчмарка CPU vs CUDA для классических методов.
 
     Выполняет сравнение времени выполнения методов на CPU и CUDA:
     1. Фильтрует методы: исключает нейросетевые (только классические).
@@ -4734,7 +4731,6 @@ def run_cpu_cuda_benchmark(
         print(f"Средний speedup: {cuda_methods['speedup'].mean():.2f}x")
         ```
     """
-
     print("\n" + "=" * 80)
     print("ЗАПУСК БЕНЧМАРКА: CPU vs CUDA")
     print("=" * 80)
@@ -4791,8 +4787,7 @@ def _print_cpu_cuda_summary(df_results: BenchmarkResult) -> None:
 
 # ──────────────────────────────────────────────────────────────────────
 def _filter_classical_methods(all_methods: SegmenterDict) -> SegmenterDict:
-    """
-    Фильтрует методы, исключая нейросетевые.
+    """Фильтрует методы, исключая нейросетевые.
 
     Args:
         all_methods: Полный словарь методов.
@@ -4931,7 +4926,7 @@ def get_device_capabilities():
 
 
 # ──────────────────────────────────────────────────────────────────────
-def create_segmenter_config(method_name, device, **kwargs):
+def create_segmenter_config(method_name: str, device: Optional[str], **kwargs: Any) -> Any:
     """Фабрика для создания сегментера с нужными флагами оптимизации."""
     try:
         seg = TorchSegmenter2(method=method_name, device=device, **kwargs)
@@ -4968,11 +4963,9 @@ def _get_device_metrics(device: str) -> Dict[str, Any]:
 
 
 # ──────────────────────────────────────────────────────────────────────
-def run_optimization_benchmarks(image_path, methods_list):
-    """
-    Запускает серию тестов производительности для списка методов.
-    """
-    caps = get_device_capabilities()
+def run_optimization_benchmarks(image_path: str, methods_list) -> Any:
+    """Запускает серию тестов производительности для списка методов."""
+    caps: Dict[str, Optional[bool]] = get_device_capabilities()
     print(f"🖥️  System Info: {caps['device_name'] if caps['cuda'] else 'CPU'}")
     print(
         f" CUDA BF16 Support: {caps['bf16_support']} | INT8 Support: {caps['int8_support']}"
@@ -5176,7 +5169,7 @@ def run_optimization_benchmarks(image_path, methods_list):
 
 
 def benchmark_with_baseline(segmenter, image, configurations):
-    """Сравнение различных конфигураций относительно baseline"""
+    """Сравнение различных конфигураций относительно baseline."""
     results = {}
 
     # Запускаем baseline

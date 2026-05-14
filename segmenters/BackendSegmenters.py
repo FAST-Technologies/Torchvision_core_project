@@ -1,13 +1,47 @@
 # segmenters/BackendSegmenters.py
 
-"""
-Сегментеры на базе ONNX Runtime и TensorRT.
+"""Модуль высокопроизводительных сегментеров на базе ONNX Runtime и TensorRT.
 
-Исправления:
-  1. ONNXSegmenter.segment — добавлена обработка ошибок, не возвращает None
-  2. ONNXSegmenter — поддержка input_shape параметра
-  3. TRTSegmenter — загрузка через load_trt_model (поддержка обоих форматов)
-  4. Оба класса — segment_with_mask реализован корректно
+Предназначен для ускоренного инференса предварительно экспортированных моделей
+сегментации с поддержкой аппаратного ускорения на GPU.
+
+Классы:
+- 🟦 ONNXSegmenter: Инференс через ONNX Runtime с поддержкой CUDA/CPU провайдеров.
+  • Автоматический выбор Execution Provider (CUDAExecutionProvider → CPUExecutionProvider)
+  • Графические оптимизации: ORT_ENABLE_ALL для максимального ускорения
+  • Гибкая конфигурация входной формы: input_shape=(B, C, H, W)
+  • Устойчивость к ошибкам: возврат пустой маски при сбое инференса
+
+- 🟩 TRTSegmenter: Инференс через TensorRT (torch_tensorrt) для максимальной производительности.
+  • Загрузка моделей из .trt файлов или готовых torch.nn.Module
+  • Автоматическая конвертация: numpy → torch.Tensor → TRT inference → numpy
+  • Только CUDA: TensorRT требует наличия GPU с поддержкой CUDA
+  • Оптимизированный конвейер: нормализация [0,1], batch-обработка, пост-процессинг
+
+Особенности реализации:
+- 🔄 Единый интерфейс: оба класса наследуют `BaseSegmenter` и реализуют `segment()` / `segment_with_mask()`.
+- 🎚️ Автоматическая предобработка: конвертация в 3 канала, нормализация к [0, 1], добавление batch-измерения.
+- 🛡️ Устойчивость к ошибкам: при исключении в `segment()` возвращается пустая маска `(H, W)` вместо `None`.
+- 📦 Поддержка форматов: вход — `np.ndarray`, `PIL.Image`, `str` (путь), `torch.Tensor`; выход — `np.ndarray` uint8 {0, 255}.
+- ⚡ Оптимизации: `torch.no_grad()` для TRT, `SessionOptions` для ONNX, кэширование сессий/моделей.
+- 🔍 Логирование: информативные сообщения об инициализации, формах тензоров и ошибках инференса.
+
+Ограничения:
+- Вероятностные маски не поддерживаются: `segment_with_mask()` возвращает `(binary_mask, None)`.
+- TRTSegmenter требует наличия CUDA-совместимого GPU и установленных `torch-tensorrt`, `tensorrt`.
+- ONNX-модели должны быть экспортированы с фиксированной или динамической входной формой, совместимой с `input_shape`.
+
+Workflow:
+1. Экспортировать обученную модель в ONNX (.onnx) или TensorRT (.trt) формат.
+2. Инициализировать сегментер: `ONNXSegmenter("method", "model.onnx", device="cuda")`.
+3. Выполнить инференс: `mask = segmenter.segment(image)`.
+4. (Опционально) Использовать в бенчмарках через `CpuCudaBenchmark` или `SegmentationBenchmark`.
+
+Примечание:
+- Для классических методов (пороги, границы) используйте `OpenCVSegmenter` / `SklearnSegmenter`.
+- Для нейросетевых моделей в PyTorch — `TorchSegmenter` / `TorchSegmenter2`.
+- Данный модуль предназначен для **деплоя и бенчмаркинга** уже обученных моделей.
+- Функция `load_trt_model()` импортируется из `utils.backend_exporter` — убедитесь в её наличии.
 """
 
 # ──────────────────────────────────────────────────────────────────────
@@ -85,8 +119,7 @@ class ONNXSegmenter(BaseSegmenter):
         input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
         **kwargs: Any,
     ) -> None:
-        """
-        Инициализация ONNX сегментера.
+        """Инициализация ONNX сегментера.
 
         Args:
             method_name: Имя метода для логирования.
@@ -130,8 +163,7 @@ class ONNXSegmenter(BaseSegmenter):
         )
 
     def _preprocess(self, image: npt.NDArray[np.uint8]) -> PreprocessedTensor:
-        """
-        Конвертирует изображение в формат (1, 3, H, W), float32, [0, 1].
+        """Конвертирует изображение в формат (1, 3, H, W), float32, [0, 1].
 
         Args:
             image: Входное изображение (H, W) или (H, W, 3), uint8.
@@ -150,8 +182,7 @@ class ONNXSegmenter(BaseSegmenter):
         return image.astype(np.float32)
 
     def segment(self, image, **kwargs: Any) -> BinaryMask:
-        """
-        Запускает ONNX инференс.
+        """Запускает ONNX инференс.
 
         Алгоритм:
         1. Предобработка изображения → (1, 3, H, W), float32, [0, 1].
@@ -202,8 +233,7 @@ class ONNXSegmenter(BaseSegmenter):
     def segment_with_mask(
         self, image: ImageInput, **kwargs: Any
     ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
-        """
-        Сегментация с возвратом бинарной и вероятностной масок.
+        """Сегментация с возвратом бинарной и вероятностной масок.
 
         Для ONNX-модели возвращаем только бинарную маску,
         вероятностная маска не поддерживается.
@@ -248,8 +278,7 @@ class TRTSegmenter(BaseSegmenter):
         device: Literal["cuda", "cpu"] = "cuda",
         **kwargs: Any,
     ) -> None:
-        """
-        Инициализация TensorRT сегментера.
+        """Инициализация TensorRT сегментера.
 
         Args:
             method_name: Имя метода для логирования.
@@ -275,8 +304,7 @@ class TRTSegmenter(BaseSegmenter):
         self.model.eval()
 
     def segment(self, image, **kwargs: Any) -> BinaryMask:
-        """
-        Запускает TRT инференс.
+        """Запускает TRT инференс.
 
         Алгоритм:
         1. Конвертация numpy → torch.Tensor (C, H, W), float32, [0, 1].
@@ -329,8 +357,7 @@ class TRTSegmenter(BaseSegmenter):
     def segment_with_mask(
         self, image: ImageInput, **kwargs: Any
     ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
-        """
-        Сегментация с возвратом бинарной и вероятностной масок.
+        """Сегментация с возвратом бинарной и вероятностной масок.
 
         Для TRT-модели возвращаем только бинарную маску,
         вероятностная маска не поддерживается.

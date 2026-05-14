@@ -1,5 +1,65 @@
 # segmenters/ModelTrainer.py
 
+"""Универсальный трейнер для обучения моделей семантической сегментации на ADE20K.
+
+Поддерживает 6 архитектур сегментации через SMP и Torchvision:
+1. **SMP-модели**: U-Net, FPN, PSPNet (с encoder'ами ResNet, MiT, EfficientNet)
+2. **Torchvision-модели**: DeepLabV3+, FCN (с предобучением на COCO+VOC)
+3. **Custom**: SegNet (через U-Net proxy или кастомную реализацию)
+
+Ключевые особенности:
+- ✅ Автоматический выбор `ignore_index` по таблице `IGNORE_INDEX_BY_MODEL`
+- ✅ 4 уровня аугментации данных: none / basic / medium / aggressive
+- ✅ Взвешенный CrossEntropyLoss для борьбы с дисбалансом классов
+- ✅ Early stopping по валидационному mIoU
+- ✅ Сравнение обученных моделей и визуализация результатов
+
+Типичный workflow:
+```python
+from segmenters.ModelTrainer import ModelTrainer, TrainingConfig
+
+# 1. Инициализация
+trainer = ModelTrainer(checkpoint_dir="./models", root_dir="./data/ade20k")
+
+# 2. Конфигурация эксперимента
+config = TrainingConfig(
+    experiment_name="unet_baseline",
+    model_type="unet_smp",
+    augmentation_level="medium",
+    epochs=100,
+    lr=1e-4
+)
+
+# 3. Обучение
+result = trainer.train_experiment(config)
+print(f"Best mIoU: {result['best_miou'] * 100:.2f}%")
+
+# 4. Сравнение с другими моделями
+results = trainer.compare_trained_models(
+    augmentation_level="medium",
+    model_types=["unet_smp", "deeplab_tv", "fpn_smp"]
+)
+
+# 5. Визуализация
+trainer.plot_experiment_comparison(output_path="./plots/comparison.png")
+```
+
+Attributes:
+    checkpoint_dir (Path): Директория для сохранения чекпоинтов моделей.
+    root_dir (Path): Корневая директория датасета (ADE20K).
+    device (torch.device): Устройство для вычислений (cuda/cpu).
+    experiment_results (List[TrainingResult]): История результатов всех экспериментов.
+
+Note:
+    - Для Torchvision-моделей (`deeplab_tv`, `fcn_tv`) бэкбон замораживается на первые 5 эпох,
+        затем размораживается с уменьшенным LR (lr / 10) для стабильной дообучки.
+    - `ignore_index` выбирается автоматически: 255 для SMP-моделей, 0 или 255 для Torchvision
+        в зависимости от предобучения.
+    - При использовании `use_class_weights=True` веса считаются по median frequency balancing
+        на первых `max_batches` батчах тренировочного набора.
+    - Для быстрой отладки используйте `subset_fraction=0.01`–`0.05` и `epochs=1`–`5`.
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -84,8 +144,7 @@ IGNORE_INDEX_BY_MODEL: Dict[str, int] = {
 
 # ──────────────────────────────────────────────────────────────────────
 class ModelConfig(TypedDict):
-    """
-    Конфигурация модели для обучения.
+    """Конфигурация модели для обучения.
 
     Attributes:
         model_type: Тип архитектуры сегментации.
@@ -102,8 +161,7 @@ class ModelConfig(TypedDict):
 
 # ──────────────────────────────────────────────────────────────────────
 class TrainingResult(TypedDict):
-    """
-    Результаты обучения одного эксперимента.
+    """Результаты обучения одного эксперимента.
 
     Attributes:
         experiment_name: Уникальное имя эксперимента.
@@ -160,8 +218,7 @@ class TrainingResult(TypedDict):
 
 # ──────────────────────────────────────────────────────────────────────
 class TrainingConfig:
-    """
-    Конфигурация для эксперимента обучения моделей сегментации.
+    """Конфигурация для эксперимента обучения моделей сегментации.
 
     Инкапсулирует все гиперпараметры и мета-информацию для воспроизводимости.
     Автоматически генерирует уникальное имя чекпоинта на основе таймстампа.
@@ -208,8 +265,7 @@ class TrainingConfig:
         checkpoint_name: Optional[str] = None,
         use_class_weights: bool = False,
     ) -> None:
-        """
-        Инициализация конфигурации обучения.
+        """Инициализация конфигурации обучения.
 
         Args:
             experiment_name: Уникальное имя эксперимента для логирования.
@@ -248,6 +304,7 @@ class TrainingConfig:
 
     # ──────────────────────────────────────────────────────────────────────
     def __repr__(self) -> str:
+        """Representation for TrainingConfig."""
         return (
             f"TrainingConfig({self.experiment_name}, "
             f"model={self.model_type}, "
@@ -258,8 +315,7 @@ class TrainingConfig:
 
 # ──────────────────────────────────────────────────────────────────────
 class ModelTrainer:
-    """
-    Универсальный трейнер для обучения моделей семантической сегментации.
+    """Универсальный трейнер для обучения моделей семантической сегментации.
 
     Поддерживает:
     - Множество архитектур: U-Net, FPN, PSPNet, DeepLabV3+, FCN, SegNet (через SMP/torchvision).
@@ -290,8 +346,7 @@ class ModelTrainer:
         root_dir: str = DEFAULT_ROOT_DIR,
         device: str = "cuda",
     ) -> None:
-        """
-        Инициализация трейнера.
+        """Инициализация трейнера.
 
         Args:
             checkpoint_dir: Директория для сохранения чекпоинтов моделей.
@@ -314,8 +369,7 @@ class ModelTrainer:
         variant: str = "b5",
         for_training: bool = True,
     ) -> torch.nn.Module:
-        """
-        Создаёт экземпляр модели сегментации по указанному типу.
+        """Создаёт экземпляр модели сегментации по указанному типу.
 
         Поддерживаемые архитектуры:
         - SMP: U-Net, FPN, PSPNet (с encoder'ами ResNet, MiT, EfficientNet).
@@ -351,35 +405,35 @@ class ModelTrainer:
         # ──────────────────────────────────────────────────────────────
         if model_type == "unet_smp":
             print("🔹 Creating U-Net (SMP)...")
-            return smp.Unet(
-                encoder_name=encoder_name,  # Можно заменить на "resnet50", "efficientnet-b0"
-                encoder_weights="imagenet",
+            return cast(nn.Module, smp.Unet(
+                encoder_name=encoder_name,
+                encoder_weights="imagenet", # Можно заменить на "resnet50", "efficientnet-b0"
                 in_channels=3,
                 classes=NUM_CLASSES,
                 activation=None,
-            )
+            ))
         elif model_type == "fpn_smp":
             print(f"🔹 Creating FPN + MiT-{variant}...")
             encoder = f"mit_{variant}"
-            return smp.FPN(
+            return cast(nn.Module, smp.FPN(
                 encoder_name=encoder,
                 encoder_weights="imagenet",
                 in_channels=3,
                 classes=NUM_CLASSES,
                 activation=None,
-            )
+            ))
         elif model_type == "psp_smp":
             print(f"🔹 Creating PSPNet + MiT-{variant}...")
             encoder = f"mit_{variant}"
             psp_size = 2048 if "mit" in encoder else 512
-            return smp.PSPNet(
+            return cast(nn.Module, smp.PSPNet(
                 encoder_name=encoder,
                 encoder_weights="imagenet",
                 in_channels=3,
                 classes=NUM_CLASSES,
                 activation=None,
                 psp_size=psp_size,
-            )
+            ))
 
         # ──────────────────────────────────────────────────────────────
         # TORCHVISION МОДЕЛИ
@@ -410,7 +464,7 @@ class ModelTrainer:
             #     nn.init.normal_(model.aux_classifier[4].weight, 0, 0.01)
             #     nn.init.constant_(model.aux_classifier[4].bias, 0)
 
-            return model
+            return cast(nn.Module, model)
         elif model_type == "fcn_tv":
             print(f"🔹 Creating FCN ({variant})...")
             variants = {
@@ -441,7 +495,7 @@ class ModelTrainer:
             #     )
             #     nn.init.normal_(model.aux_classifier[4].weight, 0, 0.01)
             #     nn.init.constant_(model.aux_classifier[4].bias, 0)
-            return model
+            return cast(nn.Module, model)
         elif model_type == "segnet":
             print("🔹 Creating SegNet (U-Net proxy)...")
             try:
@@ -469,7 +523,7 @@ class ModelTrainer:
 
                 model.apply(_init_weights)
 
-            return model
+            return cast(nn.Module, model)
         else:
             raise ValueError(
                 f"Unknown model_type: {model_type}. Available: {list(ModelType.__args__)}"  # type: ignore[attr-defined]
@@ -485,8 +539,7 @@ class ModelTrainer:
         subset_fraction: float = 0.05,
         ignore_index: int = 255,
     ) -> Tuple[DataLoader, DataLoader]:
-        """
-        Создаёт DataLoader для тренировочного и валидационного наборов.
+        """Создаёт DataLoader для тренировочного и валидационного наборов.
 
         Аугментации применяются только к тренировочному набору и зависят от уровня:
         - "none": только ресайз и нормализация.
@@ -503,7 +556,6 @@ class ModelTrainer:
         Returns:
             Tuple[DataLoader, DataLoader]: (train_loader, val_loader).
         """
-
         print(f"   Augmentation level: {augmentation_level}")
         # Train с аугментациями
         is_augmented: bool = augmentation_level != "none"
@@ -559,8 +611,7 @@ class ModelTrainer:
         ignore_index: int = 255,
         max_batches: int = 100,
     ) -> torch.Tensor:
-        """
-        Считает инвертированные частоты классов для борьбы с дисбалансом.
+        """Считает инвертированные частоты классов для борьбы с дисбалансом.
 
         Использует median frequency balancing:
         ```
@@ -601,8 +652,7 @@ class ModelTrainer:
     # Основной метод обучения
     # ──────────────────────────────────────────────────────────────────────
     def train_experiment(self, config: TrainingConfig) -> TrainingResult:
-        """
-        Обучает один эксперимент с заданной конфигурацией.
+        """Обучает один эксперимент с заданной конфигурацией.
 
         Ключевые особенности:
         - Автоматический выбор ignore_index из `IGNORE_INDEX_BY_MODEL`.
@@ -882,8 +932,7 @@ class ModelTrainer:
         checkpoint_paths: Optional[Dict[str, str]] = None,
         model_types: Optional[List[ModelType]] = None,
     ) -> Dict[str, float]:
-        """
-        Сравнивает обученные модели на валидационном наборе ADE20K.
+        """Сравнивает обученные модели на валидационном наборе ADE20K.
 
         Автоматически ищет чекпоинты по шаблону `{model_type}_{augmentation_level}_*.pth`,
         если `checkpoint_paths` не задан явно.
@@ -1061,8 +1110,7 @@ class ModelTrainer:
         val_fraction: float = 0.05,
         model_types: Optional[List[ModelType]] = None,
     ) -> Dict[str, float]:
-        """
-        Оценивает обученные модели на валидационном наборе.
+        """Оценивает обученные модели на валидационном наборе.
 
         Аналогично `compare_trained_models()`, но принимает явный словарь чекпоинтов.
 
@@ -1201,8 +1249,7 @@ class ModelTrainer:
         augmentation_levels: Optional[List[AugmentationLevel]] = None,
         base_config: Optional[Dict[str, Any]] = None,
     ) -> pd.DataFrame:
-        """
-        Сравнивает обучение с разными уровнями аугментаций данных.
+        """Сравнивает обучение с разными уровнями аугментаций данных.
 
         Для каждого уровня:
         1. Создаёт TrainingConfig с одинаковыми гиперпараметрами.
@@ -1286,8 +1333,7 @@ class ModelTrainer:
     # Визуализация
     # ──────────────────────────────────────────────────────────────────────
     def plot_experiment_comparison(self, output_path: Optional[str] = None) -> None:
-        """
-        Визуализирует сравнение проведённых экспериментов.
+        """Визуализирует сравнение проведённых экспериментов.
 
         Строит 2×2 grid:
         1. Bar-чарт Best mIoU по уровням аугментаций.
@@ -1424,8 +1470,7 @@ class ModelTrainer:
         lr: float = 1e-4,
         subset_fraction: float = 0.05,
     ) -> Dict[str, TrainingResult]:
-        """
-        Обучает все поддерживаемые модели с одинаковыми гиперпараметрами.
+        """Обучает все поддерживаемые модели с одинаковыми гиперпараметрами.
 
         Удобно для быстрого бенчмарка архитектур перед углублённой настройкой.
 
@@ -1518,8 +1563,7 @@ class ModelTrainer:
         encoder_name: EncoderName = "resnet34",
         variant: str = "b5",
     ) -> pd.DataFrame:
-        """
-        Оценивает список чекпоинтов на валидационном наборе.
+        """Оценивает список чекпоинтов на валидационном наборе.
 
         Полезно для сравнения разных эпох или конфигураций одной архитектуры.
 

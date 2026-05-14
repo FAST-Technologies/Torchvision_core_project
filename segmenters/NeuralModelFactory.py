@@ -1,5 +1,67 @@
 # segmenters/NeuralModelFactory.py
 
+"""Фабрика для создания и загрузки нейронных моделей сегментации.
+
+Поддерживает 15+ архитектур из 5 источников:
+1. **HuggingFace Transformers** (6): SegFormer, Mask2Former, OneFormer, DPT, UPerNet, MaskFormer
+2. **Segmentation Models PyTorch** (3): U-Net, FPN, PSPNet (с 50+ encoder'ами)
+3. **Torchvision** (3): DeepLabV3+, FCN, Mask R-CNN
+4. **Instance Segmentation** (2): SAM, YOLOv8 (через ultralytics)
+5. **Custom** (1): SegNet (proxy через U-Net)
+
+Ключевые особенности:
+- ✅ YAML-конфигурация: централизованное управление параметрами через `configs/neural_models.yaml`
+- ✅ Enum-based типизация: `ModelType` enum гарантирует типобезопасность
+- ✅ Ленивая загрузка конфига: кэширование, fallback на дефолты
+- ✅ Универсальный интерфейс: `create_model()` возвращает `(model, processor, type_str)`
+- ✅ Поддержка чекпоинтов: авто-загрузка, обработка двух форматов, замена классификатора
+- ✅ Пакетные операции: `load_all_pretrained_cnn()` для бенчмарка
+
+Типичный workflow:
+```python
+from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType
+import torch
+
+# 1. Загрузка предобученной HF-модели
+model, processor, _ = NeuralModelFactory.create_model(
+    ModelType.SEGFORMER,
+    model_name="nvidia/segformer-b5-finetuned-ade-640-640",
+    device="cuda"
+)
+
+# 2. Инференс с процессором
+inputs = processor(images=image, return_tensors="pt").to("cuda")
+with torch.no_grad():
+    outputs = model(**inputs)
+    pred_mask = outputs.logits.argmax(1)
+
+# 3. Создание SMP-модели с чекпоинтом
+model, _, _ = NeuralModelFactory.create_model(
+    ModelType.UNET_SMP,
+    encoder_name="resnet34",
+    checkpoint_path="./models/unet_best.pth",
+    device="cuda"
+)
+
+# 4. Пакетная загрузка для бенчмарка
+models = NeuralModelFactory.load_all_pretrained_cnn(checkpoint_dir="./checkpoints")
+for name, (m, _, t) in models.items():
+    print(f"{name}: {t}")
+```
+
+Attributes:
+    _model_registry (Dict[ModelType, Dict]): Реестр конфигураций моделей.
+    _config_path (Path): Путь к YAML-конфигу.
+    _config (Optional[Dict]): Кэшированная конфигурация.
+
+Note:
+    - Для HF-моделей `processor` обязателен для препроцессинга (resize, normalize).
+    - Для SMP/torchvision `processor=None`; вход — сырой тензор `[B, 3, H, W]` в `[0,1]` или `[0,255]`.
+    - При загрузке чекпоинта классификатор автоматически заменяется под `num_classes`.
+    - `strict=False` при `load_state_dict()` позволяет загружать частичные веса (transfer learning).
+    - Для instance segmentation (SAM/YOLOv8) выход — список объектов, а не плотная маска.
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -13,6 +75,7 @@ from typing import (
     Union,
     List,
     Literal,
+    cast
 )
 from enum import Enum
 from pathlib import Path
@@ -86,8 +149,7 @@ ProcessorLike = Optional[Union[Any, None]]  # HF processor или None для SM
 
 # ──────────────────────────────────────────────────────────────────────
 class ModelType(Enum):
-    """
-    Перечисление поддерживаемых типов моделей сегментации.
+    """Перечисление поддерживаемых типов моделей сегментации.
 
     Категории:
     - HuggingFace Transformers: SEGFORMER, MASK2FORMER, ONEFORMER, DPT, UPERNET, MASKFORMER
@@ -117,8 +179,7 @@ class ModelType(Enum):
 
 # ──────────────────────────────────────────────────────────────────────
 class NeuralModelFactory:
-    """
-    Фабрика для создания и загрузки нейронных моделей сегментации.
+    """Фабрика для создания и загрузки нейронных моделей сегментации.
 
     Поддерживает:
     - Загрузку предобученных моделей из HuggingFace Hub (SegFormer, Mask2Former, ...).
@@ -163,8 +224,7 @@ class NeuralModelFactory:
 
     @classmethod
     def load_config(cls, config_path: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Ленивая загрузка конфигурации из YAML-файла.
+        """Ленивая загрузка конфигурации из YAML-файла.
 
         При передаче нового пути сбрасывает кеш и загружает заново.
         Если файл не найден, возвращает конфигурацию по умолчанию.
@@ -194,8 +254,7 @@ class NeuralModelFactory:
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def _get_default_config(cls) -> Dict[str, Any]:
-        """
-        Возвращает конфигурацию по умолчанию, если YAML-файл не найден.
+        """Возвращает конфигурацию по умолчанию, если YAML-файл не найден.
 
         Returns:
             Dict[str, Any]: Дефолтные параметры для моделей и обучения.
@@ -241,8 +300,7 @@ class NeuralModelFactory:
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def get_model_name(cls, model_type: str, variant: Optional[str] = None) -> str:
-        """
-        Получает полное имя модели из конфигурации.
+        """Получает полное имя модели из конфигурации.
 
         Args:
             model_type: Ключ модели в конфиге (например, "segformer").
@@ -258,13 +316,12 @@ class NeuralModelFactory:
             variant = model_config.get("default")
 
         variants = model_config.get("variants", {})
-        return variants.get(variant, variant)  # type: ignore[return-value]
+        return cast(str, variants.get(variant, variant))  # type: ignore[return-value]
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def get_training_config(cls, dataset_name: str = "ade20k") -> Dict[str, Any]:
-        """
-        Получает конфигурацию обучения для указанного датасета.
+        """Получает конфигурацию обучения для указанного датасета.
 
         Args:
             dataset_name: Имя датасета (по умолчанию "ade20k").
@@ -273,19 +330,18 @@ class NeuralModelFactory:
             Dict[str, Any]: Параметры обучения (image_size, batch_size, lr, ...).
         """
         config: Dict[str, Any] = cls.load_config()
-        return config["training"].get(dataset_name, config["training"]["ade20k"])
+        return cast(Dict[str, Any], config["training"].get(dataset_name, config["training"]["ade20k"]))
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def get_metrics_config(cls) -> Dict[str, Any]:
-        """
-        Получает конфигурацию метрик.
+        """Получает конфигурацию метрик.
 
         Returns:
             Dict[str, Any]: Параметры метрик (threshold, include_hausdorff).
         """
         config: Dict[str, Any] = cls.load_config()
-        return config["metrics"]
+        return cast(Dict[str, Any], config["metrics"])
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
@@ -297,8 +353,7 @@ class NeuralModelFactory:
         checkpoint_path: str = "model_path",
         **kwargs: Any,
     ) -> ModelTuple:
-        """
-        Создаёт модель с параметрами из YAML-конфигурации.
+        """Создаёт модель с параметрами из YAML-конфигурации.
 
         Args:
             model_type: Тип модели (ключ из конфига: "segformer", "unet", ...).
@@ -340,8 +395,7 @@ class NeuralModelFactory:
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def register_model(cls, model_type: ModelType, config: Dict[str, Any]) -> None:
-        """
-        Регистрирует конфигурацию новой модели в реестре фабрики.
+        """Регистрирует конфигурацию новой модели в реестре фабрики.
 
         Args:
             model_type: Enum-тип модели.
@@ -352,8 +406,7 @@ class NeuralModelFactory:
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def get_supported_models(cls) -> List[str]:
-        """
-        Возвращает список поддерживаемых типов моделей.
+        """Возвращает список поддерживаемых типов моделей.
 
         Returns:
             List[str]: Список значений `.value` из ModelType enum.
@@ -372,8 +425,7 @@ class NeuralModelFactory:
         num_classes: int = 150,
         **kwargs: Any,
     ) -> ModelTuple:
-        """
-        Универсальный конструктор модели и процессора для инференса.
+        """Универсальный конструктор модели и процессора для инференса.
 
         Поддерживает оба подхода:
         1. Прямой: передача `model_name`/`local_path` для HF-моделей.
@@ -442,8 +494,7 @@ class NeuralModelFactory:
         device: DeviceStr = "cuda",
         **kwargs: Any,
     ) -> ModelTuple:
-        """
-        Загружает модель SegFormer из HuggingFace Hub или локального пути.
+        """Загружает модель SegFormer из HuggingFace Hub или локального пути.
 
         Args:
             model_name: Имя модели в HF Hub (например, "nvidia/segformer-b5-finetuned-ade-640-640").
@@ -476,8 +527,7 @@ class NeuralModelFactory:
     def load_segformer_variant(
         cls, variant: str = "b2", device: DeviceStr = "cuda"
     ) -> ModelTuple:
-        """
-        Загружает конкретную версию SegFormer для сравнения.
+        """Загружает конкретную версию SegFormer для сравнения.
 
         Поддерживаемые варианты: b0, b1, b2, b3, b4, b5.
 
@@ -507,8 +557,7 @@ class NeuralModelFactory:
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_segformer_params(cls, path: str, device: DeviceStr = "cuda") -> None:
-        """
-        Выводит параметры загруженной модели SegFormer для отладки.
+        """Выводит параметры загруженной модели SegFormer для отладки.
 
         Args:
             path: Путь к модели (локальный или в HF Hub).
@@ -528,8 +577,7 @@ class NeuralModelFactory:
     def print_segformer_variant_params(
         cls, variant: str = "b2", device: DeviceStr = "cuda"
     ) -> None:
-        """
-        Выводит параметры конкретной версии SegFormer.
+        """Выводит параметры конкретной версии SegFormer.
 
         Args:
             variant: Версия модели ("b0"–"b5").
@@ -576,7 +624,7 @@ class NeuralModelFactory:
         name: str = "facebook/mask2former-swin-base-ade-semantic",
         device: DeviceStr = "cuda",
     ) -> None:
-        """Вывод параметров Mask2Former"""
+        """Вывод параметров Mask2Former."""
         processor = Mask2FormerImageProcessor.from_pretrained(name)  # type: ignore[arg-type]
         model = Mask2FormerForUniversalSegmentation.from_pretrained(name).to(device)  # type: ignore[arg-type]
         print(processor)
@@ -604,7 +652,7 @@ class NeuralModelFactory:
         model_name: str = "facebook/maskformer-resnet50-ade20k-full",
         device: DeviceStr = "cuda",
     ) -> None:
-        """Вывод параметров MaskFormer"""
+        """Вывод параметров MaskFormer."""
         processor = MaskFormerImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
         model = MaskFormerForInstanceSegmentation.from_pretrained(model_name).to(device)  # type: ignore[arg-type]
         print(processor)
@@ -640,7 +688,7 @@ class NeuralModelFactory:
         name: str = "shi-labs/oneformer_ade20k_swin_large",
         device: DeviceStr = "cuda",
     ) -> None:
-        """Вывод параметров OneFormer"""
+        """Вывод параметров OneFormer."""
         files: List[str] = list_repo_files(name)
         print(
             "✅ safetensors found!"
@@ -672,7 +720,7 @@ class NeuralModelFactory:
     def print_dpt_params(
         cls, model_name: str = "Intel/dpt-large-ade", device: DeviceStr = "cuda"
     ) -> None:
-        """Вывод параметров DPT"""
+        """Вывод параметров DPT."""
         processor = DPTImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
         model = DPTForSemanticSegmentation.from_pretrained(model_name).to(device)  # type: ignore[arg-type]
         print(processor)
@@ -704,7 +752,7 @@ class NeuralModelFactory:
         model_name: str = "openmmlab/upernet-convnext-small",
         device: DeviceStr = "cuda",
     ) -> None:
-        """Вывод параметров UPerNet"""
+        """Вывод параметров UPerNet."""
         processor = AutoImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
         model = AutoModelForSemanticSegmentation.from_pretrained(model_name).to(device)  # type: ignore[arg-type]
         print(processor)
@@ -755,7 +803,7 @@ class NeuralModelFactory:
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
     def print_deeplab_params(cls, device: str = "cuda") -> None:
-        """Вывод параметров DeepLab"""
+        """Вывод параметров DeepLab."""
         model = tv_seg.deeplabv3_resnet101(weights="DEFAULT")  # Было pretrained=True
         print(model)
         print("✅ DeepLab загружена!")
@@ -804,7 +852,7 @@ class NeuralModelFactory:
         checkpoint_path: str = "unet_smp.pth",
         device: str = "cuda",
     ) -> None:
-        """Вывод параметров U-Net"""
+        """Вывод параметров U-Net."""
         num_classes = int(num_classes)
         model = smp.Unet(
             encoder_name=encoder_name,
@@ -879,7 +927,7 @@ class NeuralModelFactory:
         checkpoint_path: str = "fpn_smp.pth",
         device: str = "cuda",
     ) -> None:
-        """Вывод параметров FPN"""
+        """Вывод параметров FPN."""
         num_classes = int(num_classes)
         model = smp.FPN(
             encoder_name=encoder_name,
@@ -962,7 +1010,7 @@ class NeuralModelFactory:
         checkpoint_path: str = "psp_smp.pth",
         device: str = "cuda",
     ) -> None:
-        """Вывод параметров PSPNet"""
+        """Вывод параметров PSPNet."""
         num_classes = int(num_classes)
         psp_size = 2048 if "mit" in encoder_name else 512
         model = smp.PSPNet(
@@ -1040,7 +1088,7 @@ class NeuralModelFactory:
     def print_fcn_params(
         cls, variant: str = "fcn_resnet50", device: str = "cuda"
     ) -> None:
-        """Вывод параметров FCN"""
+        """Вывод параметров FCN."""
         variants = {
             "fcn_resnet50": tv_seg.fcn_resnet50,
             "fcn_resnet101": tv_seg.fcn_resnet101,
@@ -1091,7 +1139,7 @@ class NeuralModelFactory:
     def print_segnet_params(
         cls, encoder_name: str = "resnet34", device: str = "cuda"
     ) -> None:
-        """Вывод параметров SegNet"""
+        """Вывод параметров SegNet."""
         try:
             model = smp.Unet(
                 encoder_name=encoder_name,
@@ -1139,7 +1187,7 @@ class NeuralModelFactory:
     def print_sam_params(
         cls, model_name: str = "mobile_sam.pt", device: str = "cuda"
     ) -> None:
-        """Вывод параметров SAM"""
+        """Вывод параметров SAM."""
         if os.path.exists(model_name):
             print(
                 f"   📁 Found: {model_name} ({os.path.getsize(model_name) / 1024**2:.3f} MB)"
@@ -1175,7 +1223,7 @@ class NeuralModelFactory:
     def print_mask_rcnn_params(
         cls, variant: str = "maskrcnn_resnet50_fpn", device: str = "cuda"
     ) -> None:
-        """Вывод параметров Mask R-CNN"""
+        """Вывод параметров Mask R-CNN."""
         variants = {
             "maskrcnn_resnet50_fpn": tv_det.maskrcnn_resnet50_fpn,
             "maskrcnn_resnet50_fpn_v2": tv_det.maskrcnn_resnet50_fpn_v2,
@@ -1195,7 +1243,7 @@ class NeuralModelFactory:
     def _load_yolov8(
         cls, model_name: Optional[str], device: DeviceStr = "cuda"
     ) -> ModelTuple:
-        """Загрузка YOLOv8 для сегментации"""
+        """Загрузка YOLOv8 для сегментации."""
         if model_name is None:
             model_name = "yolov8n-seg.pt"
         model = YOLO(model_name)  # type: ignore[call-arg]
@@ -1218,8 +1266,7 @@ class NeuralModelFactory:
         num_classes: int = num_classes,
         checkpoint_path: Optional[str] = None,
     ) -> ModelTuple:
-        """
-        Универсальный загрузчик для SMP-моделей.
+        """Универсальный загрузчик для SMP-моделей.
 
         Args:
             architecture: Архитектура модели ('unet', 'fpn', 'pspnet', 'deeplabv3+').
@@ -1286,8 +1333,7 @@ class NeuralModelFactory:
         device: DeviceStr = "cuda",
         num_classes: int = num_classes,
     ) -> Dict[str, ModelTuple]:
-        """
-        Загружает все CNN-модели с предобученными весами для бенчмарка.
+        """Загружает все CNN-модели с предобученными весами для бенчмарка.
 
         Returns:
             Dict[str, ModelTuple]: Словарь `{model_key: (model, processor, model_type)}`.

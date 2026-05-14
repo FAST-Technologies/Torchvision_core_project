@@ -1,5 +1,60 @@
 # utils/strategies.py
 
+"""Универсальные стратегии инференса для нейросетевой сегментации.
+
+Поддерживаемые задачи:
+1. **Единый интерфейс**: `segment_image_unified()` для 20+ архитектур
+2. **Авто-препроцессинг**: выбор нормализации через SMP/HF процессоры
+3. **Постобработка**: ресайз к оригиналу, паддинг под output_stride, instance→semantic
+4. **Визуализация**: создание overlay с настраиваемой прозрачностью и палитрой
+5. **Метрики**: автоматический расчёт IoU, Dice, Accuracy при наличии GT
+
+Ключевые особенности:
+- ✅ Паттерн "Стратегия": реестр `INFERENCE_STRATEGIES` для авто-диспетчеризации
+- ✅ Универсальный ввод: str/Path/URL, PIL, np.ndarray, torch.Tensor
+- ✅ Авто-ресайз: все маски возвращаются в размере исходного изображения
+- ✅ Паддинг: поддержка output_stride для FPN/PSPNet/DeepLab
+- ✅ Instance→Semantic: конвертация масок SAM/YOLOv8 в семантическую карту
+- ✅ Логирование: детальный вывод классов, метрик, времени при `verbose=True`
+
+Типичный workflow:
+```python
+from utils.strategies import segment_image_unified
+from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType
+
+# 1. Загрузка модели
+model, processor, _ = NeuralModelFactory.create_model(
+    ModelType.SEGFORMER,
+    model_name="nvidia/segformer-b5-finetuned-ade-640-640",
+    device="cuda"
+)
+
+# 2. Инференс с единым интерфейсом
+overlay, info = segment_image_unified(
+    model=model,
+    processor=processor,
+    image_input="test.jpg",
+    model_type="segformer",
+    device="cuda",
+    alpha=0.7,
+    verbose=True
+)
+
+# 3. Доступ к результатам
+print(f"Time: {info['inference_time_ms']:.2f}ms, Classes: {info['unique_classes']}")
+if info['metrics']:
+    print(f"IoU: {info['metrics']['iou']:.3f}")
+overlay.save("result.png")
+```
+
+Note:
+- Все стратегии выполняют инференс в контексте `torch.no_grad()`.
+- Для SMP-моделей препроцессинг определяется через `smp.encoders.get_preprocessing_fn()`.
+- Ресайз масок использует `order=0` (nearest-neighbor) для сохранения целочисленных меток.
+- При `verbose=True` автоматически генерируется Markdown-отчёт в `ADE20K_DIR`.
+- Instance-сегментация (SAM/YOLOv8) назначает уникальный ID каждому объекту; для семантической сегментации используйте модели с class logits.
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -99,8 +154,7 @@ def infer_segformer(
     image: Image.Image,
     device: str = "cuda",
 ) -> Tuple[MaskArray, Image.Image]:
-    """
-    Инференс для SegFormer (HuggingFace Transformers).
+    """Инференс для SegFormer (HuggingFace Transformers).
 
     Возвращает семантическую маску в размере оригинального изображения.
     Поддерживает все варианты: B0, B1, B2, B3, B4, B5.
@@ -144,8 +198,7 @@ def infer_mask2former(
     image: Image.Image,
     device: str = "cuda",
 ) -> Tuple[MaskArray, Image.Image]:
-    """
-    Инференс для Mask2Former (HuggingFace Transformers).
+    """Инференс для Mask2Former (HuggingFace Transformers).
 
     Args:
         model: Загруженная модель `MCXg9A2HnWdvPyVuJosKiPA2iGvNGZYVsV`.
@@ -181,8 +234,7 @@ def infer_oneformer(
     image: Image.Image,
     device: str = "cuda",
 ) -> Tuple[MaskArray, Image.Image]:
-    """
-    Инференс для OneFormer (HuggingFace Transformers).
+    """Инференс для OneFormer (HuggingFace Transformers).
 
     Поддерживает мультитасковое обучение: в вызове указывается `task_inputs=["semantic"]`.
 
@@ -220,8 +272,7 @@ def infer_deeplab_torchvision(
     device: str = "cuda",
     target_size: Tuple[int, int] = (512, 512),
 ) -> Tuple[MaskArray, Image.Image]:
-    """
-    Инференс для DeepLabV3+ из torchvision.
+    """Инференс для DeepLabV3+ из torchvision.
 
     Args:
         model: Загруженная модель `DeepLabV3` из `torchvision.models.segmentation`.
@@ -234,7 +285,6 @@ def infer_deeplab_torchvision(
     Returns:
         Tuple[np.ndarray, PIL.Image]: Семантическая маска в размере оригинала и оригинальное изображение.
     """
-
     # Preprocessing
     preprocess = T.Compose(
         [
@@ -284,8 +334,7 @@ def infer_unet_smp(
     device: str = "cuda",
     output_stride: int = 1,
 ) -> Tuple[MaskArray, Image.Image]:
-    """
-    Универсальный инференс для SMP-моделей (U-Net, SegNet) и кастомных архитектур.
+    """Универсальный инференс для SMP-моделей (U-Net, SegNet) и кастомных архитектур.
 
     Особенности:
     - Авто-определение препроцессинга через `smp.encoders.get_preprocessing_fn`.
@@ -318,7 +367,8 @@ def infer_unet_smp(
         std: np.ndarray = np.array([0.229, 0.224, 0.225])
 
         def preprocess_fn(x: np.ndarray) -> np.ndarray:
-            return (x.astype(np.float32) / 255.0 - mean) / std
+            result: np.ndarray = (x.astype(np.float32) / 255.0 - mean) / std
+            return result
 
     image_np: np.ndarray = np.array(image)
 
@@ -366,6 +416,7 @@ def infer_unet_smp(
 def infer_sam(
     model: Any, processor: Any, image: Image.Image, device: str = "cuda"
 ) -> Tuple[np.ndarray, Image.Image]:
+    """Инференс для модели SAM."""
     img_w, img_h = image.size
 
     # Инференс (без prompts=None!)
@@ -398,6 +449,7 @@ def infer_sam(
 def infer_dpt(
     model: Any, processor: Any, image: Image.Image, device: str = "cuda"
 ) -> Tuple[np.ndarray, Image.Image]:
+    """Инференс для модели DPT."""
     inputs = processor(images=image, return_tensors="pt").to(device)
     with torch.no_grad():
         outputs = model(**inputs)
@@ -426,12 +478,15 @@ def infer_smp_model(
     output_stride: int = 32,
     log_logits: bool = True,
 ) -> Tuple[np.ndarray, Image.Image]:
-    """
-    Универсальный инференс для SMP-моделей (U-Net, FPN, PSPNet, DeepLabV3+)
-    с авто-паддингом под output_stride.
+    """Универсальный инференс для SMP-моделей (U-Net, FPN, PSPNet, DeepLabV3+) с авто-паддингом под output_stride.
 
     Args:
-        output_stride: кратность размера (32 для FPN/DeepLab, 8 для PSPNet, 1 для U-Net)
+        model: название модели.
+        processor: текущззий процессор модели.
+        image: исходное изображение для обработки.
+        device: текущее устройство (CPU/CUDA).
+        output_stride: кратность размера (32 для FPN/DeepLab, 8 для PSPNet, 1 для U-Net).
+        log_logits: флаг для логирования логитов.
     """
     orig_w, orig_h = image.size
 
@@ -488,14 +543,15 @@ def infer_smp_model_fixed(
     output_stride: int = 32,
     target_size: Tuple[int, int] = (512, 512),
 ) -> Tuple[np.ndarray, Image.Image]:
-    """
-    Инференс для SMP-моделей
+    """Инференс для SMP-моделей.
 
     Args:
-        target_size: Размер для ресайза (должен совпадать с обучением!)
-        output_stride: 32 для FPN, 8 для PSPNet, 1 для U-Net
+        model: название модели.
+        image: исходное изображение для обработки.
+        device: текущее устройство (CPU/CUDA).
+        target_size: Размер для ресайза (должен совпадать с обучением!).
+        output_stride: 32 для FPN, 8 для PSPNet, 1 для U-Net.
     """
-
     orig_w, orig_h = image.size
 
     # Ресайз к target_size
@@ -552,8 +608,7 @@ def infer_smp_model_fixed(
 def infer_fcn_torchvision(
     model: Any, processor: Any, image: Image.Image, device: str = "cuda"
 ) -> Tuple[np.ndarray, Image.Image]:
-    """Инференс для FCN из torchvision"""
-
+    """Инференс для FCN из torchvision."""
     preprocess = T.Compose(
         [
             T.ToTensor(),
@@ -594,7 +649,7 @@ def infer_fcn_torchvision_fixed(
     device: str = "cuda",
     target_size: Tuple[int, int] = (512, 512),
 ) -> Tuple[np.ndarray, Image.Image]:
-
+    """Инференс для модели FCN (fixed)."""
     orig_w, orig_h = image.size
 
     # Ресайз к target_size
@@ -637,10 +692,7 @@ def infer_mask_rcnn(
     log_logits: bool = True,
     score_threshold: float = 0.5,
 ) -> Tuple[np.ndarray, Image.Image]:
-    """
-    Инференс Mask R-CNN с конверсией instance → semantic.
-    """
-
+    """Инференс Mask R-CNN с конверсией instance → semantic."""
     preprocess = T.Compose(
         [
             T.ToTensor(),
@@ -701,8 +753,8 @@ def infer_yolov8(
     confidence: float = 0.25,
     iou_threshold: float = 0.45,
 ) -> Tuple[np.ndarray, Image.Image]:
-    """
-    Инференс для YOLOv8 segmentation.
+    """Инференс для YOLOv8 segmentation.
+
     Конвертирует instance masks → semantic map.
     """
     img_h, img_w = image.size[1], image.size[0]
@@ -737,12 +789,13 @@ def infer_yolov8(
 
 # ──────────────────────────────────────────────────────────────────────
 class SegNet(torch.nn.Module):
-    """
-    Простая реализация SegNet для бенчмарка.
+    """Простая реализация SegNet для бенчмарка.
+
     Encoder-Decoder с max pooling indices.
     """
 
     def __init__(self, num_classes: int = num_classes) -> None:
+        """Инициализация модели SegNet."""
         super().__init__()
 
         # Encoder (VGG16-like)
@@ -764,6 +817,7 @@ class SegNet(torch.nn.Module):
 
     # ──────────────────────────────────────────────────────────────────────
     def _make_encoder(self, in_ch, out_ch):
+        """Создание энкодера для модели SegNet."""
         return torch.nn.Sequential(
             torch.nn.Conv2d(in_ch, out_ch, 3, padding=1),
             torch.nn.BatchNorm2d(out_ch),
@@ -775,6 +829,7 @@ class SegNet(torch.nn.Module):
 
     # ──────────────────────────────────────────────────────────────────────
     def _make_decoder(self, in_ch, out_ch):
+        """Создание декодера для модели SegNet."""
         return torch.nn.Sequential(
             torch.nn.Conv2d(in_ch, out_ch, 3, padding=1),
             torch.nn.BatchNorm2d(out_ch),
@@ -789,6 +844,7 @@ class SegNet(torch.nn.Module):
 
     # ──────────────────────────────────────────────────────────────────────
     def forward(self, x):
+        """Прямой ход для модели SegNet."""
         # Encoder
         e1, p1 = self._encode(self.enc1, x)
         e2, p2 = self._encode(self.enc2, p1)
@@ -807,10 +863,9 @@ class SegNet(torch.nn.Module):
 
     # ──────────────────────────────────────────────────────────────────────
     def _encode(self, encoder, x):
-        """
-        Encoder step: conv → batchnorm → relu → maxpool
+        """Encoder step: conv → batchnorm → relu → maxpool.
 
-        max_pool2d возвращает (output, indices), берём только output
+        max_pool2d возвращает (output, indices), берём только output.
         """
         x = encoder(x)
         pooled, indices = torch.nn.functional.max_pool2d(x, 2, 2, return_indices=True)
@@ -818,9 +873,7 @@ class SegNet(torch.nn.Module):
 
     # ──────────────────────────────────────────────────────────────────────
     def _decode(self, decoder, x, output_size):
-        """
-        Decoder step: upsample → conv → batchnorm → relu
-        """
+        """Decoder step: upsample → conv → batchnorm → relu."""
         # Upsampling к размеру encoder features
         x = torch.nn.functional.interpolate(
             x, size=output_size[2:], mode="bilinear", align_corners=False
@@ -844,8 +897,7 @@ def segment_image_unified(
     class_names: Optional[Dict[int, str]] = None,
     gt_mask: Optional[MaskArray] = None,
 ) -> Tuple[Image.Image, Dict[str, Any]]:
-    """
-    Универсальная функция сегментации для любой архитектуры.
+    """Универсальная функция сегментации для любой архитектуры.
 
     Автоматически:
     1. Загружает/конвертирует изображение из разных форматов.
@@ -1014,8 +1066,7 @@ def _log_inference_details_standalone(
     initial_time: float = 0.0,
     palette: Optional[Union[List[List[int]], Callable[[], List[List[int]]]]] = None,
 ) -> Dict[str, Any]:
-    """
-    Логирует детали инференса и рассчитывает метрики (если есть GT).
+    """Логирует детали инференса и рассчитывает метрики (если есть GT).
 
     Args:
         image: Оригинальное изображение.
@@ -1031,7 +1082,6 @@ def _log_inference_details_standalone(
     Returns:
         Dict[str, Any]: Словарь с метаданными (см. `segment_image_unified`).
     """
-
     if callable(class_names):
         class_names = class_names()
 
@@ -1146,8 +1196,7 @@ def _get_num_classes_standalone(
     model_type: str,
     fallback: int = num_classes,
 ) -> Optional[int]:
-    """
-    Безопасно получает число выходных классов из модели.
+    """Безопасно получает число выходных классов из модели.
 
     Проверяет в порядке:
     1. `model.config.id2label` (HF transformers)
@@ -1169,9 +1218,9 @@ def _get_num_classes_standalone(
 
         if model_type in ["deeplab_tv", "fcn_tv"]:
             if hasattr(model, "classifier"):
-                return model.classifier[-1].out_channels
+                return int(model.classifier[-1].out_channels)
             elif hasattr(model, "out_channels"):
-                return model.out_channels
+                return int(model.out_channels)
 
         if model_type in ["unet_smp", "mit_smp", "fpn_mit", "psp_mit", "segnet_custom"]:
             for module in reversed(list(model.modules())):
@@ -1193,8 +1242,7 @@ def _create_overlay_standalone(
     alpha: float = 0.5,
     palette: Optional[Union[List[List[int]], Callable[[], List[List[int]]]]] = None,
 ) -> Image.Image:
-    """
-    Создаёт визуализацию: оригинал + цветная маска.
+    """Создаёт визуализацию: оригинал + цветная маска.
 
     Алгоритм:
     1. Загружает палитру (по умолчанию ADE20K).
@@ -1211,7 +1259,6 @@ def _create_overlay_standalone(
     Returns:
         PIL.Image: Изображение с наложенной цветной маской, режим `"RGB"`.
     """
-
     palette_resolved: Optional[List[List[int]]] = None
     if palette is None:
         palette_resolved = ade_palette()

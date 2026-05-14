@@ -1,5 +1,106 @@
 # routers/validate.py
 
+"""Модуль API для валидации кросс-библиотечных реализаций методов сегментации.
+
+Предоставляет REST-интерфейс для:
+- Асинхронного сравнения реализаций одного метода в разных библиотеках
+- Вычисления метрик согласованности (IoU, Dice, F1, Pixel Accuracy, MAE, Hausdorff)
+- Генерации визуализаций различий между масками
+- Классификации результатов валидации (PASS/WARNING/FAIL по пороговым значениям)
+
+Поддерживаемые библиотеки для сравнения:
+- PyTorch (primary): TorchSegmenter, TorchSegmenter2
+- OpenCV (reference): OpenCVSegmenter
+- scikit-learn (reference): SklearnSegmenter
+
+Поддерживаемые категории методов:
+- threshold: global, otsu, adaptive, niblack, sauvola, bernsen, phansalkar, ...
+- edge: canny, sobel, prewitt, scharr, roberts, log, dog, marr_hildreth, ...
+- region: region_growing, split_and_merge, floodfill
+- clustering: kmeans, dbscan, meanshift
+
+Особенности:
+- Асинхронное выполнение через asyncio.create_task()
+- Прогресс-трекинг с обновлением в реальном времени (пройдено/всего методов)
+- Потокобезопасное обновление статуса через asyncio.Lock
+- Безопасная сериализация numpy-типов и base64-изображений в JSON
+- Поддержка фильтрации методов по категории (threshold/edge/region/clustering/all)
+- Детальные метрики времени выполнения для каждой реализации
+
+Пример использования:
+```python
+# 1. Запуск валидации
+POST /api/validate/start
+Content-Type: multipart/form-data
+
+file: (изображение для тестирования)
+primary_library: "torch"
+reference_library: "opencv"
+methods_filter: "threshold"  # или "edge", "region", "clustering", "all"
+
+# Response: {"task_id": "uuid...", "status": "running"}
+
+# 2. Проверка статуса
+GET /api/validate/status/{task_id}
+# Response: {
+#     "task_id": "uuid...",
+#     "status": "running"|"completed"|"failed",
+#     "progress": 45.5,
+#     "processed": 3,
+#     "total_methods": 10,
+#     "elapsed_ms": 1234.5,
+#     "message": "Обработка otsu_thresholding (3/10)",
+#     "results": [...]  # только при completion
+# }
+
+# 3. Результаты валидации включают:
+{
+    "summary": [
+        {
+            "method": "otsu_thresholding",
+            "success": true,
+            "validation_status": "PASS",
+            "iou": 0.99,
+            "dice": 0.995,
+            "f1_score": 0.995,
+            "primary_time": 0.042,
+            "reference_time": 0.038,
+            "time_diff": 0.004,
+            "primary_mask_b64": "data:image/png;base64,...",
+            "reference_mask_b64": "data:image/png;base64,...",
+            "difference_b64": "data:image/png;base64,..."
+        },
+        ...
+    ],
+    "benchmark": {
+        "methods_count": 10,
+        "passed": 8,
+        "warning": 1,
+        "failed": 1,
+        "avg_torch_time": 0.045,
+        "avg_iou": 0.97,
+        "data": [...]  # детальные метрики по каждому методу
+    }
+}
+
+Атрибуты модуля:
+router (APIRouter): Экземпляр FastAPI router с префиксом "/api/validate".
+_validation_tasks (ValidationTaskDict): In-memory хранилище задач валидации.
+_validation_lock (asyncio.Lock): Асинхронный лок для потокобезопасного обновления.
+Зависимости:
+- FastAPI: веб-фреймворк для REST API
+- numpy, PIL: обработка изображений и массивов
+- testing.TorchImplementationValidator: ядро логики валидации
+- segmenters.*: фабрики сегментеров для разных библиотек
+- metrics.SegmentationMetrics: вычисление метрик качества
+Примечания:
+- В продакшене рекомендуется заменить _validation_tasks на Redis/Celery.
+- Все изображения конвертируются в RGB перед сегментацией.
+- Метрики с NaN/Inf автоматически заменяются на null в JSON-ответах.
+- Base64-изображения могут быть большими: рассмотрите отключение в продакшене.
+- Пороговые значения для PASS/WARNING/FAIL настраиваются в SegmentationMetrics.
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -41,13 +142,85 @@ router: APIRouter = APIRouter(prefix="/api/validate", tags=["validate"])
 # TYPE ALIASES & TASK STORAGE
 # ──────────────────────────────────────────────────────────────────────
 ValidationTaskDict = Dict[str, Dict[str, Any]]
+"""Тип-алиас для хранилища задач валидации.
+
+Структура задачи:
+{
+    "status": str,              # "running" | "completed" | "failed" | "cancelled"
+    "progress": float,          # 0.0–100.0
+    "message": str,             # Человекочитаемое описание этапа
+    "results": Optional[Dict],  # Результаты при completion
+    "error": Optional[str],     # Сообщение об ошибке
+    "fetched": bool,            # Флаг получения результатов клиентом
+    "start_time": float,        # Время начала выполнения (perf_counter)
+    "elapsed_ms": float,        # Прошедшее время в миллисекундах
+    "processed": int,           # Количество обработанных методов
+    "total_methods": int,       # Общее количество методов для обработки
+}
+
+Example:
+python task: ValidationTaskDict = { "status": "running", "progress": 45.5, "message": "Обработка otsu_thresholding (3/10)", "results": None, "error": None, "fetched": False, "start_time": 123456.789, "elapsed_ms": 1234.5, "processed": 3, "total_methods": 10 }
+"""
+
 _validation_tasks: ValidationTaskDict = {}
+"""Глобальное хранилище задач валидации в памяти.
+
+Ключ: UUID задачи (str).
+
+Значение: Словарь со статусом, прогрессом, результатами и метаданными.
+
+Warning:
+В продакшене следует заменить на Redis/Celery для:
+- Масштабируемости между воркерами
+- Сохранения состояния при перезапуске
+- Очистки устаревших задач по TTL
+- Распределённой блокировки вместо локального asyncio.Lock
+"""
+
 _validation_lock = asyncio.Lock()
+"""Асинхронный лок для потокобезопасного обновления _validation_tasks.
+
+Используется во всех операциях чтения/записи задач для предотвращения состояний гонки при параллельных запросах к одному task_id.
+
+Example:
+python async with _validation_lock: _validation_tasks[task_id]["progress"] = 50.0 _validation_tasks[task_id]["processed"] += 1
+"""
 
 
 # 🔹 Энкодер для NaN/Infinity
 class NumpyEncoder(json.JSONEncoder):
+    """Кастомный JSON-энкодер для безопасной сериализации numpy-типов.
+
+    Обрабатывает специальные случаи:
+    - numpy.integer → int
+    - numpy.floating → float (с обработкой NaN/Inf → None)
+    - numpy.ndarray → list (через tolist())
+
+    Пример использования:
+        ```python
+        import json
+        import numpy as np
+
+        data = {"iou": np.float32(0.85), "mask": np.array([1, 0, 1])}
+        json_str = json.dumps(data, cls=NumpyEncoder)
+        # Result: {"iou": 0.85, "mask": [1, 0, 1]}
+        ```
+
+    Methods:
+        default(self, obj: Any) -> Any: Переопределённый метод сериализации.
+    """
     def default(self, obj: Any) -> Any:
+        """Сериализует объект, не поддерживаемый стандартным JSONEncoder.
+
+        Args:
+            obj: Объект для сериализации.
+
+        Returns:
+            Any: JSON-совместимое представление объекта.
+
+        Raises:
+            TypeError: Если объект не может быть сериализован.
+        """
         if isinstance(obj, np.integer):
             return int(obj)
         elif isinstance(obj, np.floating):
@@ -61,6 +234,25 @@ class NumpyEncoder(json.JSONEncoder):
 
 # ──────────────────────────────────────────────────────────────────────
 def safe_json_response(content: Any, status_code: int = 200) -> JSONResponse:
+    """Возвращает FastAPI JSONResponse с безопасной сериализацией контента.
+
+    Использует `NumpyEncoder` для обработки numpy-типов и специальных значений.
+
+    Args:
+        content: Данные для ответа (словарь, список, примитивы).
+        status_code: HTTP-статус код (по умолчанию 200).
+
+    Returns:
+        JSONResponse: Ответ с заголовком application/json.
+
+    Example:
+        ```python
+        @router.get("/metrics")
+        async def get_metrics():
+            metrics = {"iou": np.float32(0.78), "methods": np.array(["cv2", "sk"])}
+            return safe_json_response(metrics)
+        ```
+    """
     return JSONResponse(
         content=content, status_code=status_code, media_type="application/json"
     )
@@ -68,7 +260,26 @@ def safe_json_response(content: Any, status_code: int = 200) -> JSONResponse:
 
 # ──────────────────────────────────────────────────────────────────────
 def arr_to_b64(arr: np.ndarray) -> str:
-    """numpy → data:image/png;base64,..."""
+    """Конвертирует numpy-массив в data:image/png;base64,... строку.
+
+    Обрабатывает:
+    - Конвертацию float [0,1] → uint8 [0,255] при необходимости.
+    - Удаление лишнего измерения для одноканальных масок.
+    - Кодирование в PNG через PIL и base64.
+
+    Args:
+        arr: Numpy-массив изображения или маски.
+
+    Returns:
+        str: Строка формата "data:image/png;base64,{base64_encoded_data}".
+
+    Example:
+        ```python
+        mask = np.array([[0, 255], [255, 0]], dtype=np.uint8)
+        b64_str = arr_to_b64(mask)
+        # Use in HTML: <img src="{b64_str}">
+        ```
+    """
     if arr.dtype != np.uint8:
         arr = (arr * 255).astype(np.uint8) if arr.max() <= 1.0 else arr.astype(np.uint8)
     if arr.ndim == 3 and arr.shape[2] == 1:
@@ -84,7 +295,28 @@ def arr_to_b64(arr: np.ndarray) -> str:
 def _get_methods_for_filter(
     validator: TorchImplementationValidator, methods_filter: Optional[str]
 ) -> List[Tuple[str, Dict[str, Any]]]:
-    """Возвращает список методов по фильтру: threshold/edge/region/clustering/all."""
+    """Возвращает список методов для валидации по заданному фильтру.
+
+    Фильтры:
+    - "threshold": пороговые методы (global, otsu, adaptive, niblack, ...)
+    - "edge": граничные методы (canny, sobel, prewitt, scharr, ...)
+    - "region": региональные методы (region_growing, split_and_merge, floodfill)
+    - "clustering": методы кластеризации (kmeans, dbscan, meanshift)
+    - None или "all": все доступные методы
+
+    Args:
+        validator: Экземпляр TorchImplementationValidator с реестром методов.
+        methods_filter: Строка-фильтр категории методов.
+
+    Returns:
+        List[Tuple[str, Dict[str, Any]]]: Список кортежей (имя_метода, параметры).
+
+    Example:
+        ```python
+        methods = _get_methods_for_filter(validator, "threshold")
+        # Returns: [("otsu_thresholding", {}), ("adaptive_thresholding", {...}), ...]
+        ```
+    """
     mapping: Dict[str, List[MethodConfig]] = {
         "threshold": validator.threshold_methods,
         "edge": validator.edge_methods,
@@ -111,7 +343,52 @@ async def _run_validation_task(
     reference_library: str,
     methods_filter: Optional[str],
 ) -> None:
-    """Асинхронная задача валидации: кросс-библиотечное сравнение методов."""
+    """Асинхронная фоновая задача валидации кросс-библиотечных реализаций.
+
+    Основной рабочий процесс:
+    1. Инициализация задачи в _validation_tasks со статусом "running".
+    2. Загрузка и предобработка входного изображения.
+    3. Инициализация TorchImplementationValidator.
+    4. Фильтрация методов по категории (threshold/edge/region/clustering).
+    5. Поэтапная валидация каждого метода:
+    - Создание сегментеров для primary и reference библиотек.
+    - Запуск сегментации с замером времени.
+    - Вычисление метрик согласованности (IoU, Dice, F1, MAE, Hausdorff).
+    - Классификация результата (PASS/WARNING/FAIL).
+    - Генерация base64-визуализаций (оригинал, маски, разница).
+    6. Агрегация результатов и подготовка сводной статистики.
+    7. Обновление статуса на "completed" с результатами или "failed" с ошибкой.
+
+    Обновление прогресса:
+    - 0–10%: Инициализация и загрузка изображения.
+    - 10–90%: Пошаговая валидация методов (равномерное распределение).
+    - 90–100%: Агрегация, сохранение и финализация.
+
+    Обработка ошибок:
+    - Каждый метод обрабатывается в try/except: неудача одного не прерывает остальные.
+    - Ошибки логируются с уровнем ERROR и traceback (при DEBUG).
+    - При критической ошибке задача помечается "failed" с деталями.
+
+    Args:
+        task_id (str): Уникальный идентификатор задачи (UUID).
+        file_content (bytes): Содержимое загруженного файла изображения.
+        primary_library (str): Библиотека для "первичной" реализации:
+            "torch" | "opencv" | "sklearn".
+        reference_library (str): Библиотека для "референсной" реализации.
+        methods_filter (Optional[str]): Фильтр категории методов:
+            "threshold" | "edge" | "region" | "clustering" | None (all).
+
+    Side Effects:
+        - Обновляет _validation_tasks[task_id] в реальном времени.
+        - Создаёт директорию ./data/validation_web для отчётов.
+        - Генерирует base64-изображения для inline-отображения в веб-интерфейсе.
+        - Очищает память после обработки каждого метода (gc.collect()).
+
+    Note:
+        - Функция не возвращает значение: результаты передаются через _validation_tasks.
+        - Для продакшена рекомендуется вынести логику в Celery/RQ с отдельным worker.
+        - Base64-изображения могут быть большими: рассмотрите отключение в продакшене.
+    """
     t0: float = time.perf_counter()
     async with _validation_lock:
         _validation_tasks[task_id] = {
@@ -371,7 +648,39 @@ def _process_single_method(
     reference_class,
     validator,
 ) -> Dict[str, Any]:
-    """Синхронная обработка одного метода валидации."""
+    """Синхронная обработка одного метода валидации.
+
+    Выполняет кросс-библиотечное сравнение реализаций одного метода:
+    1. Создание сегментеров для primary и reference библиотек.
+    2. Запуск сегментации с замером времени выполнения.
+    3. Вычисление метрик согласованности через SegmentationMetrics.
+    4. Классификация результата через _check_validation_status.
+    5. Генерация base64-визуализаций для веб-интерфейса.
+
+    Args:
+        method_name (str): Название метода сегментации.
+        params (Dict[str, Any]): Параметры инициализации сегментера.
+        img_array (np.ndarray): Входное изображение (RGB или grayscale).
+        primary_class: Класс сегментера для первичной библиотеки.
+        reference_class: Класс сегментера для референсной библиотеки.
+        validator: Экземпляр TorchImplementationValidator для проверки статуса.
+
+    Returns:
+        Dict[str, Any]: Словарь с результатами валидации:
+            - success (bool): Успешность выполнения.
+            - validation_status (str): "PASS" | "WARNING" | "FAIL".
+            - metrics (MetricsDict): Словарь вычисленных метрик.
+            - primary_time, reference_time (float): Время выполнения в секундах.
+            - original_b64, primary_mask_b64, reference_mask_b64, difference_b64 (str):
+            Base64-кодированные изображения для визуализации.
+
+    Raises:
+        Exception: При ошибке в сегментации или вычислении метрик.
+
+    Note:
+        - Функция выполняется в отдельном потоке через asyncio.to_thread().
+        - Base64-строки могут быть большими: логгируется предупреждение при >500 КБ.
+    """
     logger.info(f"🔹 START Processing method: {method_name}")
     try:
         import cv2
@@ -455,7 +764,44 @@ async def start_validation(
         None
     ),  # "threshold" | "edge" | "region" | "all"
 ) -> Dict[str, str]:
-    """Запускает асинхронную валидацию кросс-библиотечных реализаций."""
+    """Запускает асинхронную валидацию кросс-библиотечных реализаций.
+
+    Создаёт новую задачу, инициализирует TorchImplementationValidator и планирует
+    выполнение через asyncio.create_task().
+
+    Args:
+        file (UploadFile): Загружаемое изображение для валидации.
+            Конвертируется в RGB numpy array перед обработкой.
+        primary_library (str): Библиотека для "первичной" реализации.
+            Варианты: "torch" (по умолчанию), "opencv", "sklearn".
+        reference_library (str): Библиотека для "референсной" реализации.
+            Варианты: "opencv" (по умолчанию), "torch", "sklearn".
+        methods_filter (Optional[str]): Фильтр категории методов для валидации.
+            Варианты: "threshold" | "edge" | "region" | "clustering" | None (all).
+
+    Returns:
+        Dict[str, str]: Словарь с идентификатором задачи и статусом:
+            ```json
+            {"task_id": "550e8400-e29b-41d4-a716-446655440000", "status": "running"}
+            ```
+
+    Example Request (multipart/form-data):
+        ```
+        POST /api/validate/start
+        Content-Type: multipart/form-data
+
+        file: (файл изображения)
+        primary_library: "torch"
+        reference_library: "opencv"
+        methods_filter: "threshold"
+        ```
+
+    Note:
+        - Задача выполняется асинхронно: ответ возвращается немедленно.
+        - Прогресс отслеживается через эндпоинт `/status/{task_id}`.
+        - Файл изображения читается в память: для больших файлов может потребоваться
+        увеличение лимита `max_file_size` в конфигурации FastAPI.
+    """
     file_content = await file.read()
     task_id: str = str(uuid.uuid4())
     temp_validator = TorchImplementationValidator(output_dir="./data/validation_web")
@@ -475,7 +821,75 @@ async def start_validation(
 # ──────────────────────────────────────────────────────────────────────
 @router.get("/status/{task_id}")
 async def get_validation_status(task_id: str) -> JSONResponse:
-    """Возвращает статус и результаты валидации."""
+    """Возвращает статус и результаты задачи валидации.
+
+    Args:
+        task_id (str): UUID задачи, полученный при запуске через `/start`.
+
+    Returns:
+        JSONResponse: Сериализованный объект задачи с полями:
+            - task_id (str): Идентификатор задачи.
+            - status (str): "running" | "completed" | "failed" | "cancelled".
+            - progress (float): Прогресс 0.0–100.0.
+            - processed (int): Количество обработанных методов.
+            - total_methods (int): Общее количество методов для обработки.
+            - elapsed_ms (float): Прошедшее время в миллисекундах.
+            - message (str): Описание текущего этапа.
+            - results (List[Dict]): Результаты по каждому методу (при completion).
+            - benchmark (Dict): Сводная статистика бенчмарка.
+            - error_details (Dict): Детали ошибки (при failed).
+
+    Raises:
+        HTTPException (404): Если задача с task_id не найдена.
+
+    Example Response (running):
+        ```json
+        {
+            "task_id": "uuid...",
+            "status": "running",
+            "progress": 45.5,
+            "processed": 3,
+            "total_methods": 10,
+            "elapsed_ms": 1234.5,
+            "message": "Обработка otsu_thresholding (3/10)"
+        }
+        ```
+
+    Example Response (completed):
+        ```json
+        {
+            "task_id": "uuid...",
+            "status": "completed",
+            "progress": 100.0,
+            "processed": 10,
+            "total_methods": 10,
+            "elapsed_ms": 5678.9,
+            "message": "Готово",
+            "results": [
+                {
+                    "method": "otsu_thresholding",
+                    "success": true,
+                    "validation_status": "PASS",
+                    "iou": 0.99,
+                    "f1_score": 0.995,
+                    "primary_time": 0.042,
+                    "reference_time": 0.038
+                },
+                ...
+            ],
+            "benchmark": {
+                "methods_count": 10,
+                "passed": 8,
+                "avg_iou": 0.97
+            }
+        }
+        ```
+
+    Note:
+        - Метрики с `NaN`/`Inf` автоматически заменяются на `null` перед сериализацией.
+        - Base64-изображения включены в каждый элемент results для визуализации.
+        - Ответ сериализуется через `safe_json_response()` для обработки numpy-типов.
+    """
     async with _validation_lock:
         task: Optional[Dict[str, Any]] = _validation_tasks.get(task_id)
 
@@ -655,7 +1069,45 @@ async def get_validation_status(task_id: str) -> JSONResponse:
 # ──────────────────────────────────────────────────────────────────────
 @router.delete("/{task_id}")
 async def cancel_validation(task_id: str) -> Dict[str, str]:
-    """Отменяет задачу валидации."""
+    """Отменяет задачу валидации.
+
+    Логика поведения в зависимости от статуса задачи:
+    - "running": Устанавливает status="cancelled", message="Отменено пользователем".
+    - "completed"|"failed"|"cancelled": Возвращает текущий статус без изменений.
+    - Не найдена: Возвращает {"status": "not_found"}.
+
+    Args:
+        task_id (str): UUID задачи для отмены.
+
+    Returns:
+        Dict[str, str]: Словарь с результатом операции:
+            - При отмене: {"status": "cancelled"}
+            - При уже завершённой: {"status": "completed", "message": "Already completed"}
+            - При не найдено: {"status": "not_found", "message": "Task not found"}
+
+    Example Responses:
+        ```json
+        // Отмена запущенной задачи
+        {"status": "cancelled"}
+
+        // Задача уже завершена
+        {
+            "status": "completed",
+            "message": "Already completed"
+        }
+
+        // Задача не найдена
+        {
+            "status": "not_found",
+            "message": "Task not found"
+        }
+        ```
+
+    Note:
+        - Отмена не прерывает выполнение кода немедленно: задача завершит текущий
+        шаг и обновит статус при следующей проверке.
+        - Для немедленного прерывания требуется интеграция с asyncio cancellation.
+    """
     async with _validation_lock:
         task: Optional[Dict[str, Any]] = _validation_tasks.get(task_id)
     if not task:

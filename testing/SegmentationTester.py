@@ -1,5 +1,40 @@
 # testing/SegmentationTester.py
 
+"""Универсальный модуль для тестирования, сравнения и бенчмаркинга методов сегментации.
+
+Предназначен для автоматизированной оценки производительности и качества 
+произвольных сегментеров, наследующих `BaseSegmenter`, с поддержкой:
+- Регистрации методов через `add_method()` с гибким управлением реестром.
+- Поочерёдного тестирования с замером времени и сохранением артефактов.
+- Автоматического расчёта метрик качества (IoU, Dice, F1, Hausdorff, MAE) 
+  при наличии Ground Truth маски.
+- Пакетного сравнения методов с визуализацией в grid-формате.
+- Бенчмаркинга с многократными прогонами, warm-up и статистикой (mean/std/min/max).
+- Экспорта результатов: изображения, маски, overlay, JSON, CSV, TXT, HTML-отчёты.
+- Управления памятью: очистка временных файлов, кэширование, управление VRAM.
+
+Основные возможности:
+- 🔄 Гибкая регистрация: любой класс с методом `.segment_with_mask(image) -> (result, mask)`.
+- 📊 Полный набор метрик: через общий модуль `SegmentationMetrics` для консистентности.
+- 🎨 Визуализация: grid-сравнение, overlay с альфа-смешиванием, превью-галереи.
+- ⚡ Бенчмарк: warm-up прогоны, многократные замеры, статистика времени.
+- 💾 Экспорт в 6 форматах: PNG/JPG (изображения), PNG (маски), JSON/CSV (данные), 
+  TXT/HTML (отчёты).
+- 🛡️ Устойчивость: обработка исключений, логирование, восстановление после ошибок.
+
+Workflow:
+1. Создать экземпляр `SegmentationTester()` → 2. Зарегистрировать методы через `add_method()` 
+   → 3. (Опционально) загрузить GT-маску → 4. Вызвать `compare_methods()` / `benchmark_methods()` 
+   → 5. Экспортировать отчёт через `save_results()` или автоматическое сохранение.
+
+Примечание:
+- Для классических методов (пороги, границы) рассмотрите `BatchClassicTester` / 
+  `BatchClassicTester2` — они оптимизированы для массового тестирования на датасетах.
+- Для сравнения нейросетевых архитектур используйте `SegmentationBenchmark`.
+- Данный модуль универсален: подходит для прототипирования, отладки и финального 
+  сравнения кастомных реализаций.
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -64,8 +99,7 @@ StatsList = List[Dict[str, Any]]
 
 # ──────────────────────────────────────────────────────────────────────
 class SegmentationTester:
-    """
-    Универсальный класс для тестирования, сравнения и бенчмаркинга методов сегментации.
+    """Универсальный класс для тестирования, сравнения и бенчмаркинга методов сегментации.
 
     Основные возможности:
     - Регистрация произвольных сегментеров, наследующих `BaseSegmenter`.
@@ -99,8 +133,7 @@ class SegmentationTester:
         enable_warmup: bool = True,
         n_warmup_runs: int = 3,
     ) -> None:
-        """
-        Инициализация тестера с настройками путей и параметров тестирования.
+        """Инициализация тестера с настройками путей и параметров тестирования.
 
         Args:
             base_output_dir: Базовая директория для сохранения результатов.
@@ -130,8 +163,7 @@ class SegmentationTester:
 
     # ──────────────────────────────────────────────────────────────────────
     def load_ground_truth(self, gt_path: PathLike) -> None:
-        """
-        Загружает ground truth маску из файла.
+        """Загружает ground truth маску из файла.
 
         Поддерживаемые форматы:
         - Изображения: `.png`, `.jpg`, `.jpeg`, `.bmp` (читаются через OpenCV в grayscale).
@@ -166,8 +198,7 @@ class SegmentationTester:
     def _ensure_warmup(
         self, method_name: str, segmenter: BaseSegmenter, image: ImageArray
     ) -> None:
-        """
-        Гарантирует выполнение warm-up перед бенчмарком метода.
+        """Гарантирует выполнение warm-up перед бенчмарком метода.
 
         Args:
             method_name: Идентификатор метода в реестре.
@@ -193,8 +224,7 @@ class SegmentationTester:
 
     # ──────────────────────────────────────────────────────────────────────
     def _create_test_directory(self, test_name: Optional[str] = None) -> str:
-        """
-        Создаёт уникальную иерархию директорий для хранения результатов теста.
+        """Создаёт уникальную иерархию директорий для хранения результатов теста.
 
         Структура:
         ```
@@ -244,8 +274,7 @@ class SegmentationTester:
 
     # ──────────────────────────────────────────────────────────────────────
     def add_method(self, name: str, segmenter: BaseSegmenter) -> None:
-        """
-        Регистрирует новый метод сегментации в тестере.
+        """Регистрирует новый метод сегментации в тестере.
 
         Args:
             name: Уникальное имя метода для доступа в отчётах.
@@ -261,8 +290,7 @@ class SegmentationTester:
         save_path: Optional[PathLike] = None,
         output_dir: Optional[PathLike] = None,
     ) -> Dict[str, Any]:
-        """
-        Выполняет тестирование одного метода с сохранением результатов.
+        """Выполняет тестирование одного метода с сохранением результатов.
 
         Логика:
         1. Замер времени выполнения `segment_with_mask()`.
@@ -401,8 +429,7 @@ class SegmentationTester:
     def _save_overlay_image(
         self, result_data: Dict[str, Any], method_dir: PathLike, method_name: str
     ) -> None:
-        """
-        Сохраняет наложение маски на оригинальное изображение (красный цвет для объекта).
+        """Сохраняет наложение маски на оригинальное изображение (красный цвет для объекта).
 
         Args:
             result_data: Словарь с результатами `test_single_method()`.
@@ -471,8 +498,7 @@ class SegmentationTester:
     def _save_metrics_file(
         self, result_data: Dict[str, Any], method_dir: PathLike, method_name: str
     ) -> None:
-        """
-        Сохраняет метрики в JSON и текстовый файл.
+        """Сохраняет метрики в JSON и текстовый файл.
 
         Args:
             result_data: Результаты с ключом `"metrics"`.
@@ -527,8 +553,7 @@ class SegmentationTester:
     def _save_method_info(
         self, result_data: Dict[str, Any], method_dir: str, method_name: str
     ) -> None:
-        """
-        Сохраняет информацию о методе и его параметрах.
+        """Сохраняет информацию о методе и его параметрах.
 
         Args:
             result_data: Результаты тестирования.
@@ -589,8 +614,7 @@ class SegmentationTester:
     def _save_method_results(
         self, result_data: Dict[str, Any], output_dir: str, method_name: str
     ) -> None:
-        """
-        Сохраняет результаты одного метода в указанную директорию.
+        """Сохраняет результаты одного метода в указанную директорию.
 
         Args:
             result_data: Результаты `test_single_method_with_metrics()`.
@@ -648,8 +672,7 @@ class SegmentationTester:
         threshold: float = 0.5,
         output_dir: Optional[PathLike] = None,
     ) -> Dict[str, Any]:
-        """
-        Тестирование метода с расчётом метрик качества.
+        """Тестирование метода с расчётом метрик качества.
 
         Args:
             image: Входное изображение.
@@ -732,8 +755,7 @@ class SegmentationTester:
         test_name: Optional[str] = None,
         show_plots: bool = True,
     ) -> Dict[str, Dict[str, Any]]:
-        """
-        Визуальное сравнение нескольких методов в одном графике.
+        """Визуальное сравнение нескольких методов в одном графике.
 
         Строит grid-визуализацию: [Оригинал] + [Результаты методов] с подписями
         (время выполнения, процент покрытия). Сохраняет сводный график и статистику.
@@ -888,8 +910,7 @@ class SegmentationTester:
         test_name: Optional[str] = None,
         show_plots: bool = True,
     ) -> Dict[str, Dict[str, Any]]:
-        """
-        Сравнение методов с отображением метрик качества на графике.
+        """Сравнение методов с отображением метрик качества на графике.
 
         В отличие от `compare_methods()`, добавляет ground truth и подписи
         с метриками (IoU, Dice, F1, Accuracy) под каждым методом.
@@ -1022,14 +1043,12 @@ class SegmentationTester:
 
     # ──────────────────────────────────────────────────────────────────────
     def _save_statistics(self, stats: StatsList, output_dir: PathLike) -> None:
-        """
-        Сохраняет статистику тестирования в JSON, CSV и TXT форматах.
+        """Сохраняет статистику тестирования в JSON, CSV и TXT форматах.
 
         Args:
             stats: Список словарей со статистикой по методам.
             output_dir: Директория для сохранения.
         """
-
         # Функция для конвертации numpy типов в стандартные Python типы
         def convert_numpy_types(obj: Any) -> Any:
             if isinstance(obj, np.integer):
@@ -1167,8 +1186,7 @@ class SegmentationTester:
     def _save_metrics_comparison(
         self, metrics_data: List[MetricDict], output_dir: PathLike
     ) -> None:
-        """
-        Сохраняет сравнение метрик в различных форматах.
+        """Сохраняет сравнение метрик в различных форматах.
 
         Args:
             metrics_data: Список словарей с метриками по методам.
@@ -1197,8 +1215,7 @@ class SegmentationTester:
 
     # ──────────────────────────────────────────────────────────────────────
     def _create_metrics_table_image(self, df: pd.DataFrame, metrics_dir: str) -> None:
-        """
-        Создаёт изображение со сводной таблицей метрик для отчётов.
+        """Создаёт изображение со сводной таблицей метрик для отчётов.
 
         Args:
             df: DataFrame с метриками.
@@ -1256,8 +1273,7 @@ class SegmentationTester:
     def _save_results_summary(
         self, results: Dict[str, Dict], output_dir: PathLike
     ) -> None:
-        """
-        Сохраняет сводку результатов с конвертацией numpy-типов.
+        """Сохраняет сводку результатов с конвертацией numpy-типов.
 
         Args:
             results: Результаты по методам.
@@ -1339,8 +1355,7 @@ class SegmentationTester:
         force_warmup: bool = False,
         ground_truth: Optional[MaskArray] = None,
     ) -> pd.DataFrame:
-        """
-        Бенчмарк методов с многократными прогонами, warm-up и метриками.
+        """Бенчмарк методов с многократными прогонами, warm-up и метриками.
 
         Для каждого метода:
         1. Выполняет warm-up (если включён).
@@ -1640,8 +1655,7 @@ class SegmentationTester:
 
     # ──────────────────────────────────────────────────────────────────────
     def _save_benchmark_results(self, df: pd.DataFrame, output_dir: PathLike) -> None:
-        """
-        Сохраняет результаты бенчмарка в CSV, Excel и текстовый отчёт.
+        """Сохраняет результаты бенчмарка в CSV, Excel и текстовый отчёт.
 
         Args:
             df: DataFrame с результатами `benchmark_methods()`.
@@ -1738,14 +1752,12 @@ class SegmentationTester:
 
     # ──────────────────────────────────────────────────────────────────────
     def _plot_benchmark_results(self, df: pd.DataFrame, output_dir: PathLike) -> None:
-        """
-        Строит графики результатов бенчмарка: время, площадь, IoU vs время.
+        """Строит графики результатов бенчмарка: время, площадь, IoU vs время.
 
         Args:
             df: DataFrame с результатами.
             output_dir: Базовая директория для сохранения.
         """
-
         if df.empty:
             return
 
@@ -1856,8 +1868,7 @@ class SegmentationTester:
 
     # ──────────────────────────────────────────────────────────────────────
     def _create_metrics_plots(self, df: pd.DataFrame, metrics_dir: PathLike) -> None:
-        """
-        Создаёт графики сравнения метрик (бар-чарты, scatter IoU vs время).
+        """Создаёт графики сравнения метрик (бар-чарты, scatter IoU vs время).
 
         Примечание: Метод закомментирован в оригинальном коде — оставлен для совместимости.
         """
@@ -1949,8 +1960,7 @@ class SegmentationTester:
     def _create_benchmark_preview(
         self, df: pd.DataFrame, output_dir: PathLike, comp_dir: str
     ) -> None:
-        """
-        Создаёт превью-галерею результатов всех методов, отсортированных по скорости.
+        """Создаёт превью-галерею результатов всех методов, отсортированных по скорости.
 
         Args:
             df: DataFrame с результатами.
@@ -2018,8 +2028,7 @@ class SegmentationTester:
         test_name: str = "benchmark",
         ground_truth: Optional[MaskArray] = None,
     ) -> pd.DataFrame:
-        """
-        Упрощённый бенчмарк всех зарегистрированных методов: время + метрики.
+        """Упрощённый бенчмарк всех зарегистрированных методов: время + метрики.
 
         Args:
             image: Входное изображение.
@@ -2125,8 +2134,7 @@ class SegmentationTester:
         output_dir: Optional[PathLike] = None,
         show_plots: bool = True,
     ) -> None:
-        """
-        Визуализация сравнения результатов с сохранением.
+        """Визуализация сравнения результатов с сохранением.
 
         Строит 1 или 2 ряда: [Результаты] + [Маски] (если `show_masks=True`).
 
@@ -2213,14 +2221,12 @@ class SegmentationTester:
         results: Dict[str, Dict],
         output_dir: Optional[PathLike] = "./../data/segmentation_results",
     ) -> None:
-        """
-        Сохранение результатов всех методов в указанную директорию.
+        """Сохранение результатов всех методов в указанную директорию.
 
         Args:
             results: Результаты тестирования.
             output_dir: Директория для сохранения. Если `None`, создаётся новая.
         """
-
         if output_dir is None:
             output_dir = self._create_test_directory("./../data/results_save")
 

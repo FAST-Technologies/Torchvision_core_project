@@ -1,7 +1,6 @@
-# datasets/ADE20KDataset.py
+# dataseters/ADE20KDataset.py
 
-"""
-Загрузчик датасета ADE20K с расширенными аугментациями.
+"""Загрузчик датасета ADE20K с расширенными аугментациями.
 
 Особенности:
 - Все геометрические трансформации применяются одинаково к изображению и маске.
@@ -81,8 +80,7 @@ PathLike = Union[str, Path]
 # CLASS: ADE20KDataset
 # ──────────────────────────────────────────────────────────────────────
 class ADE20KDataset(Dataset):
-    """
-    Загрузчик датасета ADE20K с расширенными аугментациями.
+    """Загрузчик датасета ADE20K с расширенными аугментациями.
 
     Все геометрические трансформации применяются одинаково к изображению и маске.
     Для масок используется `fill=ignore_index` при поворотах/паддинге.
@@ -120,8 +118,7 @@ class ADE20KDataset(Dataset):
         scale_range: ScaleRange = (0.8, 1.2),
         ignore_index: int = 255,
     ) -> None:
-        """
-        Инициализация датасета ADE20K.
+        """Инициализация датасета ADE20K.
 
         Args:
             root_dir: Корневая директория датасета.
@@ -197,8 +194,7 @@ class ADE20KDataset(Dataset):
         color_jitter_prob: float = 0.0,
         scale_range: ScaleRange = (0.8, 1.2),
     ) -> None:
-        """
-        Настраивает параметры аугментаций в зависимости от уровня.
+        """Настраивает параметры аугментаций в зависимости от уровня.
 
         Args:
             hflip_prob: Вероятность горизонтального флипа.
@@ -207,7 +203,6 @@ class ADE20KDataset(Dataset):
             color_jitter_prob: Вероятность color jitter.
             scale_range: Диапазон масштабирования.
         """
-
         if self.augmentation_level == "none":
             self.hflip_prob = 0.0
             self.vflip_prob = 0.0
@@ -252,8 +247,7 @@ class ADE20KDataset(Dataset):
         img: Image.Image,
         mask: Image.Image,
     ) -> Tuple[Image.Image, Image.Image]:
-        """
-        Применяет геометрические аугментации одинаково к изображению и маске.
+        """Применяет геометрические аугментации одинаково к изображению и маске.
 
         Для маски используется `fill=ignore_index` при поворотах/паддинге.
 
@@ -368,8 +362,7 @@ class ADE20KDataset(Dataset):
 
     # ──────────────────────────────────────────────────────────────────────
     def _apply_photometric_augmentations(self, img: Image.Image) -> Image.Image:
-        """
-        Применяет фотометрические аугментации только к изображению.
+        """Применяет фотометрические аугментации только к изображению.
 
         Маска НЕ трансформируется!
 
@@ -384,7 +377,6 @@ class ADE20KDataset(Dataset):
         Returns:
             PIL.Image: Аугментированное изображение.
         """
-
         if not self.augment:
             return img
 
@@ -410,8 +402,7 @@ class ADE20KDataset(Dataset):
 
     # ──────────────────────────────────────────────────────────────────────
     def __getitem__(self, idx: int) -> BatchDict:
-        """
-        Возвращает один пример из датасета.
+        """Возвращает один пример из датасета.
 
         Логика:
         1. Загружает изображение и маску.
@@ -477,8 +468,7 @@ class ADE20KDataset(Dataset):
 
     # ──────────────────────────────────────────────────────────────────────
     def test_augmentation_sync(self) -> bool:
-        """
-        Простой unit-тест: проверяет, что image и mask одного размера после аугментаций.
+        """Простой unit-тест: проверяет, что image и mask одного размера после аугментаций.
 
         Также проверяет, что значения маски в допустимом диапазоне (кроме `ignore_index`).
 
@@ -503,8 +493,7 @@ class ADE20KDataset(Dataset):
 # CLASS: ADE20KDatasetWithTransforms (альтернативная реализация)
 # ──────────────────────────────────────────────────────────────────────
 class ADE20KDatasetWithTransforms(Dataset):
-    """
-    Альтернативная версия с использованием `transforms.Compose`.
+    """Альтернативная версия с использованием `transforms.Compose`.
 
     Более чистая архитектура, но требует аккуратной обработки масок.
     """
@@ -518,6 +507,7 @@ class ADE20KDatasetWithTransforms(Dataset):
         subset_fraction: Optional[float] = None,
         ignore_index: int = 255,
     ) -> None:
+        """Инициализация модуля ADE20KDatasetWithTransforms."""
         self.image_size: ImageSize = image_size
         self.augment: bool = augment
         self.ignore_index: int = ignore_index
@@ -576,10 +566,12 @@ class ADE20KDatasetWithTransforms(Dataset):
 
     # ──────────────────────────────────────────────────────────────────────
     def __len__(self) -> int:
+        """Находит длину валидных индексов модуля ADE20KDatasetWithTransforms."""
         return len(self.valid_indices)
 
     # ──────────────────────────────────────────────────────────────────────
     def __getitem__(self, idx: int) -> BatchDict:
+        """Получает элемент модуля ADE20KDatasetWithTransforms."""
         real_idx: int = self.valid_indices[idx]
         img_file: str = self.image_files[real_idx]
 
@@ -620,8 +612,7 @@ class ADE20KDatasetWithTransforms(Dataset):
 # UTILS: test_dataloader
 # ──────────────────────────────────────────────────────────────────────
 def test_dataloader() -> bool:
-    """
-    Тестирует загрузчик ADE20K: валидация данных и визуализация аугментаций.
+    """Тестирует загрузчик ADE20K: валидация данных и визуализация аугментаций.
 
     Returns:
         bool: `True` если все тесты пройдены, иначе `False`.

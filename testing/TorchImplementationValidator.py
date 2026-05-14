@@ -1,5 +1,46 @@
 # testing/TorchImplementationValidator.py
 
+"""Модуль для валидации кастомных PyTorch-реализаций методов сегментации против эталонных библиотек.
+
+Предназначен для автоматизированного сравнения согласованности результатов сегментации
+между PyTorch-реализациями (TorchSegmenter / TorchSegmenter2) и эталонными бэкендами
+(OpenCV, Scikit-learn) на одном и том же изображении.
+
+Основные возможности:
+- 🔍 Попарное сравнение: Запуск одного метода в двух реализациях с расчётом метрик
+  соответствия (IoU, Dice, F1, Precision, Recall, MAE, Hausdorff).
+- 🎯 Автоматическая классификация: Статус валидации PASS / WARNING / FAIL на основе
+  настраиваемых пороговых значений 7 ключевых метрик.
+- 🧩 Поддержка двух версий: Работа как с TorchSegmenter, так и с TorchSegmenter2
+  (с параметрами точности: fp32/fp16/bf16, компиляции, отладки).
+- 🎨 Визуализация: 4-панельный макет [Оригинал] | [Mask A] | [Mask B] | [Heatmap разницы].
+- 📊 Пакетная валидация: 6 предустановленных конфигураций сравнения для пороговых
+  и граничных методов (Torch↔Sklearn, Torch↔OpenCV, OpenCV↔Sklearn).
+- 📤 Экспорт отчётов: Сохранение масок (.npy), метрик (.txt), PNG-визуализаций,
+  сводных текстовых отчётов и бенчмарк-графиков.
+
+Категории поддерживаемых методов:
+- Пороговые (13): global, otsu, adaptive, niblack, sauvola, bernsen, phansalkar, ...
+- Граничные (10): sobel, canny, prewitt, scharr, roberts, log, dog, marr-hildreth, ...
+- Региональные, кластеризация, активные контуры, водоразделы, суперпиксели, интерактивные
+  (закомментированы по умолчанию, могут быть активированы).
+
+Workflow:
+1. Создать экземпляр `TorchImplementationValidator()` → 2. Вызвать `validate_all_methods(image)`
+   → 3. Получить Dict с результатами по категориям → 4. Сгенерировать отчёт через
+   `generate_validation_report()` или `generate_benchmark_report_from_validation()`.
+
+Примечание:
+- Метрики рассчитываются между двумя предсказаниями, а не против Ground Truth —
+  это проверка **консистентности реализаций**, а не **качества сегментации**.
+- Для референсного сегментера автоматически добавляется `postprocess=False` для
+  честного сравнения "сырых" результатов.
+- Метод `_filter_params()` предотвращает ошибки TypeError при передаче параметров,
+  специфичных для TorchSegmenter2, в другие классы сегментеров.
+- Для валидации качества относительно GT используйте `BatchClassicTester2` или
+  `SegmentationTester`; для массового тестирования на датасетах — `BatchClassicTester`.
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -57,9 +98,7 @@ ValidationStatus = Literal["PASS", "WARNING", "FAIL"]
 
 # ──────────────────────────────────────────────────────────────────────
 class TorchImplementationValidator:
-    """
-    Класс для валидации кастомных PyTorch-реализаций методов сегментации
-    против эталонных реализаций из библиотек (OpenCV, Scikit-learn).
+    """Класс для валидации кастомных PyTorch-реализаций методов сегментации против эталонных реализаций из библиотек (OpenCV, Scikit-learn).
 
     Поддерживает как TorchSegmenter, так и TorchSegmenter2 (с параметрами
     точности, компиляции и отладки).
@@ -84,8 +123,7 @@ class TorchImplementationValidator:
     """
 
     def __init__(self, output_dir: str = "./data/validation_results") -> None:
-        """
-        Инициализация валидатора с настройками путей и порогов успешности.
+        """Инициализация валидатора с настройками путей и порогов успешности.
 
         Args:
             output_dir: Базовая директория для сохранения артефактов (маски, метрики, графики).
@@ -254,8 +292,7 @@ class TorchImplementationValidator:
     def _filter_params(
         segmenter_class: SegmenterClass, params: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Фильтрует параметры, оставляя только поддерживаемые сигнатурой __init__ класса.
+        """Фильтрует параметры, оставляя только поддерживаемые сигнатурой __init__ класса.
 
         Предотвращает ошибки TypeError при передаче параметров, специфичных для
         TorchSegmenter2 (precision, use_compile, etc.) в другие классы.
@@ -286,8 +323,7 @@ class TorchImplementationValidator:
 
     @staticmethod
     def _normalize_mask(mask: Union[torch.Tensor, np.ndarray]) -> np.ndarray:
-        """
-        Приводит маску к единому формату для сравнения: (H, W), dtype uint8, значения {0, 255}.
+        """Приводит маску к единому формату для сравнения: (H, W), dtype uint8, значения {0, 255}.
 
         Обрабатывает:
         - torch.Tensor → numpy
@@ -329,8 +365,7 @@ class TorchImplementationValidator:
     def _prepare_torch_params(
         params: Dict[str, Any], use_torch2: bool = False
     ) -> Dict[str, Any]:
-        """
-        Подготавливает параметры для TorchSegmenter/TorchSegmenter2.
+        """Подготавливает параметры для TorchSegmenter/TorchSegmenter2.
 
         Для TorchSegmenter2:
         - Добавляет дефолтные значения для параметров точности и компиляции.
@@ -360,8 +395,7 @@ class TorchImplementationValidator:
 
     # ──────────────────────────────────────────────────────────────────────
     def _load_image(self, image_path: ImageInput) -> ImageArray:
-        """
-        Универсальная загрузка изображения для всех сегментаторов.
+        """Универсальная загрузка изображения для всех сегментаторов.
 
         Args:
             image_path: Путь к файлу, `np.ndarray` или `PIL.Image`.
@@ -395,8 +429,7 @@ class TorchImplementationValidator:
         validation_type: str = "threshold",
         use_first_method_features: bool = False,
     ) -> Dict[str, Any]:
-        """
-        Универсальная функция валидации методов сегментации против эталонной реализации.
+        """Универсальная функция валидации методов сегментации против эталонной реализации.
 
         Для каждого метода из `methods_list`:
         1. Запускает сегментацию через `torch_segmenter_class` и `reference_segmenter_class`.
@@ -593,8 +626,7 @@ class TorchImplementationValidator:
 
     # ──────────────────────────────────────────────────────────────────────
     def _check_validation_status(self, metrics: MetricDict) -> ValidationStatus:
-        """
-        Определяет статус валидации на основе пороговых значений метрик.
+        """Определяет статус валидации на основе пороговых значений метрик.
 
         Логика:
         - Проверяет 7 ключевых метрик: IoU, Dice, Pixel Accuracy, Precision, Recall, F1, MAE.
@@ -642,8 +674,7 @@ class TorchImplementationValidator:
         first_method_name: str = "Torch",
         second_method_name: str = "Reference",
     ) -> None:
-        """
-        Сохраняет результаты валидации: маски (.npy) и метрики (.txt).
+        """Сохраняет результаты валидации: маски (.npy) и метрики (.txt).
 
         Структура директории:
         ```
@@ -658,7 +689,8 @@ class TorchImplementationValidator:
             results: Результаты `validate_segmentation_methods()`.
             prefix: Префикс имени директории.
             reference: Название референсной библиотеки.
-            flag_torch: Если `True`, сохраняет маску как `torch_mask.npy`, иначе `opencv_mask.npy`.
+            first_method_name: Название первого метода.
+            second_method_name: Название второго метода.
         """
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         results_dir: str = os.path.join(
@@ -710,8 +742,7 @@ class TorchImplementationValidator:
         first_method_name: str = "Method A",
         second_method_name: str = "Method B",
     ) -> None:
-        """
-        Строит визуализацию сравнения: оригинал, две маски, heatmap разности.
+        """Строит визуализацию сравнения: оригинал, две маски, heatmap разности.
 
         Макет (на строку метода):
         [Original] | [Tested Mask] | [Reference Mask] | [Difference Heatmap]
@@ -720,8 +751,8 @@ class TorchImplementationValidator:
             results: Результаты валидации.
             image_array: Исходное изображение для отображения.
             validation_type: Категория методов ("threshold", "edge", ...) для заголовка.
-            reference: Название референсной библиотеки.
-            additional_method: Идентификатор тестируемой реализации.
+            first_method_name: Название референсной библиотеки.
+            second_method_name: Идентификатор тестируемой реализации.
         """
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         original: ImageArray = image_array
@@ -798,8 +829,7 @@ class TorchImplementationValidator:
 
     # ──────────────────────────────────────────────────────────────────────
     def generate_validation_report(self, all_results: Dict[str, Any]) -> str:
-        """
-        Генерирует текстовый сводный отчёт по всем типам валидации.
+        """Генерирует текстовый сводный отчёт по всем типам валидации.
 
         Включает:
         - Статистику PASS / WARNING / FAIL по категориям методов.
@@ -906,8 +936,7 @@ class TorchImplementationValidator:
         use_torch2: bool = False,
         torch2_precision: str = "fp32",
     ) -> Dict[str, Any]:
-        """
-        Запускает валидацию всех предустановленных категорий методов.
+        """Запускает валидацию всех предустановленных категорий методов.
 
         Выполняет 6 основных конфигураций сравнения:
         1. Threshold: Torch vs Sklearn
@@ -1112,8 +1141,7 @@ class TorchImplementationValidator:
     def generate_benchmark_report_from_validation(
         self, all_results: Dict[str, Any], output_dir: Optional[str] = None
     ) -> pd.DataFrame:
-        """
-        Генерирует бенчмарк-отчёт на основе результатов валидации.
+        """Генерирует бенчмарк-отчёт на основе результатов валидации.
 
         Агрегирует данные по всем типам валидации, рассчитывает:
         - Среднее время выполнения по библиотекам.
@@ -1242,8 +1270,8 @@ class TorchImplementationValidator:
         first_method_label: str = "First Method",
         second_method_label: str = "Second Method",
     ) -> None:
-        """
-        Строит 6 типов графиков для бенчмарк-анализа:
+        """Строит 6 типов графиков для бенчмарк-анализа.
+
         1. Bar-чарт времени выполнения (Torch).
         2. Scatter: Torch time vs Reference time.
         3. Bar-чарт IoU с цветовой индикацией статуса.
@@ -1573,8 +1601,7 @@ class TorchImplementationValidator:
     def _generate_validation_benchmark_summary(
         self, df: pd.DataFrame, output_dir: str
     ) -> None:
-        """
-        Генерирует текстовый сводный отчёт по бенчмарку.
+        """Генерирует текстовый сводный отчёт по бенчмарку.
 
         Включает:
         - Топ-10 самых быстрых и точных методов.

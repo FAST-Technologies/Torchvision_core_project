@@ -1,14 +1,50 @@
 # metrics/SegmentationMetrics.py
 
-"""
-Модуль для расчёта метрик качества семантической и бинарной сегментации.
+"""Модуль для расчёта метрик качества семантической и бинарной сегментации.
+
+Предназначен для универсальной оценки соответствия предсказанных масок 
+эталонным (Ground Truth) с поддержкой:
+- Бинарной сегментации: объект/фон (0/1 или 0/255).
+- Многоклассовой сегментации: пер-классовые метрики, матрица ошибок.
+- Кластеризации: внутренние метрики компактности (Silhouette, CH, DB).
 
 Поддерживаемые метрики:
-- Бинарные: IoU, Dice, Precision, Recall, F1, Pixel Accuracy, MAE, Hausdorff.
-- Многоклассовые: Per-class IoU, Confusion Matrix, Area Statistics.
-- Кластеризация: Silhouette, Calinski-Harabasz, Davies-Bouldin (для многоклассовой).
+┌─────────────────────────────────────────────────────┐
+│ Категория          │ Метрики                         │
+├─────────────────────────────────────────────────────┤
+│ Пересечение/Объединение │ IoU, Jaccard, Dice/F1      │
+│ Классификация        │ Precision, Recall, Accuracy   │
+│ Ошибки              │ MAE, Pixel Accuracy           │
+│ Геометрия контуров   │ Hausdorff Distance            │
+│ Статистика областей  │ Area, Ratio, Difference       │
+│ Конфузионная матрица │ TP, FP, FN, TN                │
+│ Кластеризация*       │ Silhouette, CH, Davies-Bouldin│
+└─────────────────────────────────────────────────────┘
+* — только для масок с >2 уникальных классов
 
-Все методы статические и не требуют инициализации класса.
+Особенности реализации:
+- 🔄 Все методы статические: класс используется как пространство имён.
+- 🎚️ Автоматическая бинаризация с адаптивным порогом для [0,1] и [0,255].
+- 🛡️ Защита от деления на ноль через `smooth=1e-6` и `1e-8` в знаменателях.
+- 🔍 Опциональное сравнение кастомных и sklearn-реализаций (через `verbose`).
+- ⚡ Hausdorff Distance вычисляется только по координатам контуров, не по всей маске.
+- 📦 Групповой расчёт: `calculate_all_metrics()` для получения полного набора за один вызов.
+- 📊 Пакетная оценка: `evaluate_multiple_masks()` с агрегацией средних/стандартных значений.
+
+Workflow:
+1. Подготовить предсказанную и эталонную маски (формат: `np.ndarray`, формы `(H, W)`).
+2. Вызвать `SegmentationMetrics.calculate_all_metrics(pred_mask, gt_mask, threshold=0.5)`.
+3. Получить словарь с метриками для логирования, визуализации или агрегации.
+
+Примечание:
+- Для бинарных масок значения должны быть в {0, 1} или {0, 255}; модуль автоматически
+  приводит к единому формату через `_normalize_masks()`.
+- Hausdorff Distance может возвращать `inf`, если один из контуров пуст — это ожидаемое
+  поведение, обрабатывайте такие случаи в вызывающем коде.
+- Метрики кластеризации возвращают `np.nan` для бинарных масок, так как неинформативны
+  при двух классах (фон/объект).
+- Для массового тестирования на датасетах используйте обёртки в `BatchClassicTester2`,
+  `SegmentationBenchmark` или `SegmentationTester`.
 """
 
 # ──────────────────────────────────────────────────────────────────────
@@ -57,8 +93,7 @@ ClusteringMetricsDict = Dict[str, Optional[float]]
 
 
 class SegmentationMetrics:
-    """
-    Класс для расчёта метрик качества сегментации.
+    """Класс для расчёта метрик качества сегментации.
 
     Все методы статические — класс используется как пространство имён.
     Поддерживает как бинарную, так и многоклассовую сегментацию.
@@ -88,8 +123,7 @@ class SegmentationMetrics:
         gt_mask: MaskArray,
         threshold: float = 0.5,
     ) -> Tuple[MaskArray, MaskArray]:
-        """
-        Приводит маски к бинарному виду (0 и 1) и возвращает плоские массивы.
+        """Приводит маски к бинарному виду (0 и 1) и возвращает плоские массивы.
 
         Логика:
         - Если макс. значение > 1, предполагается диапазон [0, 255] → порог умножается на 255.
@@ -128,8 +162,7 @@ class SegmentationMetrics:
         gt_mask: MaskArray,
         threshold: float = 0.5,
     ) -> MetricValue:
-        """
-        Intersection over Union (IoU) / Jaccard Index.
+        """Intersection over Union (IoU) / Jaccard Index.
 
         Формула:
         ```
@@ -163,8 +196,7 @@ class SegmentationMetrics:
         gt_mask: MaskArray,
         threshold: float = 0.5,
     ) -> MetricValue:
-        """
-        Accuracy Score через `sklearn.metrics.accuracy_score`.
+        """Accuracy Score через `sklearn.metrics.accuracy_score`.
 
         Args:
             pred_mask: Предсказанная маска.
@@ -192,8 +224,7 @@ class SegmentationMetrics:
         gt_mask: MaskArray,
         threshold: float = 0.5,
     ) -> MetricValue:
-        """
-        Jaccard Score через `sklearn.metrics.jaccard_score` (эквивалент IoU).
+        """Jaccard Score через `sklearn.metrics.jaccard_score` (эквивалент IoU).
 
         Args:
             pred_mask: Предсказанная маска.
@@ -224,8 +255,7 @@ class SegmentationMetrics:
         threshold: float = 0.5,
         smooth: float = 1e-6,
     ) -> MetricValue:
-        """
-        Dice Coefficient / F1 Score для бинарной сегментации.
+        """Dice Coefficient / F1 Score для бинарной сегментации.
 
         Формула:
         ```
@@ -258,8 +288,7 @@ class SegmentationMetrics:
         threshold: float = 0.5,
         verbose: bool = False,
     ) -> Tuple[MetricValue, MetricValue]:
-        """
-        Precision и Recall для бинарной сегментации.
+        """Precision и Recall для бинарной сегментации.
 
         Формулы:
         ```
@@ -316,8 +345,7 @@ class SegmentationMetrics:
         threshold: float = 0.5,
         verbose: bool = False,
     ) -> MetricValue:
-        """
-        F1 Score (среднее гармоническое precision и recall).
+        """F1 Score (среднее гармоническое precision и recall).
 
         Формула:
         ```
@@ -359,8 +387,7 @@ class SegmentationMetrics:
         normalize: bool = True,
         verbose: bool = False,
     ) -> MetricValue:
-        """
-        Mean Absolute Error (Средняя абсолютная погрешность).
+        """Mean Absolute Error (Средняя абсолютная погрешность).
 
         Args:
             pred_mask: Предсказанная маска.
@@ -407,8 +434,7 @@ class SegmentationMetrics:
         gt_mask: MaskArray,
         threshold: float = 0.5,
     ) -> MetricValue:
-        """
-        Hausdorff Distance (Расстояние Хаусдорфа) между контурами масок.
+        """Hausdorff Distance (Расстояние Хаусдорфа) между контурами масок.
 
         Вычисляется как максимум из двух направленных расстояний:
         ```
@@ -450,8 +476,7 @@ class SegmentationMetrics:
         pred_mask: MaskArray,
         n_samples: int = 1000,
     ) -> ClusteringMetricsDict:
-        """
-        Оценивает внутреннюю компактность сегментов (только если классов > 2).
+        """Оценивает внутреннюю компактность сегментов (только если классов > 2).
 
         Поддерживаемые метрики:
         - Silhouette Score: [-1, 1], чем больше — тем лучше.
@@ -521,8 +546,7 @@ class SegmentationMetrics:
         gt_mask: MaskArray,
         threshold: float = 0.5,
     ) -> MetricValue:
-        """
-        Pixel Accuracy (Пиксельная точность).
+        """Pixel Accuracy (Пиксельная точность).
 
         Формула:
         ```
@@ -558,8 +582,7 @@ class SegmentationMetrics:
         verbose_comparison: bool = False,
         metrics_list: Optional[List[str]] = None,
     ) -> MetricsDict:
-        """
-        Вычисляет все метрики качества сегментации в одном вызове.
+        """Вычисляет все метрики качества сегментации в одном вызове.
 
         Возвращаемые метрики:
         - `accuracy`, `iou`, `jaccard_score`, `dice`
@@ -744,8 +767,7 @@ class SegmentationMetrics:
         gt_masks: List[MaskArray],
         threshold: float = 0.5,
     ) -> Dict[str, Any]:
-        """
-        Оценка нескольких масок с вычислением средних метрик.
+        """Оценка нескольких масок с вычислением средних метрик.
 
         Args:
             pred_masks: Список предсказанных масок.

@@ -1,6 +1,6 @@
-# scripts/convert_coco_parquet.py
-"""
-Скрипт для конвертации Parquet-файлов COCO-panoptic в файловую структуру.
+# dataseters/DatasetParquetLoader.py
+
+"""Скрипт для конвертации Parquet-файлов COCO-panoptic в файловую структуру.
 
 Извлекает изображения и маски из Parquet-файла и сохраняет их как:
 - Изображения: `coco-panoptic-val2017_{idx:06d}1.jpg` (RGB)
@@ -59,8 +59,7 @@ BATCH_LOG_INTERVAL: int = 100
 # УТИЛИТЫ
 # ──────────────────────────────────────────────────────────────────────
 def decode_image_from_dict(data: Any, mode: str = "RGB") -> Optional[Image.Image]:
-    """
-    Декодирует изображение из словаря с ключом "bytes".
+    """Декодирует изображение из словаря с ключом "bytes".
 
     Args:
         data: Данные изображения (ожидается `dict` с ключом `"bytes"`).
@@ -78,8 +77,7 @@ def decode_image_from_dict(data: Any, mode: str = "RGB") -> Optional[Image.Image
 # MAIN
 # ──────────────────────────────────────────────────────────────────────
 def main() -> None:
-    """
-    Основной входной пункт скрипта.
+    """Основной входной пункт скрипта.
 
     Читает Parquet-файл, извлекает изображения и маски, сохраняет в файловую структуру.
     """

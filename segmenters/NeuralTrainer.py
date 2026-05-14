@@ -1,5 +1,75 @@
 # segmenters/NeuralTrainer.py
 
+"""Трейнер для fine-tuning нейронных моделей семантической сегментации.
+
+Поддерживает обучение моделей с выходом `[B, C, H, W]` или `dict` с ключами `"out"`/`"aux"`.
+
+Ключевые особенности:
+- ✅ `ignore_index`: игнорирование пикселей в лоссе (ADE20K: 255, Cityscapes: 255)
+- ✅ Auxiliary loss: взвешенный лосс для моделей с дополнительным выходом (DeepLab, FCN)
+- ✅ Gradient clipping: стабилизация через `clip_grad_norm_(max_norm=1.0)`
+- ✅ CosineAnnealingLR: плавное уменьшение LR по косинусоиде
+- ✅ Early stopping: остановка по `val_miou` с настраиваемым `patience`
+- ✅ Macro mIoU: расчёт через `sklearn.metrics.jaccard_score` с учётом присутствующих классов
+
+Типичный workflow:
+```python
+from segmenters.NeuralTrainer import NeuralTrainer
+from torch.utils.data import DataLoader
+
+# 1. Подготовка данных
+train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=4)
+
+# 2. Создание модели
+model = create_unet(num_classes=150).to("cuda")
+
+# 3. Инициализация трейнера
+trainer = NeuralTrainer(
+    model=model,
+    train_loader=train_loader,
+    val_loader=val_loader,
+    num_classes=150,
+    ignore_index=255,          # ADE20K стандарт
+    aux_loss_weight=0.0,       # 0.4 для DeepLab/FCN
+    device="cuda",
+    lr=1e-4
+)
+
+# 4. Обучение
+history = trainer.fit(
+    epochs=100,
+    checkpoint_path="./models/best.pth",
+    early_stop_patience=200
+)
+
+# 5. Анализ результатов
+print(f"Best mIoU: {trainer.best_miou:.4f}")
+print(f"Final train loss: {history['train_loss'][-1]:.4f}")
+```
+
+Attributes:
+    model (nn.Module): Обучаемая модель сегментации.
+    train_loader (DataLoader): DataLoader для тренировочного набора.
+    val_loader (DataLoader): DataLoader для валидационного набора.
+    device (str): Устройство для вычислений ("cuda" или "cpu").
+    num_classes (int): Количество выходных классов.
+    ignore_index (int): Индекс пикселей для игнорирования в лоссе.
+    aux_loss_weight (float): Коэффициент для вспомогательного лосса.
+    criterion (nn.CrossEntropyLoss): Функция потерь с `ignore_index`.
+    optimizer (torch.optim.AdamW): Оптимизатор с weight_decay.
+    scheduler (CosineAnnealingLR): Scheduler для уменьшения LR.
+    history (HistoryDict): История метрик: ["train_loss", "val_loss", "val_miou"].
+    best_miou (float): Лучший достигнутый mIoU на валидации.
+
+Note:
+    - Scheduler делает шаг после каждого батча, а не эпохи (CosineAnnealingLR с T_max = total_steps).
+    - Для моделей с `aux` выходом (DeepLab, FCN) установите `aux_loss_weight=0.4`.
+    - Early stopping срабатывает, если `val_miou` не превышает `best_miou * 0.999` в течение `patience` эпох.
+    - Маски автоматически валидируются: значения `<0` или `>=num_classes` заменяются на `ignore_index`.
+    - При `verbose_first_batch=True` выводится статистика по первому батчу для отладки.
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -46,8 +116,7 @@ BatchDict = Dict[str, torch.Tensor]
 
 # ──────────────────────────────────────────────────────────────────────
 class NeuralTrainer:
-    """
-    Трейнер для fine-tuning нейронных моделей семантической сегментации.
+    """Трейнер для fine-tuning нейронных моделей семантической сегментации.
 
     Поддерживает:
     - Обучение с учётом `ignore_index` для игнорируемых пикселей (например, 255 в ADE20K).
@@ -107,8 +176,7 @@ class NeuralTrainer:
         aux_loss_weight: float = 0.4,  # FIX 4: коэф. aux_loss для DeepLab/FCN
         verbose_first_batch: bool = False,
     ) -> None:
-        """
-        Инициализация трейнера.
+        """Инициализация трейнера.
 
         Args:
             model: Модель сегментации (nn.Module) с выходом `[B, C, H, W]` или `dict` с ключами `"out"`/`"aux"`.
@@ -158,8 +226,7 @@ class NeuralTrainer:
 
     # ──────────────────────────────────────────────────────────────────────
     def train_epoch(self) -> LossValue:
-        """
-        Выполняет одну эпоху обучения.
+        """Выполняет одну эпоху обучения.
 
         Логика:
         1. Переключает модель в режим `.train()`.
@@ -255,8 +322,7 @@ class NeuralTrainer:
 
     # ──────────────────────────────────────────────────────────────────────
     def validate(self) -> Tuple[LossValue, MetricValue]:
-        """
-        Выполняет валидацию и рассчитывает macro mIoU.
+        """Выполняет валидацию и рассчитывает macro mIoU.
 
         Логика:
         1. Переключает модель в режим `.eval()` и отключает градиенты.
@@ -327,8 +393,7 @@ class NeuralTrainer:
         checkpoint_path: str = "./models/best_model.pth",
         early_stop_patience: int = 200,
     ) -> HistoryDict:
-        """
-        Полный цикл обучения с валидацией и early stopping.
+        """Полный цикл обучения с валидацией и early stopping.
 
         Для каждой эпохи:
         1. Выполняет `train_epoch()`.

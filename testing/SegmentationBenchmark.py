@@ -1,5 +1,37 @@
 # testing/SegmentationBenchmark.py
 
+"""Модуль для сравнительного бенчмаркинга нейросетевых архитектур сегментации изображений.
+
+Предназначен для автоматизированного сравнения качества и производительности 
+различных моделей сегментации (CNN, Transformers, Universal) на едином датасете.
+Поддерживает как обученные пользователем модели (.pth чекпоинты), так и 
+предобученные модели из Hugging Face, TorchVision, Segment Anything и др.
+
+Основные возможности:
+- 🔄 Fluent Interface для загрузки моделей: цепочка вызовов `load_*().load_*()...`
+- 🧠 Поддержка 15+ архитектур: UNet, DeepLab, FPN, PSPNet, SegFormer, Mask2Former, 
+  OneFormer, DPT, UPerNet, SAM/SAM2, YOLOv8-seg, Mask R-CNN и др.
+- ⚡ Управление памятью: автоматическая очистка VRAM между моделями, 
+  асинхронный режим с обновлением прогресса
+- 📊 Полный набор метрик: mIoU, Pixel Accuracy, F1-weighted, Per-Class IoU, 
+  Confusion Matrix, уникальные классы
+- 🎨 Визуализация: бар-чарты, heatmap per-class IoU, матрицы ошибок, 
+  наложенные маски с настраиваемой прозрачностью
+- 📤 Экспорт результатов: CSV, JSON (с сериализацией numpy-типов), 
+  Markdown-таблицы, LaTeX-код для публикаций
+
+Примечание:
+- Для корректной работы требуется предварительная загрузка моделей через 
+  методы `load_*()` перед вызовом `compare()` или `run_single()`.
+- Ground Truth маска задаётся при инициализации (`gt_mask`) и используется 
+  для расчёта метрик; если не указана — бенчмарк работает в режиме 
+  "только инференс + визуализация".
+- Метод `compare()` автоматически освобождает VRAM после каждой модели, 
+  оставляя только метаданные в `self.models` для совместимости с API.
+- Для валидации качества классических методов используйте `BatchClassicTester2`; 
+  для проверки консистентности реализаций — `BatchClassicTester`.
+"""
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -67,6 +99,27 @@ PaletteType = Optional[Union[List[List[int]], Callable[[], List[List[int]]]]]
 
 # 🔹 TypedDict для спецификации метрики
 class MetricPlotSpec(TypedDict):
+    """Спецификация метрики для построения графиков сравнения.
+
+    Используется в методах визуализации бенчмарка для динамической настройки
+    отображения различных метрик качества сегментации.
+
+    Attributes:
+        key (str): Ключ метрики в словаре `summary` (например, "mIoU", "pixel_acc").
+        label (str): Человекочитаемая подпись для оси Y на графике.
+        transform (Callable[[float], float]): Функция преобразования значения метрики
+            перед отображением (например, умножение на 100 для перевода в проценты).
+
+    Example:
+        >>> spec: MetricPlotSpec = {
+        ...     "key": "mIoU",
+        ...     "label": "Mean IoU (%)",
+        ...     "transform": lambda x: x * 100,
+        ... }
+        >>> value = 0.75
+        >>> print(f"{spec['label']}: {spec['transform'](value):.2f}")
+        Mean IoU (%): 75.00
+    """
     key: str  # Ключ метрики в summary (например, "mIoU")
     label: str  # Подпись для оси Y
     transform: Callable[[float], float]  # Функция трансформации значения
@@ -74,11 +127,27 @@ class MetricPlotSpec(TypedDict):
 
 # 🔹 Type alias для функции трансформации
 TransformFunc = Callable[[float], float]
+"""Функция преобразования числового значения метрики.
+
+Принимает сырое значение метрики (обычно в диапазоне [0, 1]) и возвращает
+преобразованное значение для отображения (например, в процентах или с округлением).
+
+Args:
+    value (float): Исходное значение метрики.
+
+Returns:
+    float: Преобразованное значение для визуализации.
+
+Example:
+    >>> to_percent: TransformFunc = lambda x: x * 100
+    >>> to_percent(0.842)
+    84.2
+"""
 
 
 # ──────────────────────────────────────────────────────────────────────
 class SegmentationBenchmark:
-    """Полноценный бенчмарк для сравнения архитектур сегментации"""
+    """Полноценный бенчмарк для сравнения архитектур сегментации."""
 
     def __init__(
         self,
@@ -89,18 +158,51 @@ class SegmentationBenchmark:
         gt_mask: Optional[Union[np.ndarray, Image.Image]] = None,
         palette: Optional[Union[List[List[int]], Callable[[], List[List[int]]]]] = None,
     ) -> None:
-        """
-        Полноценный бенчмарк для сравнения архитектур сегментации изображений.
+        """Бенчмарк для сравнительного анализа моделей семантической сегментации.
 
-        Поддерживает:
-        - Загрузку обученных и предобученных моделей (CNN, Transformers, Universal)
-        - Поочередный и асинхронный инференс с управлением VRAM
-        - Расчёт метрик (mIoU, Pixel Accuracy, F1, Per-Class IoU, Confusion Matrix)
-        - Визуализацию результатов (бар-чарты, heatmaps, наложенные маски)
-        - Экспорт отчётов в CSV, JSON, Markdown и LaTeX
+        Предоставляет унифицированный интерфейс для загрузки, инференса и оценки
+        разнородных архитектур: от классических CNN (UNet, DeepLab) до современных
+        Transformer-based моделей (SegFormer, Mask2Former) и универсальных сегментаторов
+        (SAM, SAM2).
+
+        Key Features:
+            🔗 Fluent API: Цепочечная загрузка моделей через `load_*()` методы.
+            🧠 Поддержка 15+ архитектур: Включая предобученные веса из HF, TorchVision, SMP.
+            ⚡ Управление памятью: Автоматическая очистка VRAM между прогонами моделей.
+            📊 Метрики: mIoU, Pixel Accuracy, F1-weighted, Per-Class IoU, Confusion Matrix.
+            🎨 Визуализация: Бар-чарты, heatmaps, наложенные маски с alpha-blend.
+            📤 Экспорт: CSV, JSON (с numpy-сериализацией), Markdown, LaTeX для публикаций.
 
         Workflow:
-        1. Инициализация -> 2. Загрузка моделей (chainable) -> 3. Запуск compare() -> 4. Экспорт/визуализация.
+            1. Инициализация с указанием устройства и параметров датасета.
+            2. Загрузка моделей через цепочку `load_unet().load_deeplab()...`.
+            3. Запуск бенчмарка: `benchmark.compare(image, alpha=0.6)`.
+            4. Анализ: `benchmark.get_summary()`, `benchmark.plot_all_metrics()`.
+            5. Экспорт: `benchmark.export_latex_table()`, `benchmark.save_results()`.
+
+        Note:
+            - Ground Truth маска (`gt_mask`) обязательна для расчёта метрик качества.
+            - Метод `compare()` автоматически освобождает VRAM после каждой модели,
+            сохраняя только метаданные в `self.models` для совместимости с API.
+            - Для бенчмарка классических (не-нейросетевых) методов используйте
+            `BatchClassicTester2`; для валидации консистентности — `BatchClassicTester`.
+
+        Example:
+            >>> benchmark = SegmentationBenchmark(
+            ...     device="cuda",
+            ...     num_classes=150,
+            ...     gt_mask=gt_array,
+            ...     class_names=ADE20K_CLASSES,
+            ... )
+            >>> (benchmark
+            ...     .load_unet_trained("./models/unet_best.pth")
+            ...     .load_segformer("nvidia/segformer-b5-finetuned-ade-640-640")
+            ...     .load_sam("./models/mobile_sam.pt"))
+            >>> benchmark.compare(image="test.jpg", alpha=0.5)
+            >>> summary = benchmark.get_summary()
+            >>> print(f"Лучшая модель по mIoU: {max(summary, key=lambda x: x['mIoU'])}")
+            >>> benchmark.plot_comparison_chart("mIoU", figsize=(10, 6))
+            >>> benchmark.export_latex_table(caption="Segmentation Benchmark Results")
         """
         if callable(palette):
             resolved_palette = palette()
@@ -128,8 +230,7 @@ class SegmentationBenchmark:
     def load_trained_model(
         self, key: str, model_type: ModelType, checkpoint_path: str, **kwargs
     ) -> "SegmentationBenchmark":
-        """
-        Регистрация загруженной модели из чекпоинта для бенчмарка.
+        """Регистрация загруженной модели из чекпоинта для бенчмарка.
 
         Args:
             key: Уникальный идентификатор модели для доступа к результатам.
@@ -160,8 +261,7 @@ class SegmentationBenchmark:
     def load_all_trained_models(
         self, checkpoint_dir: str = "./../models"
     ) -> "SegmentationBenchmark":
-        """
-        Пакетная загрузка всех обученных моделей из директории.
+        """Пакетная загрузка всех обученных моделей из директории.
 
         Args:
             checkpoint_dir: Базовая директория с `.pth` файлами.
@@ -226,8 +326,7 @@ class SegmentationBenchmark:
 
     # ──────────────────────────────────────────────────────────────────────
     def load_segformer_variant(self, variant: str = "b2") -> "SegmentationBenchmark":
-        """
-        Загрузка разных версий SegFormer для сравнения.
+        """Загрузка разных версий SegFormer для сравнения.
 
         Args:
             variant: Архитектура / Версия модели (`"b0"`, `"b1"`, `"b2"`, `"b3"`, `"b4"`, `"b5"`).
@@ -255,7 +354,7 @@ class SegmentationBenchmark:
     def load_mask2former(
         self, name: str = "facebook/mask2former-swin-base-ade-semantic"
     ) -> "SegmentationBenchmark":
-        """Загрузка Mask2Former модели"""
+        """Загрузка Mask2Former модели."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.MASK2FORMER,
             model_name=name,
@@ -274,7 +373,7 @@ class SegmentationBenchmark:
     def load_oneformer(
         self, name: str = "shi-labs/oneformer_ade20k_swin_large"
     ) -> "SegmentationBenchmark":
-        """Загрузка OneFormer модели"""
+        """Загрузка OneFormer модели."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.ONEFORMER,
             model_name=name,
@@ -293,7 +392,7 @@ class SegmentationBenchmark:
     def load_dpt(
         self, model_name: str = "Intel/dpt-large-ade"
     ) -> "SegmentationBenchmark":
-        """Загрузка DPT модели"""
+        """Загрузка DPT модели."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.DPT,
             model_name=model_name,
@@ -312,7 +411,7 @@ class SegmentationBenchmark:
     def load_upernet(
         self, model_name: str = "openmmlab/upernet-convnext-small"
     ) -> "SegmentationBenchmark":
-        """Загрузка UPerNet модели"""
+        """Загрузка UPerNet модели."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.UPERNET,
             model_name=model_name,
@@ -371,7 +470,7 @@ class SegmentationBenchmark:
     def load_psp_mit_pretrained(
         self, variant: str = "b5", checkpoint_path: str = "psp_smp_none"
     ) -> "SegmentationBenchmark":
-        """Загрузка PSPNet + MiT"""
+        """Загрузка PSPNet + MiT."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.PSPNET_SMP,
             device=cast(Literal["cuda", "cpu"], self.device),
@@ -458,8 +557,7 @@ class SegmentationBenchmark:
         checkpoint_path: str = "unet_ade20k_best.pth",
         encoder_name: str = "resnet34",
     ) -> "SegmentationBenchmark":
-        """
-        Загрузка ОБУЧЕННОЙ U-Net с чекпоинта.
+        """Загрузка ОБУЧЕННОЙ U-Net с чекпоинта.
 
         Args:
             checkpoint_path: Путь к файлу чекпоинта
@@ -489,8 +587,7 @@ class SegmentationBenchmark:
     def load_deeplab_trained(
         self, checkpoint_path: str = "deeplab_ade20k_best.pth"
     ) -> "SegmentationBenchmark":
-        """
-        Загрузка ОБУЧЕННОЙ DeepLabV3+ с чекпоинта.
+        """Загрузка ОБУЧЕННОЙ DeepLabV3+ с чекпоинта.
 
         Args:
             checkpoint_path: Путь к файлу чекпоинта
@@ -498,7 +595,6 @@ class SegmentationBenchmark:
         Returns:
             self: Для цепочки вызовов
         """
-
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.DEEPLAB_TV,
             device=cast(Literal["cuda", "cpu"], self.device),
@@ -585,8 +681,7 @@ class SegmentationBenchmark:
         alpha: float = 0.6,
         log_logits: bool = True,
     ) -> Dict[str, Any]:
-        """
-        Запуск одной модели с замером времени и расчётом метрик.
+        """Запуск одной модели с замером времени и расчётом метрик.
 
         Args:
             image_input: Путь к изображению или `PIL.Image`.
@@ -694,8 +789,7 @@ class SegmentationBenchmark:
         alpha: float = 0.5,
         gt_mask: Optional[np.ndarray] = None,
     ) -> Image.Image:
-        """
-        Предсказание сегментации для одного изображения.
+        """Предсказание сегментации для одного изображения.
 
         Args:
             image_input: Путь к изображению или PIL.Image объект.
@@ -731,8 +825,7 @@ class SegmentationBenchmark:
     def compare(
         self, image_input: Union[str, Image.Image], alpha: float = 0.6
     ) -> Dict[str, Dict[str, Any]]:
-        """
-        Поочерёдный запуск всех загруженных моделей с управлением VRAM.
+        """Поочерёдный запуск всех загруженных моделей с управлением VRAM.
 
         После каждой модели удаляет `.model` и `.processor` из памяти,
         оставляя только ключи в `self.models` для совместимости с API.
@@ -759,8 +852,7 @@ class SegmentationBenchmark:
 
     # ──────────────────────────────────────────────────────────────────────
     def get_summary(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Извлекает агрегированные метрики из выполненных тестов.
+        """Извлекает агрегированные метрики из выполненных тестов.
 
         Returns:
             dict: `{model_key: {"mIoU": float, "pixel_acc": float, "f1_weighted": float, "time_ms": float, "unique_classes": int}}`
@@ -794,8 +886,7 @@ class SegmentationBenchmark:
 
     # ──────────────────────────────────────────────────────────────────────
     def get_model_num_classes(self, model_key: str) -> int:
-        """
-        Эвристическое определение количества выходных каналов модели.
+        """Эвристическое определение количества выходных каналов модели.
 
         Проверяет:
         1. HF `config.id2label`
@@ -820,7 +911,7 @@ class SegmentationBenchmark:
         # Torchvision
         if model_type in ["deeplab_tv", "fcn_tv"]:
             if hasattr(model, "classifier"):
-                return model.classifier[-1].out_channels
+                return int(model.classifier[-1].out_channels)
 
         # SMP / Custom: ищем последний Conv2d
         for module in reversed(list(model.modules())):
@@ -841,8 +932,7 @@ class SegmentationBenchmark:
         show_values: bool = True,
         path: str = "./data/ade20k_test_trained/plot_comparison_chart.jpg",
     ) -> None:
-        """
-        Строит бар-чарт сравнения одной метрики с автоформатированием.
+        """Строит бар-чарт сравнения одной метрики с автоформатированием.
 
         - Корректное масштабирование для маленьких значений
         - Автоматический выбор формата (проценты или десятичные)
@@ -948,10 +1038,7 @@ class SegmentationBenchmark:
         show_only_present_classes: bool = True,
         path: str = "./data/ade20k_test_trained/plot_per_class_iou.jpg",
     ) -> None:
-        """
-        Строит heatmap per-class IoU только для классов, присутствующих в GT.
-        """
-
+        """Строит heatmap per-class IoU только для классов, присутствующих в GT."""
         data: List[np.ndarray] = []
         model_names: List[str] = []
         for model_name, res in self.results.items():
@@ -1082,8 +1169,7 @@ class SegmentationBenchmark:
         figsize=(15, 5),
         path: str = "./data/ade20k_test_trained/plot_all_metrix.jpg",
     ) -> None:
-        """
-        Строит сводные графики по всем основным метрикам.
+        """Строит сводные графики по всем основным метрикам.
 
         - Пропускаем пустые метрики до создания subplot
         - Уменьшаем шрифт подписей для длинных названий
@@ -1214,7 +1300,7 @@ class SegmentationBenchmark:
         metrics: List[str] = ["mIoU", "pixel_acc", "time_ms"],
         path: str = "./data/ade20k_test_trained/plot_summary.jpg",
     ) -> None:
-        """Визуализация сводных результатов"""
+        """Визуализация сводных результатов."""
         summary: Dict[str, Dict[str, Any]] = self.get_summary()
         for metric in metrics:
             values: List[Any] = [summary[k].get(metric, np.nan) for k in summary]
@@ -1242,8 +1328,7 @@ class SegmentationBenchmark:
     # ЭКСПОРТ РЕЗУЛЬТАТОВ
     # ──────────────────────────────────────────────────────────────────────
     def save_results(self, output_dir: str = "benchmark_results") -> None:
-        """
-        Сохранение всех результатов с корректной сериализацией numpy-типов (масок, оверлеев, сводки и детальных метрик).
+        """Сохранение всех результатов с корректной сериализацией numpy-типов (масок, оверлеев, сводки и детальных метрик).
 
         Args:
             output_dir: Директория для сохранения результатов
@@ -1260,7 +1345,7 @@ class SegmentationBenchmark:
         df.to_csv(f"{output_dir}/summary.csv")
 
         def convert_numpy_types(obj: Any) -> Any:
-            """Рекурсивно конвертирует numpy-типы в Python-native для JSON"""
+            """Рекурсивно конвертирует numpy-типы в Python-native для JSON."""
             if isinstance(obj, np.ndarray):
                 return obj.tolist()
             elif isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
@@ -1295,8 +1380,7 @@ class SegmentationBenchmark:
     def export_latex_table(
         self, caption: str = "Segmentation Benchmark Results"
     ) -> str:
-        """
-        Генерирует LaTeX-код таблицы для публикации.
+        """Генерирует LaTeX-код таблицы для публикации.
 
         Args:
             caption: Заголовок таблицы для LaTeX.
@@ -1342,8 +1426,7 @@ class SegmentationBenchmark:
         task_id: Optional[str] = None,
         benchmark_tasks: Optional[Dict] = None,
     ) -> Dict[str, Dict[str, Any]]:
-        """
-        Асинхронный запуск бенчмарка с обновлением прогресса в реальном времени.
+        """Асинхронный запуск бенчмарка с обновлением прогресса в реальном времени.
 
         Args:
             image_input: Изображение для инференса.
@@ -1401,8 +1484,7 @@ class SegmentationBenchmark:
 def export_comparison_table(
     bench: SegmentationBenchmark, output_file: str = "./../reports/model_comparison.md"
 ) -> pd.DataFrame:
-    """
-    Экспорт сравнительной таблицы всех моделей в Markdown.
+    """Экспорт сравнительной таблицы всех моделей в Markdown.
 
     Args:
         bench: Инициализированный и запущенный бенчмарк.
