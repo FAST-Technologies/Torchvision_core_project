@@ -41,6 +41,23 @@ jobs:
       run: |
         echo "PYTHONPATH=${{ github.workspace }}" >> $GITHUB_ENV
         export PYTHONPATH="${{ github.workspace }}:$PYTHONPATH"
+
+    - name: Free up disk space
+      run: |
+        # Очистка системных кэшей
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/powershell
+        sudo rm -rf /usr/share/swift
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        
+        # Очистка pip кэша
+        pip cache purge 2>/dev/null || true
+        
+        # Проверка свободного места
+        echo "=== Disk usage after cleanup ==="
+        df -h
     
     - name: Install system dependencies
       run: |
@@ -62,6 +79,12 @@ jobs:
         python -m pip install --upgrade pip
         pip install --no-cache-dir -r requirements.txt
         pip install pytest pytest-cov black flake8 mypy
+
+    - name: Verify installation
+      run: |
+        python -c "import torch; print(f'✅ PyTorch {torch.__version__}')"
+        python -c "import cv2; print(f'✅ OpenCV {cv2.__version__}')"
+        python -c "from segmenters.TorchSegmenter import TorchSegmenter; print('✅ Import OK')"
     
     - name: Lint with flake8
       run: |
