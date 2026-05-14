@@ -17,16 +17,12 @@ st.markdown("---")
 # Боковая панель
 with st.sidebar:
     st.header("⚙️ Настройки")
-    goal = st.selectbox(
-        "Цель оптимизации", ["balanced", "speed", "accuracy", "low_memory"]
-    )
+    goal = st.selectbox("Цель оптимизации", ["balanced", "speed", "accuracy", "low_memory"])
     show_recommendations = st.checkbox("Показать рекомендации", value=True)
     top_k = st.slider("Количество рекомендаций", 1, 5, 3)
 
 # Загрузка файла
-uploaded_file = st.file_uploader(
-    "📷 Загрузите изображение", type=["jpg", "jpeg", "png", "bmp"]
-)
+uploaded_file = st.file_uploader("📷 Загрузите изображение", type=["jpg", "jpeg", "png", "bmp"])
 
 if uploaded_file is not None:
     # Колонки
@@ -50,16 +46,12 @@ if uploaded_file is not None:
 
     # Сегментация
     with st.spinner("🎨 Выполняю сегментацию..."):
-        mask, metadata = auto_seg.segment(
-            img_array, auto_select=True, return_metadata=True
-        )
+        mask, metadata = auto_seg.segment(img_array, auto_select=True, return_metadata=True)
 
     # Результаты
     with col2:
         st.subheader("🎨 Результат")
-        overlay = (
-            img_array * 0.6 + np.stack([mask] * 3, axis=-1) * 0.4 * [255, 0, 0]
-        ).astype(np.uint8)
+        overlay = (img_array * 0.6 + np.stack([mask] * 3, axis=-1) * 0.4 * [255, 0, 0]).astype(np.uint8)
         st.image(overlay, use_container_width=True)
 
     with col3:

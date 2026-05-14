@@ -28,9 +28,7 @@ class QuantizationConfig:
     """Конфигурация параметров квантования."""
 
     # Схемы квантования для тестирования
-    schemes: List[QUANTIZATION_SCHEMES] = field(
-        default_factory=lambda: ["fp32", "fp16", "int8_dynamic"]
-    )
+    schemes: List[QUANTIZATION_SCHEMES] = field(default_factory=lambda: ["fp32", "fp16", "int8_dynamic"])
 
     # Параметры калибровки (для static INT8)
     calibration_steps: int = 100  # Количество изображений для калибровки
@@ -74,17 +72,14 @@ class QuantizationConfig:
                 raise ValueError(f"Invalid scheme: {s}. " f"Available: {valid_schemes}")
 
         if self.reference_scheme not in self.schemes:
-            raise ValueError(
-                f"Reference scheme '{self.reference_scheme}' " f"not in schemes list"
-            )
+            raise ValueError(f"Reference scheme '{self.reference_scheme}' " f"not in schemes list")
 
         # Предупреждение о поддержке INT8 на GPU
         if "int8_static" in self.schemes and self.target_device == "cuda":
             import warnings
 
             warnings.warn(
-                "⚠️ Static INT8 quantization has limited GPU support. "
-                "Consider using 'cpu' for best results."
+                "⚠️ Static INT8 quantization has limited GPU support. " "Consider using 'cpu' for best results."
             )
 
 

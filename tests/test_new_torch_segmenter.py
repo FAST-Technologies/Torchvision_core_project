@@ -14,6 +14,7 @@
 - Тесты с маркером `@pytest.mark.slow` требуют больше времени (экспорт JIT).
 - Все фикстуры генерируют детерминированные или псевдослучайные данные в рамках одного запуска.
 """
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -36,17 +37,14 @@ from segmenters.NewTorchSegmenter import TorchSegmenter2
 # ──────────────────────────────────────────────────────────────────────
 def skip_if_no_cuda(test_func: Callable) -> Callable:
     """Декоратор для пропуска тестов без CUDA.
-    
+
     Args:
         test_func: Тестируемая функция.
-        
+
     Returns:
         Callable: Обёрнутая функция с маркером skipif.
     """
-    return pytest.mark.skipif(
-        not torch.cuda.is_available(),
-        reason="CUDA not available"
-    )(test_func)
+    return pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")(test_func)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -55,7 +53,7 @@ def skip_if_no_cuda(test_func: Callable) -> Callable:
 @pytest.fixture
 def test_image() -> np.ndarray:
     """Генерирует стандартное RGB-изображение для базовых тестов.
-    
+
     Returns:
         np.ndarray: Массив формы (256, 256, 3), dtype=uint8, значения [0, 255].
         Используется в большинстве тестов как входные данные по умолчанию.
@@ -66,10 +64,10 @@ def test_image() -> np.ndarray:
 @pytest.fixture
 def sample_image() -> np.ndarray:
     """Генерирует изображение для проверки точности и согласованности метрик.
-    
+
     Returns:
         np.ndarray: Массив формы (256, 256, 3), dtype=uint8.
-        Отличается от `test_image` только семантическим назначением: 
+        Отличается от `test_image` только семантическим назначением:
         используется в тестах сравнения fp32 vs fp16/bf16.
     """
     return np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
@@ -78,7 +76,7 @@ def sample_image() -> np.ndarray:
 @pytest.fixture
 def test_gray_image() -> np.ndarray:
     """Генерирует одноканальное изображение в градациях серого.
-    
+
     Returns:
         np.ndarray: Массив формы (256, 256), dtype=uint8.
         Используется для тестирования методов, ожидающих grayscale-вход.
@@ -89,10 +87,10 @@ def test_gray_image() -> np.ndarray:
 @pytest.fixture
 def large_image() -> np.ndarray:
     """Генерирует большое изображение (1024×1024) для триггера Numba-fallback.
-    
+
     Returns:
         np.ndarray: Массив формы (1024, 1024, 3), dtype=float32.
-        Размер выбран так, чтобы `h*w > 2_000_000`, что активирует 
+        Размер выбран так, чтобы `h*w > 2_000_000`, что активирует
         автоматическое переключение на Numba-реализации в CPU-режиме.
     """
     return np.random.rand(1024, 1024, 3).astype(np.float32)
@@ -101,10 +99,10 @@ def large_image() -> np.ndarray:
 @pytest.fixture
 def segmenter() -> TorchSegmenter2:
     """Создаёт базовый экземпляр TorchSegmenter2 с отключённой компиляцией.
-    
+
     Returns:
-        TorchSegmenter2: Сегментер с методом `global_thresholding`, 
-        точностью fp32 и `use_compile=False`. Гарантирует стабильность 
+        TorchSegmenter2: Сегментер с методом `global_thresholding`,
+        точностью fp32 и `use_compile=False`. Гарантирует стабильность
         и предсказуемость в изолированных тестах.
     """
     return TorchSegmenter2("global_thresholding", threshold=0.5, use_compile=False)
@@ -115,13 +113,15 @@ def segmenter() -> TorchSegmenter2:
 # ──────────────────────────────────────────────────────────────────────
 class TestTorchSegmenter2_Base:
     """Тесты базовой функциональности и обратной совместимости TorchSegmenter2.
-    
-    Проверяет корректность импорта, инициализации, обработки RGB/grayscale-входов 
+
+    Проверяет корректность импорта, инициализации, обработки RGB/grayscale-входов
     и поведение при передаче неизвестного метода.
     """
+
     def test_import(self) -> None:
         """Проверяет успешный импорт класса TorchSegmenter2 из модуля."""
         from segmenters.NewTorchSegmenter import TorchSegmenter2
+
         assert TorchSegmenter2 is not None
 
     def test_initialization(self) -> None:
@@ -142,9 +142,7 @@ class TestTorchSegmenter2_Base:
 
     def test_segment_grayscale(self, test_gray_image: np.ndarray) -> None:
         """Проверяет корректную обработку одноканального (grayscale) входа."""
-        seg = TorchSegmenter2(
-            "adaptive_thresholding", block_size=11, C=2, use_compile=False
-        )
+        seg = TorchSegmenter2("adaptive_thresholding", block_size=11, C=2, use_compile=False)
         mask = seg.segment(test_gray_image)
         assert mask.shape == test_gray_image.shape
         assert mask.dtype == np.uint8
@@ -160,11 +158,12 @@ class TestTorchSegmenter2_Base:
 # ──────────────────────────────────────────────────────────────────────
 class TestTorchSegmenter2_Precision:
     """Тесты поддержки различных числовых точностей и fallback-логики."""
+
     @pytest.mark.parametrize("precision", ["fp32", "fp16", "bf16"])
     def test_precision_modes(self, test_image: np.ndarray, precision: str) -> None:
         """Проверяет работу с fp32/fp16/bf16 и корректный fallback на CPU.
-        
-        На CPU fp16/bf16 должны автоматически откатываться к fp32 с предупреждением, 
+
+        На CPU fp16/bf16 должны автоматически откатываться к fp32 с предупреждением,
         но не вызывать краш. На GPU используется нативная точность.
         """
         device = "cuda" if torch.cuda.is_available() and precision != "fp32" else "cpu"
@@ -172,18 +171,18 @@ class TestTorchSegmenter2_Precision:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             segmenter = TorchSegmenter2(
-                method="sobel_edge", 
-                device=device, 
+                method="sobel_edge",
+                device=device,
                 precision=precision,
-                use_compile=False  # Отключаем compile для стабильности тестов
+                use_compile=False,  # Отключаем compile для стабильности тестов
             )
-            
+
             mask = segmenter.segment(test_image)
 
         assert mask.dtype == np.uint8
         assert mask.shape == test_image.shape[:2]
         assert set(np.unique(mask)).issubset({0, 255})
-    
+
         # Для fp16/bf16 на CPU допустимы небольшие отклонения
         if precision in ["fp16", "bf16"] and device == "cpu":
             # Проверяем что хотя бы часть пикселей сегментирована
@@ -195,12 +194,10 @@ class TestTorchSegmenter2_Precision:
     @skip_if_no_cuda
     def test_gpu_precision_no_fallback(self, test_image: np.ndarray) -> None:
         """Проверяет отсутствие fallback при наличии CUDA-устройства.
-        
+
         Ожидается корректная работа в fp16 без предупреждений.
         """
-        seg = TorchSegmenter2(
-            "canny_edge", precision="fp16", use_compile=False, device="cuda"
-        )
+        seg = TorchSegmenter2("canny_edge", precision="fp16", use_compile=False, device="cuda")
         mask = seg.segment(test_image)
         assert mask.dtype == np.uint8
         assert mask.shape == test_image.shape[:2]
@@ -211,17 +208,12 @@ class TestTorchSegmenter2_Precision:
 # ──────────────────────────────────────────────────────────────────────
 class TestTorchSegmenter2_Compilation:
     """Тесты интеграции с torch.compile и кэширования результатов."""
-    
+
     def test_compile_wrapper_applied(self, test_image: np.ndarray) -> None:
         """Проверяет, что torch.compile применяется к _segment_func."""
-        seg = TorchSegmenter2(
-            "global_thresholding", 
-            use_compile=True, 
-            compile_mode="reduce-overhead"
-        )
+        seg = TorchSegmenter2("global_thresholding", use_compile=True, compile_mode="reduce-overhead")
         # Проверяем, что функция была обёрнута
-        assert hasattr(seg._segment_func, '__wrapped__') or \
-               hasattr(seg._segment_func, '_torchdynamo_orig_callable')
+        assert hasattr(seg._segment_func, "__wrapped__") or hasattr(seg._segment_func, "_torchdynamo_orig_callable")
         mask = seg.segment(test_image)
         assert mask.dtype == np.uint8
 
@@ -233,7 +225,7 @@ class TestTorchSegmenter2_Compilation:
                 "sobel_edge",
                 use_compile=True,
                 compile_mode=mode,
-                compile_fullgraph=False  # Для совместимости с разными методами
+                compile_fullgraph=False,  # Для совместимости с разными методами
             )
             mask = seg.segment(test_image)
             assert mask.shape == test_image.shape[:2]
@@ -244,10 +236,11 @@ class TestTorchSegmenter2_Compilation:
 # ──────────────────────────────────────────────────────────────────────
 class TestTorchSegmenter2_Fallbacks:
     """Тесты автоматического переключения на Numba для CPU-оптимизаций."""
+
     def test_watershed_numba_fallback(self, large_image: np.ndarray) -> None:
         """Триггерит Numba-fallback для Watershed на больших изображениях.
-        
-        Проверяет, что при `h*w > 2_000_000` на CPU метод автоматически 
+
+        Проверяет, что при `h*w > 2_000_000` на CPU метод автоматически
         использует Numba-реализацию вместо чистой PyTorch-версии.
         """
         seg_cpu = TorchSegmenter2("watershed", device="cpu", use_compile=False)
@@ -257,9 +250,7 @@ class TestTorchSegmenter2_Fallbacks:
 
     def test_region_growing_numba_fallback(self, large_image: np.ndarray) -> None:
         """Проверяет Numba-fallback для алгоритма Region Growing."""
-        seg = TorchSegmenter2(
-            "region_growing", seed=(512, 512), tolerance=0.1, use_compile=False
-        )
+        seg = TorchSegmenter2("region_growing", seed=(512, 512), tolerance=0.1, use_compile=False)
         mask = seg.segment(large_image)
         assert mask.shape[:2] == large_image.shape[:2]
 
@@ -269,7 +260,7 @@ class TestTorchSegmenter2_Fallbacks:
 # ──────────────────────────────────────────────────────────────────────
 class TestTorchSegmenter2_Profiling:
     """Тесты профилирования и анализа производительности."""
-    
+
     def test_profiling_output(self, test_image: np.ndarray) -> None:
         """Проверяет структуру и значения отчёта профилировщика."""
         seg = TorchSegmenter2("sobel_edge", use_compile=False)
@@ -291,9 +282,7 @@ class TestTorchSegmenter2_Profiling:
             assert "transfer_warnings" in report
             assert "method" in report
         except AttributeError as e:
-            pytest.xfail(
-                f"Баг API профилировщика PyTorch: {e}. Рекомендуется обновить модуль."
-            )
+            pytest.xfail(f"Баг API профилировщика PyTorch: {e}. Рекомендуется обновить модуль.")
 
     def test_batch_segmentation(self, test_image: np.ndarray) -> None:
         """Эмулирует пакетную обработку через list-comprehension."""
@@ -311,19 +300,18 @@ class TestTorchSegmenter2_Profiling:
 # ──────────────────────────────────────────────────────────────────────
 class TestTorchSegmenter2_Optimization:
     """Тесты оптимизаций: torch.compile, LRU-кэш, валидация конфигураций."""
+
     def test_compile_status(self, test_image: np.ndarray) -> None:
         """Проверяет успешное применение обёртки torch.compile."""
-        seg_compiled = TorchSegmenter2(
-            "global_thresholding", use_compile=True, compile_fullgraph=True
-        )
+        seg_compiled = TorchSegmenter2("global_thresholding", use_compile=True, compile_fullgraph=True)
         assert callable(seg_compiled._segment_func)
         mask = seg_compiled.segment(test_image)
         assert mask.dtype == np.uint8
 
     def test_caching_hits(self, test_image: np.ndarray) -> None:
         """Валидирует работу LRU-кэша результатов сегментации.
-        
-        Проверяет, что повторный вызов с теми же параметрами возвращает 
+
+        Проверяет, что повторный вызов с теми же параметрами возвращает
         идентичную маску и не увеличивает размер кэша.
         """
         seg = TorchSegmenter2("otsu_thresholding", use_compile=False)
@@ -342,8 +330,8 @@ class TestTorchSegmenter2_Optimization:
 
     def test_cache_lru_eviction(self, test_image: np.ndarray) -> None:
         """Проверяет корректное вытеснение старых записей из LRU-кэша.
-        
-        После заполнения кэша (`_cache_max_size=2`) третий вызов должен 
+
+        После заполнения кэша (`_cache_max_size=2`) третий вызов должен
         удалить самый старый ключ, сохранив размер кэша равным 2.
         """
         seg = TorchSegmenter2("global_thresholding", use_compile=False)
@@ -357,19 +345,17 @@ class TestTorchSegmenter2_Optimization:
         assert len(seg._result_cache) == 2
 
         cache_keys = list(seg._result_cache.keys())
-        assert any(
-            "0.7" in str(k) for k in cache_keys
-        ), f"Ключ 0.7 не найден в {cache_keys}"
+        assert any("0.7" in str(k) for k in cache_keys), f"Ключ 0.7 не найден в {cache_keys}"
 
 
 # ──────────────────────────────────────────────────────────────────────
 class TestTorchSegmenter2_Advanced:
     """Расширенные тесты: профилирование, детекция трансферов, экспорт JIT."""
-    
+
     @pytest.mark.slow
     def test_export_jit(self, test_image: np.ndarray) -> None:
         """Тестирует экспорт метода в TorchScript (JIT tracing/scripting).
-        
+
         Маркер `@pytest.mark.slow` указывает на длительное выполнение.
         Проверяет успешность экспорта и корректную очистку временных файлов.
         """
@@ -379,6 +365,7 @@ class TestTorchSegmenter2_Advanced:
         assert success is True
 
         import os, shutil
+
         if os.path.exists("./test_export"):
             shutil.rmtree("./test_export")
 
@@ -388,39 +375,36 @@ class TestTorchSegmenter2_Advanced:
 # ──────────────────────────────────────────────────────────────────────
 METHODS_FOR_PRECISION_TEST = [
     "global_thresholding",
-    "otsu_thresholding", 
+    "otsu_thresholding",
     "sobel_edge",
     "prewitt_edge",
     "scharr_edge",
     "canny_edge",
 ]
 
+
 @skip_if_no_cuda
 @pytest.mark.parametrize("method", METHODS_FOR_PRECISION_TEST)
 @pytest.mark.parametrize("precision", ["fp32"])  # Только fp32 для кросс-платформенности
 def test_precision_correctness(method: str, precision: str, sample_image: np.ndarray):
     """Валидирует численную согласованность низкоточных реализаций.
-    
+
     Сравнивает маску низкоточного формата с fp32-референсом через IoU.
     Допуски: fp32 ≥ 0.999, fp16 ≥ 0.95, bf16 ≥ 0.97.
-    
+
     Примечание: Тест параметризован только по fp32 для кросс-платформенности.
     Для тестирования fp16/bf16 используйте отдельный запуск на CUDA-устройстве.
     """
     # Для кросс-платформенности тестируем только fp32
     # Для полного тестирования точностей запустите с --precision=all на CUDA
-    
+
     ref_segmenter = TorchSegmenter2(
-        method=method, 
-        device="cuda" if torch.cuda.is_available() else "cpu", 
-        precision="fp32"
+        method=method, device="cuda" if torch.cuda.is_available() else "cpu", precision="fp32"
     )
     ref_mask = ref_segmenter.segment(sample_image)
 
     test_segmenter = TorchSegmenter2(
-        method=method, 
-        device="cuda" if torch.cuda.is_available() else "cpu", 
-        precision=precision
+        method=method, device="cuda" if torch.cuda.is_available() else "cpu", precision=precision
     )
     test_mask = test_segmenter.segment(sample_image)
 
@@ -446,7 +430,7 @@ def test_precision_correctness(method: str, precision: str, sample_image: np.nda
 @skip_if_no_cuda
 def test_precision_performance(benchmark, precision: str, sample_image: np.ndarray):
     """Бенчмарк производительности для разных числовых точностей.
-    
+
     Использует `pytest-benchmark` для точного замера времени выполнения.
     Включает прогрев GPU и синхронизацию потоков для избежания артефактов.
     """
@@ -490,8 +474,8 @@ def test_precision_performance(benchmark, precision: str, sample_image: np.ndarr
 @skip_if_no_cuda
 def test_autocast_consistency(sample_image: np.ndarray):
     """Проверяет корректность работы PrecisionManager.autocast.
-    
-    Валидирует, что контекстный менеджер `autocast` действительно переключает 
+
+    Валидирует, что контекстный менеджер `autocast` действительно переключает
     точность вычислений на указанную (fp16/bf16) в рамках блока `with`.
     """
     from segmenters.NewTorchSegmenter import PrecisionManager
@@ -508,9 +492,7 @@ def test_autocast_consistency(sample_image: np.ndarray):
             x = torch.randn(32, 32, device="cuda")
             y = x @ x.T
             # Допускаем float32 как fallback для некоторых операций
-            assert (
-                y.dtype == dtype or y.dtype == torch.float32
-            ), f"autocast({precision}): unexpected dtype {y.dtype}"
+            assert y.dtype == dtype or y.dtype == torch.float32, f"autocast({precision}): unexpected dtype {y.dtype}"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -527,9 +509,9 @@ def test_autocast_consistency(sample_image: np.ndarray):
 )
 def test_compile_config_validity(method: str, config: dict):
     """Проверяет валидацию конфигураций torch.compile при инициализации.
-    
-    Ожидается, что создание сегментера с указанными `fullgraph`/`dynamic`/`mode` 
-    не вызывает исключений. Успешная инициализация подтверждает совместимость 
+
+    Ожидается, что создание сегментера с указанными `fullgraph`/`dynamic`/`mode`
+    не вызывает исключений. Успешная инициализация подтверждает совместимость
     конфигурации с выбранной реализацией метода.
     """
     segmenter = TorchSegmenter2(
@@ -548,10 +530,13 @@ def test_compile_config_validity(method: str, config: dict):
 # ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # Запуск с флагами для детального вывода
-    pytest.main([
-        __file__, 
-        "-v", 
-        "--tb=short",
-        "-m", "not slow",  # Пропустить медленные тесты по умолчанию
-        "--benchmark-disable",  # Отключить бенчмарки при обычном запуске
-    ])
+    pytest.main(
+        [
+            __file__,
+            "-v",
+            "--tb=short",
+            "-m",
+            "not slow",  # Пропустить медленные тесты по умолчанию
+            "--benchmark-disable",  # Отключить бенчмарки при обычном запуске
+        ]
+    )

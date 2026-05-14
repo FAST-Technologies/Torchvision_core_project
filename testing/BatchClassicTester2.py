@@ -2,7 +2,7 @@
 
 """Модуль для массового тестирования качества классических методов сегментации относительно Ground Truth.
 
-Предназначен для автоматизированной оценки эффективности алгоритмов пороговой обработки 
+Предназначен для автоматизированной оценки эффективности алгоритмов пороговой обработки
 и выделения границ (OpenCV, Scikit-learn, PyTorch) на датасете с размеченными данными (ADE20K).
 В отличие от BatchClassicTester, данный модуль сравнивает предсказания с эталонными масками,
 а не между реализациями.
@@ -17,7 +17,7 @@
 - Управление памятью: очистка GPU-кэша и сборка мусора между итерациями
 
 Примечание:
-- Многоклассовые маски ADE20K автоматически конвертируются в бинарные: 
+- Многоклассовые маски ADE20K автоматически конвертируются в бинарные:
   наиболее частый класс = фон (0), остальные = объект (255).
 - Для валидации консистентности реализаций между библиотеками используйте BatchClassicTester.
 """
@@ -62,9 +62,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -140,9 +138,7 @@ class BatchClassicTester:
         ]
 
         # Результаты
-        self.results: Dict[str, Dict[str, List[float]]] = defaultdict(
-            lambda: defaultdict(list)
-        )
+        self.results: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
         self.execution_times: Dict[str, List[float]] = defaultdict(list)
         self.errors: Dict[str, List[str]] = defaultdict(list)
         self.autosave_interval: int = autosave_interval
@@ -155,9 +151,7 @@ class BatchClassicTester:
         # Загрузка предыдущего прогресса если нужно
         if resume and self.progress_file.exists():
             self._load_progress()
-            print(
-                f"📥 Восстановлен прогресс: {self._processed_count}/{self._total_tests} тестов"
-            )
+            print(f"📥 Восстановлен прогресс: {self._processed_count}/{self._total_tests} тестов")
 
     # ──────────────────────────────────────────────────────────────────────
     def _setup_signal_handlers(self) -> None:
@@ -193,9 +187,7 @@ class BatchClassicTester:
         self._last_save_time: float = time.time()
 
     # ──────────────────────────────────────────────────────────────────────
-    def _update_progress_bar(
-        self, pbar, current_count: int, method_name: str, img_name: str
-    ) -> None:
+    def _update_progress_bar(self, pbar, current_count: int, method_name: str, img_name: str) -> None:
         """Обновляет postfix прогресс-бара динамической статистикой.
 
         Рассчитывает прошедшее время, ETA, скорость обработки (тестов/мин),
@@ -271,9 +263,7 @@ class BatchClassicTester:
                 self.temp_results_file.replace(final_path)
 
             self._last_save_time = now
-            print(
-                f"\n💾 Автосохранение: {self._processed_count}/{self._total_tests} ✅"
-            )
+            print(f"\n💾 Автосохранение: {self._processed_count}/{self._total_tests} ✅")
 
         except Exception as e:
             print(f"\n⚠️  Ошибка автосохранения: {e}")
@@ -299,9 +289,7 @@ class BatchClassicTester:
 
             # Если есть временные результаты — загружаем их
             if self.temp_results_file.exists():
-                print(
-                    f"📥 Загрузка промежуточных результатов из {self.temp_results_file}"
-                )
+                print(f"📥 Загрузка промежуточных результатов из {self.temp_results_file}")
                 # Здесь можно добавить логику слияния, если нужно
 
             return True
@@ -327,9 +315,7 @@ class BatchClassicTester:
             raise FileNotFoundError(f"Masks directory not found: {masks_dir}")
 
         # Получаем список изображений
-        image_files: List[str] = sorted(
-            [f for f in os.listdir(images_dir) if f.endswith((".jpg", ".jpeg", ".png"))]
-        )
+        image_files: List[str] = sorted([f for f in os.listdir(images_dir) if f.endswith((".jpg", ".jpeg", ".png"))])
 
         if self.max_images:
             image_files = image_files[: self.max_images]
@@ -349,15 +335,11 @@ class BatchClassicTester:
             try:
                 # Загрузка изображения
                 img: Image.Image = Image.open(img_path).convert("RGB")
-                img_array: np.ndarray = np.array(
-                    img.resize(self.image_size, Image.Resampling.BILINEAR)
-                )
+                img_array: np.ndarray = np.array(img.resize(self.image_size, Image.Resampling.BILINEAR))
 
                 # Загрузка маски
                 mask_pil: Image.Image = Image.open(mask_path)
-                mask_array: np.ndarray = np.array(
-                    mask_pil.resize(self.image_size, Image.Resampling.NEAREST)
-                )
+                mask_array: np.ndarray = np.array(mask_pil.resize(self.image_size, Image.Resampling.NEAREST))
 
                 # Конвертация многоклассовой маски в бинарную
                 # Стратегия: самый частый класс = фон (0), всё остальное = объект (255)
@@ -421,9 +403,7 @@ class BatchClassicTester:
             if pred_mask.shape != gt_mask.shape:
                 from skimage.transform import resize
 
-                pred_mask = resize(
-                    pred_mask, gt_mask.shape, order=0, preserve_range=True
-                ).astype(np.uint8)
+                pred_mask = resize(pred_mask, gt_mask.shape, order=0, preserve_range=True).astype(np.uint8)
 
             exec_time: float = time.time() - start_time
 
@@ -455,69 +435,39 @@ class BatchClassicTester:
         # === OpenCV методы ===
         methods.update(
             {
-                "Global_Threshold_CV2": OpenCVSegmenter(
-                    "global_thresholding", threshold=0.5
-                ),
+                "Global_Threshold_CV2": OpenCVSegmenter("global_thresholding", threshold=0.5),
                 "Otsu_Thresholding_CV2": OpenCVSegmenter("otsu_thresholding"),
-                "Adaptive_Threshold_CV2": OpenCVSegmenter(
-                    "adaptive_thresholding", block_size=11, C=2
-                ),
-                "Niblack_Thresholding_CV2": OpenCVSegmenter(
-                    "threshold_niblack", window_size=15, k=-0.2
-                ),
-                "Sauvola_Thresholding_CV2": OpenCVSegmenter(
-                    "threshold_sauvola", window_size=15, k=0.5, r=128
-                ),
+                "Adaptive_Threshold_CV2": OpenCVSegmenter("adaptive_thresholding", block_size=11, C=2),
+                "Niblack_Thresholding_CV2": OpenCVSegmenter("threshold_niblack", window_size=15, k=-0.2),
+                "Sauvola_Thresholding_CV2": OpenCVSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
                 "Sobel_CV2": OpenCVSegmenter("sobel_edge", threshold=0.1),
-                "Canny_CV2": OpenCVSegmenter(
-                    "canny_edge", low=0.1, high=0.3, sigma=1.0
-                ),
+                "Canny_CV2": OpenCVSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
             }
         )
 
         # === Sklearn методы ===
         methods.update(
             {
-                "Global_Threshold_Sklearn": SklearnSegmenter(
-                    "global_thresholding", threshold=0.5
-                ),
+                "Global_Threshold_Sklearn": SklearnSegmenter("global_thresholding", threshold=0.5),
                 "Otsu_Thresholding_Sklearn": SklearnSegmenter("otsu_thresholding"),
-                "Adaptive_Threshold_Sklearn": SklearnSegmenter(
-                    "adaptive_thresholding", block_size=11, C=2
-                ),
-                "Niblack_Thresholding_Sklearn": SklearnSegmenter(
-                    "threshold_niblack", window_size=15, k=-0.2
-                ),
-                "Sauvola_Thresholding_Sklearn": SklearnSegmenter(
-                    "threshold_sauvola", window_size=15, k=0.5, r=128
-                ),
+                "Adaptive_Threshold_Sklearn": SklearnSegmenter("adaptive_thresholding", block_size=11, C=2),
+                "Niblack_Thresholding_Sklearn": SklearnSegmenter("threshold_niblack", window_size=15, k=-0.2),
+                "Sauvola_Thresholding_Sklearn": SklearnSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
                 "Sobel_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1),
-                "Canny_Sklearn": SklearnSegmenter(
-                    "canny_edge", low=0.1, high=0.3, sigma=1.0
-                ),
+                "Canny_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
             }
         )
 
         # === Torch методы ===
         methods.update(
             {
-                "Global_Threshold_Torch": TorchSegmenter(
-                    "global_thresholding", threshold=0.5
-                ),
+                "Global_Threshold_Torch": TorchSegmenter("global_thresholding", threshold=0.5),
                 "Otsu_Thresholding_Torch": TorchSegmenter("otsu_thresholding"),
-                "Adaptive_Threshold_Torch": TorchSegmenter(
-                    "adaptive_thresholding", block_size=11, C=2
-                ),
-                "Niblack_Thresholding_Torch": TorchSegmenter(
-                    "threshold_niblack", window_size=15, k=-0.2
-                ),
-                "Sauvola_Thresholding_Torch": TorchSegmenter(
-                    "threshold_sauvola", window_size=15, k=0.5, r=128
-                ),
+                "Adaptive_Threshold_Torch": TorchSegmenter("adaptive_thresholding", block_size=11, C=2),
+                "Niblack_Thresholding_Torch": TorchSegmenter("threshold_niblack", window_size=15, k=-0.2),
+                "Sauvola_Thresholding_Torch": TorchSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
                 "Sobel_Torch": TorchSegmenter("sobel_edge", threshold=0.1),
-                "Canny_Torch": TorchSegmenter(
-                    "canny_edge", low=0.1, high=0.3, sigma=1.0
-                ),
+                "Canny_Torch": TorchSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
             }
         )
 
@@ -534,9 +484,7 @@ class BatchClassicTester:
             `pd.DataFrame` с агрегированными метриками, временем выполнения и статистикой ошибок.
         """
         # Загрузка данных
-        test_data: List[Tuple[str, np.ndarray, np.ndarray]] = (
-            self._load_images_with_masks()
-        )
+        test_data: List[Tuple[str, np.ndarray, np.ndarray]] = self._load_images_with_masks()
         if not test_data:
             raise ValueError("No test data loaded!")
 
@@ -578,15 +526,11 @@ class BatchClassicTester:
                     # test_key = f"{img_name}:{method_name}"
                     if self.resume and self._processed_count > 0:
                         # Простая эвристика: если счётчик больше — пропускаем
-                        if self._processed_count >= (
-                            img_idx * total_methods + method_idx + 1
-                        ):
+                        if self._processed_count >= (img_idx * total_methods + method_idx + 1):
                             continue
 
                     # Запуск теста
-                    metrics, exec_time, error = self._run_single_test(
-                        method_name, segmenter, image, gt_mask
-                    )
+                    metrics, exec_time, error = self._run_single_test(method_name, segmenter, image, gt_mask)
 
                     # Обработка результатов
                     if error:
@@ -594,17 +538,13 @@ class BatchClassicTester:
                     elif metrics:
                         for metric_name in self.metrics_to_aggregate:
                             if metric_name in metrics:
-                                self.results[method_name][metric_name].append(
-                                    metrics[metric_name]
-                                )
+                                self.results[method_name][metric_name].append(metrics[metric_name])
                         if exec_time is not None:
                             self.execution_times[method_name].append(exec_time)
                     # Обновление прогресса
                     self._processed_count += 1
                     pbar.update(1)
-                    self._update_progress_bar(
-                        pbar, self._processed_count, method_name, img_name
-                    )
+                    self._update_progress_bar(pbar, self._processed_count, method_name, img_name)
 
                     # Автосохранение каждые N изображений
                     if img_idx % self.autosave_interval == 0 and img_idx > 0:
@@ -684,9 +624,7 @@ class BatchClassicTester:
         return df
 
     # ──────────────────────────────────────────────────────────────────────
-    def save_results(
-        self, df: pd.DataFrame, prefix: str = "batch_test"
-    ) -> Tuple[Path, Path, Path]:
+    def save_results(self, df: pd.DataFrame, prefix: str = "batch_test") -> Tuple[Path, Path, Path]:
         """Экспортирует результаты в несколько форматов для дальнейшего анализа.
 
         Args:
@@ -733,33 +671,25 @@ class BatchClassicTester:
             path: Путь для сохранения `.md` файла.
         """
         with open(path, "w", encoding="utf-8") as f:
-            f.write(
-                "# 📊 Отчёт: Массовое тестирование классических методов сегментации\n\n"
-            )
+            f.write("# 📊 Отчёт: Массовое тестирование классических методов сегментации\n\n")
             f.write(f"**Датасет:** ADE20K ({self.split})\n")
             f.write(f"**Изображений:** {self.max_images or 'all'}\n")
             f.write(f"**Размер:** {self.image_size}\n\n")
 
             # Топ-10 по IoU
             f.write("## 🏆 Топ-10 методов по среднему IoU\n\n")
-            top_10: pd.DataFrame = df.head(10)[
-                ["Method", "iou_mean", "dice_mean", "time_mean_s", "Images_Tested"]
-            ]
+            top_10: pd.DataFrame = df.head(10)[["Method", "iou_mean", "dice_mean", "time_mean_s", "Images_Tested"]]
             f.write(top_10.to_markdown(index=False) + "\n\n")
 
             # Сводная таблица всех метрик
             f.write("## 📈 Полная таблица результатов\n\n")
-            cols_to_show: List[str] = ["Method"] + [
-                c for c in df.columns if c.endswith("_mean")
-            ]
+            cols_to_show: List[str] = ["Method"] + [c for c in df.columns if c.endswith("_mean")]
             f.write(df[cols_to_show].to_markdown(index=False, floatfmt=".4f") + "\n\n")
 
             # Статистика ошибок
             if any(df["error_count"] > 0):
                 f.write("## ⚠️ Статистика ошибок\n\n")
-                error_df: pd.DataFrame = df[df["error_count"] > 0][
-                    ["Method", "error_count", "error_rate"]
-                ]
+                error_df: pd.DataFrame = df[df["error_count"] > 0][["Method", "error_count", "error_rate"]]
                 f.write(error_df.to_markdown(index=False) + "\n\n")
 
     # ──────────────────────────────────────────────────────────────────────
@@ -824,18 +754,12 @@ class BatchClassicTester:
 
         # === График 3: Heatmap метрик ===
         metrics_cols: List[str] = [
-            c
-            for c in df.columns
-            if c.endswith("_mean") and c.split("_")[0] in self.metrics_to_aggregate
+            c for c in df.columns if c.endswith("_mean") and c.split("_")[0] in self.metrics_to_aggregate
         ]
         if metrics_cols:
             plt.figure(figsize=(12, 10))
-            heatmap_data: pd.DataFrame = (
-                df_plot[["Method"] + metrics_cols].set_index("Method").head(12)
-            )
-            heatmap_data.columns = [
-                c.replace("_mean", "") for c in heatmap_data.columns
-            ]
+            heatmap_data: pd.DataFrame = df_plot[["Method"] + metrics_cols].set_index("Method").head(12)
+            heatmap_data.columns = [c.replace("_mean", "") for c in heatmap_data.columns]
 
             sns.heatmap(heatmap_data.T, annot=True, fmt=".3f", cmap="YlOrRd")
             plt.title("Heatmap средних метрик (Топ-12 методов)")

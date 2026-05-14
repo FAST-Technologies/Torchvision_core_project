@@ -60,9 +60,7 @@ logger: logging.Logger = logging.getLogger("function_calls")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -92,7 +90,7 @@ def track_calls(func: Callable[P, R]) -> Callable[P, R]:
         Callable[P, R]: Обёртка с идентичной сигнатурой, добавляющая логирование.
 
     Raises:
-        Любое исключение, выброшенное оригинальной функцией, 
+        Любое исключение, выброшенное оригинальной функцией,
         пробрасывается дальше после логирования.
 
     Example:
@@ -123,7 +121,7 @@ def track_calls(func: Callable[P, R]) -> Callable[P, R]:
         - functools.wraps: основа сохранения метаданных функции
 
     Note:
-        Для продакшена рекомендуется уровень логгера >= WARNING, 
+        Для продакшена рекомендуется уровень логгера >= WARNING,
         чтобы избежать накладных расходов на форматирование строк.
     """
 
@@ -156,7 +154,7 @@ def track_calls(func: Callable[P, R]) -> Callable[P, R]:
 def track_calls_verbose(func: Callable[P, R]) -> Callable[P, R]:
     """Расширенная версия декоратора: логирует аргументы и результат на уровне INFO.
 
-    ⚠️ Предупреждение: может значительно увеличить объём логов и снизить 
+    ⚠️ Предупреждение: может значительно увеличить объём логов и снизить
     производительность для функций с большими аргументами или частыми вызовами.
 
     Логирует на уровне INFO:
@@ -186,7 +184,7 @@ def track_calls_verbose(func: Callable[P, R]) -> Callable[P, R]:
         >>> @track_calls_verbose
         ... def process(data: list, config: dict, threshold: float) -> dict:
         ...     return {"status": "ok"}
-        
+
         >>> process([1,2,3], {"a": 1}, 0.5)
         # Лог:
         # 🔹 Called: __main__.process([1, 2, 3], <dict>, threshold=float)
@@ -206,12 +204,11 @@ def track_calls_verbose(func: Callable[P, R]) -> Callable[P, R]:
         - track_calls: лёгкая версия для продакшена
         - logging.Logger.isEnabledFor: проверка уровня перед форматированием
     """
+
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         func_name: str = f"{func.__module__}.{func.__qualname__}"
-        args_repr: List[str] = [
-            repr(a) for a in args[:3]
-        ]  # Логируем только первые 3 аргумента
+        args_repr: List[str] = [repr(a) for a in args[:3]]  # Логируем только первые 3 аргумента
         if len(args) > 3:
             args_repr.append(f"... +{len(args) - 3} more")
         kwargs_repr: List[str] = [f"{k}={type(v).__name__}" for k, v in kwargs.items()]
@@ -221,11 +218,7 @@ def track_calls_verbose(func: Callable[P, R]) -> Callable[P, R]:
         try:
             result: R = func(*args, **kwargs)
             result_type: str = type(result).__name__
-            result_repr: str = (
-                repr(result)
-                if isinstance(result, (int, float, str, bool))
-                else f"<{result_type}>"
-            )
+            result_repr: str = repr(result) if isinstance(result, (int, float, str, bool)) else f"<{result_type}>"
             logger.info(f"✅ Returned from {func.__qualname__}: {result_repr}")
             return result
         except Exception as e:

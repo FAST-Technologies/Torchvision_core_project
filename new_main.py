@@ -1,7 +1,7 @@
 # main.py
 
 """Основная точка входа фреймворка сегментации.
-    
+
 Выполняет последовательное тестирование классических и нейросетевых методов:
 1. Инициализация окружения и автоматический подбор точности/компиляции.
 2. Загрузка тестовых изображений (с/без Ground Truth).
@@ -17,18 +17,18 @@
 Args:
     use_optimizations: Если `True`, включает `torch.compile`, AMP и квантование.
                         Если `False`, запускает legacy-пайплайн без оптимизаций.
-                        
+
 Returns:
     Tuple[Optional[SegmentationTester], Optional[BenchmarkResult], Optional[SegmentationComparator]]:
     - `tester`: Экземпляр тестера с зарегистрированными методами.
     - `results`: DataFrame с результатами массового тестирования.
     - `comparator`: Экземпляр компаратора для матричных сравнений.
-    
+
 Note:
     - Управляющее поведение задаётся в `configs/main_config.yaml`.
     - При ошибках в отдельных методах выполнение продолжается (graceful degradation).
     - Для прерывания длительных бенчмарков используется `Ctrl+C`.
-    
+
 Example:
     ```python
     if __name__ == "__main__":
@@ -115,9 +115,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -310,9 +308,7 @@ def main(use_optimizations: bool = True) -> Tuple[
     first_img_name: Optional[str] = None
     if test_images:
         first_img_name, (_, first_img_pil, _) = next(iter(test_images.items()))
-        print(
-            f"📌 Первое изображение для бенчмарков: {first_img_name} ({first_img_pil.size})"
-        )
+        print(f"📌 Первое изображение для бенчмарков: {first_img_name} ({first_img_pil.size})")
 
     # ──────────────────────────────────────────────────────────────
     # 3. РЕГИСТРАЦИЯ МЕТОДОВ СЕГМЕНТАЦИИ
@@ -461,21 +457,14 @@ def main(use_optimizations: bool = True) -> Tuple[
                             print(f"\n🚀 Speedup {backend} относительно PyTorch/fp32:")
                             for precision in ["fp16", "bf16"]:
                                 if precision in summary.columns:
-                                    subset = summary.xs(
-                                        backend, level="Backend", drop_level=False
-                                    )
-                                    if (
-                                        precision in subset.columns
-                                        and "fp32" in subset.columns
-                                    ):
+                                    subset = summary.xs(backend, level="Backend", drop_level=False)
+                                    if precision in subset.columns and "fp32" in subset.columns:
                                         speedup = subset["fp32"] / subset[precision]
                                         # Фильтруем inf/nan для корректного среднего
                                         # valid = speedup[speedup.notna() & speedup.notinf()]
                                         # if not valid.empty:
                                         #     print(f"   {precision}: {valid.mean():.2f}x (среднее)")
-                                        print(
-                                            f"   {precision}: {speedup.mean():.2f}x (среднее)"
-                                        )
+                                        print(f"   {precision}: {speedup.mean():.2f}x (среднее)")
 
             print("✅ Сравнение бэкендов завершено. Результаты сохранены.")
         else:
@@ -574,9 +563,7 @@ def main(use_optimizations: bool = True) -> Tuple[
                         try:
                             trt_model = load_trt_model(trt_path)
                             if trt_model is not None:
-                                trt_seg = TRTSegmenter(
-                                    method_name, trt_model, device="cuda"
-                                )
+                                trt_seg = TRTSegmenter(method_name, trt_model, device="cuda")
                                 tester.add_method(f"{method_name}_TRT", trt_seg)
                                 print(f"✅ Загружен {method_name}_TRT")
                         except Exception as e:
@@ -648,9 +635,7 @@ def main(use_optimizations: bool = True) -> Tuple[
                     n_runs=10,
                     compute_metrics=True,  # Сравнивает IoU относительно fp32
                 )
-                print(
-                    "✅ Бенчмарк точностей завершён. CSV-отчёт: ./data/reports/precision/precision_benchmark.csv"
-                )
+                print("✅ Бенчмарк точностей завершён. CSV-отчёт: ./data/reports/precision/precision_benchmark.csv")
             except Exception as e:
                 print(f"⚠️ Ошибка при запуске бенчмарка точностей: {e}")
                 traceback.print_exc()
@@ -738,9 +723,7 @@ def main(use_optimizations: bool = True) -> Tuple[
 
         # 3. Выбираем изображение
         test_image = None
-        for img_name, (_, img_pil, _) in tqdm(
-            test_images.items(), desc="CUDA/CPU benchmark (Выбор изображения)"
-        ):
+        for img_name, (_, img_pil, _) in tqdm(test_images.items(), desc="CUDA/CPU benchmark (Выбор изображения)"):
             test_image = np.array(img_pil)
             print(f"✅ Используем изображение: {img_name} ({test_image.shape})")
             break
@@ -756,9 +739,7 @@ def main(use_optimizations: bool = True) -> Tuple[
 
             # Сортировка и вывод топ-10 по времени
             top10: BenchmarkResult = (
-                cpu_cuda_results[cpu_cuda_results["error"].isna()]
-                .sort_values("mean_time")
-                .head(10)
+                cpu_cuda_results[cpu_cuda_results["error"].isna()].sort_values("mean_time").head(10)
             )
             print(top10[["method", "device", "mean_time", "backend", "precision"]])
 
@@ -879,9 +860,7 @@ def _register_backend_methods_with_precision(
         for precision in precisions:
             onnx_path = f"{output_base_dir}/onnx/{precision}/{method_name}.onnx"
             if not os.path.exists(onnx_path):
-                registered["skipped"].append(
-                    f"{method_name}_ONNX_{precision} (файл не найден)"
-                )
+                registered["skipped"].append(f"{method_name}_ONNX_{precision} (файл не найден)")
                 continue
 
             try:
@@ -909,9 +888,7 @@ def _register_backend_methods_with_precision(
         for precision in precisions:
             trt_path = f"{output_base_dir}/tensorrt/{precision}/{method_name}.trt"
             if not os.path.exists(trt_path):
-                registered["skipped"].append(
-                    f"{method_name}_TRT_{precision} (файл не найден)"
-                )
+                registered["skipped"].append(f"{method_name}_TRT_{precision} (файл не найден)")
                 continue
 
             try:
@@ -930,9 +907,7 @@ def _register_backend_methods_with_precision(
                     registered["success"].append(method_key)
                     print(f"   ✅ {method_key}")
                 else:
-                    registered["failed"].append(
-                        f"{method_name}_TRT_{precision} (модель=None)"
-                    )
+                    registered["failed"].append(f"{method_name}_TRT_{precision} (модель=None)")
             except Exception as e:
                 registered["failed"].append(f"{method_name}_TRT_{precision}: {e}")
                 print(f"   ❌ {method_name}_TRT_{precision}: {e}")
@@ -1019,9 +994,7 @@ def _extract_method_name_from_key(method_key: str) -> str:
     if snake_case in edge_methods or snake_case.endswith("_edge"):
         if not snake_case.endswith("_edge"):
             snake_case = (
-                snake_case.replace("_threshold", "_edge")
-                if "_threshold" in snake_case
-                else snake_case + "_edge"
+                snake_case.replace("_threshold", "_edge") if "_threshold" in snake_case else snake_case + "_edge"
             )
     elif snake_case in threshold_methods or "threshold" in snake_case:
         pass  # Уже содержит threshold
@@ -1059,38 +1032,18 @@ def _create_cv2_methods() -> SegmenterDict:
     """
     return {
         # --- Пороговые методы (Threshold) ---
-        "global_thresholding_CV2": OpenCVSegmenter(
-            "global_thresholding", threshold=0.5
-        ),
+        "global_thresholding_CV2": OpenCVSegmenter("global_thresholding", threshold=0.5),
         "otsu_thresholding_CV2": OpenCVSegmenter("otsu_thresholding"),
-        "adaptive_thresholding_CV2": OpenCVSegmenter(
-            "adaptive_thresholding", block_size=11, C=2
-        ),
-        "threshold_niblack_CV2": OpenCVSegmenter(
-            "threshold_niblack", window_size=15, k=-0.2
-        ),
-        "threshold_sauvola_CV2": OpenCVSegmenter(
-            "threshold_sauvola", window_size=15, k=0.5, r=128
-        ),
-        "threshold_bernsen_CV2": OpenCVSegmenter(
-            "threshold_bernsen", window_size=15, contrast_threshold=0.15
-        ),
-        "threshold_phansalkar_CV2": OpenCVSegmenter(
-            "threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5
-        ),
-        "threshold_kittler_illingworth_CV2": OpenCVSegmenter(
-            "threshold_kittler_illingworth", num_bins=256
-        ),
-        "threshold_entropy_kapur_CV2": OpenCVSegmenter(
-            "threshold_entropy_kapur", num_bins=256
-        ),
+        "adaptive_thresholding_CV2": OpenCVSegmenter("adaptive_thresholding", block_size=11, C=2),
+        "threshold_niblack_CV2": OpenCVSegmenter("threshold_niblack", window_size=15, k=-0.2),
+        "threshold_sauvola_CV2": OpenCVSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
+        "threshold_bernsen_CV2": OpenCVSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
+        "threshold_phansalkar_CV2": OpenCVSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
+        "threshold_kittler_illingworth_CV2": OpenCVSegmenter("threshold_kittler_illingworth", num_bins=256),
+        "threshold_entropy_kapur_CV2": OpenCVSegmenter("threshold_entropy_kapur", num_bins=256),
         "threshold_triangle_CV2": OpenCVSegmenter("threshold_triangle", num_bins=256),
-        "threshold_multi_otsu_CV2": OpenCVSegmenter(
-            "threshold_multi_otsu", n_thresholds=2
-        ),
-        "threshold_percentile_CV2": OpenCVSegmenter(
-            "threshold_percentile", percentile=90
-        ),
+        "threshold_multi_otsu_CV2": OpenCVSegmenter("threshold_multi_otsu", n_thresholds=2),
+        "threshold_percentile_CV2": OpenCVSegmenter("threshold_percentile", percentile=90),
         "threshold_local_contrast_CV2": OpenCVSegmenter(
             "threshold_local_contrast", window_size=15, contrast_factor=0.1
         ),
@@ -1101,15 +1054,9 @@ def _create_cv2_methods() -> SegmenterDict:
         "scharr_edge_CV2": OpenCVSegmenter("scharr_edge", threshold=0.1),
         "roberts_cross_edge_CV2": OpenCVSegmenter("roberts_cross_edge", threshold=0.1),
         "log_edge_CV2": OpenCVSegmenter("log_edge", sigma=1.0, threshold=0.01),
-        "dog_edge_CV2": OpenCVSegmenter(
-            "dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01
-        ),
-        "marr_hildreth_edge_CV2": OpenCVSegmenter(
-            "marr_hildreth_edge", sigma=1.5, threshold=0.01
-        ),
-        "gradient_magnitude_direction_CV2": OpenCVSegmenter(
-            "gradient_magnitude_direction", threshold=0.1
-        ),
+        "dog_edge_CV2": OpenCVSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
+        "marr_hildreth_edge_CV2": OpenCVSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
+        "gradient_magnitude_direction_CV2": OpenCVSegmenter("gradient_magnitude_direction", threshold=0.1),
         "phase_congruency_edge_CV2": OpenCVSegmenter(
             "phase_congruency_edge",
             nscales=4,
@@ -1148,63 +1095,33 @@ def _create_sklearn_methods() -> SegmenterDict:
     """
     return {
         # --- Пороговые методы (Threshold) ---
-        "global_thresholding_Sklearn": SklearnSegmenter(
-            "global_thresholding", threshold=0.5
-        ),
+        "global_thresholding_Sklearn": SklearnSegmenter("global_thresholding", threshold=0.5),
         "otsu_thresholding_Sklearn": SklearnSegmenter("otsu_thresholding"),
-        "adaptive_thresholding_Sklearn": SklearnSegmenter(
-            "adaptive_thresholding", block_size=11, C=2
-        ),
-        "threshold_niblack_Sklearn": SklearnSegmenter(
-            "threshold_niblack", window_size=15, k=-0.2
-        ),
-        "threshold_sauvola_Sklearn": SklearnSegmenter(
-            "threshold_sauvola", window_size=15, k=0.5, r=128
-        ),
-        "threshold_bernsen_Sklearn": SklearnSegmenter(
-            "threshold_bernsen", window_size=15, contrast_threshold=0.15
-        ),
+        "adaptive_thresholding_Sklearn": SklearnSegmenter("adaptive_thresholding", block_size=11, C=2),
+        "threshold_niblack_Sklearn": SklearnSegmenter("threshold_niblack", window_size=15, k=-0.2),
+        "threshold_sauvola_Sklearn": SklearnSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
+        "threshold_bernsen_Sklearn": SklearnSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
         "threshold_phansalkar_Sklearn": SklearnSegmenter(
             "threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5
         ),
-        "threshold_kittler_illingworth_Sklearn": SklearnSegmenter(
-            "threshold_kittler_illingworth", num_bins=256
-        ),
-        "threshold_entropy_kapur_Sklearn": SklearnSegmenter(
-            "threshold_entropy_kapur", num_bins=256
-        ),
-        "threshold_triangle_Sklearn": SklearnSegmenter(
-            "threshold_triangle", num_bins=256
-        ),
-        "threshold_multi_otsu_Sklearn": SklearnSegmenter(
-            "threshold_multi_otsu", n_thresholds=2
-        ),
-        "threshold_percentile_Sklearn": SklearnSegmenter(
-            "threshold_percentile", percentile=90
-        ),
+        "threshold_kittler_illingworth_Sklearn": SklearnSegmenter("threshold_kittler_illingworth", num_bins=256),
+        "threshold_entropy_kapur_Sklearn": SklearnSegmenter("threshold_entropy_kapur", num_bins=256),
+        "threshold_triangle_Sklearn": SklearnSegmenter("threshold_triangle", num_bins=256),
+        "threshold_multi_otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2),
+        "threshold_percentile_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90),
         "threshold_local_contrast_Sklearn": SklearnSegmenter(
             "threshold_local_contrast", window_size=15, contrast_factor=0.1
         ),
         # --- Граничные методы (Edge) ---
         "sobel_edge_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1),
-        "canny_edge_Sklearn": SklearnSegmenter(
-            "canny_edge", low=0.1, high=0.3, sigma=1.0
-        ),
+        "canny_edge_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
         "prewitt_edge_Sklearn": SklearnSegmenter("prewitt_edge", threshold=0.1),
         "scharr_edge_Sklearn": SklearnSegmenter("scharr_edge", threshold=0.1),
-        "roberts_cross_edge_Sklearn": SklearnSegmenter(
-            "roberts_cross_edge", threshold=0.1
-        ),
+        "roberts_cross_edge_Sklearn": SklearnSegmenter("roberts_cross_edge", threshold=0.1),
         "log_edge_Sklearn": SklearnSegmenter("log_edge", sigma=1.0, threshold=0.01),
-        "dog_edge_Sklearn": SklearnSegmenter(
-            "dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01
-        ),
-        "marr_hildreth_edge_Sklearn": SklearnSegmenter(
-            "marr_hildreth_edge", sigma=1.5, threshold=0.01
-        ),
-        "gradient_magnitude_direction_Sklearn": SklearnSegmenter(
-            "gradient_magnitude_direction", threshold=0.1
-        ),
+        "dog_edge_Sklearn": SklearnSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
+        "marr_hildreth_edge_Sklearn": SklearnSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
+        "gradient_magnitude_direction_Sklearn": SklearnSegmenter("gradient_magnitude_direction", threshold=0.1),
         "phase_congruency_edge_Sklearn": SklearnSegmenter(
             "phase_congruency_edge",
             nscales=4,
@@ -1343,9 +1260,7 @@ def _create_torch_methods_factory(
     if use_v2:
         for name, method_name, params in all_methods:
             key = f"{name}_v2"
-            compile_cfg: Dict[str, Any] = (
-                get_compile_config(method_name, device) if enable_compile else {}
-            )
+            compile_cfg: Dict[str, Any] = get_compile_config(method_name, device) if enable_compile else {}
             methods[key] = TorchSegmenter2(
                 method=method_name,
                 device=str(device),
@@ -1368,33 +1283,17 @@ def _create_torch_methods() -> SegmenterDict:
         # --- Пороговые методы (Threshold) ---
         "Global_Threshold_Torch": TorchSegmenter("global_thresholding", threshold=0.5),
         "Otsu_Thresholding_Torch": TorchSegmenter("otsu_thresholding"),
-        "Adaptive_Threshold_Torch": TorchSegmenter(
-            "adaptive_thresholding", block_size=11, C=2
-        ),
-        "Niblack_Thresholding_Torch": TorchSegmenter(
-            "threshold_niblack", window_size=15, k=-0.2
-        ),
-        "Sauvola_Thresholding_Torch": TorchSegmenter(
-            "threshold_sauvola", window_size=15, k=0.5, r=128
-        ),
-        "Bernsen_Thresholding_Torch": TorchSegmenter(
-            "threshold_bernsen", window_size=15, contrast_threshold=0.15
-        ),
-        "Phansalkar_Thresholding_Torch": TorchSegmenter(
-            "threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5
-        ),
-        "Kittler_Illingworth_Torch": TorchSegmenter(
-            "threshold_kittler_illingworth", num_bins=256
-        ),
+        "Adaptive_Threshold_Torch": TorchSegmenter("adaptive_thresholding", block_size=11, C=2),
+        "Niblack_Thresholding_Torch": TorchSegmenter("threshold_niblack", window_size=15, k=-0.2),
+        "Sauvola_Thresholding_Torch": TorchSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
+        "Bernsen_Thresholding_Torch": TorchSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
+        "Phansalkar_Thresholding_Torch": TorchSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
+        "Kittler_Illingworth_Torch": TorchSegmenter("threshold_kittler_illingworth", num_bins=256),
         "Kapur_Entropy_Torch": TorchSegmenter("threshold_entropy_kapur", num_bins=256),
         "Triangle_Threshold_Torch": TorchSegmenter("threshold_triangle", num_bins=256),
         "Multi_Otsu_Torch": TorchSegmenter("threshold_multi_otsu", n_thresholds=2),
-        "Percentile_Threshold_Torch": TorchSegmenter(
-            "threshold_percentile", percentile=90
-        ),
-        "Local_Contrast_Torch": TorchSegmenter(
-            "threshold_local_contrast", window_size=15, contrast_factor=0.1
-        ),
+        "Percentile_Threshold_Torch": TorchSegmenter("threshold_percentile", percentile=90),
+        "Local_Contrast_Torch": TorchSegmenter("threshold_local_contrast", window_size=15, contrast_factor=0.1),
         # --- Граничные методы (Edge) ---
         "Sobel_Torch": TorchSegmenter("sobel_edge", threshold=0.1),
         "Canny_Torch": TorchSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
@@ -1403,12 +1302,8 @@ def _create_torch_methods() -> SegmenterDict:
         "Roberts_Cross_Torch": TorchSegmenter("roberts_cross_edge", threshold=0.1),
         "LoG_Torch": TorchSegmenter("log_edge", sigma=1.0, threshold=0.01),
         "DoG_Torch": TorchSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
-        "Marr_Hildreth_Torch": TorchSegmenter(
-            "marr_hildreth_edge", sigma=1.5, threshold=0.01
-        ),
-        "Gradient_Mag_Dir_Torch": TorchSegmenter(
-            "gradient_magnitude_direction", threshold=0.1
-        ),
+        "Marr_Hildreth_Torch": TorchSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
+        "Gradient_Mag_Dir_Torch": TorchSegmenter("gradient_magnitude_direction", threshold=0.1),
         "Phase_Congruency_Torch": TorchSegmenter(
             "phase_congruency_edge",
             nscales=4,
@@ -1559,9 +1454,7 @@ def _run_profiling_demo(
                 for w in profile["transfer_warnings"]:
                     print(f"  {w}")
             else:
-                print(
-                    "✅ Трансферов не обнаружено. Память и GPU используются оптимально."
-                )
+                print("✅ Трансферов не обнаружено. Память и GPU используются оптимально.")
 
             # Предупреждения о трансферах
             if profile.get("transfer_warnings"):
@@ -1575,15 +1468,11 @@ def _run_profiling_demo(
             if "execution_info" in segmenter.params:
                 exec_info = segmenter.params["execution_info"]
                 print(f"   📋 Метод: {exec_info.get('method', 'N/A')}")
-                print(
-                    f"   ⚡ Время: {exec_info.get('execution_time', 0) * 1000:.2f} мс"
-                )
+                print(f"   ⚡ Время: {exec_info.get('execution_time', 0) * 1000:.2f} мс")
                 # Доступ к метаданным выполнения
                 print(segmenter.params["execution_info"])
 
-            segmenter.profile_with_tracing(
-                segmenter, img_array, output_dir="./profiling/tests"
-            )
+            segmenter.profile_with_tracing(segmenter, img_array, output_dir="./profiling/tests")
 
         except Exception as e:
             print(f"   ❌ Ошибка профилирования: {e}")
@@ -1626,9 +1515,7 @@ def _run_precision_benchmark_demo(
         try:
             # 🔥 Бенчмарк точностей
             precision_results = segmenter.benchmark_histc_types(
-                gray=segmenter._to_grayscale(
-                    segmenter.preprocess_image(img_array)
-                ).squeeze(),
+                gray=segmenter._to_grayscale(segmenter.preprocess_image(img_array)).squeeze(),
                 device=segmenter.device,
             )
 
@@ -1651,9 +1538,7 @@ def _run_precision_benchmark_demo(
         df = pd.DataFrame(results)
         print("\n📊 Сводка по точностям:")
         print(
-            df.pivot(index="method", columns="precision", values="time_ms").to_string(
-                float_format=lambda x: f"{x:.2f}"
-            )
+            df.pivot(index="method", columns="precision", values="time_ms").to_string(float_format=lambda x: f"{x:.2f}")
         )
 
 
@@ -1693,9 +1578,7 @@ def _clear_gpu_memory() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────
-def _run_neural_segmentation_tests(
-    tester: SegmentationTester, device: torch.device
-) -> None:
+def _run_neural_segmentation_tests(tester: SegmentationTester, device: torch.device) -> None:
     """Запускает тестирование нейросетевых методов сегментации.
 
     Args:
@@ -1767,12 +1650,8 @@ def _load_single_neural_model(
         device: Устройство для выполнения.
     """
     try:
-        if "checkpoint_path" in config and not os.path.exists(
-            config["checkpoint_path"]
-        ):
-            print(
-                f"   ⚠️ {config['name']} - чекпоинт не найден: {config['checkpoint_path']}"
-            )
+        if "checkpoint_path" in config and not os.path.exists(config["checkpoint_path"]):
+            print(f"   ⚠️ {config['name']} - чекпоинт не найден: {config['checkpoint_path']}")
             return
 
         model_name = config.get("model_name")
@@ -1788,8 +1667,7 @@ def _load_single_neural_model(
             **{
                 k: v
                 for k, v in config.items()
-                if k
-                not in ["name", "type", "checkpoint_path", "local_path", "model_name"]
+                if k not in ["name", "type", "checkpoint_path", "local_path", "model_name"]
             },
         )
         tester.add_method(config["name"], segmenter)
@@ -1946,28 +1824,20 @@ def _print_batch_test_summary(results_df: BenchmarkResult) -> None:
 
     print("\n🏆 Топ-5 методов по IoU:")
     for i, row in results_df.head(5).iterrows():
-        print(
-            f"   {i + 1}. {row['Method']}: IoU={row['iou_mean']:.4f} ± {row['iou_std']:.4f}"
-        )
+        print(f"   {i + 1}. {row['Method']}: IoU={row['iou_mean']:.4f} ± {row['iou_std']:.4f}")
 
     print("\n⚡ Топ-5 самых быстрых методов:")
-    fast_df: BenchmarkResult = (
-        results_df.dropna(subset=["time_mean_s"]).sort_values("time_mean_s").head(5)
-    )
+    fast_df: BenchmarkResult = results_df.dropna(subset=["time_mean_s"]).sort_values("time_mean_s").head(5)
     for i, row in fast_df.iterrows():
         print(f"   {i + 1}. {row['Method']}: {row['time_mean_s'] * 1000:.1f} мс")
 
     print("\n❌ Методы с наибольшим числом ошибок:")
     error_df: BenchmarkResult = (
-        results_df[results_df["error_count"] > 0]
-        .sort_values("error_count", ascending=False)
-        .head(5)
+        results_df[results_df["error_count"] > 0].sort_values("error_count", ascending=False).head(5)
     )
     if not error_df.empty:
         for i, row in error_df.iterrows():
-            print(
-                f"   {row['Method']}: {row['error_count']} ошибок ({row['error_rate'] * 100:.1f}%)"
-            )
+            print(f"   {row['Method']}: {row['error_count']} ошибок ({row['error_rate'] * 100:.1f}%)")
     else:
         print("   Нет ошибок!")
 
@@ -2009,11 +1879,7 @@ def prepare_mask_for_overlay(mask_input: Union[Image.Image, npt.NDArray]) -> Mas
         ```
     """
     # Конвертация PIL → numpy
-    mask: npt.NDArray = (
-        np.array(mask_input)
-        if isinstance(mask_input, Image.Image)
-        else np.asarray(mask_input)
-    )
+    mask: npt.NDArray = np.array(mask_input) if isinstance(mask_input, Image.Image) else np.asarray(mask_input)
 
     # Обработка многоканальных масок
     if mask.ndim == 3:
@@ -2110,9 +1976,7 @@ def run_performance_benchmark(
     # ЭТАП 1: Cold benchmark (без прогрева)
     # ──────────────────────────────────────────────────────
     print("\n🔹 Этап 1: Cold benchmark...")
-    for img_name, (img_path, img_pil, gt_mask) in tqdm(
-        test_images.items(), desc="Cold benchmark"
-    ):
+    for img_name, (img_path, img_pil, gt_mask) in tqdm(test_images.items(), desc="Cold benchmark"):
         print(f"\n--- Обработка: {img_name} ---")
         img_array: ImageArray = np.array(img_pil)
 
@@ -2137,9 +2001,7 @@ def run_performance_benchmark(
     if first_img_array is not None:
         print("\n🔹 Этап 2: Warm-up сегментеров...")
 
-        warmup_utility: SegmentationWarmUp = SegmentationWarmUp(
-            n_warmup_runs=warmup_runs
-        )
+        warmup_utility: SegmentationWarmUp = SegmentationWarmUp(n_warmup_runs=warmup_runs)
 
         # Прогрев всех сегментеров
         warmup_results: Dict[str, Any] = warmup_utility.warmup_all_segmenters(
@@ -2185,9 +2047,7 @@ def run_performance_benchmark(
     print("\n🔹 Этап 3: Hot benchmark + анализ...")
     print("\n3.1. Бенчмарк производительности после warm up...")
 
-    for img_name, (img_path, img_pil, gt_mask) in tqdm(
-        test_images.items(), desc="Hot benchmark"
-    ):
+    for img_name, (img_path, img_pil, gt_mask) in tqdm(test_images.items(), desc="Hot benchmark"):
         print(f"\n--- Обработка: {img_name} ---")
         img_array = np.array(img_pil)
 
@@ -2223,9 +2083,7 @@ def run_performance_benchmark(
 
         # Fallback: загрузка из файла, если нет в памяти
         if df_cold_loaded is None:
-            cold_dir = tester.get_benchmark_path(
-                f"benchmark_{img_name}_cold", "statistics"
-            )
+            cold_dir = tester.get_benchmark_path(f"benchmark_{img_name}_cold", "statistics")
             if cold_dir:
                 cold_csv = Path(cold_dir) / "benchmark_results.csv"
                 if cold_csv.exists():
@@ -2261,9 +2119,7 @@ def run_performance_benchmark(
         print(f"\n   🔥 Топ-5 по ускорению ({img_name}):")
         top5: pd.DataFrame = comparison.nlargest(5, "speedup")
         for _, row in top5.iterrows():
-            speedup_str: str = (
-                f"{row['speedup']:.2f}x" if not np.isinf(row["speedup"]) else "∞"
-            )
+            speedup_str: str = f"{row['speedup']:.2f}x" if not np.isinf(row["speedup"]) else "∞"
             print(f"      • {row['method']}: {speedup_str}")
 
         all_comparisons.append(comparison)
@@ -2281,9 +2137,7 @@ def run_performance_benchmark(
         print("=" * 70)
 
         # Группировка по методам
-        avg_speedup: pd.Series = (
-            summary.groupby("method")["speedup"].mean().sort_values(ascending=False)
-        )
+        avg_speedup: pd.Series = summary.groupby("method")["speedup"].mean().sort_values(ascending=False)
 
         print("\n🏆 Топ-10 методов по среднему speedup:")
         for i, (method, speedup) in enumerate(avg_speedup.head(10).items(), 1):
@@ -2324,11 +2178,7 @@ def _compare_cold_hot(
 
     # Расчёт speedup с защитой от деления на ноль
     comparison["speedup"] = comparison.apply(
-        lambda row: (
-            row["cold_mean_ms"] / row["hot_mean_ms"]
-            if row["hot_mean_ms"] > 0
-            else float("inf")
-        ),
+        lambda row: (row["cold_mean_ms"] / row["hot_mean_ms"] if row["hot_mean_ms"] > 0 else float("inf")),
         axis=1,
     )
 
@@ -2403,15 +2253,11 @@ def run_neural_segmentation_benchmark(
     # ──────────────────────────────────────────────────────
     print("\n🔹 Загрузка данных ADE20K...")
 
-    image_path: str = hf_hub_download(
-        repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset"
-    )
+    image_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset")
     original_img: Image.Image = Image.open(image_path)
     original_img.save(Path(output_dir) / "original_image.jpg")
 
-    mask_path: str = hf_hub_download(
-        repo_id=repo_id, filename="ADE_val_00000001.png", repo_type="dataset"
-    )
+    mask_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.png", repo_type="dataset")
     segmentation_map: Image.Image = Image.open(mask_path)
 
     # Конвертация GT в бинарную маску
@@ -2440,9 +2286,7 @@ def run_neural_segmentation_benchmark(
     print("🔹 Запуск MaskFormer (Изолированный режим)...")
 
     model_name_maskformer: str = "facebook/maskformer-resnet50-ade20k-full"
-    processor_maskformer = MaskFormerImageProcessor.from_pretrained(
-        model_name_maskformer
-    )
+    processor_maskformer = MaskFormerImageProcessor.from_pretrained(model_name_maskformer)
     model_maskformer = MaskFormerForInstanceSegmentation.from_pretrained(model_name_maskformer)
     model_maskformer.to(device)  # type: ignore[arg-type]
     model_maskformer.eval()
@@ -2468,9 +2312,7 @@ def run_neural_segmentation_benchmark(
         "metrics": result_mf_ade_results.get("metrics", {}),
         "image_size": original_img.size[::-1],
         "output_shape": result_mf_ade_results.get("mask", np.array([])).shape,
-        "unique_classes": len(
-            np.unique(result_mf_ade_results.get("mask", np.array([])))
-        ),
+        "unique_classes": len(np.unique(result_mf_ade_results.get("mask", np.array([])))),
     }
 
     del model_maskformer, processor_maskformer
@@ -2478,13 +2320,9 @@ def run_neural_segmentation_benchmark(
     torch.cuda.synchronize()
     gc.collect()
 
-    print(
-        f"✅ MaskFormer готов. VRAM освобождена: {torch.cuda.memory_allocated() / 1024**2:.1f} MB"
-    )
+    print(f"✅ MaskFormer готов. VRAM освобождена: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
     class_names_dict: Dict[int, str] = NeuralSegmenter.get_ade_class_names()
-    class_names: Optional[List[str]] = [
-        class_names_dict.get(i, f"Class {i}") for i in range(num_classes)
-    ]
+    class_names: Optional[List[str]] = [class_names_dict.get(i, f"Class {i}") for i in range(num_classes)]
     benchmark: SegmentationBenchmark = SegmentationBenchmark(
         device=str(device),
         num_classes=num_classes,
@@ -2531,9 +2369,7 @@ def run_neural_segmentation_benchmark(
         values: List = [summary_ade[m].get(metric, np.nan) for m in summary_ade]
         valid: int = sum(1 for v in values if not np.isnan(v))
         print(f"   {metric}: {valid} models")
-    summary: pd.DataFrame = pd.DataFrame(summary_ade).T.sort_values(
-        "mIoU", ascending=False
-    )
+    summary: pd.DataFrame = pd.DataFrame(summary_ade).T.sort_values("mIoU", ascending=False)
 
     for model_name, res in benchmark.results.items():
         print(f"\n{model_name}:")
@@ -2552,9 +2388,7 @@ def run_neural_segmentation_benchmark(
     print("\n" + "=" * 70)
     print("LATEX TABLE FOR PAPER")
     print("=" * 70)
-    latex_table: str = benchmark.export_latex_table(
-        caption="Comprehensive Semantic Segmentation Benchmark on ADE20K"
-    )
+    latex_table: str = benchmark.export_latex_table(caption="Comprehensive Semantic Segmentation Benchmark on ADE20K")
     with open(Path(output_dir) / "benchmark_table.tex", "w") as f:
         f.write(latex_table)
     print(latex_table)
@@ -2563,9 +2397,7 @@ def run_neural_segmentation_benchmark(
         print("\n" + "=" * 70)
         print("SEGFORMER SPEED-ACCURACY TRADEOFF")
         print("=" * 70)
-        sf: pd.DataFrame = summary.loc[
-            ["segformer", "segformer_b2"], ["mIoU", "time_ms"]
-        ]
+        sf: pd.DataFrame = summary.loc[["segformer", "segformer_b2"], ["mIoU", "time_ms"]]
         sf["mIoU"] = sf["mIoU"] * 100
         print(sf.to_string(float_format="%.2f"))
         print(
@@ -2577,9 +2409,7 @@ def run_neural_segmentation_benchmark(
     print("=" * 70)
 
     # Сводная таблица результатов
-    table: pd.DataFrame = export_comparison_table(
-        benchmark, str(Path(output_dir) / "model_comparison.md")
-    )
+    table: pd.DataFrame = export_comparison_table(benchmark, str(Path(output_dir) / "model_comparison.md"))
     print(table)
 
     plt.figure(figsize=(20, 10))
@@ -2763,9 +2593,7 @@ def _load_benchmark_models(benchmark: SegmentationBenchmark, output_dir: str) ->
 
 
 # ──────────────────────────────────────────────────────────────────────
-def _generate_neural_benchmark_plots(
-    benchmark: SegmentationBenchmark, output_dir: str
-) -> None:
+def _generate_neural_benchmark_plots(benchmark: SegmentationBenchmark, output_dir: str) -> None:
     """Генерирует визуализации для нейросетевого бенчмарка.
 
     Args:
@@ -2782,16 +2610,12 @@ def _generate_neural_benchmark_plots(
     plt.close()
 
     # 2. Сравнение по mIoU
-    benchmark.plot_comparison_chart(
-        "mIoU", title="ADE20K: Mean IoU Comparison", figsize=(12, 6)
-    )
+    benchmark.plot_comparison_chart("mIoU", title="ADE20K: Mean IoU Comparison", figsize=(12, 6))
     plt.savefig(plots_dir / "miou_comparison.png", dpi=150, bbox_inches="tight")
     plt.close()
 
     # 3. Сравнение по времени
-    benchmark.plot_comparison_chart(
-        "time_ms", title="Inference Time Comparison (ms)", figsize=(12, 6)
-    )
+    benchmark.plot_comparison_chart("time_ms", title="Inference Time Comparison (ms)", figsize=(12, 6))
     plt.savefig(plots_dir / "time_comparison.png", dpi=150, bbox_inches="tight")
     plt.close()
 
@@ -2801,13 +2625,9 @@ def _generate_neural_benchmark_plots(
     plt.close()
 
     # 5. Confusion matrix для лучшей модели
-    best_model: str = (
-        benchmark.get_summary_dataframe().sort_values("mIoU", ascending=False).index[0]
-    )
+    best_model: str = benchmark.get_summary_dataframe().sort_values("mIoU", ascending=False).index[0]
     benchmark.plot_confusion_matrix(best_model, normalize="true")
-    plt.savefig(
-        plots_dir / f"confusion_matrix_{best_model}.png", dpi=150, bbox_inches="tight"
-    )
+    plt.savefig(plots_dir / f"confusion_matrix_{best_model}.png", dpi=150, bbox_inches="tight")
     plt.close()
 
     # 6. Сводный график
@@ -2891,9 +2711,7 @@ def run_implementation_validation(
     # ──────────────────────────────────────────────────────
     # 1. ИНИЦИАЛИЗАЦИЯ ВАЛИДАТОРА
     # ──────────────────────────────────────────────────────
-    validator: TorchImplementationValidator = TorchImplementationValidator(
-        output_dir=output_dir
-    )
+    validator: TorchImplementationValidator = TorchImplementationValidator(output_dir=output_dir)
 
     # ──────────────────────────────────────────────────────
     # 2. ЗАПУСК ВАЛИДАЦИИ
@@ -2931,9 +2749,7 @@ def run_implementation_validation(
     benchmark_df: Optional[pd.DataFrame] = None
     try:
         benchmark_dir: str = os.path.join(output_dir, "benchmark")
-        benchmark_df = validator.generate_benchmark_report_from_validation(
-            all_results, output_dir=benchmark_dir
-        )
+        benchmark_df = validator.generate_benchmark_report_from_validation(all_results, output_dir=benchmark_dir)
         print(f"   ✅ Бенчмарк-отчёт: {benchmark_dir}")
     except Exception as e:
         print(f"⚠️  Ошибка генерации бенчмарка: {e}")
@@ -2947,9 +2763,7 @@ def run_implementation_validation(
 
     if all_results:
         # Статистика по статусам
-        statuses: List[str] = [
-            result.get("status", "UNKNOWN") for result in all_results.values()
-        ]
+        statuses: List[str] = [result.get("status", "UNKNOWN") for result in all_results.values()]
         from collections import Counter
 
         status_counts: Counter = Counter(statuses)
@@ -2957,9 +2771,7 @@ def run_implementation_validation(
         print("\n📈 Распределение статусов:")
         for status, count in status_counts.most_common():
             emoji = {"PASS": "✅", "WARNING": "⚠️", "FAIL": "❌"}.get(status, "❓")
-            print(
-                f"   {emoji} {status}: {count} методов ({count / len(statuses) * 100:.1f}%)"
-            )
+            print(f"   {emoji} {status}: {count} методов ({count / len(statuses) * 100:.1f}%)")
 
         # Топ-5 по согласованности (IoU)
         print("\n🏆 Топ-5 по IoU (согласованность):")
@@ -3085,9 +2897,7 @@ def run_matrix_comparison(
     # ──────────────────────────────────────────────────────
     # ЦИКЛ ПО ИЗОБРАЖЕНИЯМ
     # ──────────────────────────────────────────────────────
-    for img_name, (img_path, img_pil, gt_mask) in tqdm(
-        test_images.items(), desc="Matrix Comparison benchmark"
-    ):
+    for img_name, (img_path, img_pil, gt_mask) in tqdm(test_images.items(), desc="Matrix Comparison benchmark"):
         print(f"\n🔹 Обработка: {img_name}")
         img_array: ImageArray = np.array(img_pil)
 
@@ -3113,9 +2923,7 @@ def run_matrix_comparison(
                 }
             )
             print(f"   ✅ Матрица сравнения для {img_name}")
-            print(
-                f"      ✅ Сравнено пар: {len(matrix_results.get('df_comparisons', []))}"
-            )
+            print(f"      ✅ Сравнено пар: {len(matrix_results.get('df_comparisons', []))}")
         except Exception as e:
             print(f"      ❌ Ошибка all-vs-all: {e}")
             if os.getenv("DEBUG", "0") == "1":
@@ -3136,9 +2944,7 @@ def run_matrix_comparison(
             )
             batch_results_list.append(df_batch)
             print("   ✅ Пакетное сравнение завершено. Топ-3 метода сохранены.")
-            print(
-                f"      ✅ Топ-3: {df_batch.nlargest(3, 'similarity_score')['method'].tolist()}"
-            )
+            print(f"      ✅ Топ-3: {df_batch.nlargest(3, 'similarity_score')['method'].tolist()}")
         except Exception as e:
             print(f"      ❌ Ошибка batch comparison: {e}")
 
@@ -3175,9 +2981,7 @@ def run_matrix_comparison(
     # All-vs-All статистика
     if all_vs_all_results:
         total_comparisons: int = sum(r["n_comparisons"] for r in all_vs_all_results)
-        print(
-            f"\n🔗 All-vs-All: {len(all_vs_all_results)} изображений, {total_comparisons} сравнений"
-        )
+        print(f"\n🔗 All-vs-All: {len(all_vs_all_results)} изображений, {total_comparisons} сравнений")
 
     # Batch comparison: агрегация результатов
     if batch_results_list:
@@ -3186,9 +2990,7 @@ def run_matrix_comparison(
 
         # Топ-5 методов по средней схожести
         if "similarity_score" in batch_summary.columns:
-            top_methods: pd.Series = (
-                batch_summary.groupby("method")["similarity_score"].mean().nlargest(5)
-            )
+            top_methods: pd.Series = batch_summary.groupby("method")["similarity_score"].mean().nlargest(5)
             print("\n🏆 Топ-5 по схожести с референсом:")
             for i, (method, score) in enumerate(top_methods.items(), 1):
                 print(f"   {i}. {method}: {score:.4f}")
@@ -3201,11 +3003,7 @@ def run_matrix_comparison(
 
     return {
         "all_vs_all_results": all_vs_all_results,
-        "batch_results": (
-            pd.concat(batch_results_list, ignore_index=True)
-            if batch_results_list
-            else None
-        ),
+        "batch_results": (pd.concat(batch_results_list, ignore_index=True) if batch_results_list else None),
         "pairwise_results": pairwise_results_list,
         "comparator": comparator,
     }
@@ -3277,9 +3075,7 @@ def run_ground_truth_evaluation(
     # ──────────────────────────────────────────────────────
     # ЦИКЛ ПО ИЗОБРАЖЕНИЯМ С GT
     # ──────────────────────────────────────────────────────
-    for img_name, (img_path, img_pil, gt_mask) in tqdm(
-        test_images.items(), desc="Ground Truth benchmark"
-    ):
+    for img_name, (img_path, img_pil, gt_mask) in tqdm(test_images.items(), desc="Ground Truth benchmark"):
         if gt_mask is None:
             print(f"⚠️  Пропуск {img_name}: нет Ground Truth")
             continue
@@ -3309,9 +3105,7 @@ def run_ground_truth_evaluation(
                 if pred_mask.shape != gt_binary.shape:
                     from skimage.transform import resize
 
-                    pred_mask = resize(
-                        pred_mask, gt_binary.shape, order=0, preserve_range=True
-                    ).astype(np.uint8)
+                    pred_mask = resize(pred_mask, gt_binary.shape, order=0, preserve_range=True).astype(np.uint8)
 
                 # Метрики
                 metrics: MetricsDict = SegmentationMetrics.calculate_all_metrics(
@@ -3326,9 +3120,7 @@ def run_ground_truth_evaluation(
                 # Статус
                 iou: float = metrics.get("iou", 0)
                 status: str = "✅" if iou > 0.5 else "⚠️" if iou > 0.2 else "❌"
-                print(
-                    f"   {status} {name}: IoU={iou:.4f}, Dice={metrics.get('dice', 0):.4f}, t={exec_time:.3f}s"
-                )
+                print(f"   {status} {name}: IoU={iou:.4f}, Dice={metrics.get('dice', 0):.4f}, t={exec_time:.3f}s")
                 print(f"Mask after {name} segment: {pred_mask[:3, :3]}")
                 print(segmenter.params["execution_info"])
 
@@ -3349,9 +3141,7 @@ def run_ground_truth_evaluation(
     # АНАЛИЗ И ВИЗУАЛИЗАЦИИ
     # ──────────────────────────────────────────────────────
     if not has_gt_images:
-        print(
-            "⚠️ Ground Truth маски не найдены ни для одного изображения. Пропускаем этап оценки качества."
-        )
+        print("⚠️ Ground Truth маски не найдены ни для одного изображения. Пропускаем этап оценки качества.")
         return None
 
     print("\n📈 Генерация отчётов...")
@@ -3377,9 +3167,7 @@ def run_ground_truth_evaluation(
     top_methods: List[Tuple[str, float]] = []
     if flat_results:
         df_flat: pd.DataFrame = pd.DataFrame(flat_results)
-        top_series: pd.Series = (
-            df_flat.groupby("Method")["IoU"].mean().sort_values(ascending=False).head(5)
-        )
+        top_series: pd.Series = df_flat.groupby("Method")["IoU"].mean().sort_values(ascending=False).head(5)
         top_methods = list(top_series.items())
 
         print("\n🏆 ТОП-5 методов по среднему IoU:")
@@ -3394,9 +3182,7 @@ def run_ground_truth_evaluation(
 
     # Сводная таблица
     rows: List[Dict[str, Any]] = []
-    for img_name, methods_data in tqdm(
-        gt_results_summary.items(), desc="Ground Truth Testing"
-    ):
+    for img_name, methods_data in tqdm(gt_results_summary.items(), desc="Ground Truth Testing"):
         for method_name, metrics in methods_data.items():
             if "error" not in metrics and "iou" in metrics:
                 rows.append(
@@ -3415,26 +3201,16 @@ def run_ground_truth_evaluation(
     summary_df: Optional[pd.DataFrame] = None
     if rows:
         summary_df = pd.DataFrame(rows)
-        summary_df_sorted = summary_df.sort_values(
-            by=["Image", "IoU"], ascending=[True, False]
-        )
+        summary_df_sorted = summary_df.sort_values(by=["Image", "IoU"], ascending=[True, False])
         print("\nТоп методов по IoU:")
-        print(
-            summary_df_sorted[["Method", "Image", "IoU", "Dice", "Time_s"]].to_string(
-                index=False
-            )
-        )
+        print(summary_df_sorted[["Method", "Image", "IoU", "Dice", "Time_s"]].to_string(index=False))
         summary_df_sorted.to_csv("./data/gt_summary_report.csv", index=False)
         summary_path: Path = Path(output_dir) / "gt_summary_report.csv"
         summary_df_sorted.to_csv(summary_path, index=False, float_format="%.4f")
         print(f"\n💾 Сводка: {summary_path}")
         plt.figure(figsize=(12, 6))
         first_img = list(gt_results_summary.keys())[0]
-        df_plot = (
-            summary_df[summary_df["Image"] == first_img]
-            .sort_values("IoU", ascending=False)
-            .head(10)
-        )
+        df_plot = summary_df[summary_df["Image"] == first_img].sort_values("IoU", ascending=False).head(10)
         if not df_plot.empty:
             plt.barh(df_plot["Method"], df_plot["IoU"])
             plt.xlabel("IoU Score")
@@ -3548,13 +3324,9 @@ def run_augmentation_training_study(
         # "segnet",  # SegNet
     ]
 
-    results_by_model_and_aug: Dict[str, Dict[str, Any]] = {
-        model_type: {} for model_type in model_types
-    }
+    results_by_model_and_aug: Dict[str, Dict[str, Any]] = {model_type: {} for model_type in model_types}
 
-    print(
-        f"\n🔧 План: {len(model_types)} моделей × {len(augmentation_configs)} уровней аугментаций"
-    )
+    print(f"\n🔧 План: {len(model_types)} моделей × {len(augmentation_configs)} уровней аугментаций")
 
     # ──────────────────────────────────────────────────────
     # 3. ЦИКЛ ОБУЧЕНИЯ
@@ -3566,18 +3338,12 @@ def run_augmentation_training_study(
             print(f"{'=' * 60}")
 
             # Настройка энкодера
-            encoder_name: Literal[
-                "resnet34", "resnet50", "resnet101", "mit_b5", "efficientnet-b0"
-            ]
+            encoder_name: Literal["resnet34", "resnet50", "resnet101", "mit_b5", "efficientnet-b0"]
             if model_type in ["fpn_smp", "psp_smp"]:
                 encoder_name = "mit_b5"  # type: ignore[assignment]
             else:
                 encoder_name = "resnet34"  # type: ignore[assignment]
-            variant: str = (
-                "fcn_resnet50"
-                if model_type == "fcn_tv"
-                else "b5" if "mit" in encoder_name else "b5"
-            )
+            variant: str = "fcn_resnet50" if model_type == "fcn_tv" else "b5" if "mit" in encoder_name else "b5"
 
             # Конфиг обучения
             training_config: TrainingConfig = TrainingConfig(
@@ -3598,9 +3364,7 @@ def run_augmentation_training_study(
                 results_by_model_and_aug[model_type][aug_config["level"]] = result
 
                 miou_pct: float = result["best_miou"] * 100
-                print(
-                    f"✅ {model_type} ({aug_config['level']}): Best mIoU = {miou_pct:.2f}%"
-                )
+                print(f"✅ {model_type} ({aug_config['level']}): Best mIoU = {miou_pct:.2f}%")
 
             except Exception as e:
                 print(f"❌ Ошибка обучения {model_type} ({aug_config['level']}): {e}")
@@ -3642,9 +3406,7 @@ def run_augmentation_training_study(
     # ──────────────────────────────────────────────────────
     print("\n🔹 Оценка обученных моделей на валидации...")
 
-    comparison_results: Dict[str, float] = trainer.compare_trained_models(
-        augmentation_level="medium"
-    )
+    comparison_results: Dict[str, float] = trainer.compare_trained_models(augmentation_level="medium")
     print(f"Training results: {comparison_results}")
 
     # Сбор чекпоинтов с `medium` аугментациями
@@ -3738,15 +3500,10 @@ def _generate_augmentation_plots(
         ax = axes[idx]
 
         levels = list(results_by_model_and_aug[model_type].keys())
-        miou_values: List[float] = [
-            results_by_model_and_aug[model_type][level]["best_miou"] * 100
-            for level in levels
-        ]
+        miou_values: List[float] = [results_by_model_and_aug[model_type][level]["best_miou"] * 100 for level in levels]
 
         colors = ["#ffcccc", "#ff9999", "#ff6666"][: len(levels)]
-        bars = ax.bar(
-            levels, miou_values, color=colors, edgecolor="black", linewidth=1.5
-        )
+        bars = ax.bar(levels, miou_values, color=colors, edgecolor="black", linewidth=1.5)
 
         ax.set_title(f"{model_type}", fontsize=12, fontweight="bold")
         ax.set_ylabel("Best mIoU (%)")
@@ -3775,9 +3532,7 @@ def _generate_augmentation_plots(
 
     # График 2: Модели для каждого уровня аугментаций
     if augmentation_configs:
-        fig, axes = plt.subplots(
-            1, len(augmentation_configs), figsize=(6 * len(augmentation_configs), 5)
-        )
+        fig, axes = plt.subplots(1, len(augmentation_configs), figsize=(6 * len(augmentation_configs), 5))
         if len(augmentation_configs) == 1:
             axes = [axes]
 
@@ -3790,21 +3545,15 @@ def _generate_augmentation_plots(
 
             for model_type in model_types:
                 if level in results_by_model_and_aug[model_type]:
-                    model_names.append(
-                        model_type.replace("_smp", "").replace("_tv", "")
-                    )
-                    miou = (
-                        results_by_model_and_aug[model_type][level]["best_miou"] * 100
-                    )
+                    model_names.append(model_type.replace("_smp", "").replace("_tv", ""))
+                    miou = results_by_model_and_aug[model_type][level]["best_miou"] * 100
                     miou_values.append(miou)
 
             if not model_names:
                 continue
 
             colors1: np.ndarray = colormaps["viridis"](np.linspace(0, 1, len(model_names)))
-            bars = ax.bar(
-                model_names, miou_values, color=colors1, edgecolor="black", linewidth=1.5
-            )
+            bars = ax.bar(model_names, miou_values, color=colors1, edgecolor="black", linewidth=1.5)
 
             ax.set_title(f"Аугментации: {level}", fontsize=12, fontweight="bold")
             ax.set_ylabel("Best mIoU (%)")
@@ -3897,11 +3646,7 @@ def _create_augmentation_summary(
                     "Augmentation Level": level,
                     "Best mIoU (%)": result["best_miou"] * 100,
                     "Epochs": result["epochs_trained"],
-                    "Final Val Loss": (
-                        result["final_val_loss"]
-                        if result["final_val_loss"] is not None
-                        else "N/A"
-                    ),
+                    "Final Val Loss": (result["final_val_loss"] if result["final_val_loss"] is not None else "N/A"),
                 }
             )
 
@@ -4008,9 +3753,7 @@ def visualize_gt_results(
 
     # Сбор данных в единый DataFrame
     all_rows: List[Dict[str, Any]] = []
-    for img_name, methods_data in tqdm(
-        results_dict.items(), desc="Visualisation GT Testing"
-    ):
+    for img_name, methods_data in tqdm(results_dict.items(), desc="Visualisation GT Testing"):
         for method_name, metrics in methods_data.items():
             if "error" in metrics or "iou" not in metrics:
                 continue
@@ -4264,12 +4007,8 @@ def _load_images_with_ground_truth(
     """Загружает изображение и GT-маску из репозитория."""
     print(f"📥 Загрузка из репозитория {repo_id}...")
 
-    img_path: str = hf_hub_download(
-        repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset"
-    )
-    mask_path: str = hf_hub_download(
-        repo_id=repo_id, filename="ADE_val_00000001.png", repo_type="dataset"
-    )
+    img_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset")
+    mask_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.png", repo_type="dataset")
 
     img: Image.Image = Image.open(img_path).convert("RGB")
     gt_mask_pil: Image.Image = Image.open(mask_path)
@@ -4282,9 +4021,7 @@ def _load_images_with_ground_truth(
 
     # Конвертация маски в бинарную
     gt_np: npt.NDArray = np.array(gt_mask_pil)
-    print(
-        f"\nДиапазон значений Ground Truth: {gt_np.min()} - {gt_np.max()}, min: {gt_np.min()}, max: {gt_np.max()}"
-    )
+    print(f"\nДиапазон значений Ground Truth: {gt_np.min()} - {gt_np.max()}, min: {gt_np.min()}, max: {gt_np.max()}")
     binary_gt: MaskArray = _convert_multiclass_to_binary(gt_np)
 
     # Сохранение локальных копий
@@ -4313,17 +4050,13 @@ def _convert_multiclass_to_binary(gt_np: npt.NDArray) -> MaskArray:
     counts: np.ndarray
     unique, counts = np.unique(gt_np, return_counts=True)
     bg_class: np.ndarray = unique[np.argmax(counts)]
-    print(
-        f"📊 Статистика GT: Всего классов {len(unique)}. Самый частый: {bg_class} ({np.max(counts)} пикселей)"
-    )
+    print(f"📊 Статистика GT: Всего классов {len(unique)}. Самый частый: {bg_class} ({np.max(counts)} пикселей)")
 
     binary: MaskArray = (gt_np != bg_class).astype(np.uint8) * 255
 
     # fallback: если объектов слишком мало
     if np.sum(binary > 0) < (binary.size * 0.01) and len(unique) > 1:
-        print(
-            "⚠️ Объектов слишком мало по стратегии 'не фон'. Пробуем взять второй по величине класс."
-        )
+        print("⚠️ Объектов слишком мало по стратегии 'не фон'. Пробуем взять второй по величине класс.")
         if len(unique) > 1:
             second_common: np.ndarray = unique[np.argsort(counts)[-2]]
             binary = (gt_np == second_common).astype(np.uint8) * 255
@@ -4405,9 +4138,7 @@ def generate_precision_report(
                 continue
             if precision == "bf16" and torch.cuda.is_available():
                 if torch.cuda.get_device_capability(0)[0] < 8:
-                    print(
-                        f"⚠️  bf16 может работать медленно на {torch.cuda.get_device_name(0)}"
-                    )
+                    print(f"⚠️  bf16 может работать медленно на {torch.cuda.get_device_name(0)}")
 
             try:
                 seg: TorchSegmenter2 = TorchSegmenter2(
@@ -4446,11 +4177,7 @@ def generate_precision_report(
                         "min_time_ms": np.min(times) * 1000,
                         "max_time_ms": np.max(times) * 1000,
                         "iou_vs_fp32": iou,
-                        "memory_mb": (
-                            torch.cuda.memory_allocated() / 1e6
-                            if torch.cuda.is_available()
-                            else 0
-                        ),
+                        "memory_mb": (torch.cuda.memory_allocated() / 1e6 if torch.cuda.is_available() else 0),
                     }
                 )
 
@@ -4466,19 +4193,11 @@ def generate_precision_report(
         # Pivot-таблица для наглядности
         print(f"\n📊 Отчёт сохранён: {output_path}")
         print("\n⏱️  Время выполнения (мс):")
-        print(
-            df.pivot_table(
-                index="method", columns="precision", values="mean_time_ms"
-            ).round(2)
-        )
+        print(df.pivot_table(index="method", columns="precision", values="mean_time_ms").round(2))
 
         if compute_metrics:
             print("\n🎯 IoU относительно fp32:")
-            print(
-                df.pivot_table(
-                    index="method", columns="precision", values="iou_vs_fp32"
-                ).round(4)
-            )
+            print(df.pivot_table(index="method", columns="precision", values="iou_vs_fp32").round(4))
 
         return df
     else:
@@ -4596,27 +4315,21 @@ def save_metrics_report(
 
 
 # ──────────────────────────────────────────────────────────────────────
-def test_neural_segmentation_variants() -> (
-    Tuple[Optional[NeuralSegmenter], Optional[Dict[str, Any]]]
-):
+def test_neural_segmentation_variants() -> Tuple[Optional[NeuralSegmenter], Optional[Dict[str, Any]]]:
     """Тестирование различных вариантов нейросетевой сегментации."""
     print("\n" + "=" * 60)
     print("ТЕСТИРОВАНИЕ ВАРИАНТОВ НЕЙРОСЕТЕВОЙ СЕГМЕНТАЦИИ")
     print("=" * 60)
 
     # Загрузка тестового изображения
-    img_url: str = (
-        "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg"
-    )
+    img_url: str = "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg"
 
     try:
         response: requests.Response = requests.get(img_url)
         test_image: Image.Image = Image.open(BytesIO(response.content))
 
         # Создаем нейросетевой сегментатор
-        segmenter: NeuralSegmenter = NeuralSegmenter(
-            local_path="/home/yamshchikov/models/segformer-b5-ready"
-        )
+        segmenter: NeuralSegmenter = NeuralSegmenter(local_path="/home/yamshchikov/models/segformer-b5-ready")
 
         # Вариант 1: Различные значения alpha
         print("\n1. Тестирование разных значений alpha:")
@@ -4655,9 +4368,7 @@ def test_neural_segmentation_variants() -> (
         )[:5]
 
         for class_name, info in sorted_classes:
-            print(
-                f"  {class_name}: {info['percentage']:.1f}% ({info['pixel_count']} пикселей)"
-            )
+            print(f"  {class_name}: {info['percentage']:.1f}% ({info['pixel_count']} пикселей)")
 
         # Вариант 3: segment_with_mask
         print("\n3. Тестирование segment_with_mask:")
@@ -4781,9 +4492,7 @@ def _print_cpu_cuda_summary(df_results: BenchmarkResult) -> None:
         cuda_time: float = cuda_data["mean_time"].values[0] * 1000
 
         speedup: float = cpu_time / cuda_time
-        print(
-            f"{method:40s}: CPU={cpu_time:7.2f}ms, CUDA={cuda_time:7.2f}ms, ⚡ Speedup={speedup:.2f}x"
-        )
+        print(f"{method:40s}: CPU={cpu_time:7.2f}ms, CUDA={cuda_time:7.2f}ms, ⚡ Speedup={speedup:.2f}x")
 
     print("=" * 80)
 
@@ -4812,11 +4521,7 @@ def _filter_classical_methods(all_methods: SegmenterDict) -> SegmenterDict:
         "upernet",
     ]
 
-    return {
-        name: seg
-        for name, seg in all_methods.items()
-        if not any(kw in name.lower() for kw in neural_keywords)
-    }
+    return {name: seg for name, seg in all_methods.items() if not any(kw in name.lower() for kw in neural_keywords)}
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -4898,9 +4603,7 @@ def _create_backend_methods(
 
                 trt_model: Any = load_trt_model(trt_path)
                 if trt_model is not None:
-                    methods[f"{method_name}_TRT"] = TRTSegmenter(
-                        method_name, trt_model, device="cuda"
-                    )
+                    methods[f"{method_name}_TRT"] = TRTSegmenter(method_name, trt_model, device="cuda")
                     print(f"  TRT OK: {method_name}")
             except Exception as e:
                 print(f"  TRT init failed {method_name}: {e}")
@@ -4946,9 +4649,7 @@ def _get_device_metrics(device: str) -> Dict[str, Any]:
         return {
             "GPU_Name": torch.cuda.get_device_name(0),
             "Compute_Cap": torch.cuda.get_device_capability(0),
-            "Total_VRAM_GB": round(
-                torch.cuda.get_device_properties(0).total_memory / 1024**3, 2
-            ),
+            "Total_VRAM_GB": round(torch.cuda.get_device_properties(0).total_memory / 1024**3, 2),
             "Curr_Alloc_MB": round(torch.cuda.memory_allocated() / 1024**2, 2),
             "Peak_Alloc_MB": round(torch.cuda.max_memory_allocated() / 1024**2, 2),
             "Curr_Reserv_MB": round(torch.cuda.memory_reserved() / 1024**2, 2),
@@ -4974,9 +4675,7 @@ def run_optimization_benchmarks(
     # Dict[str, Any] вместо Dict[str, Optional[bool]], т.к. возвращаются также строки
     caps: Dict[str, Any] = get_device_capabilities()
     print(f"🖥️  System Info: {caps.get('device_name') if caps.get('cuda') else 'CPU'}")
-    print(
-        f" CUDA BF16 Support: {caps.get('bf16_support')} | INT8 Support: {caps.get('int8_support')}"
-    )
+    print(f" CUDA BF16 Support: {caps.get('bf16_support')} | INT8 Support: {caps.get('int8_support')}")
     print("=" * 80)
 
     # --- НАСТРОЙКИ ТЕСТА (МАТРИЦА) ---
@@ -5061,9 +4760,7 @@ def run_optimization_benchmarks(
         for cfg in configs:
             print(f"   ▶ Запуск: {cfg['name']} ... ", end="", flush=True)
 
-            seg: Optional[TorchSegmenter2] = create_segmenter_config(
-                method, cfg["device"], **cfg["kwargs"]
-            )
+            seg: Optional[TorchSegmenter2] = create_segmenter_config(method, cfg["device"], **cfg["kwargs"])
             if seg is None:
                 print("❌ Пропуск")
                 continue
@@ -5072,13 +4769,9 @@ def run_optimization_benchmarks(
                 torch.cuda.reset_peak_memory_stats()
 
             try:
-                stats: Dict[str, Any] = seg.profile_segmentation(
-                    segmenter=seg, image=img_array, n_runs=100, warmup=20
-                )
+                stats: Dict[str, Any] = seg.profile_segmentation(segmenter=seg, image=img_array, n_runs=100, warmup=20)
                 mean_time_ms: float = cast(float, stats["mean_time_s"]) * 1000
-                print(
-                    f"⏱️ {stats['method']} | {mean_time_ms:.2f}ms | Device: {stats['device']}"
-                )
+                print(f"⏱️ {stats['method']} | {mean_time_ms:.2f}ms | Device: {stats['device']}")
 
                 dev_metrics: Dict[str, Any] = _get_device_metrics(cfg["device"])
 
@@ -5103,9 +4796,7 @@ def run_optimization_benchmarks(
                         "Peak_Reserv_MB": dev_metrics["Peak_Reserv_MB"],
                     }
                 )
-                print(
-                    f"✅ {mean_time_ms:.2f} ms ({speedup:.2f}x) | Mem: {dev_metrics['Peak_Alloc_MB']:.1f}MB"
-                )
+                print(f"✅ {mean_time_ms:.2f} ms ({speedup:.2f}x) | Mem: {dev_metrics['Peak_Alloc_MB']:.1f}MB")
 
             except Exception as e:
                 print(f"❌ Ошибка профилирования: {e}")
@@ -5113,12 +4804,10 @@ def run_optimization_benchmarks(
     print("\n" + "=" * 80)
     print("📊 СВОДНАЯ ТАБЛИЦА ПРОИЗВОДИТЕЛЬНОСТИ")
     print("=" * 80)
-    
+
     if all_results:
         df_summary: pd.DataFrame = pd.DataFrame(all_results)
-        df_summary = df_summary.sort_values(
-            ["Method", "Time (ms)"], ascending=[True, True]
-        )
+        df_summary = df_summary.sort_values(["Method", "Time (ms)"], ascending=[True, True])
         display_cols: List[str] = [
             "Method",
             "Config",
@@ -5133,7 +4822,7 @@ def run_optimization_benchmarks(
         for col in display_cols:
             if col not in df_summary.columns:
                 df_summary[col] = "N/A" if "Cap" in col or "VRAM" in col else 0.0
-                
+
         df_display: pd.DataFrame = df_summary[display_cols].copy()
         df_display["Time (ms)"] = df_summary["Time (ms)"].apply(lambda x: f"{x:.2f}")
         df_display["Speedup"] = df_summary["Speedup"].apply(lambda x: f"{x:.2f}x")
@@ -5156,6 +4845,7 @@ def run_optimization_benchmarks(
         print("Нет данных для отображения.")
         return None
 
+
 # ──────────────────────────────────────────────────────────────────────
 def benchmark_with_baseline(
     segmenter: TorchSegmenter2,
@@ -5176,9 +4866,7 @@ def benchmark_with_baseline(
     results["baseline_fp32_eager"] = baseline_time
 
     for config_name, config_params in configurations.items():
-        seg: TorchSegmenter2 = TorchSegmenter2(
-            method=segmenter.method, device="cuda", **config_params
-        )
+        seg: TorchSegmenter2 = TorchSegmenter2(method=segmenter.method, device="cuda", **config_params)
         time_ms: float = cast(float, seg.profile_method(image, n_runs=100)["mean_time_ms"])
         results[config_name] = {
             "time_ms": time_ms,

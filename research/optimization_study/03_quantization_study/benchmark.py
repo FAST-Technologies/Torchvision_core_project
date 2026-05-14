@@ -20,9 +20,7 @@ def parse_args():
     )
 
     # Входные данные
-    parser.add_argument(
-        "--image", type=str, required=True, help="Путь к тестовому изображению"
-    )
+    parser.add_argument("--image", type=str, required=True, help="Путь к тестовому изображению")
     parser.add_argument(
         "--calibration-dir",
         type=str,
@@ -47,9 +45,7 @@ def parse_args():
     )
 
     # Параметры бенчмарка
-    parser.add_argument(
-        "--n-runs", type=int, default=50, help="Количество запусков для замера"
-    )
+    parser.add_argument("--n-runs", type=int, default=50, help="Количество запусков для замера")
     parser.add_argument(
         "--calibration-steps",
         type=int,
@@ -67,9 +63,7 @@ def parse_args():
     )
 
     # Вывод
-    parser.add_argument(
-        "--output", type=str, default=None, help="Папка для сохранения результатов"
-    )
+    parser.add_argument("--output", type=str, default=None, help="Папка для сохранения результатов")
     parser.add_argument("--verbose", "-v", action="store_true", help="Подробный вывод")
 
     # Визуализация
@@ -124,9 +118,7 @@ def main():
     # Загрузка калибровочных данных
     calibration_data = None
     if args.calibration_dir and "int8_static" in args.schemes:
-        calibration_data = load_calibration_images(
-            args.calibration_dir, max_images=args.calibration_steps
-        )
+        calibration_data = load_calibration_images(args.calibration_dir, max_images=args.calibration_steps)
         print(f"📦 Loaded {len(calibration_data)} calibration images")
 
     # Инициализация сегментера
@@ -192,10 +184,7 @@ def main():
                 continue
             avg_speedup = np.mean([r["speedup"] for r in scheme_results])
             avg_agree = np.mean([r["pixel_agreement"] for r in scheme_results])
-            print(
-                f"   {scheme:15s}: {format_speedup(avg_speedup)} speedup, "
-                f"{avg_agree*100:.2f}% agreement"
-            )
+            print(f"   {scheme:15s}: {format_speedup(avg_speedup)} speedup, " f"{avg_agree*100:.2f}% agreement")
 
     print("=" * 60)
 

@@ -13,9 +13,7 @@ from typing import Dict
 with open("test_images/coco_img.jpg", "rb") as f:
     files = {"file": f}
     data: Dict[str, str] = {"goal": "balanced"}
-    r: requests.Response = requests.post(
-        "http://localhost:8000/api/segment", files=files, data=data
-    )
+    r: requests.Response = requests.post("http://localhost:8000/api/segment", files=files, data=data)
 
 print(f"Status: {r.status_code}")
 print(f"Response keys: {r.json().keys()}")

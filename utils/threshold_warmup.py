@@ -83,9 +83,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -287,9 +285,7 @@ class ThresholdWarmUp:
             method_results: PatternResults = {"patterns": {}}
 
             for pattern in edge_patterns:
-                img: np.ndarray = ThresholdWarmUp._create_edge_pattern(
-                    256, 256, pattern
-                )
+                img: np.ndarray = ThresholdWarmUp._create_edge_pattern(256, 256, pattern)
 
                 times: List[float] = []
                 for _ in range(n_runs_per_pattern):

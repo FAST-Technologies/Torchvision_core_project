@@ -15,7 +15,7 @@
 
 - 🔧 Абстрактные методы (требуют реализации в наследниках):
   • segment(image, **kwargs) → BinaryMask: Основная сегментация
-  • segment_with_mask(image, **kwargs) → (BinaryMask, Optional[ProbabilityMask]): 
+  • segment_with_mask(image, **kwargs) → (BinaryMask, Optional[ProbabilityMask]):
     Сегментация с возвратом вероятностной маски
 
 - 🛠️ Готовые утилиты (доступны всем наследникам):
@@ -45,13 +45,13 @@ Workflow для создания нового сегментера:
 4. Использовать готовые утилиты: `visualize()`, `evaluate_metrics()`, `_ensure_binary_mask()`
 
 Примечание:
-- Все методы сегментации должны возвращать маску в формате `BinaryMask`: 
+- Все методы сегментации должны возвращать маску в формате `BinaryMask`:
   форма `(H, W)`, dtype `uint8`, значения `{0, 255}` (0=фон, 255=объект).
-- Для вероятностных выходов используйте тип `ProbabilityMask` и возвращайте `None`, 
+- Для вероятностных выходов используйте тип `ProbabilityMask` и возвращайте `None`,
   если метод не поддерживает вывод уверенности.
-- Метрики рассчитываются через делегирование `SegmentationMetrics.calculate_all_metrics()` — 
+- Метрики рассчитываются через делегирование `SegmentationMetrics.calculate_all_metrics()` —
   убедитесь в наличии этого модуля в проекте.
-- Для массового тестирования используйте обёртки: `BatchClassicTester`, 
+- Для массового тестирования используйте обёртки: `BatchClassicTester`,
   `SegmentationTester`, `TorchImplementationValidator`.
 """
 
@@ -87,9 +87,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -126,9 +124,7 @@ class SegmentationMetricsProtocol(Protocol):
     """
 
     @staticmethod
-    def calculate_all_metrics(
-        pred_mask: BinaryMask, gt_mask: BinaryMask, threshold: float
-    ) -> MetricsDict:
+    def calculate_all_metrics(pred_mask: BinaryMask, gt_mask: BinaryMask, threshold: float) -> MetricsDict:
         """Рассчитывает все метрики сегментации.
 
         Args:
@@ -204,9 +200,7 @@ class BaseSegmenter(ABC):
 
     # ──────────────────────────────────────────────────────────────────────
     @abstractmethod
-    def segment_with_mask(
-        self, image: ImageInput, **kwargs: Any
-    ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
+    def segment_with_mask(self, image: ImageInput, **kwargs: Any) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
         """Сегментация с возвратом бинарной и вероятностной масок.
 
         Вероятностная маска может быть `None`, если метод не поддерживает
@@ -304,8 +298,7 @@ class BaseSegmenter(ABC):
                 result = cv2.cvtColor(result, cv2.COLOR_RGB2GRAY)
         else:
             raise TypeError(
-                f"Неподдерживаемый тип изображения: {type(image)}. "
-                f"Ожидается один из: {ImageInput.__args__}"
+                f"Неподдерживаемый тип изображения: {type(image)}. " f"Ожидается один из: {ImageInput.__args__}"
             )
         if target_size is not None:
             interpolation: int = (
@@ -351,9 +344,7 @@ class BaseSegmenter(ABC):
         """
         # Проверка размеров
         if image.shape[:2] != mask.shape[:2]:
-            raise ValueError(
-                f"Размеры изображения {image.shape[:2]} и маски {mask.shape[:2]} не совпадают"
-            )
+            raise ValueError(f"Размеры изображения {image.shape[:2]} и маски {mask.shape[:2]} не совпадают")
         colored_mask: NumpyImage = np.zeros_like(image)
         colored_mask[mask > 0] = overlay_color
 
@@ -362,9 +353,7 @@ class BaseSegmenter(ABC):
         return result if return_numpy else Image.fromarray(result)
 
     # ──────────────────────────────────────────────────────────────────────
-    def evaluate_metrics(
-        self, pred_mask: BinaryMask, gt_mask: BinaryMask, threshold: float = 0.5
-    ) -> MetricsDict:
+    def evaluate_metrics(self, pred_mask: BinaryMask, gt_mask: BinaryMask, threshold: float = 0.5) -> MetricsDict:
         """Оценка качества сегментации с помощью различных метрик.
 
         Делегирует расчёт `SegmentationMetrics.calculate_all_metrics`.
@@ -382,9 +371,7 @@ class BaseSegmenter(ABC):
         pred_binary: BinaryMask = self._ensure_binary_mask(pred_mask, threshold)
         gt_binary: BinaryMask = self._ensure_binary_mask(gt_mask, threshold)
 
-        return self.metrics_calculator.calculate_all_metrics(
-            pred_binary, gt_binary, threshold
-        )
+        return self.metrics_calculator.calculate_all_metrics(pred_binary, gt_binary, threshold)
 
     # ──────────────────────────────────────────────────────────────────────
     def segment_and_evaluate(
@@ -419,9 +406,7 @@ class BaseSegmenter(ABC):
     # OVERLOAD ДЛЯ __call__
     # ──────────────────────────────────────────────────────────────────────
     @overload
-    def __call__(
-        self, image: ImageInput, return_mask: Literal[False] = False, **kwargs: Any
-    ) -> BinaryMask: ...
+    def __call__(self, image: ImageInput, return_mask: Literal[False] = False, **kwargs: Any) -> BinaryMask: ...
 
     # ──────────────────────────────────────────────────────────────────────
     @overload
@@ -449,9 +434,7 @@ class BaseSegmenter(ABC):
         return self.segment(image, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _ensure_binary_mask(
-        self, mask: Union[BinaryMask, ProbabilityMask], threshold: float = 0.5
-    ) -> BinaryMask:
+    def _ensure_binary_mask(self, mask: Union[BinaryMask, ProbabilityMask], threshold: float = 0.5) -> BinaryMask:
         """Приведение маски к бинарному формату {0, 255}.
 
         Обрабатывает:

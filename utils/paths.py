@@ -119,9 +119,7 @@ def resolve_relative_path(base: PathLike, relative: str) -> Path:
     try:
         target_path.relative_to(base_path)
     except ValueError:
-        raise ValueError(
-            f"Path traversal detected: {relative} resolves outside {base_path}"
-        )
+        raise ValueError(f"Path traversal detected: {relative} resolves outside {base_path}")
 
     return target_path
 

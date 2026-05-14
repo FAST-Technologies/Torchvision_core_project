@@ -61,9 +61,7 @@ class ONNXOptimizer:
         self.onnx_models: Dict[str, str] = {}
 
         # Авто-детект провайдеров
-        self.available_providers = [
-            p for p in self.SUPPORTED_PROVIDERS if p in get_available_providers()
-        ]
+        self.available_providers = [p for p in self.SUPPORTED_PROVIDERS if p in get_available_providers()]
         if not self.available_providers:
             warnings.warn("⚠️ No ONNX Runtime providers detected, using CPU")
             self.available_providers = ["CPUExecutionProvider"]
@@ -106,9 +104,7 @@ class ONNXOptimizer:
         original_func = self.segmenter.method_map[method_name]
 
         # Создаём пример входа
-        dummy_input = torch.randn(
-            1, *self.image_shape, device=self.device, dtype=torch.float32
-        )
+        dummy_input = torch.randn(1, *self.image_shape, device=self.device, dtype=torch.float32)
 
         # Настройки dynamic axes
         if dynamic_axes is None:
@@ -189,9 +185,7 @@ class ONNXOptimizer:
 
         # Настройки сессии
         sess_options = ort.SessionOptions()
-        sess_options.graph_optimization_level = (
-            ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        )
+        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         if enable_profiling:
             sess_options.enable_profiling = True
 
@@ -238,9 +232,7 @@ class ONNXOptimizer:
         original_func = self.segmenter.method_map[method_name]
 
         # Входной тензор
-        dummy_input = torch.randn(
-            1, *self.image_shape, device=self.device, dtype=torch.float32
-        )
+        dummy_input = torch.randn(1, *self.image_shape, device=self.device, dtype=torch.float32)
 
         # === Замер оригинала (Torch) ===
         warmup_inference(original_func, dummy_input, n_warmup)

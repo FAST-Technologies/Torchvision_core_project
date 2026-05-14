@@ -164,13 +164,9 @@ class JITCompiler:
         start_time = time.perf_counter()
 
         if strategy == "script":
-            compiled = self._compile_script(
-                original_func, example_input, optimize=self.config.jit_optimize
-            )
+            compiled = self._compile_script(original_func, example_input, optimize=self.config.jit_optimize)
         elif strategy == "trace":
-            compiled = self._compile_trace(
-                original_func, example_input, optimize=self.config.jit_optimize
-            )
+            compiled = self._compile_trace(original_func, example_input, optimize=self.config.jit_optimize)
         else:
             raise ValueError(f"Unknown JIT strategy: {strategy}")
 
@@ -185,10 +181,7 @@ class JITCompiler:
             "strategy": strategy,
         }
         if self.config.verbose:
-            print(
-                f"✅ Compiled '{method_name}' via jit.{strategy} "
-                f"({compile_time*1000:.1f} ms)"
-            )
+            print(f"✅ Compiled '{method_name}' via jit.{strategy} " f"({compile_time*1000:.1f} ms)")
 
         return compiled
 
@@ -265,9 +258,7 @@ class JITCompiler:
         }
 
     @staticmethod
-    def script_method(
-        func: Callable, example_input: torch.Tensor, optimize: bool = True
-    ) -> torch.jit.ScriptFunction:
+    def script_method(func: Callable, example_input: torch.Tensor, optimize: bool = True) -> torch.jit.ScriptFunction:
         """Компиляция через torch.jit.script"""
 
         # Для простых функций можно использовать script напрямую
@@ -285,14 +276,10 @@ class JITCompiler:
         return scripted
 
     @staticmethod
-    def trace_method(
-        func: Callable, example_input: torch.Tensor, check_trace: bool = True
-    ) -> torch.jit.TracedModule:
+    def trace_method(func: Callable, example_input: torch.Tensor, check_trace: bool = True) -> torch.jit.TracedModule:
         """Компиляция через torch.jit.trace"""
 
-        traced = torch.jit.trace(
-            func, example_input, check_trace=check_trace, strict=False
-        )
+        traced = torch.jit.trace(func, example_input, check_trace=check_trace, strict=False)
 
         return torch.jit.freeze(traced)
 

@@ -11,7 +11,7 @@
 - Обработку специальных значений (ignore_index)
 - Разделение на training/validation наборы
 
-Тесты используют временные директории для изоляции и не требуют 
+Тесты используют временные директории для изоляции и не требуют
 реального датасета на диске.
 
 Example:
@@ -37,14 +37,14 @@ import torch
 def import_ade20k():
     """Динамически импортирует класс `ADE20KDataset`.
 
-    Использует отложенный импорт для избежания циклических зависимостей 
+    Использует отложенный импорт для избежания циклических зависимостей
     и ускорения загрузки тестового модуля.
 
     Returns:
         Type[ADE20KDataset]: Класс датасета для последующего использования.
 
     Note:
-        Функция вынесена отдельно, чтобы можно было протестировать 
+        Функция вынесена отдельно, чтобы можно было протестировать
         сам факт импорта без создания экземпляра.
     """
     from dataseters.ADE20KDataset import ADE20KDataset
@@ -56,7 +56,7 @@ def import_ade20k():
 class TestADE20KDataset:
     """Набор тестов для класса `ADE20KDataset`.
 
-    Проверяет корректность работы с датасетом семантической сегментации 
+    Проверяет корректность работы с датасетом семантической сегментации
     ADE20K, включая загрузку, аугментации и формат данных.
     """
 
@@ -64,7 +64,7 @@ class TestADE20KDataset:
     def temp_dataset_dir(self, tmp_path: Path) -> str:
         """Создаёт временную структуру директорий, имитирующую ADE20K.
 
-        Генерирует минимальную файловую структуру, необходимую для 
+        Генерирует минимальную файловую структуру, необходимую для
         инициализации `ADE20KDataset`:
         ```
         tmp_path/
@@ -103,14 +103,10 @@ class TestADE20KDataset:
 
         # Создаём тестовые изображения
         for i in range(3):
-            img: Image.Image = Image.fromarray(
-                np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
-            )
+            img: Image.Image = Image.fromarray(np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8))
             img.save(images_dir / f"test_{i}.jpg")
 
-            mask: Image.Image = Image.fromarray(
-                np.random.randint(0, 150, (256, 256), dtype=np.uint8)
-            )
+            mask: Image.Image = Image.fromarray(np.random.randint(0, 150, (256, 256), dtype=np.uint8))
             mask.save(masks_dir / f"test_{i}.png")
 
         return str(tmp_path)
@@ -119,7 +115,7 @@ class TestADE20KDataset:
     def test_import(self) -> None:
         """Проверяет успешный импорт класса `ADE20KDataset`.
 
-        Убеждается, что модуль доступен и класс может быть импортирован 
+        Убеждается, что модуль доступен и класс может быть импортирован
         без ошибок.
 
         Raises:
@@ -141,7 +137,7 @@ class TestADE20KDataset:
             temp_dataset_dir (Path): Путь к временной структуре датасета.
 
         Raises:
-            AssertionError: Если длина датасета или размер изображения 
+            AssertionError: Если длина датасета или размер изображения
             не соответствуют ожидаемым.
         """
         ADE20KDataset = import_ade20k()
@@ -167,7 +163,7 @@ class TestADE20KDataset:
             temp_dataset_dir (Path): Путь к временной структуре датасета.
 
         Raises:
-            AssertionError: Если структура или типы возвращаемых данных 
+            AssertionError: Если структура или типы возвращаемых данных
             не соответствуют ожидаемым.
         """
         ADE20KDataset = import_ade20k()
@@ -197,18 +193,18 @@ class TestADE20KDataset:
 
         Проверяет, что при `augment=True`:
         1. Датасет инициализируется без ошибок
-        2. Аугментации применяются детерминировано (одинаковый seed) 
+        2. Аугментации применяются детерминировано (одинаковый seed)
            или стохастически (разные результаты при повторных вызовах)
         3. Размеры выходных данных остаются неизменными
 
-        Примечание: Тест проверяет только форму, а не содержание, 
+        Примечание: Тест проверяет только форму, а не содержание,
         так как аугментации стохастичны.
 
         Args:
             temp_dataset_dir (Path): Путь к временной структуре датасета.
 
         Raises:
-            AssertionError: Если формы масок при повторных вызовах 
+            AssertionError: Если формы масок при повторных вызовах
             не совпадают.
         """
         ADE20KDataset = import_ade20k()
@@ -228,7 +224,7 @@ class TestADE20KDataset:
     def test_subset_fraction(self, temp_dataset_dir: Path) -> None:
         """Тестирует параметр `subset_fraction` для выборки части данных.
 
-        Проверяет, что при `subset_fraction=0.5` датасет содержит 
+        Проверяет, что при `subset_fraction=0.5` датасет содержит
         не более 50% от общего количества образцов (в данном случае ≤2 из 3).
 
         Используется для:
@@ -254,7 +250,7 @@ class TestADE20KDataset:
     def test_ignore_index_in_mask(self, temp_dataset_dir: Path) -> None:
         """Тестирует обработку параметра `ignore_index` в масках.
 
-        Проверяет, что значения, равные `ignore_index` (по умолчанию 255), 
+        Проверяет, что значения, равные `ignore_index` (по умолчанию 255),
         корректно исключаются из расчёта метрик:
         - В маске остаются только значения в диапазоне [0, 149]
         - Значение 255 не учитывается как класс
@@ -282,14 +278,14 @@ class TestADE20KDataset:
     def test_validation_split(self, temp_dataset_dir) -> None:
         """Тестирует загрузку валидационного набора данных.
 
-        Проверяет, что при `split="validation"` датасет корректно 
+        Проверяет, что при `split="validation"` датасет корректно
         ищет файлы в директории `validation/` вместо `training/`.
 
         Args:
             temp_dataset_dir: Путь к временной структуре датасета.
 
         Raises:
-            AssertionError: Если количество образцов в валидационном 
+            AssertionError: Если количество образцов в валидационном
             наборе не равно 1 (созданному тестовому файлу).
         """
         ADE20KDataset = import_ade20k()
@@ -301,13 +297,9 @@ class TestADE20KDataset:
         val_masks.mkdir(parents=True)
 
         # Создаём тестовые файлы для валидации
-        img: Image.Image = Image.fromarray(
-            np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
-        )
+        img: Image.Image = Image.fromarray(np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8))
         img.save(val_images / "val_0.jpg")
-        mask: Image.Image = Image.fromarray(
-            np.random.randint(0, 150, (256, 256), dtype=np.uint8)
-        )
+        mask: Image.Image = Image.fromarray(np.random.randint(0, 150, (256, 256), dtype=np.uint8))
         mask.save(val_masks / "val_0.png")
 
         dataset = ADE20KDataset(root_dir=temp_dataset_dir, split="validation")

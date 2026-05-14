@@ -75,9 +75,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -90,9 +88,7 @@ ImageArray = np.ndarray  # RGB/Grayscale: HxW or HxWxC
 ImageInput = Union[str, np.ndarray, Image.Image]
 MetricDict = Dict[str, float]
 PathLike = Union[str, Path]
-SegmenterClass = Type[
-    Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter]
-]
+SegmenterClass = Type[Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter]]
 ValidationStatus = Literal["PASS", "WARNING", "FAIL"]
 
 
@@ -289,9 +285,7 @@ class TorchImplementationValidator:
         }
 
     @staticmethod
-    def _filter_params(
-        segmenter_class: SegmenterClass, params: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _filter_params(segmenter_class: SegmenterClass, params: Dict[str, Any]) -> Dict[str, Any]:
         """Фильтрует параметры, оставляя только поддерживаемые сигнатурой __init__ класса.
 
         Предотвращает ошибки TypeError при передаче параметров, специфичных для
@@ -362,9 +356,7 @@ class TorchImplementationValidator:
         return mask
 
     @staticmethod
-    def _prepare_torch_params(
-        params: Dict[str, Any], use_torch2: bool = False
-    ) -> Dict[str, Any]:
+    def _prepare_torch_params(params: Dict[str, Any], use_torch2: bool = False) -> Dict[str, Any]:
         """Подготавливает параметры для TorchSegmenter/TorchSegmenter2.
 
         Для TorchSegmenter2:
@@ -474,15 +466,11 @@ class TorchImplementationValidator:
             - Метрики рассчитываются между двумя предсказаниями, а не против ground truth —
               это проверка консистентности реализаций, а не качества сегментации.
         """
-        print(
-            f"\n{'=' * 60}\n{status_message}\nСравнение: {first_method_name} vs {second_method_name}\n{'=' * 60}"
-        )
+        print(f"\n{'=' * 60}\n{status_message}\nСравнение: {first_method_name} vs {second_method_name}\n{'=' * 60}")
         results: Dict[str, Any] = {}
         img_array: ImageArray = self._load_image(image_path)
 
-        is_first_torch2 = (
-            first_segmenter_class == TorchSegmenter2
-        ) or use_first_method_features
+        is_first_torch2 = (first_segmenter_class == TorchSegmenter2) or use_first_method_features
 
         for method_name, params in methods_list:
             print(f"\n📊 Метод: {method_name}")
@@ -492,9 +480,7 @@ class TorchImplementationValidator:
                 # ──────────────────────────────────────────────────────
                 first_params = self._filter_params(first_segmenter_class, params.copy())
                 if is_first_torch2:
-                    first_params = self._prepare_torch_params(
-                        first_params, use_torch2=True
-                    )
+                    first_params = self._prepare_torch_params(first_params, use_torch2=True)
                 if str(self.device) == "cuda":
                     torch.cuda.synchronize()
                 start_method_1_time: float = time.perf_counter()
@@ -502,17 +488,13 @@ class TorchImplementationValidator:
                 mask1_raw = segmenter1.segment(img_array, **params)
                 if str(self.device) == "cuda":
                     torch.cuda.synchronize()
-                execution_method_1_time: float = (
-                    time.perf_counter() - start_method_1_time
-                )
+                execution_method_1_time: float = time.perf_counter() - start_method_1_time
                 mask1: MaskArray = self._normalize_mask(mask1_raw)
 
                 # ──────────────────────────────────────────────────────
                 # Референсная реализация
                 # ──────────────────────────────────────────────────────
-                ref_params: Dict[str, Any] = self._filter_params(
-                    second_segmenter_class, params.copy()
-                )
+                ref_params: Dict[str, Any] = self._filter_params(second_segmenter_class, params.copy())
                 ref_params["postprocess"] = False
                 if str(self.device) == "cuda":
                     torch.cuda.synchronize()
@@ -521,14 +503,10 @@ class TorchImplementationValidator:
                 mask2_raw = segmenter2.segment(img_array, **ref_params)
                 if str(self.device) == "cuda":
                     torch.cuda.synchronize()
-                execution_method_2_time: float = (
-                    time.perf_counter() - start_method_2_time
-                )
+                execution_method_2_time: float = time.perf_counter() - start_method_2_time
 
                 mask2: MaskArray = self._normalize_mask(mask2_raw)
-                difference_methods_time: float = abs(
-                    execution_method_2_time - execution_method_1_time
-                )
+                difference_methods_time: float = abs(execution_method_2_time - execution_method_1_time)
 
                 # ──────────────────────────────────────────────────────
                 # Метрики соответствия
@@ -541,21 +519,15 @@ class TorchImplementationValidator:
                         "first_method_time": execution_method_1_time,
                         "second_method_time": execution_method_2_time,
                         "methods_time_difference": difference_methods_time,
-                        "first_method_coverage": float(
-                            np.sum(mask1 > 0) / mask1.size * 100
-                        ),
-                        "second_method_coverage": float(
-                            np.sum(mask2 > 0) / mask2.size * 100
-                        ),
+                        "first_method_coverage": float(np.sum(mask1 > 0) / mask1.size * 100),
+                        "second_method_coverage": float(np.sum(mask2 > 0) / mask2.size * 100),
                     }
                 )
 
                 # ──────────────────────────────────────────────────────
                 # Статус валидации
                 # ──────────────────────────────────────────────────────
-                validation_status: ValidationStatus = self._check_validation_status(
-                    metrics
-                )
+                validation_status: ValidationStatus = self._check_validation_status(metrics)
 
                 results[method_name] = {
                     "first_method_mask": mask1,
@@ -582,9 +554,7 @@ class TorchImplementationValidator:
                 print(f"   {status_icon} Recall: {metrics['recall']:.4f}")
                 print(f"   {status_icon} F1-Score: {metrics['f1_score']:.4f}")
                 print(f"   {status_icon} MAE: {metrics['mae']:.4f}")
-                print(
-                    f"   {status_icon} Pixel Accuracy: {metrics['pixel_accuracy']:.4f}"
-                )
+                print(f"   {status_icon} Pixel Accuracy: {metrics['pixel_accuracy']:.4f}")
                 print(f"   Hausdorf distance: {metrics['hausdorff_distance']:.4f}")
 
                 print(f"   Predicted Area: {metrics['predicted_area']:.4f}")
@@ -693,9 +663,7 @@ class TorchImplementationValidator:
             second_method_name: Название второго метода.
         """
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        results_dir: str = os.path.join(
-            self.output_dir, f"{prefix}_{reference}_{timestamp}"
-        )
+        results_dir: str = os.path.join(self.output_dir, f"{prefix}_{reference}_{timestamp}")
         os.makedirs(results_dir, exist_ok=True)
 
         # Сохраняем маски и метрики
@@ -794,9 +762,7 @@ class TorchImplementationValidator:
 
             # Reference маска
             axes[row, 2].imshow(mask_b_np, cmap="gray")
-            axes[row, 2].set_title(
-                f"{method}\n{second_method_name.upper()}", fontsize=8
-            )
+            axes[row, 2].set_title(f"{method}\n{second_method_name.upper()}", fontsize=8)
             axes[row, 2].axis("off")
 
             # Heatmap разности
@@ -906,23 +872,15 @@ class TorchImplementationValidator:
             report_lines.append(f"Использован TorchSegmenter2: {torch2_count} методов")
 
         if total_methods > 0:
-            report_lines.append(
-                f"✅ PASS: {passed_methods} ({passed_methods / total_methods * 100:.2f}%)"
-            )
-            report_lines.append(
-                f"⚠️ WARNING: {warning_methods} ({warning_methods / total_methods * 100:.2f}%)"
-            )
-            report_lines.append(
-                f"❌ FAIL: {failed_methods} ({failed_methods / total_methods * 100:.2f}%)"
-            )
+            report_lines.append(f"✅ PASS: {passed_methods} ({passed_methods / total_methods * 100:.2f}%)")
+            report_lines.append(f"⚠️ WARNING: {warning_methods} ({warning_methods / total_methods * 100:.2f}%)")
+            report_lines.append(f"❌ FAIL: {failed_methods} ({failed_methods / total_methods * 100:.2f}%)")
         else:
             report_lines.append("⚠️ Нет данных для статистики (все методы не прошли)")
         report_lines.append("=" * 60)
         report: str = "\n".join(report_lines)
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_path: str = os.path.join(
-            self.output_dir, f"validation_report_{timestamp}.txt"
-        )
+        report_path: str = os.path.join(self.output_dir, f"validation_report_{timestamp}.txt")
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report)
         print(f"\n📄 Отчёт сохранён: {report_path}")
@@ -961,9 +919,7 @@ class TorchImplementationValidator:
         all_results: Dict[str, Any] = {}
         torch_class = TorchSegmenter2 if use_torch2 else TorchSegmenter
 
-        def _prepare_torch_params_with_precision(
-            params: Dict[str, Any], precision: str
-        ) -> Dict[str, Any]:
+        def _prepare_torch_params_with_precision(params: Dict[str, Any], precision: str) -> Dict[str, Any]:
             prepared = params.copy()
             prepared.setdefault("precision", precision)
             prepared.setdefault("use_compile", False)
@@ -1131,9 +1087,7 @@ class TorchImplementationValidator:
                 status_message=message,
                 prefix=f"{v_type}_validation",
                 validation_type=v_type,
-                use_first_method_features=(
-                    use_torch2 and base_class == TorchSegmenter2
-                ),
+                use_first_method_features=(use_torch2 and base_class == TorchSegmenter2),
             )
         return all_results
 
@@ -1174,19 +1128,11 @@ class TorchImplementationValidator:
                     "validation_type": validation_type,
                     "first_method_name": data.get("first_method_name", "Unknown"),
                     "second_method_name": data.get("second_method_name", "Unknown"),
-                    "first_method_time": data.get("metrics", {}).get(
-                        "first_method_time", 0
-                    ),
-                    "second_method_time": data.get("metrics", {}).get(
-                        "second_method_time", 0
-                    ),
+                    "first_method_time": data.get("metrics", {}).get("first_method_time", 0),
+                    "second_method_time": data.get("metrics", {}).get("second_method_time", 0),
                     "time_difference": data.get("methods_time_difference", 0),
-                    "first_method_coverage": data.get("metrics", {}).get(
-                        "first_method_coverage", 0
-                    ),
-                    "second_method_coverage": data.get("metrics", {}).get(
-                        "second_method_coverage", 0
-                    ),
+                    "first_method_coverage": data.get("metrics", {}).get("first_method_coverage", 0),
+                    "second_method_coverage": data.get("metrics", {}).get("second_method_coverage", 0),
                     "is_first_torch2": data.get("is_first_torch2", False),
                 }
 
@@ -1202,17 +1148,12 @@ class TorchImplementationValidator:
                             "recall": metrics.get("recall", 0),
                             "f1_score": metrics.get("f1_score", 0),
                             "mae": metrics.get("mae", 0),
-                            "validation_status": data.get(
-                                "validation_status", "UNKNOWN"
-                            ),
+                            "validation_status": data.get("validation_status", "UNKNOWN"),
                         }
                     )
 
                     # Вычисляем площадь покрытия из масок
-                    if (
-                        "first_method_mask" in data
-                        and data["first_method_mask"] is not None
-                    ):
+                    if "first_method_mask" in data and data["first_method_mask"] is not None:
                         torch_mask = data["first_method_mask"]
                         if isinstance(torch_mask, torch.Tensor):
                             torch_mask = torch_mask.cpu().numpy()
@@ -1220,10 +1161,7 @@ class TorchImplementationValidator:
                         total_pixels: int = torch_mask.size
                         row["first_method_coverage"] = (mask_area / total_pixels) * 100
 
-                    if (
-                        "second_method_mask" in data
-                        and data["second_method_mask"] is not None
-                    ):
+                    if "second_method_mask" in data and data["second_method_mask"] is not None:
                         ref_mask = data["second_method_mask"]
                         if isinstance(ref_mask, torch.Tensor):
                             ref_mask = ref_mask.cpu().numpy()
@@ -1237,9 +1175,7 @@ class TorchImplementationValidator:
 
         if not df.empty:
             # Сохраняем raw данные
-            df.to_csv(
-                os.path.join(output_dir, "benchmark_validation_data.csv"), index=False
-            )
+            df.to_csv(os.path.join(output_dir, "benchmark_validation_data.csv"), index=False)
 
             # Строим графики
             for config in df["validation_type"].unique():
@@ -1339,9 +1275,7 @@ class TorchImplementationValidator:
         # ──────────────────────────────────────────────────────
         if "first_method_time" in df.columns and "second_method_time" in df.columns:
             # Берем только методы где есть оба времени
-            df_compare: pd.DataFrame = df[
-                (df["first_method_time"] > 0) & (df["second_method_time"] > 0)
-            ].copy()
+            df_compare: pd.DataFrame = df[(df["first_method_time"] > 0) & (df["second_method_time"] > 0)].copy()
 
             if not df_compare.empty:
                 plt.figure(figsize=(12, 8))
@@ -1372,19 +1306,13 @@ class TorchImplementationValidator:
 
                 plt.xlabel(f"{first_method_label} время (с)", fontsize=11)
                 plt.ylabel(f"{second_method_label} время (с)", fontsize=11)
-                plt.title(
-                    f"Сравнение скорости: {first_method_label} vs {second_method_label}"
-                )
+                plt.title(f"Сравнение скорости: {first_method_label} vs {second_method_label}")
                 plt.legend()
                 plt.grid(True, alpha=0.3)
 
                 # Подписываем выбросы
                 for _, row in df_compare.iterrows():
-                    ratio = (
-                        row["first_method_time"] / row["second_method_time"]
-                        if row["second_method_time"] > 0
-                        else 0
-                    )
+                    ratio = row["first_method_time"] / row["second_method_time"] if row["second_method_time"] > 0 else 0
                     if ratio > 2 or ratio < 0.5:  # Только значительные отклонения
                         plt.annotate(
                             row["method"][:20],
@@ -1432,8 +1360,7 @@ class TorchImplementationValidator:
 
                 plt.xlabel("IoU Score", fontsize=11)
                 plt.title(
-                    "Качество сегментации (IoU) по методам\n"
-                    "🟢 PASS | 🟠 WARNING | 🔴 FAIL",
+                    "Качество сегментации (IoU) по методам\n" "🟢 PASS | 🟠 WARNING | 🔴 FAIL",
                     fontsize=12,
                     pad=20,
                 )
@@ -1464,9 +1391,7 @@ class TorchImplementationValidator:
         # График 4: Покрытие масок (Coverage)
         # ──────────────────────────────────────────────────────
         if "first_method_coverage" in df.columns:
-            df_coverage: pd.DataFrame = df.sort_values(
-                "first_method_coverage", ascending=True
-            )
+            df_coverage: pd.DataFrame = df.sort_values("first_method_coverage", ascending=True)
 
             plt.figure(figsize=(14, 8))
             n_methods = len(df_coverage)
@@ -1513,9 +1438,7 @@ class TorchImplementationValidator:
 
         if len(available_metrics) >= 2:
             # Берем top-20 методов по времени
-            df_top: pd.DataFrame = (
-                df.nlargest(20, "first_method_time") if len(df) > 20 else df
-            )
+            df_top: pd.DataFrame = df.nlargest(20, "first_method_time") if len(df) > 20 else df
 
             plt.figure(figsize=(12, 10))
 
@@ -1575,16 +1498,13 @@ class TorchImplementationValidator:
                     # Подписываем top-5 по IoU и top-5 по скорости
                     if (
                         row["iou"] in df_tradeoff["iou"].nlargest(5).values
-                        or row["first_method_time"]
-                        in df_tradeoff["first_method_time"].nsmallest(5).values
+                        or row["first_method_time"] in df_tradeoff["first_method_time"].nsmallest(5).values
                     ):
                         plt.annotate(
                             row["method"][:20],
                             (row["first_method_time"], row["iou"]),
                             fontsize=7,
-                            bbox=dict(
-                                boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.5
-                            ),
+                            bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.5),
                         )
 
                 plt.tight_layout()
@@ -1598,9 +1518,7 @@ class TorchImplementationValidator:
         print(f"📈 Графики бенчмарка сохранены в: {charts_dir}")
 
     # ──────────────────────────────────────────────────────────────────────
-    def _generate_validation_benchmark_summary(
-        self, df: pd.DataFrame, output_dir: str
-    ) -> None:
+    def _generate_validation_benchmark_summary(self, df: pd.DataFrame, output_dir: str) -> None:
         """Генерирует текстовый сводный отчёт по бенчмарку.
 
         Включает:
@@ -1628,47 +1546,29 @@ class TorchImplementationValidator:
             f.write("\n")
 
             # ===== Быстрые методы =====
-            f.write(
-                "=" * 80 + "\nТОП-10 САМЫХ БЫСТРЫХ МЕТОДОВ (Torch)\n" + "=" * 80 + "\n"
-            )
+            f.write("=" * 80 + "\nТОП-10 САМЫХ БЫСТРЫХ МЕТОДОВ (Torch)\n" + "=" * 80 + "\n")
             if "first_method_time" in df.columns:
                 df_fast: pd.DataFrame = df.nsmallest(10, "first_method_time")
                 for i, (_, row) in enumerate(df_fast.iterrows(), 1):
                     t2_tag = " [T2]" if row.get("is_first_torch2") else ""
-                    f.write(
-                        f"{i:2d}. {row['method']:<35}{t2_tag} {row['first_method_time']:.4f}s\n"
-                    )
+                    f.write(f"{i:2d}. {row['method']:<35}{t2_tag} {row['first_method_time']:.4f}s\n")
             f.write("\n")
 
             # ===== Точные методы =====
             if "iou" in df.columns:
-                f.write(
-                    "=" * 80
-                    + "\nТОП-10 САМЫХ ТОЧНЫХ МЕТОДОВ (по IoU)\n"
-                    + "=" * 80
-                    + "\n"
-                )
+                f.write("=" * 80 + "\nТОП-10 САМЫХ ТОЧНЫХ МЕТОДОВ (по IoU)\n" + "=" * 80 + "\n")
                 df_accurate: pd.DataFrame = df.nlargest(10, "iou")
                 for i, (_, row) in enumerate(df_accurate.iterrows(), 1):
                     t2_tag = " [T2]" if row.get("is_first_torch2") else ""
-                    f.write(
-                        f"{i:2d}. {row['method']:<40}{t2_tag} IoU: {row['iou']:.4f}\n"
-                    )
+                    f.write(f"{i:2d}. {row['method']:<40}{t2_tag} IoU: {row['iou']:.4f}\n")
                 f.write("\n")
 
             # ===== Лучшие компромиссы =====
             if "first_method_time" in df.columns and "iou" in df.columns:
-                f.write(
-                    "=" * 80
-                    + "\nЛУЧШИЕ КОМПРОМИССЫ (скорость × точность)\n"
-                    + "=" * 80
-                    + "\n"
-                )
+                f.write("=" * 80 + "\nЛУЧШИЕ КОМПРОМИССЫ (скорость × точность)\n" + "=" * 80 + "\n")
                 # Вычисляем score = IoU / time (чем больше, тем лучше)
                 df_compromise: pd.DataFrame = df.copy()
-                df_compromise["efficiency_score"] = df_compromise["iou"] / (
-                    df_compromise["first_method_time"] + 0.001
-                )
+                df_compromise["efficiency_score"] = df_compromise["iou"] / (df_compromise["first_method_time"] + 0.001)
                 df_best: pd.DataFrame = df_compromise.nlargest(10, "efficiency_score")
                 for i, (_, row) in enumerate(df_best.iterrows(), 1):
                     t2_tag = " [T2]" if row.get("is_first_torch2") else ""
@@ -1687,27 +1587,16 @@ class TorchImplementationValidator:
                     f.write(f"\n{lib.upper()}:\n")
                     f.write(f"  Количество методов: {len(df_lib)}\n")
                     if "first_method_time" in df_lib.columns:
-                        f.write(
-                            f"  Среднее время: {df_lib['first_method_time'].mean():.4f}s\n"
-                        )
-                        f.write(
-                            f"  Min время: {df_lib['first_method_time'].min():.4f}s\n"
-                        )
-                        f.write(
-                            f"  Max время: {df_lib['first_method_time'].max():.4f}s\n"
-                        )
+                        f.write(f"  Среднее время: {df_lib['first_method_time'].mean():.4f}s\n")
+                        f.write(f"  Min время: {df_lib['first_method_time'].min():.4f}s\n")
+                        f.write(f"  Max время: {df_lib['first_method_time'].max():.4f}s\n")
                     if "iou" in df_lib.columns:
                         f.write(f"  Средний IoU: {df_lib['iou'].mean():.4f}\n")
                 f.write("\n")
 
             # ===== Распределение по статусам =====
             if "validation_status" in df.columns:
-                f.write(
-                    "=" * 80
-                    + "\nРАСПРЕДЕЛЕНИЕ ПО СТАТУСАМ ВАЛИДАЦИИ\n"
-                    + "=" * 80
-                    + "\n"
-                )
+                f.write("=" * 80 + "\nРАСПРЕДЕЛЕНИЕ ПО СТАТУСАМ ВАЛИДАЦИИ\n" + "=" * 80 + "\n")
                 status_counts: pd.Series = df["validation_status"].value_counts()
                 for status, count in status_counts.items():
                     percentage: float = (count / len(df)) * 100
@@ -1717,24 +1606,17 @@ class TorchImplementationValidator:
             # ===== Покрытие масок =====
             if "first_method_coverage" in df.columns:
                 f.write("=" * 80 + "\nСТАТИСТИКА ПОКРЫТИЯ МАСОК\n" + "=" * 80 + "\n")
-                f.write(
-                    f"Среднее покрытие: {df['first_method_coverage'].mean():.2f}%\n"
-                )
+                f.write(f"Среднее покрытие: {df['first_method_coverage'].mean():.2f}%\n")
                 f.write(f"Min покрытие: {df['first_method_coverage'].min():.2f}%\n")
                 f.write(f"Max покрытие: {df['first_method_coverage'].max():.2f}%\n")
 
                 # Методы с аномальным покрытием
-                df_extreme: pd.Series = df[
-                    (df["first_method_coverage"] < 5)
-                    | (df["first_method_coverage"] > 95)
-                ]
+                df_extreme: pd.Series = df[(df["first_method_coverage"] < 5) | (df["first_method_coverage"] > 95)]
                 if not df_extreme.empty:
                     f.write("\nМетоды с экстремальным покрытием (<5% или >95%):\n")
                     for _, row in df_extreme.iterrows():
                         t2_tag = " [T2]" if row.get("is_first_torch2") else ""
-                        f.write(
-                            f"  - {row['method']}{t2_tag}: {row['first_method_coverage']:.2f}%\n"
-                        )
+                        f.write(f"  - {row['method']}{t2_tag}: {row['first_method_coverage']:.2f}%\n")
                 f.write("\n")
 
         print(f"📄 Текстовый отчет сохранен: {summary_path}")

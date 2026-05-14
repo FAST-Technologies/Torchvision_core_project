@@ -13,26 +13,26 @@ Attributes:
     MODEL_DIR (Path): Базовая директория для сохранения/загрузки моделей.
         По умолчанию: значение из utils.paths.MODELS_DIR.
         Переопределяется: env var `MODEL_DIR`.
-    
+
     DEFAULT_IMAGE (Path): Путь к изображению по умолчанию для тестов.
         Используется в демо-скриптах и бенчмарках.
-    
+
     DEFAULT_GT (Path): Путь к ground truth маске по умолчанию.
         Используется для валидации и расчёта метрик.
-    
+
     SEGFORMER_PATH (str): Имя/путь модели SegFormer.
         Относительно MODEL_DIR или абсолютный путь.
-    
+
     UNET_CHECKPOINT (str): Имя файла чекпоинта U-Net.
-    
+
     DEEPLAB_CHECKPOINT (str): Имя файла чекпоинта DeepLabV3+.
-    
+
     FPN_MIT_CHECKPOINT (str): Имя файла чекпоинта FPN + MiT-B5.
-    
+
     PSP_MIT_CHECKPOINT (str): Имя файла чекпоинта PSPNet + MiT-B5.
-    
+
     FCN_RESNET50_CHECKPOINT (str): Имя файла чекпоинта FCN ResNet50.
-    
+
     SEGNET_RESNET34_CHECKPOINT (str): Имя файла чекпоинта SegNet ResNet34.
 
 Raises:
@@ -41,10 +41,10 @@ Raises:
 Example:
     ```python
     from utils.settings import settings
-    
+
     # Прямой доступ к атрибутам
     print(settings.MODEL_DIR)  # Path('/path/to/models')
-    
+
     # Использование вспомогательных методов
     checkpoint = settings.get_model_full_path(settings.UNET_CHECKPOINT)
     settings.ensure_model_dir_exists()
@@ -67,9 +67,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 

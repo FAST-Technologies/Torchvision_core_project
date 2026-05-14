@@ -31,9 +31,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -47,9 +45,7 @@ ImageDataDict = Dict[str, bytes]
 # ──────────────────────────────────────────────────────────────────────
 # КОНСТАНТЫ
 # ──────────────────────────────────────────────────────────────────────
-PARQUET_PATH: PathLike = (
-    "coco-panoptic-val2017/data/train-00001-of-00002-94aa8570497c415e.parquet"
-)
+PARQUET_PATH: PathLike = "coco-panoptic-val2017/data/train-00001-of-00002-94aa8570497c415e.parquet"
 OUTPUT_DIR_PATH: PathLike = "coco-panoptic-val2017/images/test"
 MASK_DIR_PATH: PathLike = "coco-panoptic-val2017/annotations/test"
 BATCH_LOG_INTERVAL: int = 100

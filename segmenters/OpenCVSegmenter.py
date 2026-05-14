@@ -19,9 +19,9 @@
 └─────────────────────────────────────────────────────────┘
 
 Особенности реализации:
-- 🔄 Единый интерфейс: все методы наследуют `BaseSegmenter` и реализуют 
+- 🔄 Единый интерфейс: все методы наследуют `BaseSegmenter` и реализуют
   `segment()` → `BinaryMask` и `segment_with_mask()` → `(overlay, mask)`.
-- 🎚️ Автоматическая адаптация параметров: конвертация [0,1] → [0,255] для 
+- 🎚️ Автоматическая адаптация параметров: конвертация [0,1] → [0,255] для
   порогов, коррекция чётных `block_size`/`window_size` → нечётные.
 - 🎨 Предобработка: автоматическая конвертация в grayscale при необходимости,
   поддержка входных форматов `str`/`PIL.Image`/`np.ndarray`/`torch.Tensor`.
@@ -29,7 +29,7 @@
   `torch.cuda.synchronize()` для точных замеров времени на GPU.
 - 🛡️ Устойчивость к ошибкам: возврат пустой маски `(H, W)` при исключении,
   информативное логирование через `self._log_info()`.
-- 📊 Метрики: интеграция с `SegmentationMetrics` для оценки качества через 
+- 📊 Метрики: интеграция с `SegmentationMetrics` для оценки качества через
   `evaluate_metrics()` и `segment_and_evaluate()`.
 
 Workflow:
@@ -71,11 +71,11 @@ Attributes:
 Примечание:
 - Все методы возвращают бинарную маску `np.ndarray` формы `(H, W)`, dtype `uint8`,
   значения `{0, 255}` (0=фон, 255=объект).
-- Параметры в диапазоне [0, 1] автоматически масштабируются в [0, 255] для 
+- Параметры в диапазоне [0, 1] автоматически масштабируются в [0, 255] для
   совместимости с OpenCV (например, `threshold=0.5` → 127).
-- Для методов, требующих grayscale, конвертация выполняется автоматически 
+- Для методов, требующих grayscale, конвертация выполняется автоматически
   через флаг `self._needs_gray`.
-- Методы кластеризации и суперпикселей могут быть медленными на больших 
+- Методы кластеризации и суперпикселей могут быть медленными на больших
   изображениях (>1000×1000); рекомендуется предварительный ресайз.
 - Для массового тестирования используйте обёртки: `BatchClassicTester`,
   `SegmentationTester`, `TorchImplementationValidator`.
@@ -114,9 +114,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -420,9 +418,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         if self.method not in self.methods:
             available: List[str] = list(self.methods.keys())
-            raise ValueError(
-                f"Неизвестный метод: {self.method}. " f"Доступные методы: {available}"
-            )
+            raise ValueError(f"Неизвестный метод: {self.method}. " f"Доступные методы: {available}")
 
     # ──────────────────────────────────────────────────────────────────────
     def _log_info(self, method_name: str, exec_time: float, params: ParamsDict) -> None:
@@ -446,9 +442,7 @@ class OpenCVSegmenter(BaseSegmenter):
         }
 
     # ──────────────────────────────────────────────────────────────────────
-    def segment(  # type: ignore[override]
-        self, image: ImageArray, **kwargs: Any
-    ) -> MaskArray:
+    def segment(self, image: ImageArray, **kwargs: Any) -> MaskArray:  # type: ignore[override]
         """Основной метод сегментации изображения.
 
         Выполняет предобработку (конвертацию в grayscale при необходимости) и
@@ -512,11 +506,7 @@ class OpenCVSegmenter(BaseSegmenter):
         mask: MaskArray = self.segment(image, **kwargs)
 
         if mask.dtype != np.uint8:
-            mask = (
-                (mask * 255).astype(np.uint8)
-                if mask.max() <= 1.0
-                else mask.astype(np.uint8)
-            )
+            mask = (mask * 255).astype(np.uint8) if mask.max() <= 1.0 else mask.astype(np.uint8)
 
         # Создаем визуализацию
         if len(image.shape) == 2:
@@ -525,13 +515,9 @@ class OpenCVSegmenter(BaseSegmenter):
             overlay = image.copy()
         # Наложение маски (красный цвет для объекта)
         overlay[mask > 127] = [255, 0, 0]
-        base_img = (
-            cv2.cvtColor(image, cv2.COLOR_GRAY2RGB) if len(image.shape) == 2 else image
-        )
+        base_img = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB) if len(image.shape) == 2 else image
 
-        result = cv2.addWeighted(overlay, alpha, base_img, 1 - alpha, 0).astype(
-            np.uint8
-        )
+        result = cv2.addWeighted(overlay, alpha, base_img, 1 - alpha, 0).astype(np.uint8)
         return result, mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -597,9 +583,7 @@ class OpenCVSegmenter(BaseSegmenter):
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def _opencv_adaptive_thresholding(
-        self, img: ImageArray, **kwargs: Any
-    ) -> MaskArray:
+    def _opencv_adaptive_thresholding(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """Адаптивная пороговая сегментация (Gaussian).
 
         Вычисляет локальный порог для каждой области изображения на основе
@@ -709,9 +693,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # print(f"Gray after OpenCV_thresholding_otsu: {gray}")
         start_time: float = time.time()
-        _, mask_raw = cv2.threshold(
-            gray, 0.0, 255.0, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-        )
+        _, mask_raw = cv2.threshold(gray, 0.0, 255.0, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         mask: MaskArray = mask_raw.astype(np.uint8)
         exec_time: float = time.time() - start_time
 
@@ -797,14 +779,10 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Вычисление локальных статистик
         # E[X] — локальное среднее
-        mean_raw = cv2.boxFilter(
-            gray.astype(np.float32), cv2.CV_32F, (window_size, window_size)
-        )
+        mean_raw = cv2.boxFilter(gray.astype(np.float32), cv2.CV_32F, (window_size, window_size))
         mean: FloatArray = mean_raw.astype(np.uint8)
         # E[X²] — среднее квадратов
-        mean_sq_raw = cv2.boxFilter(
-            (gray.astype(np.float32) ** 2), cv2.CV_32F, (window_size, window_size)
-        )
+        mean_sq_raw = cv2.boxFilter((gray.astype(np.float32) ** 2), cv2.CV_32F, (window_size, window_size))
         mean_sq: FloatArray = mean_sq_raw.astype(np.uint8)
 
         # σ = sqrt(E[X²] - (E[X])²), с защитой от отрицательных значений из-за численных ошибок
@@ -929,14 +907,10 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Вычисление локальных статистик
         # E[X] — локальное среднее интенсивности
-        mean_raw = cv2.boxFilter(
-            gray.astype(np.float32), cv2.CV_32F, (window_size, window_size)
-        )
+        mean_raw = cv2.boxFilter(gray.astype(np.float32), cv2.CV_32F, (window_size, window_size))
         mean: FloatArray = mean_raw.astype(np.uint8)
         # E[X²] — среднее квадратов интенсивности
-        mean_sq_raw = cv2.boxFilter(
-            (gray.astype(np.float32) ** 2), cv2.CV_32F, (window_size, window_size)
-        )
+        mean_sq_raw = cv2.boxFilter((gray.astype(np.float32) ** 2), cv2.CV_32F, (window_size, window_size))
         mean_sq: FloatArray = mean_sq_raw.astype(np.uint8)
         # σ = sqrt(E[X²] - (E[X])²), с защитой от отрицательных значений из-за численных ошибок
         variance: FloatArray = np.maximum(mean_sq - mean**2, 0)
@@ -1093,18 +1067,14 @@ class OpenCVSegmenter(BaseSegmenter):
         contrast: GrayImage = max_filter - min_filter
 
         # Расчёт порога Бернсена: среднее между min и max
-        threshold: FloatArray = (
-            min_filter.astype(np.float32) + max_filter.astype(np.float32)
-        ) / 2.0
+        threshold: FloatArray = (min_filter.astype(np.float32) + max_filter.astype(np.float32)) / 2.0
 
         # Инициализация пустой маски
         mask: MaskArray = np.zeros_like(gray, dtype=np.uint8)
 
         # Бинаризация только для пикселей с достаточным контрастом
         high_contrast: npt.NDArray[np.bool_] = contrast >= contrast_threshold
-        mask[high_contrast] = (
-            gray[high_contrast].astype(np.float32) > threshold[high_contrast]
-        ).astype(np.uint8) * 255
+        mask[high_contrast] = (gray[high_contrast].astype(np.float32) > threshold[high_contrast]).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
 
@@ -1223,13 +1193,13 @@ class OpenCVSegmenter(BaseSegmenter):
             window_size += 1
 
         # Вычисление локальных статистик
-        mean_raw: FloatArray = cv2.boxFilter(
-            gray.astype(np.float32), cv2.CV_32F, (window_size, window_size)
-        ).astype(np.float32)
+        mean_raw: FloatArray = cv2.boxFilter(gray.astype(np.float32), cv2.CV_32F, (window_size, window_size)).astype(
+            np.float32
+        )
         mean: FloatArray = mean_raw.astype(np.float32)
-        mean_sq_raw = cv2.boxFilter(
-            (gray.astype(np.float32) ** 2), cv2.CV_32F, (window_size, window_size)
-        ).astype(np.float32)
+        mean_sq_raw = cv2.boxFilter((gray.astype(np.float32) ** 2), cv2.CV_32F, (window_size, window_size)).astype(
+            np.float32
+        )
         mean_sq: FloatArray = mean_sq_raw.astype(np.float32)
         variance: FloatArray = np.maximum(mean_sq - mean**2, 0)
         std: FloatArray = np.sqrt(variance)
@@ -1251,9 +1221,7 @@ class OpenCVSegmenter(BaseSegmenter):
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def _opencv_threshold_kittler_illingworth(
-        self, img: ImageArray, **kwargs: Any
-    ) -> MaskArray:
+    def _opencv_threshold_kittler_illingworth(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """Пороговая обработка по методу Киттлера-Иллингуорта.
 
         Статистический метод, минимизирующий ошибку классификации на основе гистограммы
@@ -1364,26 +1332,18 @@ class OpenCVSegmenter(BaseSegmenter):
             mu1: float = (total_mean - cum_mean[t]) / w1 if w1 > 0 else 0
 
             # Кумулятивная сумма квадратов для дисперсий
-            cum_mean_sq: npt.NDArray[np.float64] = np.cumsum(
-                hist * np.arange(num_bins) ** 2
-            )
+            cum_mean_sq: npt.NDArray[np.float64] = np.cumsum(hist * np.arange(num_bins) ** 2)
 
             # Дисперсии классов
             sigma0_sq: float = cum_mean_sq[t] / w0 - mu0**2 if w0 > 0 else 0
-            sigma1_sq: float = (
-                (cum_mean_sq[-1] - cum_mean_sq[t]) / w1 - mu1**2 if w1 > 0 else 0
-            )
+            sigma1_sq: float = (cum_mean_sq[-1] - cum_mean_sq[t]) / w1 - mu1**2 if w1 > 0 else 0
 
             # Пропуск вырожденных случаев
             if sigma0_sq <= 1e-6 or sigma1_sq <= 1e-6:
                 continue
 
             # Критерий Киттлера-Иллингуорта
-            error: float = (
-                w0 * np.log(sigma0_sq)
-                + w1 * np.log(sigma1_sq)
-                - 2 * (w0 * np.log(w0) + w1 * np.log(w1))
-            )
+            error: float = w0 * np.log(sigma0_sq) + w1 * np.log(sigma1_sq) - 2 * (w0 * np.log(w0) + w1 * np.log(w1))
 
             if error < min_error:
                 min_error = error
@@ -1391,9 +1351,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Бинаризация
         mask: MaskArray
-        _, mask_raw = cv2.threshold(
-            gray, float(best_threshold), 255.0, cv2.THRESH_BINARY
-        )
+        _, mask_raw = cv2.threshold(gray, float(best_threshold), 255.0, cv2.THRESH_BINARY)
         mask = mask_raw.astype(np.uint8)
 
         exec_time: float = time.time() - start_time
@@ -1407,9 +1365,7 @@ class OpenCVSegmenter(BaseSegmenter):
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def _opencv_threshold_entropy_kapur(
-        self, img: ImageArray, **kwargs: Any
-    ) -> MaskArray:
+    def _opencv_threshold_entropy_kapur(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """Пороговая обработка на основе максимизации энтропии Капура.
 
         Статистический метод, находящий порог, который максимизирует сумму энтропий
@@ -1508,9 +1464,7 @@ class OpenCVSegmenter(BaseSegmenter):
             # Энтропия фона: H₀ = H_cum[t] / P₀ + log(P₀)
             h0: float = cum_entropy[t] / cum_hist[t] + np.log(cum_hist[t])
             # Энтропия объекта: H₁ = (H_total - H_cum[t]) / P₁ + log(P₁)
-            h1: float = (cum_entropy[-1] - cum_entropy[t]) / (1 - cum_hist[t]) + np.log(
-                1 - cum_hist[t]
-            )
+            h1: float = (cum_entropy[-1] - cum_entropy[t]) / (1 - cum_hist[t]) + np.log(1 - cum_hist[t])
 
             total_entropy: float = h0 + h1
             if total_entropy > max_entropy:
@@ -1519,9 +1473,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Бинаризация
         mask: MaskArray
-        _, mask_raw = cv2.threshold(
-            gray, float(best_threshold), 255.0, cv2.THRESH_BINARY
-        )
+        _, mask_raw = cv2.threshold(gray, float(best_threshold), 255.0, cv2.THRESH_BINARY)
         mask = mask_raw.astype(np.uint8)
 
         exec_time: float = time.time() - start_time
@@ -1634,9 +1586,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Бинаризация
         mask: MaskArray
-        _, mask_raw = cv2.threshold(
-            gray, float(best_threshold), 255.0, cv2.THRESH_BINARY
-        )
+        _, mask_raw = cv2.threshold(gray, float(best_threshold), 255.0, cv2.THRESH_BINARY)
         mask = mask_raw.astype(np.uint8)
 
         exec_time: float = time.time() - start_time
@@ -1738,9 +1688,7 @@ class OpenCVSegmenter(BaseSegmenter):
         # Случай 1: классический Оцу (один порог)
         if n_thresholds == 1:
             mask: MaskArray
-            _, mask_raw = cv2.threshold(
-                gray, 0.0, 255.0, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-            )
+            _, mask_raw = cv2.threshold(gray, 0.0, 255.0, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
             mask = mask_raw.astype(np.uint8)
             return mask
 
@@ -1774,16 +1722,12 @@ class OpenCVSegmenter(BaseSegmenter):
                     # Класс 2: [t2, 256)
                     w2: float = (total - cum_sum[t2]) / total if total > 0 else 0
                     m2: float = (
-                        (total_mean * total - cum_mean[t2]) / (total - cum_sum[t2])
-                        if (total > cum_sum[t2])
-                        else 0
+                        (total_mean * total - cum_mean[t2]) / (total - cum_sum[t2]) if (total > cum_sum[t2]) else 0
                     )
 
                     # Межклассовая дисперсия
                     var_between: float = (
-                        w0 * (m0 - total_mean) ** 2
-                        + w1 * (m1 - total_mean) ** 2
-                        + w2 * (m2 - total_mean) ** 2
+                        w0 * (m0 - total_mean) ** 2 + w1 * (m1 - total_mean) ** 2 + w2 * (m2 - total_mean) ** 2
                     )
 
                     if var_between > best_var:
@@ -1809,18 +1753,12 @@ class OpenCVSegmenter(BaseSegmenter):
         current_gray: GrayImage = gray.copy()
 
         for _ in range(n_thresholds):
-            _, thresh = cv2.threshold(
-                current_gray, 0.0, 255.0, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-            )
+            _, thresh = cv2.threshold(current_gray, 0.0, 255.0, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
             thresholds.append(float(thresh))
-            current_gray = cv2.threshold(
-                current_gray, float(thresh), 255.0, cv2.THRESH_BINARY_INV
-            )[1].astype(np.uint8)
+            current_gray = cv2.threshold(current_gray, float(thresh), 255.0, cv2.THRESH_BINARY_INV)[1].astype(np.uint8)
 
         # Бинаризация по последнему порогу
-        _, mask_raw = cv2.threshold(
-            gray, float(thresholds[-1]), 255.0, cv2.THRESH_BINARY
-        )
+        _, mask_raw = cv2.threshold(gray, float(thresholds[-1]), 255.0, cv2.THRESH_BINARY)
         mask = mask_raw.astype(np.uint8)
 
         exec_time = time.time() - start_time
@@ -1914,9 +1852,7 @@ class OpenCVSegmenter(BaseSegmenter):
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def _opencv_threshold_local_contrast(
-        self, img: ImageArray, **kwargs: Any
-    ) -> MaskArray:
+    def _opencv_threshold_local_contrast(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """Пороговая обработка на основе локального контраста.
 
         Пиксель считается объектом, если его интенсивность значительно отличается
@@ -1999,22 +1935,18 @@ class OpenCVSegmenter(BaseSegmenter):
             window_size += 1
 
         # Локальное среднее
-        local_mean: FloatArray = cv2.boxFilter(
-            gray.astype(np.float32), cv2.CV_32F, (window_size, window_size)
-        ).astype(np.float32)
+        local_mean: FloatArray = cv2.boxFilter(gray.astype(np.float32), cv2.CV_32F, (window_size, window_size)).astype(
+            np.float32
+        )
 
         # Локальный контраст (разница от среднего)
         local_contrast: FloatArray = np.abs(gray.astype(np.float32) - local_mean)
 
         # Глобальный порог контраста
-        global_contrast_threshold: float = float(
-            np.percentile(local_contrast, 100 * (1 - contrast_factor))
-        )
+        global_contrast_threshold: float = float(np.percentile(local_contrast, 100 * (1 - contrast_factor)))
 
         # Бинаризация по контрасту
-        mask: MaskArray = (local_contrast > global_contrast_threshold).astype(
-            np.uint8
-        ) * 255
+        mask: MaskArray = (local_contrast > global_contrast_threshold).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -2092,22 +2024,14 @@ class OpenCVSegmenter(BaseSegmenter):
         threshold: float = float(self.params.get("threshold", 50))
 
         # Вычисление градиентов Собеля с глубиной CV_64F для точности
-        sobel_x: npt.NDArray[np.float64] = cv2.Sobel(
-            gray, cv2.CV_64F, dx=1, dy=0, ksize=3
-        ).astype(np.float64)
-        sobel_y: npt.NDArray[np.float64] = cv2.Sobel(
-            gray, cv2.CV_64F, dx=0, dy=1, ksize=3
-        ).astype(np.float64)
+        sobel_x: npt.NDArray[np.float64] = cv2.Sobel(gray, cv2.CV_64F, dx=1, dy=0, ksize=3).astype(np.float64)
+        sobel_y: npt.NDArray[np.float64] = cv2.Sobel(gray, cv2.CV_64F, dx=0, dy=1, ksize=3).astype(np.float64)
 
         # Магнитуда градиента
-        magnitude: npt.NDArray[np.float64] = np.sqrt(
-            sobel_x**2 + sobel_y**2
-        ).astype(np.float64)
+        magnitude: npt.NDArray[np.float64] = np.sqrt(sobel_x**2 + sobel_y**2).astype(np.float64)
 
         # Нормализация к [0, 255] для визуализации
-        magnitude_norm: FloatArray = (
-            255 * magnitude / (np.max(magnitude) + 1e-8)
-        ).astype(np.float32)
+        magnitude_norm: FloatArray = (255 * magnitude / (np.max(magnitude) + 1e-8)).astype(np.float32)
 
         # Или
         # magnitude = cv2.magnitude(sobelx, sobely)
@@ -2278,12 +2202,8 @@ class OpenCVSegmenter(BaseSegmenter):
         direction: str = str(self.params.get("direction", "both"))
 
         # Ядра Превитта 3×3
-        kernel_x: npt.NDArray[np.float32] = np.array(
-            [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], dtype=np.float32
-        )
-        kernel_y: npt.NDArray[np.float32] = np.array(
-            [[-1, -1, -1], [0, 0, 0], [1, 1, 1]], dtype=np.float32
-        )
+        kernel_x: npt.NDArray[np.float32] = np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], dtype=np.float32)
+        kernel_y: npt.NDArray[np.float32] = np.array([[-1, -1, -1], [0, 0, 0], [1, 1, 1]], dtype=np.float32)
 
         # Вычисление градиентов в зависимости от направления
         if direction in ["x", "both"]:
@@ -2293,9 +2213,7 @@ class OpenCVSegmenter(BaseSegmenter):
             grad_x = np.zeros_like(gray, dtype=np.float32)
 
         if direction in ["y", "both"]:
-            grad_y: FloatArray = cv2.filter2D(gray, cv2.CV_32F, kernel_y).astype(
-                np.float32
-            )
+            grad_y: FloatArray = cv2.filter2D(gray, cv2.CV_32F, kernel_y).astype(np.float32)
         else:
             grad_y = np.zeros_like(gray, dtype=np.float32)
 
@@ -2303,15 +2221,11 @@ class OpenCVSegmenter(BaseSegmenter):
         magnitude: FloatArray = np.sqrt(grad_x**2 + grad_y**2)
 
         # Нормализация к [0, 255] для визуализации и бинаризации
-        magnitude_norm: FloatArray = (
-            255 * magnitude / (np.max(magnitude) + 1e-8)
-        ).astype(np.float32)
+        magnitude_norm: FloatArray = (255 * magnitude / (np.max(magnitude) + 1e-8)).astype(np.float32)
 
         # Пороговая бинаризация
         mask: MaskArray
-        _, mask_raw = cv2.threshold(
-            magnitude_norm.astype(np.float32), threshold, 255.0, cv2.THRESH_BINARY
-        )
+        _, mask_raw = cv2.threshold(magnitude_norm.astype(np.float32), threshold, 255.0, cv2.THRESH_BINARY)
         mask = mask_raw.astype(np.uint8)
 
         exec_time: float = time.time() - start_time
@@ -2426,15 +2340,11 @@ class OpenCVSegmenter(BaseSegmenter):
         # Магнитуда градиента
         magnitude: npt.NDArray[np.float64] = np.sqrt(grad_x**2 + grad_y**2)
         # Нормализация к [0, 255] для визуализации и бинаризации
-        magnitude_norm: FloatArray = (
-            255 * magnitude / (np.max(magnitude) + 1e-8)
-        ).astype(np.float32)
+        magnitude_norm: FloatArray = (255 * magnitude / (np.max(magnitude) + 1e-8)).astype(np.float32)
 
         # Пороговая бинаризация
         mask: MaskArray
-        _, mask_raw = cv2.threshold(
-            magnitude_norm.astype(np.float32), threshold, 255.0, cv2.THRESH_BINARY
-        )
+        _, mask_raw = cv2.threshold(magnitude_norm.astype(np.float32), threshold, 255.0, cv2.THRESH_BINARY)
         mask = mask_raw.astype(np.uint8)
 
         exec_time: float = time.time() - start_time
@@ -2518,33 +2428,23 @@ class OpenCVSegmenter(BaseSegmenter):
         threshold: float = float(self.params.get("threshold", 50))
 
         # Ядра Робертса 2×2
-        kernel_x: npt.NDArray[np.float32] = np.array(
-            [[1, 0], [0, -1]], dtype=np.float32
-        )
-        kernel_y: npt.NDArray[np.float32] = np.array(
-            [[0, 1], [-1, 0]], dtype=np.float32
-        )
+        kernel_x: npt.NDArray[np.float32] = np.array([[1, 0], [0, -1]], dtype=np.float32)
+        kernel_y: npt.NDArray[np.float32] = np.array([[0, 1], [-1, 0]], dtype=np.float32)
 
         # Вычисление диагональных градиентов
-        grad_x = cv2.filter2D(
-            gray, cv2.CV_32F, kernel_x, borderType=cv2.BORDER_REFLECT
-        )  # type: ignore[assignment]
-        grad_y = cv2.filter2D(
-            gray, cv2.CV_32F, kernel_y, borderType=cv2.BORDER_REFLECT
-        )  # type: ignore[assignment]
+        grad_x = cv2.filter2D(gray, cv2.CV_32F, kernel_x, borderType=cv2.BORDER_REFLECT)  # type: ignore[assignment]
+        grad_y = cv2.filter2D(gray, cv2.CV_32F, kernel_y, borderType=cv2.BORDER_REFLECT)  # type: ignore[assignment]
 
         # Магнитуда градиента
         magnitude: FloatArray = np.sqrt(grad_x**2 + grad_y**2)
 
         # Нормализация к [0, 255]
-        magnitude_norm = cv2.normalize(
-            magnitude, None, 0, 255, cv2.NORM_MINMAX
-        ).astype(np.float32)  # type: ignore[call-overload]
+        magnitude_norm = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX).astype(
+            np.float32
+        )  # type: ignore[call-overload]
 
         # Пороговая бинаризация
-        _, mask_raw = cv2.threshold(
-            magnitude_norm.astype(np.float32), threshold, 255.0, cv2.THRESH_BINARY
-        )
+        _, mask_raw = cv2.threshold(magnitude_norm.astype(np.float32), threshold, 255.0, cv2.THRESH_BINARY)
         mask: MaskArray = mask_raw.astype(np.uint8)
 
         exec_time: float = time.time() - start_time
@@ -2665,9 +2565,7 @@ class OpenCVSegmenter(BaseSegmenter):
         zero_crossing_bool[:-1, :] |= zc_v
 
         # Фильтрация по амплитуде (отсечение слабых пересечений)
-        zero_crossing: MaskArray = (
-            zero_crossing_bool & (magnitude > threshold)
-        ).astype(np.uint8) * 255
+        zero_crossing: MaskArray = (zero_crossing_bool & (magnitude > threshold)).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
 
@@ -2777,9 +2675,7 @@ class OpenCVSegmenter(BaseSegmenter):
         zero_crossing_bool[:, :-1] |= zc_h
         zero_crossing_bool[:-1, :] |= zc_v
 
-        zero_crossing: MaskArray = (
-            zero_crossing_bool & (magnitude > threshold)
-        ).astype(np.uint8) * 255
+        zero_crossing: MaskArray = (zero_crossing_bool & (magnitude > threshold)).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -2870,9 +2766,9 @@ class OpenCVSegmenter(BaseSegmenter):
         threshold: float = float(self.params.get("threshold", 10))
 
         # Лапласиан Гауссиана через OpenCV
-        laplacian: npt.NDArray[np.float64] = cv2.Laplacian(
-            cv2.GaussianBlur(gray, (0, 0), sigma), cv2.CV_64F
-        ).astype(np.float64)
+        laplacian: npt.NDArray[np.float64] = cv2.Laplacian(cv2.GaussianBlur(gray, (0, 0), sigma), cv2.CV_64F).astype(
+            np.float64
+        )
         magnitude: npt.NDArray[np.float64] = np.abs(laplacian)
 
         # Векторизованное zero-crossing
@@ -2882,9 +2778,7 @@ class OpenCVSegmenter(BaseSegmenter):
         zero_crossing_bool: npt.NDArray[np.bool_] = np.zeros_like(laplacian, dtype=bool)
         zero_crossing_bool[:, :-1] |= zc_h
         zero_crossing_bool[:-1, :] |= zc_v
-        zero_crossing: MaskArray = (
-            zero_crossing_bool & (magnitude > threshold)
-        ).astype(np.uint8) * 255
+        zero_crossing: MaskArray = (zero_crossing_bool & (magnitude > threshold)).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
         self._log_info(
@@ -2896,9 +2790,7 @@ class OpenCVSegmenter(BaseSegmenter):
         return zero_crossing
 
     # ──────────────────────────────────────────────────────────────────────
-    def _opencv_gradient_magnitude_direction(
-        self, img: ImageArray, **kwargs: Any
-    ) -> MaskArray:
+    def _opencv_gradient_magnitude_direction(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """Обнаружение границ через магнитуду и направление градиента.
 
         Вычисляет градиент изображения с помощью операторов Собеля, затем позволяет
@@ -2975,36 +2867,25 @@ class OpenCVSegmenter(BaseSegmenter):
         threshold: float = float(self.params.get("threshold", 50))
         if threshold > 1.0:  # Если порог в [0,255]
             threshold = threshold / 255.0
-        angle_range: Optional[Tuple[float, float]] = self.params.get(
-            "angle_range", None
-        )
+        angle_range: Optional[Tuple[float, float]] = self.params.get("angle_range", None)
 
         # Градиенты Собеля
-        grad_x: npt.NDArray[np.float64] = cv2.Sobel(
-            gray, cv2.CV_64F, 1, 0, ksize=3
-        ).astype(np.float64)
-        grad_y: npt.NDArray[np.float64] = cv2.Sobel(
-            gray, cv2.CV_64F, 0, 1, ksize=3
-        ).astype(np.float64)
+        grad_x: npt.NDArray[np.float64] = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3).astype(np.float64)
+        grad_y: npt.NDArray[np.float64] = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3).astype(np.float64)
 
         # Магнитуда и направление
         magnitude: npt.NDArray[np.float64] = np.sqrt(grad_x**2 + grad_y**2)
         if magnitude.max() > 0:
             magnitude = magnitude / magnitude.max()
-        direction: npt.NDArray[np.float64] = (
-            np.arctan2(grad_y, grad_x) * 180 / np.pi
-        )  # В градусах
+        direction: npt.NDArray[np.float64] = np.arctan2(grad_y, grad_x) * 180 / np.pi  # В градусах
 
         # Фильтрация по магнитуде
         mask: MaskArray = (magnitude > threshold).astype(np.uint8) * 255
 
         # Опциональная фильтрация по направлению
         if angle_range is not None:
-            angle_mask: npt.NDArray[np.bool_] = (
-                (direction >= angle_range[0]) & (direction <= angle_range[1])
-            ) | (
-                (direction + 180 >= angle_range[0])
-                & (direction + 180 <= angle_range[1])
+            angle_mask: npt.NDArray[np.bool_] = ((direction >= angle_range[0]) & (direction <= angle_range[1])) | (
+                (direction + 180 >= angle_range[0]) & (direction + 180 <= angle_range[1])
             )
             mask = mask & (angle_mask.astype(np.uint8) * 255)
 
@@ -3018,9 +2899,7 @@ class OpenCVSegmenter(BaseSegmenter):
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def _opencv_phase_congruency_edge(
-        self, img: ImageArray, **kwargs: Any
-    ) -> MaskArray:
+    def _opencv_phase_congruency_edge(self, img: ImageArray, **kwargs: Any) -> MaskArray:
         """Обнаружение границ через фазовую конгруэнтность (полная реализация Ковези).
 
         Инвариантный к изменению контраста и яркости метод, обнаруживающий границы через
@@ -3178,9 +3057,7 @@ class OpenCVSegmenter(BaseSegmenter):
         T = np.sqrt(noise_energy) * k_noise
         pc_map = np.maximum(local_energy - T, 0) / (sum_amp + eps)
 
-        print(
-            f" pc_map stats: min={pc_map.min():.4f}, max={pc_map.max():.4f}, mean={pc_map.mean():.4f}"
-        )
+        print(f" pc_map stats: min={pc_map.min():.4f}, max={pc_map.max():.4f}, mean={pc_map.mean():.4f}")
         print(f"🎯 Threshold: {threshold}")
         print(f"📈 Unique values > threshold: {(pc_map > threshold).sum()}")
 
@@ -3194,9 +3071,7 @@ class OpenCVSegmenter(BaseSegmenter):
             thresh_normalized = threshold
         mask: MaskArray = (pc_map > thresh_normalized).astype(np.uint8) * 255
 
-        print(
-            f" pc_map stats: min={pc_map.min():.4f}, max={pc_map.max():.4f}, mean={pc_map.mean():.4f}"
-        )
+        print(f" pc_map stats: min={pc_map.min():.4f}, max={pc_map.max():.4f}, mean={pc_map.mean():.4f}")
         print(f"🎯 Threshold: {threshold}")
         print(f"📈 Unique values > threshold: {(pc_map > threshold).sum()}")
 
@@ -3421,9 +3296,7 @@ class OpenCVSegmenter(BaseSegmenter):
             return mean_val, std_val
 
         # Внутренняя функция: рекурсивное разделение
-        def split(
-            region: List[Tuple[int, int]], min_sz: int, thresh: int
-        ) -> List[List[Tuple[int, int]]]:
+        def split(region: List[Tuple[int, int]], min_sz: int, thresh: int) -> List[List[Tuple[int, int]]]:
             """Рекурсивно делит регион на квадранты, если дисперсия слишком велика."""
             if len(region) <= min_sz:
                 return [region]
@@ -3456,9 +3329,7 @@ class OpenCVSegmenter(BaseSegmenter):
             return result
 
         # Внутренняя функция: слияние похожих регионов
-        def merge(
-            regions: List[List[Tuple[int, int]]], thresh: int
-        ) -> List[List[Tuple[int, int]]]:
+        def merge(regions: List[List[Tuple[int, int]]], thresh: int) -> List[List[Tuple[int, int]]]:
             """Объединяет соседние регионы со схожими средними значениями."""
             merged: List[List[Tuple[int, int]]] = []
             used: List[bool] = [False] * len(regions)
@@ -3704,9 +3575,7 @@ class OpenCVSegmenter(BaseSegmenter):
         )
 
         # Инициализация меток (обязательный аргумент для cv2.kmeans)
-        best_labels: npt.NDArray[np.int32] = np.zeros(
-            (pixels.shape[0],), dtype=np.int32
-        )
+        best_labels: npt.NDArray[np.int32] = np.zeros((pixels.shape[0],), dtype=np.int32)
 
         # Выполнение K-Means
         compactness: float
@@ -3815,9 +3684,9 @@ class OpenCVSegmenter(BaseSegmenter):
         scale: float = 1.0
         if h * w > 80000:
             scale = np.sqrt(80000.0 / (h * w))
-            small: ImageArray = cv2.resize(
-                img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA
-            ).astype(np.uint8)
+            small: ImageArray = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA).astype(
+                np.uint8
+            )
         else:
             small = img
 
@@ -3856,9 +3725,7 @@ class OpenCVSegmenter(BaseSegmenter):
             bg_label: int = int(unique[np.argmax(counts)])
 
             # Маска: всё кроме фона и шума = объект
-            mask_small = ((labels_2d != bg_label) & (labels_2d != -1)).astype(
-                np.uint8
-            ) * 255
+            mask_small = ((labels_2d != bg_label) & (labels_2d != -1)).astype(np.uint8) * 255
         else:
             # Если все пиксели — шум, возвращаем пустую маску
             mask_small = np.zeros((sh, sw), dtype=np.uint8)
@@ -3961,9 +3828,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Автоматическая бинаризация через Оцу
         mask: MaskArray
-        _, mask_raw = cv2.threshold(
-            gray, 0.0, 255.0, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-        )
+        _, mask_raw = cv2.threshold(gray, 0.0, 255.0, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         mask = mask_raw.astype(np.uint8)
 
         exec_time: float = time.time() - start_time
@@ -4075,9 +3940,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Создание начальной маски контура
         mask: MaskArray = np.zeros((h, w), dtype=np.uint8)
-        cv2.circle(
-            mask, (center_x, center_y), radius, 255, -1
-        )  # Заполненная окружность
+        cv2.circle(mask, (center_x, center_y), radius, 255, -1)  # Заполненная окружность
 
         # Получение параметров
         iterations: int = int(self.params.get("iterations", 10))
@@ -4187,12 +4050,8 @@ class OpenCVSegmenter(BaseSegmenter):
         iterations: int = int(self.params.get("iterations", 50))
 
         # Вычисление градиентов Собеля
-        grad_x: npt.NDArray[np.float64] = cv2.Sobel(
-            gray, cv2.CV_64F, dx=1, dy=0, ksize=3
-        ).astype(np.float64)
-        grad_y: npt.NDArray[np.float64] = cv2.Sobel(
-            gray, cv2.CV_64F, dx=0, dy=1, ksize=3
-        ).astype(np.float64)
+        grad_x: npt.NDArray[np.float64] = cv2.Sobel(gray, cv2.CV_64F, dx=1, dy=0, ksize=3).astype(np.float64)
+        grad_y: npt.NDArray[np.float64] = cv2.Sobel(gray, cv2.CV_64F, dx=0, dy=1, ksize=3).astype(np.float64)
 
         # Матрица границ (для весов диффузии)
         edges: MaskArray = cv2.Canny(gray, 100, 200).astype(np.uint8)
@@ -4204,12 +4063,8 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Итеративное решение уравнения диффузии
         for _ in range(iterations):
-            laplacian_u: npt.NDArray[np.float64] = cv2.Laplacian(u, cv2.CV_64F).astype(
-                np.float64
-            )
-            laplacian_v: npt.NDArray[np.float64] = cv2.Laplacian(v, cv2.CV_64F).astype(
-                np.float64
-            )
+            laplacian_u: npt.NDArray[np.float64] = cv2.Laplacian(u, cv2.CV_64F).astype(np.float64)
+            laplacian_v: npt.NDArray[np.float64] = cv2.Laplacian(v, cv2.CV_64F).astype(np.float64)
 
             # Обновление векторного поля
             u = u + mu * laplacian_u - edge_weight * (u - grad_x)
@@ -4217,9 +4072,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Магнитуда финального векторного поля
         gvf_mag: npt.NDArray[np.float64] = np.sqrt(u**2 + v**2).astype(np.float64)
-        gvf_mag_norm: FloatArray = (255 * gvf_mag / (np.max(gvf_mag) + 1e-8)).astype(
-            np.float32
-        )
+        gvf_mag_norm: FloatArray = (255 * gvf_mag / (np.max(gvf_mag) + 1e-8)).astype(np.float32)
 
         # Пороговая бинаризация
         mask: MaskArray
@@ -4330,20 +4183,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         for _ in range(iterations):
             # Градиент изображения
-            grad_x: npt.NDArray[np.float64] = cv2.Sobel(
-                gray, cv2.CV_64F, 1, 0, ksize=3
-            ).astype(np.float64)
-            grad_y: npt.NDArray[np.float64] = cv2.Sobel(
-                gray, cv2.CV_64F, 0, 1, ksize=3
-            ).astype(np.float64)
+            grad_x: npt.NDArray[np.float64] = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3).astype(np.float64)
+            grad_y: npt.NDArray[np.float64] = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3).astype(np.float64)
             grad_mag: npt.NDArray[np.float64] = np.sqrt(grad_x**2 + grad_y**2)
-            grad_mag_norm: MaskArray = (
-                255 * grad_mag / (np.max(grad_mag) + 1e-8)
-            ).astype(np.uint8)
+            grad_mag_norm: MaskArray = (255 * grad_mag / (np.max(grad_mag) + 1e-8)).astype(np.uint8)
             grad_binary: MaskArray
-            _, grad_binary_raw = cv2.threshold(
-                grad_mag_norm.astype(np.float32), 50.0, 255.0, cv2.THRESH_BINARY
-            )
+            _, grad_binary_raw = cv2.threshold(grad_mag_norm.astype(np.float32), 50.0, 255.0, cv2.THRESH_BINARY)
             grad_binary = grad_binary_raw.astype(np.uint8)
 
             # Расширение/сужение на основе градиента
@@ -4465,16 +4310,8 @@ class OpenCVSegmenter(BaseSegmenter):
             inside_mask: npt.NDArray[np.bool_] = mask > 0
             outside_mask: npt.NDArray[np.bool_] = ~inside_mask
 
-            inside_mean: float = (
-                float(np.mean(gray[inside_mask].astype(np.float32)))
-                if np.any(inside_mask)
-                else 0.0
-            )
-            outside_mean: float = (
-                float(np.mean(gray[outside_mask].astype(np.float32)))
-                if np.any(outside_mask)
-                else 0.0
-            )
+            inside_mean: float = float(np.mean(gray[inside_mask].astype(np.float32))) if np.any(inside_mask) else 0.0
+            outside_mean: float = float(np.mean(gray[outside_mask].astype(np.float32))) if np.any(outside_mask) else 0.0
 
             # Обновление маски на основе разности со средними
             diff_inside: FloatArray = np.abs(gray.astype(np.float32) - inside_mean)
@@ -4485,12 +4322,8 @@ class OpenCVSegmenter(BaseSegmenter):
 
             # Сглаживание морфологическими операциями
             kernel: npt.NDArray[np.uint8] = np.ones((3, 3), dtype=np.uint8)
-            new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_CLOSE, kernel).astype(
-                np.uint8
-            )
-            new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_OPEN, kernel).astype(
-                np.uint8
-            )
+            new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_CLOSE, kernel).astype(np.uint8)
+            new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_OPEN, kernel).astype(np.uint8)
 
             mask = new_mask
 
@@ -4569,9 +4402,7 @@ class OpenCVSegmenter(BaseSegmenter):
         # Бинаризация
         # Шаг 1: Бинаризация через Оцу
         binary: MaskArray
-        _, binary_raw = cv2.threshold(
-            gray, 0.0, 255.0, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
-        )
+        _, binary_raw = cv2.threshold(gray, 0.0, 255.0, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         binary = binary_raw.astype(np.uint8)
 
         # Шаг 2: Морфологическое открытие для удаления шума
@@ -4583,9 +4414,9 @@ class OpenCVSegmenter(BaseSegmenter):
         sure_bg: MaskArray = cv2.dilate(opening, kernel, iterations=3).astype(np.uint8)
 
         # Шаг 4: "Уверенный передний план" — преобразование расстояния + порог
-        dist_transform: FloatArray = cv2.distanceTransform(
-            opening, distanceType=cv2.DIST_L2, maskSize=5
-        ).astype(np.uint8)
+        dist_transform: FloatArray = cv2.distanceTransform(opening, distanceType=cv2.DIST_L2, maskSize=5).astype(
+            np.uint8
+        )
         sure_fg_raw: npt.NDArray[np.uint8]
         _, sure_fg_raw_raw = cv2.threshold(
             dist_transform,
@@ -4723,16 +4554,12 @@ class OpenCVSegmenter(BaseSegmenter):
         mode: str = str(self.params.get("mode", "cg_j"))
 
         try:
-            labels: npt.NDArray[np.int32] = sk_random_walker(
-                gray_norm, markers, beta=beta, mode=mode
-            )
+            labels: npt.NDArray[np.int32] = sk_random_walker(gray_norm, markers, beta=beta, mode=mode)
             mask: MaskArray = (labels == 2).astype(np.uint8) * 255
         except Exception as e:
             warnings.warn(f"Random Walker failed: {e}. Falling back to Watershed.")
             # Fallback: используем Watershed с теми же маркерами
-            color_img_raw = (
-                cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR) if len(img.shape) == 2 else img
-            )
+            color_img_raw = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR) if len(img.shape) == 2 else img
             color_img: ImageArray = color_img_raw.astype(np.uint8)  # type: ignore[assignment]
             ws_markers: npt.NDArray[np.int32] = markers.copy().astype(np.int32)
             cv2.watershed(color_img, ws_markers)
@@ -4938,9 +4765,7 @@ class OpenCVSegmenter(BaseSegmenter):
             img_bgr_raw = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             img_bgr: ImageArray = img_bgr_raw.astype(np.uint8)  # type: ignore[assignment]
         else:
-            img_bgr_raw = (
-                img if img.shape[2] == 3 else cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            )
+            img_bgr_raw = img if img.shape[2] == 3 else cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
             img_bgr = img_bgr_raw.astype(np.uint8)  # type: ignore[assignment]
 
         start_time: float = time.time()
@@ -4953,16 +4778,11 @@ class OpenCVSegmenter(BaseSegmenter):
         # Проверка наличия opencv-contrib-python
         if not hasattr(cv2, "ximgproc"):
             warnings.warn(
-                "cv2.ximgproc не доступен. Установите opencv-contrib-python "
-                "или используйте альтернативный метод.",
+                "cv2.ximgproc не доступен. Установите opencv-contrib-python " "или используйте альтернативный метод.",
                 RuntimeWarning,
             )
             # Fallback: возврат пустой маски или использование K-Means
-            return (
-                np.zeros_like(img)
-                if len(img.shape) == 2
-                else np.zeros(img.shape[:2], dtype=np.uint8)
-            )
+            return np.zeros_like(img) if len(img.shape) == 2 else np.zeros(img.shape[:2], dtype=np.uint8)
 
         try:
             # Создание объекта SLIC
@@ -4978,9 +4798,7 @@ class OpenCVSegmenter(BaseSegmenter):
             labels: npt.NDArray[np.int32] = slic.getLabels()
         except AttributeError:
             # Fallback: ximgproc не установлен — используем K-Means как аппроксимацию
-            warnings.warn(
-                "cv2.ximgproc не доступен. Используем K-Means как аппроксимацию SLIC."
-            )
+            warnings.warn("cv2.ximgproc не доступен. Используем K-Means как аппроксимацию SLIC.")
             return self._opencv_kmeans_segmentation(img, **kwargs)
 
         # Определение фона как самого крупного суперпикселя
@@ -5096,9 +4914,7 @@ class OpenCVSegmenter(BaseSegmenter):
         # Нормализуем к float [0,1] для skimage
         img_float: FloatArray = img_rgb.astype(np.float32) / 255.0
 
-        segments: npt.NDArray[np.int32] = sk_felzenszwalb(
-            img_float, scale=scale, sigma=sigma, min_size=min_size
-        )
+        segments: npt.NDArray[np.int32] = sk_felzenszwalb(img_float, scale=scale, sigma=sigma, min_size=min_size)
 
         # Находим самый большой сегмент (фон) и создаём маску
         unique: npt.NDArray[np.int32]
@@ -5223,18 +5039,14 @@ class OpenCVSegmenter(BaseSegmenter):
         )
 
         # Финальная маска
-        mask_final: MaskArray = np.where(
-            (mask_grabcut == cv2.GC_FGD) | (mask_grabcut == cv2.GC_PR_FGD), 255, 0
-        ).astype(np.uint8)
+        mask_final: MaskArray = np.where((mask_grabcut == cv2.GC_FGD) | (mask_grabcut == cv2.GC_PR_FGD), 255, 0).astype(
+            np.uint8
+        )
 
         # Пост-обработка
         kernel: npt.NDArray[np.uint8] = np.ones((3, 3), np.uint8)
-        mask_final = cv2.morphologyEx(
-            mask_final, cv2.MORPH_CLOSE, kernel, iterations=2
-        )  # type: ignore[assignment]
-        mask_final = cv2.morphologyEx(
-            mask_final, cv2.MORPH_OPEN, kernel, iterations=2
-        )  # type: ignore[assignment]
+        mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_CLOSE, kernel, iterations=2)  # type: ignore[assignment]
+        mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_OPEN, kernel, iterations=2)  # type: ignore[assignment]
 
         exec_time: float = time.time() - start_time
 

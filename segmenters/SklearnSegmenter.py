@@ -150,9 +150,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -457,9 +455,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         if self.method not in self.methods:
             available: List[str] = list(self.methods.keys())
-            raise ValueError(
-                f"Неизвестный метод: {self.method}. " f"Доступные методы: {available}"
-            )
+            raise ValueError(f"Неизвестный метод: {self.method}. " f"Доступные методы: {available}")
 
     # ──────────────────────────────────────────────────────────────────────
     def _log_info(
@@ -633,9 +629,7 @@ class SklearnSegmenter(BaseSegmenter):
             print(img.shape, img.dtype)  # (512, 512) uint8
             ```
         """
-        result: NumpyImage = super().preprocess_image(
-            image, as_gray=False, target_size=target_size, normalize=False
-        )
+        result: NumpyImage = super().preprocess_image(image, as_gray=False, target_size=target_size, normalize=False)
 
         # Конвертация в серый, используя BT.601
         if as_gray and len(result.shape) == 3:
@@ -648,9 +642,7 @@ class SklearnSegmenter(BaseSegmenter):
         return result
 
     # ──────────────────────────────────────────────────────────────────────
-    def segment(  # type: ignore[override]
-        self, image: ImageInput, **kwargs: Any
-    ) -> MaskArray:
+    def segment(self, image: ImageInput, **kwargs: Any) -> MaskArray:  # type: ignore[override]
         """Основной метод сегментации изображения.
 
         Выполняет предобработку, вызывает зарегистрированный алгоритм из `self.methods`,
@@ -679,9 +671,7 @@ class SklearnSegmenter(BaseSegmenter):
         """
         try:
             # image может быть str/PIL/Tensor, preprocess_image обработает это
-            img_processed: np.ndarray = self.preprocess_image(
-                image, as_gray=self._needs_gray
-            )
+            img_processed: np.ndarray = self.preprocess_image(image, as_gray=self._needs_gray)
 
             if self.method not in self.methods:
                 raise ValueError(f"Метод {self.method} не реализован")
@@ -870,12 +860,8 @@ class SklearnSegmenter(BaseSegmenter):
             # Реализация Собеля на numpy
             kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
             kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
-            grad_x = signal.convolve2d(
-                gray, kernel_x, mode="same", boundary="symm"
-            ).ravel()
-            grad_y = signal.convolve2d(
-                gray, kernel_y, mode="same", boundary="symm"
-            ).ravel()
+            grad_x = signal.convolve2d(gray, kernel_x, mode="same", boundary="symm").ravel()
+            grad_y = signal.convolve2d(gray, kernel_y, mode="same", boundary="symm").ravel()
 
         texture_features: FloatArray = np.stack(
             [grad_x, grad_y, np.sqrt(grad_x**2 + grad_y**2)],
@@ -883,9 +869,7 @@ class SklearnSegmenter(BaseSegmenter):
         ).astype(np.float32)
 
         # Комбинирование всех признаков
-        features: FloatArray = np.hstack(
-            [color_features, spatial_features, texture_features]
-        )
+        features: FloatArray = np.hstack([color_features, spatial_features, texture_features])
 
         # Масштабирование
         if features.shape[0] > 0:
@@ -915,9 +899,7 @@ class SklearnSegmenter(BaseSegmenter):
         if len(img.shape) != 3 or img.shape[2] != 3:
             return img
         # Веса ITU-R BT.601
-        gray: GrayImage = (
-            0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2]
-        ).astype(np.uint8)
+        gray: GrayImage = (0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2]).astype(np.uint8)
 
         return gray
 
@@ -952,9 +934,7 @@ class SklearnSegmenter(BaseSegmenter):
             return np.zeros(shape, dtype=np.uint8)
 
         # Нахождение самого крупного кластера как фона
-        label_sizes: List[int] = [
-            int(np.sum(labels_2d == label_val)) for label_val in valid_labels
-        ]
+        label_sizes: List[int] = [int(np.sum(labels_2d == label_val)) for label_val in valid_labels]
         bg_label: int = int(valid_labels[np.argmax(label_sizes)])
 
         # Создание маски: всё кроме фона = объект
@@ -977,14 +957,10 @@ class SklearnSegmenter(BaseSegmenter):
         # Морфологические операции
         if SKIMAGE_AVAILABLE:
             # Удаление мелких объектов
-            binary = remove_small_objects(
-                binary, min_size=self.params.get("min_area", 100)
-            )
+            binary = remove_small_objects(binary, min_size=self.params.get("min_area", 100))
 
             # Заполнение дыр
-            binary = remove_small_holes(
-                binary, area_threshold=self.params.get("min_area", 100)
-            )
+            binary = remove_small_holes(binary, area_threshold=self.params.get("min_area", 100))
 
             # Морфологические операции
             selem = disk(2)
@@ -994,9 +970,7 @@ class SklearnSegmenter(BaseSegmenter):
             labeled: npt.NDArray[np.int32]
             num_features: int
             labeled, num_features = ndimage.label(binary)
-            sizes: npt.NDArray[np.float64] = ndimage.sum(
-                binary, labeled, range(1, num_features + 1)
-            )
+            sizes: npt.NDArray[np.float64] = ndimage.sum(binary, labeled, range(1, num_features + 1))
             for i, size in enumerate(sizes):
                 if size < self.params.get("min_area", 100):
                     binary[labeled == i + 1] = False
@@ -1146,9 +1120,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"block_size": block_size, "C": C, **kwargs},
             threshold_applied=(
-                adaptive_thresh.tolist()
-                if hasattr(adaptive_thresh, "tolist")
-                else float(adaptive_thresh.mean())
+                adaptive_thresh.tolist() if hasattr(adaptive_thresh, "tolist") else float(adaptive_thresh.mean())
             ),
         )
 
@@ -1209,9 +1181,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = self._log_info(
-            "otsu_thresholding_sklearn", exec_time, kwargs, threshold=thresh
-        )
+        info: SegmentationInfo = self._log_info("otsu_thresholding_sklearn", exec_time, kwargs, threshold=thresh)
 
         # print(f"Mask after Sklearn_thresholding_otsu: {mask}")
         # print(f"Info after Sklearn_thresholding_otsu: {info}")
@@ -1263,9 +1233,7 @@ class SklearnSegmenter(BaseSegmenter):
             window_size += 1
         k: float = float(self.params.get("k", -0.2))
         # func_kwargs = {key: val for key, val in kwargs.items() if key not in ['window_size', 'k']}
-        thresh: npt.NDArray[np.float64] = threshold_niblack(
-            gray, window_size=window_size, k=k
-        )
+        thresh: npt.NDArray[np.float64] = threshold_niblack(gray, window_size=window_size, k=k)
         mask: MaskArray = ((gray > thresh) * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
 
@@ -1329,9 +1297,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Порог Сауволы из scikit-image
         # func_kwargs = {key: val for key, val in kwargs.items() if key not in ['window_size', 'k', 'r']}
-        thresh: npt.NDArray[np.float64] = threshold_sauvola(
-            gray, window_size=window_size, k=k, r=r
-        )
+        thresh: npt.NDArray[np.float64] = threshold_sauvola(gray, window_size=window_size, k=k, r=r)
         mask: MaskArray = ((gray > thresh) * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
 
@@ -1394,17 +1360,11 @@ class SklearnSegmenter(BaseSegmenter):
 
         from scipy.ndimage import minimum_filter, maximum_filter
 
-        local_min: npt.NDArray[np.float32] = minimum_filter(
-            gray, size=window_size, mode="reflect"
-        )
-        local_max: npt.NDArray[np.float32] = maximum_filter(
-            gray, size=window_size, mode="reflect"
-        )
+        local_min: npt.NDArray[np.float32] = minimum_filter(gray, size=window_size, mode="reflect")
+        local_max: npt.NDArray[np.float32] = maximum_filter(gray, size=window_size, mode="reflect")
         local_contrast: npt.NDArray[np.float32] = local_max - local_min
         threshold_map: npt.NDArray[np.float32] = (local_min + local_max) / 2.0
-        mask_bool: npt.NDArray[np.bool_] = np.where(
-            local_contrast > contrast_threshold, img > threshold_map, False
-        )
+        mask_bool: npt.NDArray[np.bool_] = np.where(local_contrast > contrast_threshold, img > threshold_map, False)
 
         mask: MaskArray = (mask_bool * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
@@ -1475,9 +1435,7 @@ class SklearnSegmenter(BaseSegmenter):
         R = 0.5 if is_normalized else 128.0
 
         # ЕДИНАЯ ФОРМУЛА: T = μ + k·σ·(σ/R) + m·(μ/R - 1)
-        threshold_map = (
-            local_mean + k * local_std * (local_std / R) + m * (local_mean / R - 1)
-        )
+        threshold_map = local_mean + k * local_std * (local_std / R) + m * (local_mean / R - 1)
         mask: MaskArray = ((gray > threshold_map) * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
         info: SegmentationInfo = self._log_info(
@@ -1570,11 +1528,7 @@ class SklearnSegmenter(BaseSegmenter):
                 continue
 
             # Критерий Киттлера-Иллингуорта
-            error = (
-                w0 * np.log(sigma0_sq)
-                + w1 * np.log(sigma1_sq)
-                - 2 * (w0 * np.log(w0) + w1 * np.log(w1))
-            )
+            error = w0 * np.log(sigma0_sq) + w1 * np.log(sigma1_sq) - 2 * (w0 * np.log(w0) + w1 * np.log(w1))
 
             if error < min_error:
                 min_error = error
@@ -1659,9 +1613,7 @@ class SklearnSegmenter(BaseSegmenter):
             # Энтропия фона
             h0 = cum_entropy[t] / cum_hist[t] + np.log(cum_hist[t])
             # Энтропия объекта
-            h1 = (cum_entropy[-1] - cum_entropy[t]) / (1 - cum_hist[t]) + np.log(
-                1 - cum_hist[t]
-            )
+            h1 = (cum_entropy[-1] - cum_entropy[t]) / (1 - cum_hist[t]) + np.log(1 - cum_hist[t])
 
             total_entropy = h0 + h1
 
@@ -1804,17 +1756,11 @@ class SklearnSegmenter(BaseSegmenter):
         # Используем нативную реализацию skimage (быстрее и стабильнее кастомной рекурсии)
         from skimage.filters import threshold_multiotsu as threshold_multi_otsu
 
-        thresholds: npt.NDArray[np.float64] = threshold_multi_otsu(
-            img, classes=n_classes
-        )
+        thresholds: npt.NDArray[np.float64] = threshold_multi_otsu(img, classes=n_classes)
 
         # Для бинарной маски берем порог, отделяющий самый яркий класс
-        best_threshold: float = (
-            float(thresholds[-1]) if len(thresholds) > 0 else float(np.mean(img))
-        )
-        mask: MaskArray = ((img.astype(np.float32) > best_threshold) * 255).astype(
-            np.uint8
-        )
+        best_threshold: float = float(thresholds[-1]) if len(thresholds) > 0 else float(np.mean(img))
+        mask: MaskArray = ((img.astype(np.float32) > best_threshold) * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
         info: SegmentationInfo = self._log_info(
             "threshold_multi_otsu_sklearn",
@@ -1910,13 +1856,9 @@ class SklearnSegmenter(BaseSegmenter):
         local_contrast = np.abs(img.astype(np.float32) - local_mean)
 
         # Глобальный порог контраста
-        global_contrast_threshold: float = float(
-            np.percentile(local_contrast, 100 * (1 - contrast_factor))
-        )
+        global_contrast_threshold: float = float(np.percentile(local_contrast, 100 * (1 - contrast_factor)))
 
-        mask: MaskArray = ((local_contrast > global_contrast_threshold) * 255).astype(
-            np.uint8
-        )
+        mask: MaskArray = ((local_contrast > global_contrast_threshold) * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
         info: SegmentationInfo = self._log_info(
             "threshold_local_contrast_sklearn",
@@ -1980,9 +1922,7 @@ class SklearnSegmenter(BaseSegmenter):
         mask: MaskArray = ((magnitude > threshold) * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = self._log_info(
-            "sobel_edge_sklearn", exec_time, {"threshold": threshold, **kwargs}
-        )
+        info: SegmentationInfo = self._log_info("sobel_edge_sklearn", exec_time, {"threshold": threshold, **kwargs})
 
         # print(f"Mask after Sklearn_sobel_edge: {mask}")
         # print(f"Info after Sklearn_sobel_edge: {info}")
@@ -2044,9 +1984,7 @@ class SklearnSegmenter(BaseSegmenter):
         )
         mask: MaskArray = (edges_bool * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
-        print(
-            f"DEBUG: sigma={sigma}, low={low_threshold}, high={high_threshold}, quantiles={use_quantiles}"
-        )
+        print(f"DEBUG: sigma={sigma}, low={low_threshold}, high={high_threshold}, quantiles={use_quantiles}")
         print(f"DEBUG: Image range: [{gray.min():.4f}, {gray.max():.4f}]")
 
         info: SegmentationInfo = self._log_info(
@@ -2108,9 +2046,7 @@ class SklearnSegmenter(BaseSegmenter):
             magnitude = magnitude / magnitude.max()
         mask: MaskArray = ((magnitude > threshold) * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
-        info: SegmentationInfo = self._log_info(
-            "prewitt_edge_sklearn", exec_time, {"threshold": threshold, **kwargs}
-        )
+        info: SegmentationInfo = self._log_info("prewitt_edge_sklearn", exec_time, {"threshold": threshold, **kwargs})
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2170,9 +2106,7 @@ class SklearnSegmenter(BaseSegmenter):
             magnitude = magnitude / magnitude.max()
         mask: MaskArray = ((magnitude > threshold) * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
-        info: SegmentationInfo = self._log_info(
-            "scharr_edge_sklearn", exec_time, {"threshold": threshold, **kwargs}
-        )
+        info: SegmentationInfo = self._log_info("scharr_edge_sklearn", exec_time, {"threshold": threshold, **kwargs})
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2292,9 +2226,7 @@ class SklearnSegmenter(BaseSegmenter):
             | (laplacian > 0) & (np.roll(laplacian, 1, axis=1) < 0)
             | (laplacian < 0) & (np.roll(laplacian, 1, axis=1) > 0)
         )
-        mask: MaskArray = ((zc & (np.abs(laplacian) > threshold)) * 255).astype(
-            np.uint8
-        )
+        mask: MaskArray = ((zc & (np.abs(laplacian) > threshold)) * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
         info: SegmentationInfo = self._log_info(
             "log_edge_sklearn",
@@ -2425,9 +2357,7 @@ class SklearnSegmenter(BaseSegmenter):
             gray = img.astype(np.float32)
         start_time: float = time.time()
         threshold: float = float(self.params.get("threshold", 0.1))
-        angle_range: Optional[Tuple[float, float]] = self.params.get(
-            "angle_range", None
-        )
+        angle_range: Optional[Tuple[float, float]] = self.params.get("angle_range", None)
 
         # Градиенты Собеля
         # gx = sobel(img, axis=1)  # Горизонтальный градиент
@@ -2446,11 +2376,8 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Фильтрация по направлению (если указано)
         if angle_range is not None:
-            angle_mask = (
-                (direction >= angle_range[0]) & (direction <= angle_range[1])
-            ) | (
-                (direction + 180 >= angle_range[0])
-                & (direction + 180 <= angle_range[1])
+            angle_mask = ((direction >= angle_range[0]) & (direction <= angle_range[1])) | (
+                (direction + 180 >= angle_range[0]) & (direction + 180 <= angle_range[1])
             )
             magnitude = magnitude * angle_mask
 
@@ -2822,9 +2749,7 @@ class SklearnSegmenter(BaseSegmenter):
             if best_region_mask is not None:
                 # Находим координаты маски в оригинальном изображении
                 # (упрощенно - предполагаем, что регионы не перекрываются)
-                mask[: best_region_mask.shape[0], : best_region_mask.shape[1]] = (
-                    best_region_mask.astype(np.uint8)
-                )
+                mask[: best_region_mask.shape[0], : best_region_mask.shape[1]] = best_region_mask.astype(np.uint8)
 
         exec_time: float = time.time() - start_time
         mask = (mask * 255).astype(np.uint8)
@@ -3081,9 +3006,7 @@ class SklearnSegmenter(BaseSegmenter):
         k = int(self.params.get("k", 3))
         random_state = 42
         n_init = 10
-        kmeans = KMeans(
-            n_clusters=k, random_state=random_state, n_init=n_init, **kwargs
-        )
+        kmeans = KMeans(n_clusters=k, random_state=random_state, n_init=n_init, **kwargs)
         labels = kmeans.fit_predict(features)
 
         # Создаем маску
@@ -3131,9 +3054,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Извлекаем признаки (пиксель + координаты)
         y_coords, x_coords = np.mgrid[0:h, 0:w]
-        features = np.column_stack(
-            [gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h]
-        )
+        features = np.column_stack([gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h])
 
         # Применяем DBSCAN
         eps = float(self.params.get("eps", 0.1))
@@ -3229,9 +3150,7 @@ class SklearnSegmenter(BaseSegmenter):
         knn = KNeighborsClassifier(n_neighbors=5)
         knn.fit(features, labels)
 
-        all_coords = np.column_stack(
-            [np.repeat(np.arange(h), w), np.tile(np.arange(w), h)]
-        ) / [h, w]
+        all_coords = np.column_stack([np.repeat(np.arange(h), w), np.tile(np.arange(w), h)]) / [h, w]
 
         all_pixels = img_rgb.reshape(-1, 3) / 255.0
         all_features = np.hstack([all_pixels, all_coords])
@@ -3360,9 +3279,7 @@ class SklearnSegmenter(BaseSegmenter):
         # r = center_y + radius * np.sin(s)
         # c = center_x + radius * np.cos(s)
         # init = np.array([r, c]).T
-        init = np.array(
-            [center_x + radius * np.cos(s), center_y + radius * np.sin(s)]
-        ).T
+        init = np.array([center_x + radius * np.cos(s), center_y + radius * np.sin(s)]).T
 
         # Параметры активного контура
         alpha = float(self.params.get("alpha", 0.015))  # elasticity (0.01)
@@ -3740,9 +3657,7 @@ class SklearnSegmenter(BaseSegmenter):
         max_dist = float(self.params.get("max_dist", 6))
         ratio = float(self.params.get("ratio", 0.5))
 
-        segments = quickshift(
-            img_rgb, kernel_size=kernel_size, max_dist=max_dist, ratio=ratio, **kwargs
-        )
+        segments = quickshift(img_rgb, kernel_size=kernel_size, max_dist=max_dist, ratio=ratio, **kwargs)
 
         # Находим самый большой суперпиксель
         unique_labels, counts = np.unique(segments, return_counts=True)
@@ -3794,9 +3709,7 @@ class SklearnSegmenter(BaseSegmenter):
         compactness = float(self.params.get("compactness", 10.0))
 
         # Применяем SLIC
-        segments = slic(
-            img_rgb, n_segments=n_segments, compactness=compactness, **kwargs
-        )
+        segments = slic(img_rgb, n_segments=n_segments, compactness=compactness, **kwargs)
 
         # Находим самый большой суперпиксель
         unique_labels, counts = np.unique(segments, return_counts=True)
@@ -3850,9 +3763,7 @@ class SklearnSegmenter(BaseSegmenter):
         min_size = int(self.params.get("min_size", 50))
 
         # Применяем Felzenszwalb
-        segments = felzenszwalb(
-            img_rgb, scale=scale, sigma=sigma, min_size=min_size, **kwargs
-        )
+        segments = felzenszwalb(img_rgb, scale=scale, sigma=sigma, min_size=min_size, **kwargs)
 
         # Находим самый большой регион
         unique_labels, counts = np.unique(segments, return_counts=True)
@@ -3933,9 +3844,7 @@ class SklearnSegmenter(BaseSegmenter):
         start_time: float = time.time()
 
         # Получение параметров
-        rect: Tuple[int, int, int, int] = self.params.get(
-            "rect", (w // 4, h // 4, w // 2, h // 2)
-        )
+        rect: Tuple[int, int, int, int] = self.params.get("rect", (w // 4, h // 4, w // 2, h // 2))
         num_iterations: int = int(self.params.get("num_iterations", 5))
 
         # Инициализация маски: 0=определённый фон, 2=вероятный объект
@@ -3963,9 +3872,7 @@ class SklearnSegmenter(BaseSegmenter):
         )
 
         # Финальная маска: GC_FGD и GC_PR_FGD = объект (255), остальное = фон (0)
-        mask_bool: npt.NDArray[np.bool_] = (mask_grabcut == cv2.GC_FGD) | (
-            mask_grabcut == cv2.GC_PR_FGD
-        )
+        mask_bool: npt.NDArray[np.bool_] = (mask_grabcut == cv2.GC_FGD) | (mask_grabcut == cv2.GC_PR_FGD)
         mask: MaskArray = (mask_bool * 255).astype(np.uint8)
 
         # Пост-обработка: морфологические операции для сглаживания границ
@@ -4161,9 +4068,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         if use_sampling:
             clustering.fit(sample_features)
-            labels = self._interpolate_labels(
-                sample_features, features, clustering.labels_
-            )
+            labels = self._interpolate_labels(sample_features, features, clustering.labels_)
         else:
             labels = clustering.fit_predict(features)
 
@@ -4232,9 +4137,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         if use_sampling:
             spectral.fit(sample_features)
-            labels = self._interpolate_labels(
-                sample_features, features, spectral.labels_
-            )
+            labels = self._interpolate_labels(sample_features, features, spectral.labels_)
         else:
             labels = spectral.fit_predict(features)
 
@@ -4483,9 +4386,7 @@ class SklearnSegmenter(BaseSegmenter):
         y_coords, x_coords = np.mgrid[0:h, 0:w]
 
         # Маска объекта
-        obj_mask = (
-            (x_coords - center_w) ** 2 + (y_coords - center_h) ** 2
-        ) <= obj_size**2
+        obj_mask = ((x_coords - center_w) ** 2 + (y_coords - center_h) ** 2) <= obj_size**2
         labels_train[obj_mask.ravel()] = 1
 
         # Углы - фон
@@ -4511,9 +4412,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = self._log_info(
-            "random_forest_sklearn", exec_time, kwargs
-        )
+        info: SegmentationInfo = self._log_info("random_forest_sklearn", exec_time, kwargs)
 
         return mask, info
 
@@ -4665,9 +4564,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = self._log_info(
-            "logistic_regression_sklearn", exec_time, {"C": C, **kwargs}
-        )
+        info: SegmentationInfo = self._log_info("logistic_regression_sklearn", exec_time, {"C": C, **kwargs})
 
         return mask, info
 
@@ -4724,9 +4621,7 @@ class SklearnSegmenter(BaseSegmenter):
         weights = (self.params.get("weights", "uniform"),)
 
         # Обучаем KNN
-        knn = KNeighborsClassifier(
-            n_neighbors, weights, algorithm="auto", leaf_size=30, n_jobs=-1
-        )
+        knn = KNeighborsClassifier(n_neighbors, weights, algorithm="auto", leaf_size=30, n_jobs=-1)
 
         knn.fit(X_train, y_train)
 
@@ -4797,9 +4692,7 @@ class SklearnSegmenter(BaseSegmenter):
         contamination = str(self.params.get("contamination", "auto"))
 
         # Применяем Isolation Forest
-        iso_forest = IsolationForest(
-            n_estimators, contamination, max_samples="auto", random_state=42, n_jobs=-1
-        )
+        iso_forest = IsolationForest(n_estimators, contamination, max_samples="auto", random_state=42, n_jobs=-1)
 
         # Предсказываем аномалии (-1 - аномалия, 1 - норма)
         labels = iso_forest.fit_predict(features)
@@ -4855,9 +4748,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         if use_sampling:
             labels_sample = lof.fit_predict(sample_features)
-            labels = self._interpolate_labels(
-                sample_features, features, labels_sample, method="knn"
-            )
+            labels = self._interpolate_labels(sample_features, features, labels_sample, method="knn")
         else:
             labels = lof.fit_predict(features)
 
@@ -5159,9 +5050,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Кластеризуем матрицу согласованности
         n_clusters = int(self.params.get("n_clusters", 2))
-        spectral = SpectralClustering(
-            n_clusters=n_clusters, affinity="precomputed", random_state=42
-        )
+        spectral = SpectralClustering(n_clusters=n_clusters, affinity="precomputed", random_state=42)
 
         labels = spectral.fit_predict(consensus)
 
@@ -5239,9 +5128,7 @@ class SklearnSegmenter(BaseSegmenter):
 
     # ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ АВТОМАТИЧЕСКОЙ НАСТРОЙКИ ============
     # ──────────────────────────────────────────────────────────────────────
-    def _estimate_optimal_clusters(
-        self, features: FloatArray, max_k: int = 10, **kwargs: Any
-    ) -> int:
+    def _estimate_optimal_clusters(self, features: FloatArray, max_k: int = 10, **kwargs: Any) -> int:
         """Оценка оптимального числа кластеров методом локтя."""
         if features.shape[0] < 10:
             return 2
@@ -5267,9 +5154,7 @@ class SklearnSegmenter(BaseSegmenter):
         return max(2, min(elbow_point, max_k))
 
     # ──────────────────────────────────────────────────────────────────────
-    def _estimate_dbscan_params(
-        self, features: FloatArray, **kwargs: Any
-    ) -> Tuple[float, int]:
+    def _estimate_dbscan_params(self, features: FloatArray, **kwargs: Any) -> Tuple[float, int]:
         """Автоматическая оценка параметров DBSCAN."""
         # Используем метод k-distance graph
 
@@ -5295,9 +5180,7 @@ class SklearnSegmenter(BaseSegmenter):
         return eps, int(min_samples)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _estimate_meanshift_bandwidth(
-        self, features: FloatArray, **kwargs: Any
-    ) -> float:
+    def _estimate_meanshift_bandwidth(self, features: FloatArray, **kwargs: Any) -> float:
         """Оценка bandwidth для MeanShift."""
         # Используем квантильный метод
 
@@ -5315,9 +5198,7 @@ class SklearnSegmenter(BaseSegmenter):
         return max(bandwidth, 0.1)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _estimate_gmm_components(
-        self, features: FloatArray, max_components: int = 10, **kwargs: Any
-    ) -> int:
+    def _estimate_gmm_components(self, features: FloatArray, max_components: int = 10, **kwargs: Any) -> int:
         """Оценка числа компонент для GMM с помощью BIC."""
         if features.shape[0] < 20:
             return 2
@@ -5484,9 +5365,7 @@ class SklearnSegmenter(BaseSegmenter):
         mask: MaskArray = self._postprocess_mask(mask_raw)
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = self._log_info(
-            "naive_bayes_sklearn", exec_time, kwargs
-        )
+        info: SegmentationInfo = self._log_info("naive_bayes_sklearn", exec_time, kwargs)
 
         return mask, info
 
@@ -5710,9 +5589,7 @@ class SklearnSegmenter(BaseSegmenter):
         mask_raw = self._create_mask_from_labels(labels, (h, w))
         mask: MaskArray = self._postprocess_mask(mask_raw)
         exec_time: float = time.time() - start_time
-        info: SegmentationInfo = self._log_info(
-            "affinity_propagation_sklearn", exec_time, kwargs
-        )
+        info: SegmentationInfo = self._log_info("affinity_propagation_sklearn", exec_time, kwargs)
 
         return mask, info
 
@@ -5779,9 +5656,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Подготовка признаков
         y_coords, x_coords = np.mgrid[0:h, 0:w]
-        features = np.column_stack(
-            [gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h]
-        )
+        features = np.column_stack([gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h])
 
         # Применяем GMM
         n_components = self.params.get("n_components", 3)
@@ -5840,9 +5715,7 @@ class SklearnSegmenter(BaseSegmenter):
         knn = KNeighborsClassifier(n_neighbors=5)
         knn.fit(features, labels_sample)
 
-        all_features = np.column_stack(
-            [gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h]
-        )
+        all_features = np.column_stack([gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h])
 
         labels = knn.predict(all_features)
 
@@ -5896,18 +5769,14 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Применяем Spectral Clustering
         n_clusters = self.params.get("n_clusters", 3)
-        spectral = SpectralClustering(
-            n_clusters=n_clusters, affinity="nearest_neighbors"
-        )
+        spectral = SpectralClustering(n_clusters=n_clusters, affinity="nearest_neighbors")
         labels_sample = spectral.fit_predict(features)
 
         # Интерполируем
         knn = KNeighborsClassifier(n_neighbors=5)
         knn.fit(features, labels_sample)
 
-        all_features = np.column_stack(
-            [gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h]
-        )
+        all_features = np.column_stack([gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h])
 
         labels = knn.predict(all_features)
 
@@ -5948,9 +5817,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Подготовка признаков
         y_coords, x_coords = np.mgrid[0:h, 0:w]
-        features = np.column_stack(
-            [gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h]
-        )
+        features = np.column_stack([gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h])
 
         # Применяем Isolation Forest
         contamination = 0.1
@@ -6019,9 +5886,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Подготовка признаков
         y_coords, x_coords = np.mgrid[0:h, 0:w]
-        features = np.column_stack(
-            [gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h]
-        )
+        features = np.column_stack([gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h])
 
         # Обучаем Random Forest
         train_indices = labels_train >= 0
@@ -6081,9 +5946,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Подготовка признаков
         y_coords, x_coords = np.mgrid[0:h, 0:w]
-        features = np.column_stack(
-            [gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h]
-        )
+        features = np.column_stack([gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h])
 
         # Обучаем SVM
         train_indices = labels_train >= 0
@@ -6134,9 +5997,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Подготовка признаков
         y_coords, x_coords = np.mgrid[0:h, 0:w]
-        features = np.column_stack(
-            [gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h]
-        )
+        features = np.column_stack([gray.ravel(), x_coords.ravel() / w, y_coords.ravel() / h])
 
         # Применяем PCA
         n_components = 2
@@ -6163,9 +6024,7 @@ class SklearnSegmenter(BaseSegmenter):
 
     # ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
     # ──────────────────────────────────────────────────────────────────────
-    def _create_mask_from_labels_vers2(
-        self, labels: np.ndarray, shape: Tuple, **kwargs: Any
-    ) -> np.ndarray:
+    def _create_mask_from_labels_vers2(self, labels: np.ndarray, shape: Tuple, **kwargs: Any) -> np.ndarray:
         """Создание бинарной маски из меток."""
         labels_2d = labels.reshape(shape)
         unique_labels = np.unique(labels)
@@ -6239,10 +6098,7 @@ class SklearnSegmenter(BaseSegmenter):
 
             # Используем flood из skimage
             mask: MaskArray = (
-                segmentation.flood(
-                    gray, seed_point=seed[::-1], tolerance=tolerance
-                ).astype(np.uint8)
-                * 255
+                segmentation.flood(gray, seed_point=seed[::-1], tolerance=tolerance).astype(np.uint8) * 255
             )
 
             exec_time: float = time.time() - start_time
@@ -6320,9 +6176,7 @@ class SklearnSegmenter(BaseSegmenter):
             center_x, center_y = w // 2, h // 2
             radius = min(center_x, center_y) // 2
             s = np.linspace(0, 2 * np.pi, 100)
-            init = np.array(
-                [center_x + radius * np.cos(s), center_y + radius * np.sin(s)]
-            ).T
+            init = np.array([center_x + radius * np.cos(s), center_y + radius * np.sin(s)]).T
 
             # Параметры
             alpha = self.params.get("alpha", 0.015)
@@ -6728,9 +6582,7 @@ class SklearnSegmenter(BaseSegmenter):
             mask: MaskArray = (segmentation == 2).astype(np.uint8) * 255
             exec_time: float = time.time() - start_time
 
-            info: SegmentationInfo = self._log_info(
-                "watershed_sklearn", exec_time, kwargs
-            )
+            info: SegmentationInfo = self._log_info("watershed_sklearn", exec_time, kwargs)
 
             return mask, info
 
@@ -6854,9 +6706,7 @@ class SklearnSegmenter(BaseSegmenter):
             ratio = self.params.get("ratio", 0.5)
 
             # Применяем Quickshift
-            segments = quickshift(
-                img_rgb, kernel_size=kernel_size, max_dist=max_dist, ratio=ratio
-            )
+            segments = quickshift(img_rgb, kernel_size=kernel_size, max_dist=max_dist, ratio=ratio)
 
             # Находим самый большой сегмент (фон)
             unique, counts = np.unique(segments, return_counts=True)
@@ -7027,9 +6877,7 @@ class SklearnSegmenter(BaseSegmenter):
             min_size = self.params.get("min_size", 50)
 
             # Применяем Felzenszwalb
-            segments = felzenszwalb(
-                img_rgb, scale=scale, sigma=sigma, min_size=min_size
-            )
+            segments = felzenszwalb(img_rgb, scale=scale, sigma=sigma, min_size=min_size)
 
             # Находим самый большой сегмент (фон)
             unique, counts = np.unique(segments, return_counts=True)
@@ -7130,9 +6978,7 @@ class SklearnSegmenter(BaseSegmenter):
 
             # Обучаем Random Forest
             n_estimators = self.params.get("n_estimators", 50)
-            rf = RandomForestClassifier(
-                n_estimators=n_estimators, random_state=42, n_jobs=-1
-            )
+            rf = RandomForestClassifier(n_estimators=n_estimators, random_state=42, n_jobs=-1)
             rf.fit(X_train, y_train)
 
             # Предсказываем для всех пикселей

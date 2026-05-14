@@ -77,9 +77,7 @@ class QuantizedSegmenter:
         self.quantized_methods[method_name] = quantized
         return quantized
 
-    def benchmark_quantized(
-        self, method_name: str, image: np.ndarray, n_runs: int = 50
-    ) -> Dict[str, float]:
+    def benchmark_quantized(self, method_name: str, image: np.ndarray, n_runs: int = 50) -> Dict[str, float]:
         """Сравнение квантованной и оригинальной версий"""
 
         if method_name not in self.quantized_methods:
@@ -110,9 +108,7 @@ class QuantizedSegmenter:
             "original_mean": np.mean(times_orig),
             "quantized_mean": np.mean(times_quant),
             "speedup": np.mean(times_orig) / np.mean(times_quant),
-            "accuracy_loss": self._compute_accuracy_loss(
-                method_name, image, quant_func
-            ),
+            "accuracy_loss": self._compute_accuracy_loss(method_name, image, quant_func),
         }
 
     def _compute_accuracy_loss(self, method_name, image, quant_func):

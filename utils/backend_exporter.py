@@ -95,9 +95,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -121,9 +119,7 @@ class SegmenterMethodWrapper(nn.Module):
     torch.export.export не принимает torch.compile-обёрнутые функции.
     """
 
-    def __init__(
-        self, segmenter: Any, method_name: str, precision: str = "fp32"
-    ) -> None:
+    def __init__(self, segmenter: Any, method_name: str, precision: str = "fp32") -> None:
         """Инициализация модуля SegmenterMethodWrapper."""
         super().__init__()
         self.segmenter: Any = segmenter
@@ -141,9 +137,7 @@ class SegmenterMethodWrapper(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Прямой ход для SegmenterMethodWrapper."""
-        result: torch.Tensor = self.func(
-            self.segmenter, x, precision=self.precision, export_mode=True
-        )
+        result: torch.Tensor = self.func(self.segmenter, x, precision=self.precision, export_mode=True)
         # Гарантируем (1,1,H,W) через view — без dim()-зависимых веток
         if result.dim() == 2:
             result = result.unsqueeze(0).unsqueeze(0)
@@ -181,14 +175,10 @@ def export_method_to_onnx_safe(
         print(f"❌ ONNX: метод '{method_name}' не найден в method_map")
         return False
 
-    wrapper: SegmenterMethodWrapper = SegmenterMethodWrapper(
-        segmenter, method_name, precision=precision
-    ).eval()
+    wrapper: SegmenterMethodWrapper = SegmenterMethodWrapper(segmenter, method_name, precision=precision).eval()
     wrapper = wrapper.to(segmenter.device)
 
-    sample: torch.Tensor = torch.randn(
-        *input_shape, device=segmenter.device, dtype=torch.float32
-    )
+    sample: torch.Tensor = torch.randn(*input_shape, device=segmenter.device, dtype=torch.float32)
 
     # Тестовый прогон — инициализируем буферы
     try:
@@ -284,20 +274,14 @@ def export_method_to_trt_dynamo(
         print("❌ TRT: torch_tensorrt не установлен: pip install torch-tensorrt")
         return False
 
-    device_obj: torch.device = (
-        torch.device(segmenter.device)
-        if isinstance(segmenter.device, str)
-        else segmenter.device
-    )
+    device_obj: torch.device = torch.device(segmenter.device) if isinstance(segmenter.device, str) else segmenter.device
 
     if method_name not in segmenter.method_map:
         print(f"❌ TRT: метод '{method_name}' не найден")
         return False
 
     # FIX 1: оборачиваем в nn.Module — torch.export требует Module или callable
-    wrapper: SegmenterMethodWrapper = SegmenterMethodWrapper(
-        segmenter, method_name, precision=precision
-    ).eval()
+    wrapper: SegmenterMethodWrapper = SegmenterMethodWrapper(segmenter, method_name, precision=precision).eval()
     wrapper = wrapper.to(segmenter.device)
 
     # Определяем dtype для TRT
@@ -305,25 +289,17 @@ def export_method_to_trt_dynamo(
     if precision == "fp16" and torch.cuda.is_available():
         cap: Tuple[int, int] = torch.cuda.get_device_capability()
         if cap[0] < 6:
-            print(
-                f"⚠️  fp16 не поддерживается на compute capability {cap[0]}.{cap[1]}, переключаемся на fp32"
-            )
+            print(f"⚠️  fp16 не поддерживается на compute capability {cap[0]}.{cap[1]}, переключаемся на fp32")
             target_precision = "fp32"
 
-    target_dtype: torch.dtype = (
-        torch.float16 if target_precision == "fp16" else torch.float32
-    )
-    sample: torch.Tensor = torch.randn(
-        *input_shape, device=segmenter.device, dtype=torch.float32
-    )
+    target_dtype: torch.dtype = torch.float16 if target_precision == "fp16" else torch.float32
+    sample: torch.Tensor = torch.randn(*input_shape, device=segmenter.device, dtype=torch.float32)
 
     # Тестовый прогон
     try:
         with torch.no_grad():
             out: torch.Tensor = wrapper(sample)
-        print(
-            f"Wrapper output: shape={out.shape}, min={out.min()}, max={out.max()}, unique={out.unique()}"
-        )
+        print(f"Wrapper output: shape={out.shape}, min={out.min()}, max={out.max()}, unique={out.unique()}")
     except Exception as e:
         print(f"❌ TRT: тестовый прогон упал для '{method_name}': {e}")
         return False
@@ -481,9 +457,7 @@ def export_method_to_trt_jit(
             self.func: Any = f
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
-            result: torch.Tensor = self.func(
-                self.seg, x, precision=self.precision, export_mode=True
-            )
+            result: torch.Tensor = self.func(self.seg, x, precision=self.precision, export_mode=True)
             # Фиксируем выход к (1, 1, H, W) из fixed_shape
             _, _, target_h, target_w = self.fixed_shape
             if result.dim() == 2:
@@ -492,20 +466,14 @@ def export_method_to_trt_jit(
                 result = result.unsqueeze(0)
             return result.view(1, 1, target_h, target_w).float()
 
-    wrapper: TRTWrapper = TRTWrapper(
-        segmenter, method_name, precision, input_shape
-    ).eval()
+    wrapper: TRTWrapper = TRTWrapper(segmenter, method_name, precision, input_shape).eval()
     wrapper = wrapper.to(segmenter.device)
 
-    sample: torch.Tensor = torch.randn(
-        *input_shape, device=segmenter.device, dtype=torch.float32
-    )
+    sample: torch.Tensor = torch.randn(*input_shape, device=segmenter.device, dtype=torch.float32)
 
     try:
         # Trace с фиксированным входом
-        traced: torch.jit.ScriptModule = torch.jit.trace(
-            wrapper, sample, check_trace=False
-        )
+        traced: torch.jit.ScriptModule = torch.jit.trace(wrapper, sample, check_trace=False)
         print(f"   ✅ torch.jit.trace OK для '{method_name}'")
     except Exception as e:
         print(f"❌ TRT: torch.jit.trace failed для '{method_name}': {e}")

@@ -56,9 +56,7 @@ class FusedOperation:
         """Записывает метрики производительности."""
         self.metrics["original_ms"] = original_time
         self.metrics["fused_ms"] = fused_time
-        self.metrics["speedup"] = (
-            original_time / fused_time if fused_time > 0 else float("inf")
-        )
+        self.metrics["speedup"] = original_time / fused_time if fused_time > 0 else float("inf")
 
     def __call__(self, *args, **kwargs):
         """Вызов fused функции."""
@@ -95,9 +93,7 @@ class FusionOptimizer:
         """
         self.segmenter = segmenter
         self.config = config or DEFAULT_CONFIG
-        self.device = torch.device(
-            device or ("cuda" if torch.cuda.is_available() else "cpu")
-        )
+        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
         # Кэш fused операций
         self.fused_operations: Dict[str, FusedOperation] = {}
@@ -118,16 +114,11 @@ class FusionOptimizer:
             return FusionStrategy.NONE
 
         # Проверка включений
-        if (
-            self.config.include_methods
-            and method_name not in self.config.include_methods
-        ):
+        if self.config.include_methods and method_name not in self.config.include_methods:
             return FusionStrategy.NONE
 
         # Стратегия из конфигурации или по умолчанию
-        return FUSION_STRATEGIES.get(
-            method_name, FUSION_STRATEGIES.get("default", FusionStrategy.GRAPH_FUSION)
-        )
+        return FUSION_STRATEGIES.get(method_name, FUSION_STRATEGIES.get("default", FusionStrategy.GRAPH_FUSION))
 
     def _fuse_graph_compilation(
         self,
@@ -192,9 +183,7 @@ class FusionOptimizer:
         Все операции в одном kernel через vectorized ops.
         """
         padding = window_size // 2
-        mean_kernel = torch.ones(1, 1, window_size, window_size, device=self.device) / (
-            window_size**2
-        )
+        mean_kernel = torch.ones(1, 1, window_size, window_size, device=self.device) / (window_size**2)
 
         def fused_func(gray: torch.Tensor) -> torch.Tensor:
             # Убедимся, что вход 4D
@@ -313,75 +302,46 @@ class FusionOptimizer:
 
         # Применение стратегии fusion
         if strategy == FusionStrategy.GRAPH_FUSION:
-            fused_func = self._fuse_graph_compilation(
-                method_name, original_func, example_input
-            )
+            fused_func = self._fuse_graph_compilation(method_name, original_func, example_input)
         elif strategy == FusionStrategy.MANUAL_FUSION:
             # Специальные fused реализации для известных методов
             if "niblack" in method_name.lower():
                 window_size = self.segmenter.params.get("window_size", 15)
                 k = self.segmenter.params.get("k", -0.2)
-                fused_func = self._fuse_manual_niblack_sauvola(
-                    method_name, window_size, k
-                )
+                fused_func = self._fuse_manual_niblack_sauvola(method_name, window_size, k)
             elif "sauvola" in method_name.lower():
                 window_size = self.segmenter.params.get("window_size", 15)
                 k = self.segmenter.params.get("k", 0.5)
                 r = self.segmenter.params.get("r", 128)
-                fused_func = self._fuse_manual_niblack_sauvola(
-                    method_name, window_size, k, r
-                )
+                fused_func = self._fuse_manual_niblack_sauvola(method_name, window_size, k, r)
             else:
                 # Fallback на graph fusion
-                fused_func = self._fuse_graph_compilation(
-                    method_name, original_func, example_input
-                )
+                fused_func = self._fuse_graph_compilation(method_name, original_func, example_input)
 
         elif strategy == FusionStrategy.VECTORIZED:
             # Векторизованные градиентные методы
             if "sobel" in method_name.lower():
-                kernel_x = torch.tensor(
-                    [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], device=self.device
-                ).view(1, 1, 3, 3)
-                kernel_y = torch.tensor(
-                    [[-1, -2, -1], [0, 0, 0], [1, 2, 1]], device=self.device
-                ).view(1, 1, 3, 3)
-                fused_func = self._fuse_vectorized_gradient(
-                    method_name, kernel_x, kernel_y
-                )
+                kernel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], device=self.device).view(1, 1, 3, 3)
+                kernel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], device=self.device).view(1, 1, 3, 3)
+                fused_func = self._fuse_vectorized_gradient(method_name, kernel_x, kernel_y)
             elif "prewitt" in method_name.lower():
-                kernel_x = torch.tensor(
-                    [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], device=self.device
-                ).view(1, 1, 3, 3)
-                kernel_y = torch.tensor(
-                    [[-1, -1, -1], [0, 0, 0], [1, 1, 1]], device=self.device
-                ).view(1, 1, 3, 3)
-                fused_func = self._fuse_vectorized_gradient(
-                    method_name, kernel_x, kernel_y
-                )
+                kernel_x = torch.tensor([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], device=self.device).view(1, 1, 3, 3)
+                kernel_y = torch.tensor([[-1, -1, -1], [0, 0, 0], [1, 1, 1]], device=self.device).view(1, 1, 3, 3)
+                fused_func = self._fuse_vectorized_gradient(method_name, kernel_x, kernel_y)
             else:
-                fused_func = self._fuse_graph_compilation(
-                    method_name, original_func, example_input
-                )
+                fused_func = self._fuse_graph_compilation(method_name, original_func, example_input)
 
         elif strategy == FusionStrategy.CUSTOM_KERNEL:
             # Custom CUDA kernels (опционально)
-            if (
-                self.config.enable_custom_kernels
-                and self.capabilities["custom_kernels"]
-            ):
+            if self.config.enable_custom_kernels and self.capabilities["custom_kernels"]:
                 from .custom_kernels import get_custom_kernel
 
                 fused_func = get_custom_kernel(method_name, original_func)
                 if fused_func is None:
                     warnings.warn(f"Custom kernel not available, using graph fusion")
-                    fused_func = self._fuse_graph_compilation(
-                        method_name, original_func, example_input
-                    )
+                    fused_func = self._fuse_graph_compilation(method_name, original_func, example_input)
             else:
-                fused_func = self._fuse_graph_compilation(
-                    method_name, original_func, example_input
-                )
+                fused_func = self._fuse_graph_compilation(method_name, original_func, example_input)
 
         else:
             fused_func = original_func
@@ -458,9 +418,7 @@ class FusionOptimizer:
         # Замер оригинала
         orig_mean, orig_std = measure(original_func, example_input, n_runs, warmup)
         # Замер fused версии
-        fused_mean, fused_std = measure(
-            fused_op.fused_func, example_input, n_runs, warmup
-        )
+        fused_mean, fused_std = measure(fused_op.fused_func, example_input, n_runs, warmup)
 
         # Запись метрик
         fused_op.record_metrics(orig_mean, fused_mean)
@@ -494,11 +452,7 @@ class FusionOptimizer:
             Dict {method_name: FusedOperation}
         """
         if methods is None:
-            methods = [
-                m
-                for m in self.segmenter.method_map.keys()
-                if m not in self.config.exclude_methods
-            ]
+            methods = [m for m in self.segmenter.method_map.keys() if m not in self.config.exclude_methods]
 
         if self.config.verbose:
             print(f"🔧 Fusing {len(methods)} methods...")

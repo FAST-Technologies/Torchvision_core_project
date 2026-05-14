@@ -36,9 +36,7 @@ device = "cuda"
 
 
 # ──────────────────────────────────────────────────────────────────────
-def train_unet_ade20k(
-    epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, device="cuda"
-):
+def train_unet_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, device="cuda"):
     """Обучение U-Net на ADE20K."""
     print("🔹 Training U-Net (SMP) on ADE20K...")
 
@@ -58,12 +56,8 @@ def train_unet_ade20k(
         subset_fraction=subset_fraction,
     )
 
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=0
-    )
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
     # Модель
     model = smp.Unet(
@@ -93,9 +87,7 @@ def train_unet_ade20k(
     assert masks.min() >= 0 and masks.max() <= 149, "Mask values out of range!"
 
     # Обучение
-    history = trainer.fit(
-        epochs=epochs, checkpoint_path="./models/unet_ade20k_best.pth"
-    )
+    history = trainer.fit(epochs=epochs, checkpoint_path="./models/unet_ade20k_best.pth")
 
     return model, history
 
@@ -122,12 +114,8 @@ def train_deeplab_ade20k(
         hflip_prob=0.5,
         # vflip_prob=0.1 if augmentation_level == "aggressive" else 0.0,
         rotation_prob=(0.3 if augmentation_level in ["medium", "aggressive"] else 0.0),
-        color_jitter_prob=(
-            0.3 if augmentation_level in ["medium", "aggressive"] else 0.0
-        ),
-        scale_range=(
-            (0.9, 1.1) if augmentation_level in ["medium", "aggressive"] else (1.0, 1.0)
-        ),
+        color_jitter_prob=(0.3 if augmentation_level in ["medium", "aggressive"] else 0.0),
+        scale_range=((0.9, 1.1) if augmentation_level in ["medium", "aggressive"] else (1.0, 1.0)),
         subset_fraction=subset_fraction,
     )
     val_dataset = ADE20KDataset(
@@ -139,12 +127,8 @@ def train_deeplab_ade20k(
         subset_fraction=subset_fraction,
     )
 
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=0
-    )
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
     # Загрузка предобученной модели
     model = tv_seg.deeplabv3_resnet101(weights="COCO_WITH_VOC_LABELS_V1")
@@ -164,9 +148,7 @@ def train_deeplab_ade20k(
     model = model.to(device).train()
 
     # Трейнер с отдельным оптимизатором для frozen backbone
-    optimizer = torch.optim.AdamW(
-        [p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=1e-4
-    )
+    optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=1e-4)
 
     trainer = NeuralTrainer.__new__(NeuralTrainer)
     trainer.model = model
@@ -178,9 +160,7 @@ def train_deeplab_ade20k(
     trainer.aux_loss_weight = 0.0
     trainer.criterion = nn.CrossEntropyLoss(ignore_index=255)
     trainer.optimizer = optimizer
-    trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=len(train_loader) * epochs
-    )
+    trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_loader) * epochs)
     trainer.best_miou = 0
     trainer.history = {"train_loss": [], "val_loss": [], "val_miou": []}
 
@@ -193,9 +173,7 @@ def train_deeplab_ade20k(
             for param in model.backbone.parameters():
                 param.requires_grad = True
             # Новый оптимизатор для всех параметров
-            trainer.optimizer = torch.optim.AdamW(
-                model.parameters(), lr=lr / 10, weight_decay=1e-4
-            )
+            trainer.optimizer = torch.optim.AdamW(model.parameters(), lr=lr / 10, weight_decay=1e-4)
             trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 trainer.optimizer, T_max=len(train_loader) * (epochs - 5)
             )
@@ -217,9 +195,7 @@ def train_deeplab_ade20k(
 
         if val_miou > trainer.best_miou:
             trainer.best_miou = val_miou
-            torch.save(
-                model.state_dict(), "./models/deeplab_ade20k_best_201_epochs.pth"
-            )
+            torch.save(model.state_dict(), "./models/deeplab_ade20k_best_201_epochs.pth")
             print(f"   💾 Saved best model (mIoU: {val_miou:.4f})")
 
         torch.cuda.empty_cache()
@@ -230,9 +206,7 @@ def train_deeplab_ade20k(
 
 
 # ──────────────────────────────────────────────────────────────────────
-def train_fpn_mit_ade20k(
-    epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5, device="cuda", variant="b5"
-):
+def train_fpn_mit_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5, device="cuda", variant="b5"):
     """Обучение FPN + Mix Transformer на ADE20K."""
     print(f"🔹 Training FPN + MiT-{variant} on ADE20K...")
 
@@ -252,12 +226,8 @@ def train_fpn_mit_ade20k(
         subset_fraction=subset_fraction,
     )
 
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=0
-    )
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
     # Модель
     encoder = f"mit_{variant}"
@@ -288,17 +258,13 @@ def train_fpn_mit_ade20k(
     assert masks.min() >= 0 and masks.max() <= 149, "Mask values out of range!"
 
     # Обучение
-    history = trainer.fit(
-        epochs=epochs, checkpoint_path=f"./models/fpn_mit_{variant}_ade20k_best.pth"
-    )
+    history = trainer.fit(epochs=epochs, checkpoint_path=f"./models/fpn_mit_{variant}_ade20k_best.pth")
 
     return model, history
 
 
 # ──────────────────────────────────────────────────────────────────────
-def train_psp_mit_ade20k(
-    epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5, device="cuda", variant="b5"
-):
+def train_psp_mit_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=5e-5, device="cuda", variant="b5"):
     """Обучение PSPNet + Mix Transformer на ADE20K."""
     print(f"🔹 Training PSPNet + MiT-{variant} on ADE20K...")
 
@@ -318,12 +284,8 @@ def train_psp_mit_ade20k(
         subset_fraction=subset_fraction,
     )
 
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=0
-    )
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
     # Модель
     encoder = f"mit_{variant}"
@@ -357,9 +319,7 @@ def train_psp_mit_ade20k(
     assert masks.min() >= 0 and masks.max() <= 149, "Mask values out of range!"
 
     # Обучение
-    history = trainer.fit(
-        epochs=epochs, checkpoint_path=f"./models/psp_mit_{variant}_ade20k_best.pth"
-    )
+    history = trainer.fit(epochs=epochs, checkpoint_path=f"./models/psp_mit_{variant}_ade20k_best.pth")
 
     return model, history
 
@@ -388,12 +348,8 @@ def train_fcn_resnet50_ade20k(
         hflip_prob=0.5,
         # vflip_prob=0.1 if augmentation_level == "aggressive" else 0.0,
         rotation_prob=(0.3 if augmentation_level in ["medium", "aggressive"] else 0.0),
-        color_jitter_prob=(
-            0.3 if augmentation_level in ["medium", "aggressive"] else 0.0
-        ),
-        scale_range=(
-            (0.9, 1.1) if augmentation_level in ["medium", "aggressive"] else (1.0, 1.0)
-        ),
+        color_jitter_prob=(0.3 if augmentation_level in ["medium", "aggressive"] else 0.0),
+        scale_range=((0.9, 1.1) if augmentation_level in ["medium", "aggressive"] else (1.0, 1.0)),
         subset_fraction=subset_fraction,
     )
     val_dataset = ADE20KDataset(
@@ -405,12 +361,8 @@ def train_fcn_resnet50_ade20k(
         subset_fraction=subset_fraction,
     )
 
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=0
-    )
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
     variants = {
         "fcn_resnet50": tv_seg.fcn_resnet50,
@@ -438,9 +390,7 @@ def train_fcn_resnet50_ade20k(
     model = model.to(device).train()
 
     # Оптимизатор только для classifier
-    optimizer = torch.optim.AdamW(
-        [p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=1e-4
-    )
+    optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=1e-4)
 
     # Трейнер с кастомным оптимизатором
     trainer = NeuralTrainer.__new__(NeuralTrainer)
@@ -453,9 +403,7 @@ def train_fcn_resnet50_ade20k(
     trainer.aux_loss_weight = 0.0
     trainer.criterion = nn.CrossEntropyLoss(ignore_index=255)
     trainer.optimizer = optimizer
-    trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=len(train_loader) * epochs
-    )
+    trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_loader) * epochs)
     trainer.best_miou = 0
     trainer.history = {"train_loss": [], "val_loss": [], "val_miou": []}
 
@@ -467,9 +415,7 @@ def train_fcn_resnet50_ade20k(
         if epoch == 5:
             for param in model.backbone.parameters():
                 param.requires_grad = True
-            trainer.optimizer = torch.optim.AdamW(
-                model.parameters(), lr=lr / 10, weight_decay=1e-4
-            )
+            trainer.optimizer = torch.optim.AdamW(model.parameters(), lr=lr / 10, weight_decay=1e-4)
             trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 trainer.optimizer, T_max=len(train_loader) * (epochs - 5)
             )
@@ -505,9 +451,7 @@ def train_fcn_resnet50_ade20k(
 
 
 # ──────────────────────────────────────────────────────────────────────
-def train_segnet_ade20k(
-    epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, device="cuda"
-):
+def train_segnet_ade20k(epochs=20, batch_size=4, subset_fraction=0.05, lr=1e-4, device="cuda"):
     """Обучение SegNet на ADE20K."""
     print("🔹 Training SegNet on ADE20K...")
 
@@ -527,12 +471,8 @@ def train_segnet_ade20k(
         subset_fraction=subset_fraction,
     )
 
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=0
-    )
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
     # Модель (кастомная SegNet или U-Net как proxy)
     try:
@@ -579,9 +519,7 @@ def train_segnet_ade20k(
     assert masks.min() >= 0 and masks.max() <= 149, "Mask values out of range!"
 
     # Обучение
-    history = trainer.fit(
-        epochs=epochs, checkpoint_path="./models/segnet_ade20k_best.pth"
-    )
+    history = trainer.fit(epochs=epochs, checkpoint_path="./models/segnet_ade20k_best.pth")
 
     return model, history
 
@@ -606,9 +544,7 @@ def compare_trained_models():
             activation=None,
         )
         checkpoint = torch.load("./models/unet_ade20k_best.pth", map_location=device)
-        unet.load_state_dict(
-            checkpoint["model_state_dict"]
-        )  # 🔥 Ключ 'model_state_dict'
+        unet.load_state_dict(checkpoint["model_state_dict"])  # 🔥 Ключ 'model_state_dict'
         models["U-Net"] = unet.to(device).eval()
         print("✅ Loaded U-Net")
 
@@ -617,9 +553,7 @@ def compare_trained_models():
         deeplab = tv_seg.deeplabv3_resnet101(weights=None)
         deeplab.classifier[4] = nn.Conv2d(256, 150, kernel_size=1)
         checkpoint = torch.load("./models/deeplab_ade20k_best.pth", map_location=device)
-        model_keys = {
-            k: v for k, v in checkpoint.items() if not k.startswith("aux_classifier")
-        }
+        model_keys = {k: v for k, v in checkpoint.items() if not k.startswith("aux_classifier")}
         deeplab.load_state_dict(model_keys, strict=False)
         # deeplab.load_state_dict(checkpoint, strict=False)  # 🔥 strict=False!
 
@@ -632,9 +566,7 @@ def compare_trained_models():
         mrcnn.roi_heads.box_predictor = tv_det.faster_rcnn.FastRCNNPredictor(
             mrcnn.roi_heads.box_predictor.cls_score.in_features, 151
         )
-        checkpoint = torch.load(
-            "./models/maskrcnn_ade20k_semantic_best.pth", map_location=device
-        )
+        checkpoint = torch.load("./models/maskrcnn_ade20k_semantic_best.pth", map_location=device)
         mrcnn.load_state_dict(checkpoint, strict=False)
         models["Mask R-CNN"] = mrcnn.to(device).eval()
         print("✅ Loaded Mask R-CNN")
@@ -648,9 +580,7 @@ def compare_trained_models():
             classes=150,
             activation=None,
         )
-        checkpoint = torch.load(
-            "./models/fpn_mit_b5_ade20k_best.pth", map_location=device
-        )
+        checkpoint = torch.load("./models/fpn_mit_b5_ade20k_best.pth", map_location=device)
         if "model_state_dict" in checkpoint:
             fpn.load_state_dict(checkpoint["model_state_dict"])
         else:
@@ -668,9 +598,7 @@ def compare_trained_models():
             activation=None,
             psp_size=2048,
         )
-        checkpoint = torch.load(
-            "./models/psp_mit_b5_ade20k_best.pth", map_location=device
-        )
+        checkpoint = torch.load("./models/psp_mit_b5_ade20k_best.pth", map_location=device)
         if "model_state_dict" in checkpoint:
             psp.load_state_dict(checkpoint["model_state_dict"])
         else:
@@ -682,9 +610,7 @@ def compare_trained_models():
     if os.path.exists("./models/fcn_resnet50_ade20k_best.pth"):
         fcn = tv_seg.fcn_resnet50(weights=None)
         fcn.classifier[4] = nn.Conv2d(512, 150, kernel_size=1)
-        checkpoint = torch.load(
-            "./models/fcn_resnet50_ade20k_best.pth", map_location=device
-        )
+        checkpoint = torch.load("./models/fcn_resnet50_ade20k_best.pth", map_location=device)
         if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
             fcn.load_state_dict(checkpoint["model_state_dict"], strict=False)
         else:
@@ -828,11 +754,7 @@ def evaluate_trained_models_on_val(checkpoints, val_fraction=0.05, device="cuda"
             model.classifier[4] = nn.Conv2d(256, 150, kernel_size=1)
             checkpoint = torch.load(checkpoint_path, map_location=device)
             # Фильтруем aux_classifier если есть
-            model_keys = {
-                k: v
-                for k, v in checkpoint.items()
-                if not k.startswith("aux_classifier")
-            }
+            model_keys = {k: v for k, v in checkpoint.items() if not k.startswith("aux_classifier")}
             model.load_state_dict(model_keys, strict=False)
             print(f"   ✅ Loaded DeepLabV3+ from {checkpoint_path}")
 

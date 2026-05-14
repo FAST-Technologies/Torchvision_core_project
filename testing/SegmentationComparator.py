@@ -2,16 +2,16 @@
 
 """Модуль для сравнительного тестирования и валидации сегментационных методов.
 
-Предназначен для автоматизированного попарного, пакетного и матричного сравнения 
-реализаций алгоритмов сегментации (классических и нейросетевых) с использованием 
+Предназначен для автоматизированного попарного, пакетного и матричного сравнения
+реализаций алгоритмов сегментации (классических и нейросетевых) с использованием
 единого модуля метрик `SegmentationMetrics` для обеспечения консистентности расчётов.
 
 Основные возможности:
-- 🔍 Попарное сравнение: Запуск двух сегментеров на одном изображении с расчётом 
+- 🔍 Попарное сравнение: Запуск двух сегментеров на одном изображении с расчётом
   метрик сходства (IoU, Dice, F1, Precision, Recall, Hausdorff) и визуализацией разницы.
-- 📦 Пакетное тестирование: Сравнение множества методов против референсного алгоритма 
+- 📦 Пакетное тестирование: Сравнение множества методов против референсного алгоритма
   с агрегацией результатов в DataFrame и генерацией сводных графиков.
-- 🔗 Матричное сравнение: Режимы "all-vs-all", "all-vs-ref", "pairwise" с генерацией 
+- 🔗 Матричное сравнение: Режимы "all-vs-all", "all-vs-ref", "pairwise" с генерацией
   тепловых карт (heatmaps) для каждой метрики и интерактивного HTML-отчёта.
 - 🎨 Визуализация: 2×4 grid с оригиналом, масками, оверлеями, heatmap разницы и текстовыми метриками.
 - 💾 Экспорт артефактов: Сохранение масок (PNG), оверлеев, CSV-таблиц, JSON-деталей, HTML-отчётов.
@@ -55,9 +55,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -332,9 +330,7 @@ class SegmentationComparator:
         combined[intersection] = [255, 255, 0]
 
         axes[1, 2].imshow(combined)
-        axes[1, 2].set_title(
-            "Combined Overlay\n(Red: Method1, Green: Method2, Yellow: Both)"
-        )
+        axes[1, 2].set_title("Combined Overlay\n(Red: Method1, Green: Method2, Yellow: Both)")
         axes[1, 2].axis("off")
 
         # Текстовые метрики
@@ -403,9 +399,7 @@ class SegmentationComparator:
         if save_results:
             os.makedirs(output_dir, exist_ok=True)
 
-        ref_name: Union[str | Any | None] = reference_name or getattr(
-            reference_segmenter, "method", "Reference"
-        )
+        ref_name: Union[str | Any | None] = reference_name or getattr(reference_segmenter, "method", "Reference")
         if str(self.device) == "cuda":
             torch.cuda.synchronize()
         start_time_ref: float = time.perf_counter()
@@ -454,9 +448,7 @@ class SegmentationComparator:
 
                 # Сохраняем визуализацию
                 if save_results:
-                    output_path: str = os.path.join(
-                        output_dir, f"comparison_{method_name}.jpg"
-                    )
+                    output_path: str = os.path.join(output_dir, f"comparison_{method_name}.jpg")
                     self.visualize_comparison(
                         image,
                         ref_mask,
@@ -534,9 +526,7 @@ class SegmentationComparator:
             width: float = 0.35
 
             axes[0, 1].bar(x - width / 2, test_times, width, label="Test Methods")
-            axes[0, 1].bar(
-                x[-1] + width / 2, ref_time, width, label="Reference", alpha=0.7
-            )
+            axes[0, 1].bar(x[-1] + width / 2, ref_time, width, label="Reference", alpha=0.7)
             axes[0, 1].set_xlabel("Methods")
             axes[0, 1].set_ylabel("Execution Time (s)")
             axes[0, 1].set_title("Execution Time Comparison")
@@ -545,11 +535,7 @@ class SegmentationComparator:
             axes[0, 1].legend()
 
         # График 3: Площадь масок
-        area_cols: List[str] = [
-            col
-            for col in df.columns
-            if "area" in col.lower() and "difference" not in col.lower()
-        ]
+        area_cols: List[str] = [col for col in df.columns if "area" in col.lower() and "difference" not in col.lower()]
         if len(area_cols) >= 2:
             area_data = df[area_cols].mean()
             axes[1, 0].bar(range(len(area_data)), area_data.values)
@@ -618,9 +604,7 @@ class SegmentationComparator:
 
         # Парсинг конфигураций
         method_names: List[str] = []
-        segmenters_map: Dict[str, SegmenterLike] = (
-            {}
-        )  # Маппинг: Имя -> Объект сегментер
+        segmenters_map: Dict[str, SegmenterLike] = {}  # Маппинг: Имя -> Объект сегментер
         for config in methods_config:
             name = config.get("name")
             segmenter = config.get("segmenter")
@@ -663,9 +647,7 @@ class SegmentationComparator:
 
         if comparison_type == "all_vs_ref" and reference_method:
             comparison_pairs: List[Tuple[str, str]] = [
-                (reference_method, other)
-                for other in method_names
-                if other != reference_method
+                (reference_method, other) for other in method_names if other != reference_method
             ]
             ref_name = reference_method
         elif comparison_type == "pairwise":
@@ -683,19 +665,14 @@ class SegmentationComparator:
             mask1: MaskArray = masks[method1]
             mask2: MaskArray = masks[method2]
             try:
-                metrics: Dict[str, float] = self.compute_metrics(
-                    mask1, mask2, method1, method2
-                )
+                metrics: Dict[str, float] = self.compute_metrics(mask1, mask2, method1, method2)
                 result: Dict[str, Any] = {
                     "method1": method1,
                     "method2": method2,
                     **metrics,
                     "time1": execution_times.get(method1, 0),
                     "time2": execution_times.get(method2, 0),
-                    "time_diff": abs(
-                        execution_times.get(method1, 0)
-                        - execution_times.get(method2, 0)
-                    ),
+                    "time_diff": abs(execution_times.get(method1, 0) - execution_times.get(method2, 0)),
                 }
                 comparison_results.append(result)
                 if (i + 1) % 10 == 0:
@@ -782,13 +759,9 @@ class SegmentationComparator:
 
         if comparison_type == "all_vs_ref" and reference_method:
             # Средние метрики по сравнению с референсом
-            ref_comparisons: pd.DataFrame = df_comparisons[
-                df_comparisons["method1"] == reference_method
-            ]
+            ref_comparisons: pd.DataFrame = df_comparisons[df_comparisons["method1"] == reference_method]
             if not ref_comparisons.empty:
-                summary_df: pd.DataFrame = ref_comparisons[
-                    ["method2"] + summary_metrics
-                ].copy()
+                summary_df: pd.DataFrame = ref_comparisons[["method2"] + summary_metrics].copy()
                 summary_df = summary_df.rename(columns={"method2": "method"})
                 summary_df = summary_df.sort_values("f1_score", ascending=False)
 
@@ -813,12 +786,8 @@ class SegmentationComparator:
                     if i == j:
                         matrix[i, j] = 1.0
                     else:
-                        mask: pd.Series = (
-                            (df_comparisons["method1"] == m1)
-                            & (df_comparisons["method2"] == m2)
-                        ) | (
-                            (df_comparisons["method1"] == m2)
-                            & (df_comparisons["method2"] == m1)
+                        mask: pd.Series = ((df_comparisons["method1"] == m1) & (df_comparisons["method2"] == m2)) | (
+                            (df_comparisons["method1"] == m2) & (df_comparisons["method2"] == m1)
                         )
 
                         if mask.any():
@@ -828,9 +797,7 @@ class SegmentationComparator:
             if np.all(np.isnan(matrix)):
                 continue
             fig, ax = plt.subplots(figsize=(12, 10))
-            short_names: List[str] = [
-                name[:15] + "..." if len(name) > 15 else name for name in methods
-            ]
+            short_names: List[str] = [name[:15] + "..." if len(name) > 15 else name for name in methods]
 
             im = ax.imshow(matrix, cmap="RdYlGn", vmin=0, vmax=1)
             ax.set_xticks(np.arange(n_methods))
@@ -875,9 +842,7 @@ class SegmentationComparator:
         )
 
     # ──────────────────────────────────────────────────────────────────────
-    def _visualize_all_masks(
-        self, masks: Dict[str, np.ndarray], output_dir: str
-    ) -> None:
+    def _visualize_all_masks(self, masks: Dict[str, np.ndarray], output_dir: str) -> None:
         """Строит grid со всеми сгенерированными масками.
 
         Args:
@@ -957,16 +922,10 @@ class SegmentationComparator:
         # Топ методов по F1
         top_methods_html: str = "<p>Нет данных</p>"
         if reference_method and "f1_score" in df_comparisons.columns:
-            ref_df: pd.DataFrame = df_comparisons[
-                df_comparisons["method1"] == reference_method
-            ]
+            ref_df: pd.DataFrame = df_comparisons[df_comparisons["method1"] == reference_method]
             if not ref_df.empty:
-                top_methods: pd.DataFrame = ref_df.nlargest(5, "f1_score")[
-                    ["method2", "f1_score"]
-                ]
-                top_methods_html = top_methods.to_html(
-                    index=False, float_format=lambda x: f"{x:.3f}"
-                )
+                top_methods: pd.DataFrame = ref_df.nlargest(5, "f1_score")[["method2", "f1_score"]]
+                top_methods_html = top_methods.to_html(index=False, float_format=lambda x: f"{x:.3f}")
         else:
             top_methods_html = "<p>Сравнение всех со всеми</p>"
 

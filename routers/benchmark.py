@@ -129,6 +129,7 @@ router: APIRouter = APIRouter(
 PathLike = Union[str, Path]
 """Тип-алиас для путей: строка или объект pathlib.Path."""
 
+
 # 🔹 TypedDict для структуры задачи бенчмарка
 class BenchmarkTask(TypedDict, total=False):
     """Структура данных для отслеживания задачи бенчмарка.
@@ -151,6 +152,7 @@ class BenchmarkTask(TypedDict, total=False):
         }
         ```
     """
+
     status: str  # "running", "completed", "failed", "cancelled"
     progress: float  # 0-100
     message: str
@@ -186,6 +188,7 @@ class BenchmarkConfig(TypedDict, total=False):
         }
         ```
     """
+
     inference: Dict[str, Any]
     filters: Dict[str, Any]
     visualization: Dict[str, Any]
@@ -349,6 +352,7 @@ class BenchmarkStartRequest(BaseModel):
         - image_path проверяется на существование только при use_default_image=False.
         - Оба параметра опциональны: при отсутствии обоих используется default.
     """
+
     use_default_image: bool = True
     image_path: Optional[str] = None
 
@@ -413,9 +417,7 @@ async def benchmark_health() -> Dict[str, Any]:
         "vram_allocated_mb": alloc_vram_mb,
         "vram_free_mb": free_vram_mb,
         "reserved_vram_mb": reserved_vram_mb,
-        "active_tasks": len(
-            [t for t in benchmark_tasks.values() if t["status"] == "running"]
-        ),
+        "active_tasks": len([t for t in benchmark_tasks.values() if t["status"] == "running"]),
     }
 
 
@@ -451,10 +453,7 @@ async def debug_benchmark() -> Dict[str, Any]:
     """
     return {
         "active_tasks": len(benchmark_tasks),
-        "tasks": {
-            k: {"status": v["status"], "progress": v["progress"]}
-            for k, v in benchmark_tasks.items()
-        },
+        "tasks": {k: {"status": v["status"], "progress": v["progress"]} for k, v in benchmark_tasks.items()},
     }
 
 
@@ -560,9 +559,7 @@ async def run_benchmark(
             "coco": coco_palette,
             "cityscapes": cityscapes_palette,
         }
-        palette_func: Callable[[], List[List[int]]] = PALETTES.get(
-            palette_name, ade_palette
-        )
+        palette_func: Callable[[], List[List[int]]] = PALETTES.get(palette_name, ade_palette)
         palette: List[List[int]] = palette_func()
 
         benchmark_tasks[task_id]["progress"] = 5
@@ -580,9 +577,7 @@ async def run_benchmark(
             from huggingface_hub import hf_hub_download
 
             repo_id: str = "hf-internal-testing/fixtures_ade20k"
-            image_path: str = hf_hub_download(
-                repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset"
-            )
+            image_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset")
             image_input = Image.open(image_path).convert("RGB")
 
         # 🔹 Обработка GT-маски
@@ -644,9 +639,7 @@ async def run_benchmark(
                 "unet_pretrained",
                 bench.load_unet_trained,
                 {
-                    "checkpoint_path": str(
-                        settings.MODEL_DIR / settings.UNET_CHECKPOINT
-                    ),
+                    "checkpoint_path": str(settings.MODEL_DIR / settings.UNET_CHECKPOINT),
                     "encoder_name": "resnet34",
                 },
             ),
@@ -654,9 +647,7 @@ async def run_benchmark(
                 "deeplab_pretrained",
                 bench.load_deeplab_trained,
                 {
-                    "checkpoint_path": str(
-                        settings.MODEL_DIR / settings.DEEPLAB_CHECKPOINT
-                    ),
+                    "checkpoint_path": str(settings.MODEL_DIR / settings.DEEPLAB_CHECKPOINT),
                 },
             ),
             (
@@ -664,9 +655,7 @@ async def run_benchmark(
                 bench.load_fpn_mit_pretrained,
                 {
                     "variant": "b5",
-                    "checkpoint_path": str(
-                        settings.MODEL_DIR / settings.FPN_MIT_CHECKPOINT
-                    ),
+                    "checkpoint_path": str(settings.MODEL_DIR / settings.FPN_MIT_CHECKPOINT),
                 },
             ),
             (
@@ -674,9 +663,7 @@ async def run_benchmark(
                 bench.load_psp_mit_pretrained,
                 {
                     "variant": "b5",
-                    "checkpoint_path": str(
-                        settings.MODEL_DIR / settings.PSP_MIT_CHECKPOINT
-                    ),
+                    "checkpoint_path": str(settings.MODEL_DIR / settings.PSP_MIT_CHECKPOINT),
                 },
             ),
             (
@@ -684,9 +671,7 @@ async def run_benchmark(
                 bench.load_fcn_resnet50_pretrained,
                 {
                     "variant": "fcn_resnet50",
-                    "checkpoint_path": str(
-                        settings.MODEL_DIR / settings.FCN_RESNET50_CHECKPOINT
-                    ),
+                    "checkpoint_path": str(settings.MODEL_DIR / settings.FCN_RESNET50_CHECKPOINT),
                 },
             ),
             (
@@ -694,9 +679,7 @@ async def run_benchmark(
                 bench.load_segnet_pretrained,
                 {
                     "encoder_name": "resnet34",
-                    "checkpoint_path": str(
-                        settings.MODEL_DIR / settings.SEGNET_RESNET34_CHECKPOINT
-                    ),
+                    "checkpoint_path": str(settings.MODEL_DIR / settings.SEGNET_RESNET34_CHECKPOINT),
                 },
             ),
             # === Torchvision models ===
@@ -709,9 +692,7 @@ async def run_benchmark(
 
         models_to_run: Optional[List[str]] = config_dict.get("models_to_run")
         if models_to_run:
-            model_load_steps = [
-                step for step in model_load_steps if step[0] in models_to_run
-            ]
+            model_load_steps = [step for step in model_load_steps if step[0] in models_to_run]
 
         for i, (key, load_fn, kwargs) in enumerate(model_load_steps):
             benchmark_tasks[task_id]["progress"] = 5 + (i / len(model_load_steps)) * 70
@@ -727,9 +708,7 @@ async def run_benchmark(
             except Exception as e:
                 logger.error(f"❌ Failed to load {key}: {e}", exc_info=True)
 
-        benchmark_tasks[task_id][
-            "message"
-        ] = f"✅ {key}: готово. Все модели загружены. Запуск инференса..."
+        benchmark_tasks[task_id]["message"] = f"✅ {key}: готово. Все модели загружены. Запуск инференса..."
         benchmark_tasks[task_id]["progress"] = 50
         benchmark_tasks[task_id]["message"] = "Запуск инференса..."
         # await asyncio.to_thread(bench.compare, image_input=image_input, alpha=alpha)
@@ -752,9 +731,7 @@ async def run_benchmark(
         for _, metrics in summary.items():
             for key in ["mIoU", "pixel_acc", "f1_weighted"]:
                 val = metrics.get(key)
-                if isinstance(val, (float, np.floating)) and (
-                    np.isnan(val) or np.isinf(val)
-                ):
+                if isinstance(val, (float, np.floating)) and (np.isnan(val) or np.isinf(val)):
                     metrics[key] = None
         benchmark_tasks[task_id].update(
             {
@@ -764,9 +741,7 @@ async def run_benchmark(
                 "results": {
                     "summary": summary,
                     "output_dir": out_dir,
-                    "charts": {
-                        "metrics_plot_b64": img_to_b64(f"{out_dir}/plot_all.png")
-                    },
+                    "charts": {"metrics_plot_b64": img_to_b64(f"{out_dir}/plot_all.png")},
                 },
             }
         )
@@ -781,11 +756,7 @@ async def run_benchmark(
                 "error_details": {
                     "error_type": type(e).__name__,
                     "failed_at": benchmark_tasks[task_id]["message"],
-                    "traceback": (
-                        traceback.format_exc()
-                        if logger.level == logging.DEBUG
-                        else None
-                    ),
+                    "traceback": (traceback.format_exc() if logger.level == logging.DEBUG else None),
                 },
             }
         )
@@ -795,6 +766,7 @@ async def run_benchmark(
 # ──────────────────────────────────────────────────────────────────────
 # ROUTES
 # ──────────────────────────────────────────────────────────────────────
+
 
 @router.post("/start")
 async def start_benchmark(
@@ -855,9 +827,7 @@ async def start_benchmark(
             config_dict = cast(BenchmarkConfig, json.loads(config))
         except json.JSONDecodeError:
             raise HTTPException(422, detail="Invalid config JSON")
-    config_for_task: Optional[Dict[str, Any]] = (
-        dict(config_dict) if config_dict else None
-    )
+    config_for_task: Optional[Dict[str, Any]] = dict(config_dict) if config_dict else None
     req = BenchmarkStartRequest(
         use_default_image=use_default_image,
         image_path=image_path,
@@ -927,17 +897,13 @@ async def get_status(task_id: str) -> JSONResponse:
     logger.info(f"📡 GET /status/{task_id} -> {task.get('progress')}%")
     if task_id not in benchmark_tasks or not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    logger.debug(
-        f"📡 Status requested for {task_id}: {task['status']} / {task['progress']}%"
-    )
+    logger.debug(f"📡 Status requested for {task_id}: {task['status']} / {task['progress']}%")
     results = task.get("results")
     if results is not None and isinstance(results, dict) and "summary" in results:
         summary = results["summary"]
         for _, metrics in summary.items():
             for key, value in metrics.items():
-                if isinstance(value, (float, np.floating)) and (
-                    np.isnan(value) or np.isinf(value)
-                ):
+                if isinstance(value, (float, np.floating)) and (np.isnan(value) or np.isinf(value)):
                     metrics[key] = None
 
     return safe_json_response(task)

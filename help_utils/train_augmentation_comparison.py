@@ -65,9 +65,7 @@ def main():
     print("ВИЗУАЛИЗАЦИЯ РЕЗУЛЬТАТОВ")
     print("=" * 70)
 
-    trainer.plot_experiment_comparison(
-        output_path="./models/augmentation_experiments/comparison_visualization.png"
-    )
+    trainer.plot_experiment_comparison(output_path="./models/augmentation_experiments/comparison_visualization.png")
 
     # === ОЦЕНКА ЛУЧШИХ ЧЕКПОИНТОВ ===
     print("\n" + "=" * 70)

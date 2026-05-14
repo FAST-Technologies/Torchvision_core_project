@@ -15,9 +15,7 @@ from .visualization import MemoryVisualizer
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="🧠 Memory Optimization Benchmark — исследование оптимизации памяти"
-    )
+    parser = argparse.ArgumentParser(description="🧠 Memory Optimization Benchmark — исследование оптимизации памяти")
 
     # Выбор методов
     parser.add_argument(
@@ -37,12 +35,8 @@ def parse_args():
     )
 
     # Параметры кэширования
-    parser.add_argument(
-        "--cache-size", type=int, default=100, help="Макс. размер кэша ядер"
-    )
-    parser.add_argument(
-        "--cache-ttl", type=float, default=300.0, help="Время жизни кэша (сек)"
-    )
+    parser.add_argument("--cache-size", type=int, default=100, help="Макс. размер кэша ядер")
+    parser.add_argument("--cache-ttl", type=float, default=300.0, help="Время жизни кэша (сек)")
 
     # Устройство
     parser.add_argument(
@@ -54,9 +48,7 @@ def parse_args():
     )
 
     # Параметры бенчмарка
-    parser.add_argument(
-        "--n-runs", type=int, default=20, help="Количество запусков для замера"
-    )
+    parser.add_argument("--n-runs", type=int, default=20, help="Количество запусков для замера")
     parser.add_argument(
         "--input-size",
         type=str,
@@ -65,21 +57,15 @@ def parse_args():
     )
 
     # Вывод
-    parser.add_argument(
-        "--output", type=str, default=None, help="Папка для сохранения результатов"
-    )
+    parser.add_argument("--output", type=str, default=None, help="Папка для сохранения результатов")
     parser.add_argument("--verbose", "-v", action="store_true", help="Подробный вывод")
-    parser.add_argument(
-        "--detect-leaks", action="store_true", help="Активировать детектор утечек"
-    )
+    parser.add_argument("--detect-leaks", action="store_true", help="Активировать детектор утечек")
 
     # Визуализация
     parser.add_argument("--plot", action="store_true", help="Сгенерировать графики")
 
     # Сравнение
-    parser.add_argument(
-        "--compare", action="store_true", help="Сравнить до/после оптимизации"
-    )
+    parser.add_argument("--compare", action="store_true", help="Сравнить до/после оптимизации")
 
     return parser.parse_args()
 
@@ -177,9 +163,7 @@ def main():
         top_saved = sorted(reports, key=lambda r: r.memory_saved_mb, reverse=True)[:3]
         print(f"\n   🏆 Top 3 by memory saved:")
         for i, r in enumerate(top_saved, 1):
-            print(
-                f"      {i}. {r.method_name}: {r.memory_saved_mb:.2f} MB ({r.reduction_pct:.1f}%)"
-            )
+            print(f"      {i}. {r.method_name}: {r.memory_saved_mb:.2f} MB ({r.reduction_pct:.1f}%)")
 
     print("=" * 60)
 

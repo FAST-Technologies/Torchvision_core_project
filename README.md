@@ -1,10 +1,14 @@
 # Torchvision_core_project
 
+> 🇬🇧 English version: [README.en.md](README.en.md)  
+> 🇷🇺 Русская версия: [README.md](README.md)
+
 > 🎯 **Универсальный фреймворк для сравнительного тестирования и бенчмаркинга методов сегментации изображений**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.6.0+-ee4c2c.svg)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Links](https://github.com/FAST-Technologies/Torchvision_core_project/actions/workflows/check-links.yml/badge.svg)](https://github.com/FAST-Technologies/Torchvision_core_project/actions/workflows/check-links.yml)
 
 ---
 

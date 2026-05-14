@@ -89,9 +89,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -192,9 +190,7 @@ class SegmentationWarmUp:
             # Градиент для тестирования пороговых методов
             img: np.ndarray = np.zeros((h, w, 3), dtype=np.uint8)
             img[:, :, 0] = np.tile(np.linspace(0, 255, w), (h, 1)).astype(np.uint8)
-            img[:, :, 1] = np.tile(
-                np.linspace(0, 255, h).reshape(-1, 1), (1, w)
-            ).astype(np.uint8)
+            img[:, :, 1] = np.tile(np.linspace(0, 255, h).reshape(-1, 1), (1, w)).astype(np.uint8)
             img[:, :, 2] = (img[:, :, 0] + img[:, :, 1]) // 2
 
         elif pattern == "noise":
@@ -273,9 +269,7 @@ class SegmentationWarmUp:
                 elif hasattr(segmenter, "segment"):
                     result = segmenter.segment(image)
                 else:
-                    raise AttributeError(
-                        "Segmenter must have 'segment' or 'segment_with_mask' method"
-                    )
+                    raise AttributeError("Segmenter must have 'segment' or 'segment_with_mask' method")
                 print(result)
                 end_time: float = time.perf_counter()
                 warmup_times.append(end_time - start_time)
@@ -294,27 +288,15 @@ class SegmentationWarmUp:
         stats: WarmupStats = {
             "method": method_name,
             "n_runs": len(warmup_times),
-            "median_time_ms": (
-                float(np.median(warmup_times) * 1000) if warmup_times else float("inf")
-            ),
-            "mean_time_ms": (
-                float(np.mean(warmup_times) * 1000) if warmup_times else float("inf")
-            ),
-            "std_time_ms": (
-                float(np.std(warmup_times) * 1000) if warmup_times else float("inf")
-            ),
-            "min_time_ms": (
-                np.min(warmup_times) * 1000 if warmup_times else float("inf")
-            ),
-            "max_time_ms": (
-                np.max(warmup_times) * 1000 if warmup_times else float("inf")
-            ),
+            "median_time_ms": (float(np.median(warmup_times) * 1000) if warmup_times else float("inf")),
+            "mean_time_ms": (float(np.mean(warmup_times) * 1000) if warmup_times else float("inf")),
+            "std_time_ms": (float(np.std(warmup_times) * 1000) if warmup_times else float("inf")),
+            "min_time_ms": (np.min(warmup_times) * 1000 if warmup_times else float("inf")),
+            "max_time_ms": (np.max(warmup_times) * 1000 if warmup_times else float("inf")),
         }
 
         if verbose:
-            print(
-                f"   📊 Mean: {stats['mean_time_ms']:.2f}ms ± {stats['std_time_ms']:.2f}ms"
-            )
+            print(f"   📊 Mean: {stats['mean_time_ms']:.2f}ms ± {stats['std_time_ms']:.2f}ms")
 
         return stats
 
@@ -392,9 +374,7 @@ class SegmentationWarmUp:
 
         for name, segmenter in segmenters_dict.items():
             try:
-                stats: WarmupStats = self.warmup_segmenter(
-                    segmenter, name, image, verbose
-                )
+                stats: WarmupStats = self.warmup_segmenter(segmenter, name, image, verbose)
                 all_results[name] = stats
             except Exception as e:
                 print(f"   ❌ {name}: {e}")

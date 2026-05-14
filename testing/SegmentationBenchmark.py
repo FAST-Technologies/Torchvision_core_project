@@ -2,33 +2,33 @@
 
 """Модуль для сравнительного бенчмаркинга нейросетевых архитектур сегментации изображений.
 
-Предназначен для автоматизированного сравнения качества и производительности 
+Предназначен для автоматизированного сравнения качества и производительности
 различных моделей сегментации (CNN, Transformers, Universal) на едином датасете.
-Поддерживает как обученные пользователем модели (.pth чекпоинты), так и 
+Поддерживает как обученные пользователем модели (.pth чекпоинты), так и
 предобученные модели из Hugging Face, TorchVision, Segment Anything и др.
 
 Основные возможности:
 - 🔄 Fluent Interface для загрузки моделей: цепочка вызовов `load_*().load_*()...`
-- 🧠 Поддержка 15+ архитектур: UNet, DeepLab, FPN, PSPNet, SegFormer, Mask2Former, 
+- 🧠 Поддержка 15+ архитектур: UNet, DeepLab, FPN, PSPNet, SegFormer, Mask2Former,
   OneFormer, DPT, UPerNet, SAM/SAM2, YOLOv8-seg, Mask R-CNN и др.
-- ⚡ Управление памятью: автоматическая очистка VRAM между моделями, 
+- ⚡ Управление памятью: автоматическая очистка VRAM между моделями,
   асинхронный режим с обновлением прогресса
-- 📊 Полный набор метрик: mIoU, Pixel Accuracy, F1-weighted, Per-Class IoU, 
+- 📊 Полный набор метрик: mIoU, Pixel Accuracy, F1-weighted, Per-Class IoU,
   Confusion Matrix, уникальные классы
-- 🎨 Визуализация: бар-чарты, heatmap per-class IoU, матрицы ошибок, 
+- 🎨 Визуализация: бар-чарты, heatmap per-class IoU, матрицы ошибок,
   наложенные маски с настраиваемой прозрачностью
-- 📤 Экспорт результатов: CSV, JSON (с сериализацией numpy-типов), 
+- 📤 Экспорт результатов: CSV, JSON (с сериализацией numpy-типов),
   Markdown-таблицы, LaTeX-код для публикаций
 
 Примечание:
-- Для корректной работы требуется предварительная загрузка моделей через 
+- Для корректной работы требуется предварительная загрузка моделей через
   методы `load_*()` перед вызовом `compare()` или `run_single()`.
-- Ground Truth маска задаётся при инициализации (`gt_mask`) и используется 
-  для расчёта метрик; если не указана — бенчмарк работает в режиме 
+- Ground Truth маска задаётся при инициализации (`gt_mask`) и используется
+  для расчёта метрик; если не указана — бенчмарк работает в режиме
   "только инференс + визуализация".
-- Метод `compare()` автоматически освобождает VRAM после каждой модели, 
+- Метод `compare()` автоматически освобождает VRAM после каждой модели,
   оставляя только метаданные в `self.models` для совместимости с API.
-- Для валидации качества классических методов используйте `BatchClassicTester2`; 
+- Для валидации качества классических методов используйте `BatchClassicTester2`;
   для проверки консистентности реализаций — `BatchClassicTester`.
 """
 
@@ -75,9 +75,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -120,6 +118,7 @@ class MetricPlotSpec(TypedDict):
         >>> print(f"{spec['label']}: {spec['transform'](value):.2f}")
         Mean IoU (%): 75.00
     """
+
     key: str  # Ключ метрики в summary (например, "mIoU")
     label: str  # Подпись для оси Y
     transform: Callable[[float], float]  # Функция трансформации значения
@@ -216,12 +215,8 @@ class SegmentationBenchmark:
         self.ignore_index: int = ignore_index
         self.models: Dict[str, Dict[str, Any]] = {}
         self.palette: List[List[int]] = resolved_palette
-        self.results: Dict[str, Dict[str, Any]] = (
-            {}
-        )  # {model_name: {metrics, time, overlay, ...}}
-        self.class_names: Optional[List] = class_names or [
-            f"Class {i}" for i in range(num_classes)
-        ]
+        self.results: Dict[str, Dict[str, Any]] = {}  # {model_name: {metrics, time, overlay, ...}}
+        self.class_names: Optional[List] = class_names or [f"Class {i}" for i in range(num_classes)]
         self.gt_mask: Optional[Union[np.ndarray, Image.Image]] = gt_mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -258,9 +253,7 @@ class SegmentationBenchmark:
         return self
 
     # ──────────────────────────────────────────────────────────────────────
-    def load_all_trained_models(
-        self, checkpoint_dir: str = "./../models"
-    ) -> "SegmentationBenchmark":
+    def load_all_trained_models(self, checkpoint_dir: str = "./../models") -> "SegmentationBenchmark":
         """Пакетная загрузка всех обученных моделей из директории.
 
         Args:
@@ -351,9 +344,7 @@ class SegmentationBenchmark:
         return self
 
     # ──────────────────────────────────────────────────────────────────────
-    def load_mask2former(
-        self, name: str = "facebook/mask2former-swin-base-ade-semantic"
-    ) -> "SegmentationBenchmark":
+    def load_mask2former(self, name: str = "facebook/mask2former-swin-base-ade-semantic") -> "SegmentationBenchmark":
         """Загрузка Mask2Former модели."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.MASK2FORMER,
@@ -370,9 +361,7 @@ class SegmentationBenchmark:
         return self
 
     # ──────────────────────────────────────────────────────────────────────
-    def load_oneformer(
-        self, name: str = "shi-labs/oneformer_ade20k_swin_large"
-    ) -> "SegmentationBenchmark":
+    def load_oneformer(self, name: str = "shi-labs/oneformer_ade20k_swin_large") -> "SegmentationBenchmark":
         """Загрузка OneFormer модели."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.ONEFORMER,
@@ -389,9 +378,7 @@ class SegmentationBenchmark:
         return self
 
     # ──────────────────────────────────────────────────────────────────────
-    def load_dpt(
-        self, model_name: str = "Intel/dpt-large-ade"
-    ) -> "SegmentationBenchmark":
+    def load_dpt(self, model_name: str = "Intel/dpt-large-ade") -> "SegmentationBenchmark":
         """Загрузка DPT модели."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.DPT,
@@ -408,9 +395,7 @@ class SegmentationBenchmark:
         return self
 
     # ──────────────────────────────────────────────────────────────────────
-    def load_upernet(
-        self, model_name: str = "openmmlab/upernet-convnext-small"
-    ) -> "SegmentationBenchmark":
+    def load_upernet(self, model_name: str = "openmmlab/upernet-convnext-small") -> "SegmentationBenchmark":
         """Загрузка UPerNet модели."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.UPERNET,
@@ -533,9 +518,7 @@ class SegmentationBenchmark:
         return self
 
     # ──────────────────────────────────────────────────────────────────────
-    def load_mask_rcnn_pretrained(
-        self, variant: str = "maskrcnn_resnet50_fpn"
-    ) -> "SegmentationBenchmark":
+    def load_mask_rcnn_pretrained(self, variant: str = "maskrcnn_resnet50_fpn") -> "SegmentationBenchmark":
         """Загрузка Mask R-CNN (Instance Segmentation)."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.MASKRCNN_TV,
@@ -584,9 +567,7 @@ class SegmentationBenchmark:
         return self
 
     # ──────────────────────────────────────────────────────────────────────
-    def load_deeplab_trained(
-        self, checkpoint_path: str = "deeplab_ade20k_best.pth"
-    ) -> "SegmentationBenchmark":
+    def load_deeplab_trained(self, checkpoint_path: str = "deeplab_ade20k_best.pth") -> "SegmentationBenchmark":
         """Загрузка ОБУЧЕННОЙ DeepLabV3+ с чекпоинта.
 
         Args:
@@ -613,9 +594,7 @@ class SegmentationBenchmark:
         return self
 
     # ──────────────────────────────────────────────────────────────────────
-    def load_maskformer(
-        self, name: str = "facebook/maskformer-resnet50-ade20k-full"
-    ) -> "SegmentationBenchmark":
+    def load_maskformer(self, name: str = "facebook/maskformer-resnet50-ade20k-full") -> "SegmentationBenchmark":
         """Загрузка MaskFormer модели."""
         from transformers import (
             MaskFormerImageProcessor,
@@ -635,9 +614,7 @@ class SegmentationBenchmark:
         return self
 
     # ──────────────────────────────────────────────────────────────────────
-    def load_yolov8(
-        self, model_name: str = "yolov8n-seg.pt"
-    ) -> "SegmentationBenchmark":
+    def load_yolov8(self, model_name: str = "yolov8n-seg.pt") -> "SegmentationBenchmark":
         """Загрузка YOLOv8 Segment модели."""
         from ultralytics import YOLO
 
@@ -653,9 +630,7 @@ class SegmentationBenchmark:
         return self
 
     # ──────────────────────────────────────────────────────────────────────
-    def load_all_pretrained_cnn(
-        self, checkpoint_dir: str = "./checkpoints"
-    ) -> "SegmentationBenchmark":
+    def load_all_pretrained_cnn(self, checkpoint_dir: str = "./checkpoints") -> "SegmentationBenchmark":
         """Пакетная загрузка всех CNN-бэкендов."""
         print("\n" + "=" * 60)
         print("📦 Loading all pre-trained CNN models for benchmark")
@@ -696,9 +671,7 @@ class SegmentationBenchmark:
             ValueError: Если `model_key` отсутствует в реестре.
         """
         if model_key not in self.models:
-            raise ValueError(
-                f"Model '{model_key}' not loaded. Available: {list(self.models.keys())}"
-            )
+            raise ValueError(f"Model '{model_key}' not loaded. Available: {list(self.models.keys())}")
 
         if isinstance(image_input, str):
             image = Image.open(image_input).convert("RGB")
@@ -717,11 +690,7 @@ class SegmentationBenchmark:
 
         gt_mask_np: Optional[np.ndarray] = None
         if self.gt_mask is not None:
-            gt_mask_np = (
-                np.array(self.gt_mask)
-                if isinstance(self.gt_mask, Image.Image)
-                else self.gt_mask
-            )
+            gt_mask_np = np.array(self.gt_mask) if isinstance(self.gt_mask, Image.Image) else self.gt_mask
 
         # Замер времени + warm-up
         if model_type not in ["maskformer", "mask2former", "oneformer"]:
@@ -760,11 +729,7 @@ class SegmentationBenchmark:
         metrics: Dict[str, Any] = {}
         print(f"gt_maske: {self.gt_mask}")
         if self.gt_mask is not None:
-            gt_np: np.ndarray = (
-                np.array(self.gt_mask)
-                if isinstance(self.gt_mask, Image.Image)
-                else self.gt_mask
-            )
+            gt_np: np.ndarray = np.array(self.gt_mask) if isinstance(self.gt_mask, Image.Image) else self.gt_mask
             metrics = compute_metrics(mask, gt_np, self.num_classes, self.ignore_index)
 
         print(f"Метрики {metrics}")
@@ -804,9 +769,7 @@ class SegmentationBenchmark:
             ValueError: Если модель с указанным ключом не загружена.
         """
         if model_key not in self.models:
-            raise ValueError(
-                f"Model {model_key} not loaded. Available: {list(self.models.keys())}"
-            )
+            raise ValueError(f"Model {model_key} not loaded. Available: {list(self.models.keys())}")
         model_info: Dict[str, Any] = self.models[model_key]
         n_classes: int = self.get_model_num_classes(model_key)
         return segment_image_unified(
@@ -822,9 +785,7 @@ class SegmentationBenchmark:
         )[0]
 
     # ──────────────────────────────────────────────────────────────────────
-    def compare(
-        self, image_input: Union[str, Image.Image], alpha: float = 0.6
-    ) -> Dict[str, Dict[str, Any]]:
+    def compare(self, image_input: Union[str, Image.Image], alpha: float = 0.6) -> Dict[str, Dict[str, Any]]:
         """Поочерёдный запуск всех загруженных моделей с управлением VRAM.
 
         После каждой модели удаляет `.model` и `.processor` из памяти,
@@ -947,9 +908,7 @@ class SegmentationBenchmark:
         values: List[float] = [summary[m].get(metric_name, np.nan) for m in models]
 
         # Фильтруем модели без данных
-        valid: List[Tuple[str, float]] = [
-            (m, v) for m, v in zip(models, values) if not np.isnan(v)
-        ]
+        valid: List[Tuple[str, float]] = [(m, v) for m, v in zip(models, values) if not np.isnan(v)]
 
         if not valid:
             print(f"⚠️ No valid data for metric '{metric_name}'")
@@ -1210,25 +1169,17 @@ class SegmentationBenchmark:
             print("⚠️ No valid metrics to plot")
             return
         n_plots: int = len(valid_metrics)
-        fig, axes = plt.subplots(
-            1, n_plots, figsize=(figsize[0] * n_plots / 3, figsize[1])
-        )
+        fig, axes = plt.subplots(1, n_plots, figsize=(figsize[0] * n_plots / 3, figsize[1]))
         axes_list: List[Any] = [axes] if n_plots == 1 else axes  # type: ignore[assignment]
 
         cmap = plt.get_cmap("Set2")
         colors = cmap(np.linspace(0, 1, len(summary)))
-        for ax, (metric_key, metric_label, transform_func) in zip(
-            axes_list, valid_metrics
-        ):
+        for ax, (metric_key, metric_label, transform_func) in zip(axes_list, valid_metrics):
             models = list(summary.keys())
-            values = [
-                transform_func(summary[m].get(metric_key, np.nan)) for m in models
-            ]
+            values = [transform_func(summary[m].get(metric_key, np.nan)) for m in models]
 
             # Фильтрация валидных данных
-            valid: List[Tuple[str, float]] = [
-                (m, v) for m, v in zip(models, values) if not np.isnan(v)
-            ]
+            valid: List[Tuple[str, float]] = [(m, v) for m, v in zip(models, values) if not np.isnan(v)]
 
             if valid:
                 # Разделение кортежей с явными типами
@@ -1245,9 +1196,7 @@ class SegmentationBenchmark:
                     edgecolor="black",
                 )
                 for bar, val, name in zip(bars, plot_values, plot_models):
-                    display_name: str = (
-                        name.replace("_", "_\n") if len(name) > 15 else name
-                    )
+                    display_name: str = name.replace("_", "_\n") if len(name) > 15 else name
                     print(display_name)
                     ax.text(
                         bar.get_x() + bar.get_width() / 2,
@@ -1318,9 +1267,7 @@ class SegmentationBenchmark:
             plt.grid(axis="y", alpha=0.3)
             plt.tight_layout()
             # plt.savefig(path.replace(".jpg", f"_{metric}.jpg"), dpi=300)
-            plt.savefig(
-                path, dpi=300, bbox_inches="tight", facecolor="white", format="png"
-            )
+            plt.savefig(path, dpi=300, bbox_inches="tight", facecolor="white", format="png")
             plt.show()
             plt.close()
 
@@ -1377,9 +1324,7 @@ class SegmentationBenchmark:
         print(f"✅ Results saved to {output_dir}/")
 
     # ──────────────────────────────────────────────────────────────────────
-    def export_latex_table(
-        self, caption: str = "Segmentation Benchmark Results"
-    ) -> str:
+    def export_latex_table(self, caption: str = "Segmentation Benchmark Results") -> str:
         """Генерирует LaTeX-код таблицы для публикации.
 
         Args:
@@ -1404,14 +1349,8 @@ class SegmentationBenchmark:
         ]
 
         for model, metrics in summary.items():
-            mIoU: str = (
-                f"{metrics['mIoU'] * 100:.3f}" if not np.isnan(metrics["mIoU"]) else "-"
-            )
-            acc: str = (
-                f"{metrics['pixel_acc'] * 100:.3f}"
-                if not np.isnan(metrics["pixel_acc"])
-                else "-"
-            )
+            mIoU: str = f"{metrics['mIoU'] * 100:.3f}" if not np.isnan(metrics["mIoU"]) else "-"
+            acc: str = f"{metrics['pixel_acc'] * 100:.3f}" if not np.isnan(metrics["pixel_acc"]) else "-"
             time: str = f"{metrics['time_ms']:.3f}"
             model_clean: str = model.replace("_", r"\_").replace("-", r"\-")
             lines.append(f"{model_clean} & {mIoU} & {acc} & {time} \\\\")
@@ -1449,13 +1388,9 @@ class SegmentationBenchmark:
 
             # 🔹 Обновляем прогресс ПЕРЕД запуском модели
             if task_id and benchmark_tasks:
-                progress: float = (
-                    progress_start + (i / len(model_keys)) * progress_range
-                )
+                progress: float = progress_start + (i / len(model_keys)) * progress_range
                 benchmark_tasks[task_id]["progress"] = progress
-                benchmark_tasks[task_id][
-                    "message"
-                ] = f"🔍 Инференс {key} ({i + 1}/{len(model_keys)})..."
+                benchmark_tasks[task_id]["message"] = f"🔍 Инференс {key} ({i + 1}/{len(model_keys)})..."
                 await asyncio.sleep(0)
 
             # Запускаем инференс одной модели (синхронно)
@@ -1463,9 +1398,7 @@ class SegmentationBenchmark:
 
             # 🔹 Обновляем прогресс ПОСЛЕ завершения модели
             if task_id and benchmark_tasks:
-                benchmark_tasks[task_id]["progress"] = (
-                    progress_start + ((i + 1) / len(model_keys)) * progress_range
-                )
+                benchmark_tasks[task_id]["progress"] = progress_start + ((i + 1) / len(model_keys)) * progress_range
                 benchmark_tasks[task_id]["message"] = f"✅ {key} завершён"
                 await asyncio.sleep(0)
 
@@ -1493,9 +1426,7 @@ def export_comparison_table(
     Returns:
         pd.DataFrame: Отформатированная таблица результатов.
     """
-    df: pd.DataFrame = pd.DataFrame(bench.get_summary()).T.sort_values(
-        "mIoU", ascending=False
-    )
+    df: pd.DataFrame = pd.DataFrame(bench.get_summary()).T.sort_values("mIoU", ascending=False)
 
     # Категоризация
     categories: Dict[str, str] = {
@@ -1521,9 +1452,7 @@ def export_comparison_table(
     df["Params (M)"] = df.get("params", pd.Series([0] * len(df))).round(1)
 
     # Markdown таблица
-    md_table: str = df[
-        ["Category", "mIoU (%)", "pixel_acc", "Time (ms)", "unique_classes"]
-    ].to_markdown()
+    md_table: str = df[["Category", "mIoU (%)", "pixel_acc", "Time (ms)", "unique_classes"]].to_markdown()
 
     with open(output_file, "w") as f:
         f.write("# Segmentation Models Comparison\n\n")

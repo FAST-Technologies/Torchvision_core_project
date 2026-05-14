@@ -64,9 +64,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -229,9 +227,7 @@ def get_ade_class_names() -> Dict[int, str]:
         149: "flag",
     }
     logger.info(f"✅ ADE20K classes loaded: {len(ade20k_class_names)} classes")
-    logger.info(
-        f"   Range: [{min(ade20k_class_names.keys())}..{max(ade20k_class_names.keys())}]"
-    )
+    logger.info(f"   Range: [{min(ade20k_class_names.keys())}..{max(ade20k_class_names.keys())}]")
     return ade20k_class_names
 
 
@@ -480,9 +476,7 @@ def get_coco_class_names() -> Dict[int, str]:
         79: "toothbrush",
     }
     logger.info(f"✅ COCO classes loaded: {len(COCO_class_names)} classes")
-    logger.info(
-        f"   Range: [{min(COCO_class_names.keys())}..{max(COCO_class_names.keys())}]"
-    )
+    logger.info(f"   Range: [{min(COCO_class_names.keys())}..{max(COCO_class_names.keys())}]")
     return COCO_class_names
 
 
@@ -613,9 +607,7 @@ def get_cityscapes_extended_class_names() -> Dict[int, str]:
         32: "ego vehicle",
         33: "rectification border",
     }
-    logger.info(
-        f"✅ Cityscapes Extended classes loaded: {len(cityscapes_extended_class_names)} classes"
-    )
+    logger.info(f"✅ Cityscapes Extended classes loaded: {len(cityscapes_extended_class_names)} classes")
     logger.info(
         f"   Range: [{min(cityscapes_extended_class_names.keys())}..{max(cityscapes_extended_class_names.keys())}]"
     )
@@ -690,9 +682,7 @@ def get_cityscapes_class_names() -> Dict[int, str]:
         18: "bicycle",
     }
     logger.info(f"✅ Cityscapes classes loaded: {len(cityscapes_class_names)} classes")
-    logger.info(
-        f"   Range: [{min(cityscapes_class_names.keys())}..{max(cityscapes_class_names.keys())}]"
-    )
+    logger.info(f"   Range: [{min(cityscapes_class_names.keys())}..{max(cityscapes_class_names.keys())}]")
     return cityscapes_class_names
 
 
@@ -751,9 +741,7 @@ def get_chexpert_observation_class_names() -> Dict[int, str]:
     }
 
     logger.info(f"✅ CheXpert observations: {len(chexpert_observation_names)} classes")
-    logger.info(
-        f"✅ Chest segmentation: {len(chest_segmentation_class_names)} classes (binary)"
-    )
+    logger.info(f"✅ Chest segmentation: {len(chest_segmentation_class_names)} classes (binary)")
     return chexpert_observation_names
 
 

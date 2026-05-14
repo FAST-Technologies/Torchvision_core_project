@@ -101,9 +101,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -220,9 +218,7 @@ def infer_mask2former(
         outputs = model(**inputs)
     logits_info: Dict[str, Any] = extract_logits_info(outputs, "mask2former")
     print(f"📈 Mask2Former logits: {logits_info}")
-    result = processor.post_process_semantic_segmentation(
-        outputs, target_sizes=[image.size[::-1]]
-    )[0]
+    result = processor.post_process_semantic_segmentation(outputs, target_sizes=[image.size[::-1]])[0]
     predicted_mask: MaskArray = result.cpu().numpy()
     return predicted_mask, image
 
@@ -247,19 +243,13 @@ def infer_oneformer(
     Returns:
         Tuple[np.ndarray, PIL.Image]: Семантическая маска и оригинальное изображение.
     """
-    inputs = processor(images=image, task_inputs=["semantic"], return_tensors="pt").to(
-        device
-    )
+    inputs = processor(images=image, task_inputs=["semantic"], return_tensors="pt").to(device)
     with torch.no_grad():
         outputs = model(**inputs)
     logits_info: Dict[str, Any] = extract_logits_info(outputs, "oneformer")
     print(f"📈 OneFormer logits: {logits_info}")
     predicted_mask: MaskArray = (
-        processor.post_process_semantic_segmentation(
-            outputs, target_sizes=[image.size[::-1]]
-        )[0]
-        .cpu()
-        .numpy()
+        processor.post_process_semantic_segmentation(outputs, target_sizes=[image.size[::-1]])[0].cpu().numpy()
     )
     return predicted_mask, image
 
@@ -307,13 +297,9 @@ def infer_deeplab_torchvision(
     if isinstance(raw_output, dict):
         logits = raw_output["out"][0]
     else:
-        logits = (
-            raw_output[0] if hasattr(raw_output, "__getitem__") else raw_output
-        )  # [C, H, W]
+        logits = raw_output[0] if hasattr(raw_output, "__getitem__") else raw_output  # [C, H, W]
 
-    predicted_mask: MaskArray = (
-        logits.argmax(0).cpu().numpy().astype(np.uint8)
-    )  # [H, W]
+    predicted_mask: MaskArray = logits.argmax(0).cpu().numpy().astype(np.uint8)  # [H, W]
 
     # Ресайз к оригиналу
     if predicted_mask.shape != (image.size[1], image.size[0]):
@@ -374,9 +360,7 @@ def infer_unet_smp(
 
     # Preprocessing
     input_tensor = preprocess_fn(image_np)
-    input_tensor = (
-        torch.from_numpy(input_tensor).permute(2, 0, 1).float().unsqueeze(0).to(device)
-    )
+    input_tensor = torch.from_numpy(input_tensor).permute(2, 0, 1).float().unsqueeze(0).to(device)
 
     # Паддинг под output_stride
     pad_h, pad_w = 0, 0
@@ -385,9 +369,7 @@ def infer_unet_smp(
         pad_h = (output_stride - h % output_stride) % output_stride
         pad_w = (output_stride - w % output_stride) % output_stride
         if pad_h > 0 or pad_w > 0:
-            input_tensor = torch.nn.functional.pad(
-                input_tensor, (0, pad_w, 0, pad_h), mode="reflect"
-            )
+            input_tensor = torch.nn.functional.pad(input_tensor, (0, pad_w, 0, pad_h), mode="reflect")
 
     with torch.no_grad():
         outputs = model(input_tensor)  # [B, C, H, W]
@@ -413,9 +395,7 @@ def infer_unet_smp(
 
 
 # ──────────────────────────────────────────────────────────────────────
-def infer_sam(
-    model: Any, processor: Any, image: Image.Image, device: str = "cuda"
-) -> Tuple[np.ndarray, Image.Image]:
+def infer_sam(model: Any, processor: Any, image: Image.Image, device: str = "cuda") -> Tuple[np.ndarray, Image.Image]:
     """Инференс для модели SAM."""
     img_w, img_h = image.size
 
@@ -435,9 +415,7 @@ def infer_sam(
         for i, mask in enumerate(masks, start=1):
             mask_bin = (mask > 0.5).astype(np.uint8)
             mask_pil: Image.Image = Image.fromarray(mask_bin)
-            mask_resized: np.ndarray = np.array(
-                mask_pil.resize((img_w, img_h), Image.Resampling.NEAREST)
-            )
+            mask_resized: np.ndarray = np.array(mask_pil.resize((img_w, img_h), Image.Resampling.NEAREST))
             empty = seg_map == 0
             # Теперь размеры совпадают: seg_map[H,W] и mask_resized[H,W]
             seg_map[empty & (mask_resized > 0)] = i
@@ -446,9 +424,7 @@ def infer_sam(
 
 
 # ──────────────────────────────────────────────────────────────────────
-def infer_dpt(
-    model: Any, processor: Any, image: Image.Image, device: str = "cuda"
-) -> Tuple[np.ndarray, Image.Image]:
+def infer_dpt(model: Any, processor: Any, image: Image.Image, device: str = "cuda") -> Tuple[np.ndarray, Image.Image]:
     """Инференс для модели DPT."""
     inputs = processor(images=image, return_tensors="pt").to(device)
     with torch.no_grad():
@@ -456,15 +432,9 @@ def infer_dpt(
     logits_info: Dict[str, Any] = extract_logits_info(outputs, "dpt")
     print(f"📈 DPT logits: {logits_info}")
 
-    print(
-        f"📈 DPT logits: {outputs.logits.shape if hasattr(outputs, 'logits') else 'N/A'}"
-    )
+    print(f"📈 DPT logits: {outputs.logits.shape if hasattr(outputs, 'logits') else 'N/A'}")
     seg_map: MaskArray = (
-        processor.post_process_semantic_segmentation(
-            outputs, target_sizes=[image.size[::-1]]
-        )[0]
-        .cpu()
-        .numpy()
+        processor.post_process_semantic_segmentation(outputs, target_sizes=[image.size[::-1]])[0].cpu().numpy()
     )
     return seg_map, image
 
@@ -576,9 +546,7 @@ def infer_smp_model_fixed(
         pad_h = (output_stride - h % output_stride) % output_stride
         pad_w = (output_stride - w % output_stride) % output_stride
         if pad_h > 0 or pad_w > 0:
-            input_tensor = torch.nn.functional.pad(
-                input_tensor, (0, pad_w, 0, pad_h), mode="reflect"
-            )
+            input_tensor = torch.nn.functional.pad(input_tensor, (0, pad_w, 0, pad_h), mode="reflect")
 
     input_tensor = input_tensor.unsqueeze(0).to(device)
 
@@ -735,9 +703,7 @@ def infer_mask_rcnn(
         # Ресайз
         if mask_bin.shape != (img_h, img_w):
             mask_pil: Image.Image = Image.fromarray(mask_bin)
-            mask_bin = np.array(
-                mask_pil.resize((img_w, img_h), Image.Resampling.NEAREST)
-            )
+            mask_bin = np.array(mask_pil.resize((img_w, img_h), Image.Resampling.NEAREST))
 
         semantic_map[mask_bin > 0] = label
 
@@ -778,9 +744,7 @@ def infer_yolov8(
             # Ресайз если нужно
             if mask_bin.shape != (img_h, img_w):
                 mask_pil: Image.Image = Image.fromarray(mask_bin)
-                mask_bin = np.array(
-                    mask_pil.resize((img_w, img_h), Image.Resampling.NEAREST)
-                )
+                mask_bin = np.array(mask_pil.resize((img_w, img_h), Image.Resampling.NEAREST))
             # Назначаем уникальный ID для каждого инстанса
             semantic_map[mask_bin > 0] = i
 
@@ -875,9 +839,7 @@ class SegNet(torch.nn.Module):
     def _decode(self, decoder, x, output_size):
         """Decoder step: upsample → conv → batchnorm → relu."""
         # Upsampling к размеру encoder features
-        x = torch.nn.functional.interpolate(
-            x, size=output_size[2:], mode="bilinear", align_corners=False
-        )
+        x = torch.nn.functional.interpolate(x, size=output_size[2:], mode="bilinear", align_corners=False)
         return decoder(x)
 
 
@@ -979,9 +941,7 @@ def segment_image_unified(
                 # RGBA → RGB
                 image = Image.fromarray(image_input).convert("RGB")
             else:
-                raise ValueError(
-                    f"Unsupported number of channels: {image_input.shape[2]}"
-                )
+                raise ValueError(f"Unsupported number of channels: {image_input.shape[2]}")
         else:
             raise ValueError(f"Unsupported array shape: {image_input.shape}")
     elif isinstance(image_input, torch.Tensor):
@@ -1013,9 +973,7 @@ def segment_image_unified(
 
     # Выполнение инференса (стратегии уже содержат torch.no_grad() внутри)
     seg_map: MaskArray
-    seg_map, _ = infer_func(
-        model=model, processor=processor, image=image, device=device
-    )
+    seg_map, _ = infer_func(model=model, processor=processor, image=image, device=device)
 
     # ──────────────────────────────────────────────────────────────
     # 3. Логирование и метрики (если verbose)
@@ -1101,16 +1059,12 @@ def _log_inference_details_standalone(
     for cls in unique_classes:
         count: int = np.sum(seg_map == cls)
         if count > 0:
-            name = (
-                class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
-            )
+            name = class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
             pct: float = 100 * count / total_pixels
             class_stats.append((cls, name, count, pct))
             print(f"     Class {cls:3d}: {count:6d} px ({pct:5.3f}%)")
 
-    n_classes: Optional[int] = _get_num_classes_standalone(
-        model, model_type, fallback=num_classes
-    )
+    n_classes: Optional[int] = _get_num_classes_standalone(model, model_type, fallback=num_classes)
 
     class_stats.sort(key=lambda x: x[2], reverse=True)
     for cls, name, count, pct in class_stats[:10]:
@@ -1123,31 +1077,20 @@ def _log_inference_details_standalone(
     elif model_type in ["deeplab_tv", "fcn_tv", "maskrcnn_tv"]:
         print(f"\n   ⚠️  Torchvision models: {n_classes} output channels")
         print("      Class mapping depends on training dataset (COCO/ADE20K)")
-    elif (
-        model_type in ["unet_smp", "mit_smp", "fpn_mit", "psp_mit", "segnet_custom"]
-        and n_classes is not None
-    ):
-        print(
-            f"\n   ⚠️  SMP/Custom models: {n_classes} output channels (indices 0..{n_classes - 1})"
-        )
+    elif model_type in ["unet_smp", "mit_smp", "fpn_mit", "psp_mit", "segnet_custom"] and n_classes is not None:
+        print(f"\n   ⚠️  SMP/Custom models: {n_classes} output channels (indices 0..{n_classes - 1})")
         print("      Mapping to ADE20K names requires external label file")
     elif model_type in ["sam", "mobile_sam", "sam2"]:
-        print(
-            f"\n   ⚠️  SAM models: instance IDs (1..{len(unique_classes)}), not semantic classes"
-        )
+        print(f"\n   ⚠️  SAM models: instance IDs (1..{len(unique_classes)}), not semantic classes")
         print("      Each detected object gets a unique ID, no class names")
 
     # Анализ предсказания
     try:
         class_names_fixed: Optional[Dict[Union[int, str], str]] = (
-            class_names
-            if class_names is None
-            else {k: v for k, v in class_names.items()}
+            class_names if class_names is None else {k: v for k, v in class_names.items()}
         )
         analyze_prediction(seg_map, class_names=class_names_fixed)
-        report: Dict[str, Any] = generate_class_report(
-            seg_map, class_names=class_names_fixed
-        )
+        report: Dict[str, Any] = generate_class_report(seg_map, class_names=class_names_fixed)
         print(f"\n📊 Coverage: {report['coverage_pct']}% valid pixels")
         print(f"🏆 Top class: {report['top_class']} ({report['top_class_pct']}%)")
         export_class_report(
@@ -1172,9 +1115,7 @@ def _log_inference_details_standalone(
 
     # Создание overlay
     alpha: float = 0.5
-    overlay: Image.Image = _create_overlay_standalone(
-        image, seg_map, alpha=alpha, palette=palette
-    )
+    overlay: Image.Image = _create_overlay_standalone(image, seg_map, alpha=alpha, palette=palette)
     inference_time: float = time.perf_counter() - initial_time
 
     return {
@@ -1301,30 +1242,16 @@ INFERENCE_STRATEGIES: Dict[str, Any] = {
     "fcn_tv": infer_fcn_torchvision_fixed,
     "maskrcnn_tv": infer_mask_rcnn,
     # SMP модели с разными output_stride
-    "unet_smp": lambda model, processor, image, device: infer_smp_model_fixed(
-        model, image, device, output_stride=1
-    ),
-    "mit_smp": lambda model, processor, image, device: infer_smp_model_fixed(
-        model, image, device, output_stride=1
-    ),
-    "fpn_mit": lambda model, processor, image, device: infer_smp_model_fixed(
-        model, image, device, output_stride=32
-    ),
-    "fpn_effnet": lambda model, processor, image, device: infer_smp_model_fixed(
-        model, image, device, output_stride=32
-    ),
+    "unet_smp": lambda model, processor, image, device: infer_smp_model_fixed(model, image, device, output_stride=1),
+    "mit_smp": lambda model, processor, image, device: infer_smp_model_fixed(model, image, device, output_stride=1),
+    "fpn_mit": lambda model, processor, image, device: infer_smp_model_fixed(model, image, device, output_stride=32),
+    "fpn_effnet": lambda model, processor, image, device: infer_smp_model_fixed(model, image, device, output_stride=32),
     "fpn_se_resnext": lambda model, processor, image, device: infer_smp_model_fixed(
         model, image, device, output_stride=32
     ),
-    "psp_mit": lambda model, processor, image, device: infer_smp_model_fixed(
-        model, image, device, output_stride=8
-    ),
-    "psp_effnet": lambda model, processor, image, device: infer_smp_model_fixed(
-        model, image, device, output_stride=8
-    ),
-    "psp_resnet": lambda model, processor, image, device: infer_smp_model_fixed(
-        model, image, device, output_stride=8
-    ),
+    "psp_mit": lambda model, processor, image, device: infer_smp_model_fixed(model, image, device, output_stride=8),
+    "psp_effnet": lambda model, processor, image, device: infer_smp_model_fixed(model, image, device, output_stride=8),
+    "psp_resnet": lambda model, processor, image, device: infer_smp_model_fixed(model, image, device, output_stride=8),
     "deeplab_smp": lambda model, processor, image, device: infer_smp_model_fixed(
         model, image, device, output_stride=16
     ),

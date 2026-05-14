@@ -101,9 +101,7 @@ class GraphProfiler:
 
             # Оценка памяти
             input_memory = example_input.element_size() * example_input.numel()
-            estimated_peak_memory = input_memory * (
-                1 + len(nodes) * 0.1
-            )  # Грубая оценка
+            estimated_peak_memory = input_memory * (1 + len(nodes) * 0.1)  # Грубая оценка
 
             profile = {
                 "method_name": method_name,
@@ -118,10 +116,7 @@ class GraphProfiler:
             self.profiles[method_name] = profile
 
             if self.verbose:
-                print(
-                    f"📊 {method_name}: {len(nodes)} nodes, "
-                    f"{fusion_potential*100:.1f}% fusable"
-                )
+                print(f"📊 {method_name}: {len(nodes)} nodes, " f"{fusion_potential*100:.1f}% fusable")
 
             return profile
 

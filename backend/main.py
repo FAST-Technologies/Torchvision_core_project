@@ -301,9 +301,7 @@ def analyze_image_data(img_array: ImageArray) -> AnalysisDataDict:
     # Гистограмма интенсивностей
     hist, bins = np.histogram(img_array.flatten(), bins=64, range=(0, 256))
     gray: np.ndarray = (
-        np.mean(img_array, axis=2).astype(np.float32)
-        if img_array.ndim == 3
-        else img_array.astype(np.float32)
+        np.mean(img_array, axis=2).astype(np.float32) if img_array.ndim == 3 else img_array.astype(np.float32)
     )
     sobel_x: np.ndarray = ndimage.sobel(gray, axis=0)
     sobel_y: np.ndarray = ndimage.sobel(gray, axis=1)
@@ -350,10 +348,7 @@ def sanitize_metrics(m: MetricsDict) -> MetricsDict:
         - Замена на None позволяет фронтенду корректно отображать "N/A".
         - Для продакшена рекомендуется логировать случаи замены для отладки.
     """
-    return {
-        k: (None if isinstance(v, float) and (math.isinf(v) or math.isnan(v)) else v)
-        for k, v in m.items()
-    }
+    return {k: (None if isinstance(v, float) and (math.isinf(v) or math.isnan(v)) else v) for k, v in m.items()}
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -461,9 +456,7 @@ def params_to_schema(params: Dict[str, Any]) -> Dict[str, Any]:
                 "default": v,
             }
         elif isinstance(v, float):
-            norm: bool = abs(v) <= 2.0 or any(
-                x in k for x in ("threshold", "k", "ratio", "factor")
-            )
+            norm: bool = abs(v) <= 2.0 or any(x in k for x in ("threshold", "k", "ratio", "factor"))
             schema[k] = {
                 "type": "float",
                 "min": 0.0,
@@ -775,9 +768,7 @@ Note:
 
 # ──────────────────────────────────────────────────────────────────────
 @app.middleware("http")
-async def log_benchmark_requests(
-    request: Request, call_next: Callable[[Request], Any]
-) -> Any:
+async def log_benchmark_requests(request: Request, call_next: Callable[[Request], Any]) -> Any:
     """Мидлвэр логирования времени выполнения бенчмарк-запросов.
 
     Назначение:
@@ -871,9 +862,7 @@ async def health() -> Dict[str, Any]:
         - Эндпоинт не требует аутентификации — подходит для public health checks.
     """
     if torch.cuda.is_available():
-        total_vram_mb: float = (
-            torch.cuda.get_device_properties(0).total_memory / 1024**2
-        )
+        total_vram_mb: float = torch.cuda.get_device_properties(0).total_memory / 1024**2
         alloc_vram_mb: float = torch.cuda.memory_allocated(0) / 1024**2
         free_vram_mb: float = total_vram_mb - alloc_vram_mb
         reserved_vram_mb: float = torch.cuda.memory_reserved(0) / 1024**2
@@ -890,13 +879,7 @@ async def health() -> Dict[str, Any]:
         "vram_allocated_mb": alloc_vram_mb,
         "vram_free_mb": free_vram_mb,
         "reserved_vram_mb": reserved_vram_mb,
-        "active_tasks": len(
-            [
-                t
-                for t in benchmark.benchmark_tasks.values()
-                if t.get("status") == "running"
-            ]
-        ),
+        "active_tasks": len([t for t in benchmark.benchmark_tasks.values() if t.get("status") == "running"]),
         "cached_models": len(_model_cache),
         "cache_max": _CACHE_MAX,
     }
@@ -1017,9 +1000,7 @@ async def get_methods_by_library(
         source_dict = METHODS_BY_LIBRARY.get(library, {})
     else:
         source_dict = {
-            name: profile
-            for lib_methods in METHODS_BY_LIBRARY.values()
-            for name, profile in lib_methods.items()
+            name: profile for lib_methods in METHODS_BY_LIBRARY.values() for name, profile in lib_methods.items()
         }
 
     result: Dict[str, Any] = {}
@@ -1035,11 +1016,7 @@ async def get_methods_by_library(
                 "description": profile.description,
                 "best_for": [t.value for t in profile.best_for_type],
                 "defaults": profile.params if profile.params else {},
-                "schema": (
-                    profile.schema
-                    if profile.schema
-                    else params_to_schema(profile.params)
-                ),
+                "schema": (profile.schema if profile.schema else params_to_schema(profile.params)),
             }
         else:
             # Fallback
@@ -1121,11 +1098,7 @@ async def get_methods(library: Optional[str] = None) -> Dict[str, Dict[str, Any]
                 "description": profile.description,
                 "best_for": [t.value for t in profile.best_for_type],
                 "defaults": profile.params or {},
-                "schema": (
-                    profile.schema
-                    if profile.schema
-                    else params_to_schema(profile.params or {})
-                ),
+                "schema": (profile.schema if profile.schema else params_to_schema(profile.params or {})),
             }
         else:
             result[name] = {
@@ -1289,9 +1262,7 @@ async def segment(
 
             cfg: Optional[Dict[str, Any]] = NEURAL_CONFIGS.get(task, {}).get(model)
             if not cfg:
-                raise HTTPException(
-                    422, f"Unknown neural config: task={task!r} model={model!r}"
-                )
+                raise HTTPException(422, f"Unknown neural config: task={task!r} model={model!r}")
             ns = _get_or_load_neural(cfg, task)
             dev: str = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -1312,11 +1283,7 @@ async def segment(
             )
 
             raw = result_info.get("mask")
-            mask = (
-                raw
-                if raw is not None
-                else (np.array(overlay_pil)[:, :, 0] > 0).astype(np.uint8) * 255
-            )
+            mask = raw if raw is not None else (np.array(overlay_pil)[:, :, 0] > 0).astype(np.uint8) * 255
 
             overlay_np = np.array(overlay_pil)
 
@@ -1343,9 +1310,7 @@ async def segment(
                 user_params = {}
 
             if auto_select:
-                mask, metadata = auto_seg.segment(
-                    img_array, auto_select=True, library=library, return_metadata=True
-                )
+                mask, metadata = auto_seg.segment(img_array, auto_select=True, library=library, return_metadata=True)
             else:
                 if not method:
                     raise HTTPException(422, "method required when auto_select=False")
@@ -1361,21 +1326,13 @@ async def segment(
 
                 profile: MethodProfile = METHODS_BY_LIBRARY[library][method]
                 final_params: Dict[str, Any] = {**(profile.params or {}), **user_params}
-                logger.info(
-                    f"🛠 Using params for {method}/{library} params={final_params}"
-                )
+                logger.info(f"🛠 Using params for {method}/{library} params={final_params}")
 
-                segmenter = auto_seg._get_segmenter_class(method, library)(
-                    **final_params
-                )
+                segmenter = auto_seg._get_segmenter_class(method, library)(**final_params)
                 result = segmenter.segment_with_mask(img_array)
                 if isinstance(result, tuple) and len(result) == 2:
                     _, mask_opt = result
-                    mask = (
-                        mask_opt
-                        if mask_opt is not None
-                        else np.zeros_like(img_array[:, :, 0], dtype=np.uint8)
-                    )
+                    mask = mask_opt if mask_opt is not None else np.zeros_like(img_array[:, :, 0], dtype=np.uint8)
                 else:
                     # Fallback для методов, возвращающих только одну маску
                     mask = result
@@ -1391,19 +1348,13 @@ async def segment(
         metrics: MetricsDict = {}
         if gt_mask is not None:
             logger.info(f"✅ GT получен: {gt_mask.filename}")
-            gt_array: np.ndarray = np.array(
-                Image.open(io.BytesIO(await gt_mask.read())).convert("L")
-            )
-            metrics = sanitize_metrics(
-                SegmentationMetrics.calculate_all_metrics(mask, gt_array, threshold=0.5)
-            )
+            gt_array: np.ndarray = np.array(Image.open(io.BytesIO(await gt_mask.read())).convert("L"))
+            metrics = sanitize_metrics(SegmentationMetrics.calculate_all_metrics(mask, gt_array, threshold=0.5))
         else:
             logger.warning("⚠️ GT не предоставлен, метрики не рассчитываются")
 
         # ─── Рекомендации & Анализ ──────────────────────────────────────────────────
-        recommendations: List[RecommendationDict] = auto_seg.get_recommendations(
-            img_array, top_k=5
-        )
+        recommendations: List[RecommendationDict] = auto_seg.get_recommendations(img_array, top_k=5)
         analysis_data: AnalysisDataDict = analyze_image_data(img_array)
         chars = metadata["image_characteristics"]
 

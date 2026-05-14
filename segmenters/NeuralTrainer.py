@@ -97,9 +97,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -200,20 +198,14 @@ class NeuralTrainer:
         self.verbose_first_batch: bool = verbose_first_batch
 
         # Критерий и оптимизатор
-        self.criterion: nn.CrossEntropyLoss = nn.CrossEntropyLoss(
-            ignore_index=ignore_index
-        )
-        self.optimizer: torch.optim.AdamW = torch.optim.AdamW(
-            model.parameters(), lr=lr, weight_decay=weight_decay
-        )
+        self.criterion: nn.CrossEntropyLoss = nn.CrossEntropyLoss(ignore_index=ignore_index)
+        self.optimizer: torch.optim.AdamW = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
         # Scheduler: T_max = общее число шагов за 50 эпох (можно переопределить в fit)
-        self.scheduler: torch.optim.lr_scheduler.CosineAnnealingLR = (
-            torch.optim.lr_scheduler.CosineAnnealingLR(
-                self.optimizer,
-                T_max=len(train_loader) * 50,
-                eta_min=lr * 0.01,
-            )
+        self.scheduler: torch.optim.lr_scheduler.CosineAnnealingLR = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer,
+            T_max=len(train_loader) * 50,
+            eta_min=lr * 0.01,
         )
 
         # История и лучшие метрики
@@ -268,9 +260,7 @@ class NeuralTrainer:
             # Forward pass
             # ──────────────────────────────────────────────────────────────
             self.optimizer.zero_grad()
-            outputs: Union[torch.Tensor, Dict[str, torch.Tensor]] = self.model(
-                images
-            )  # [B, C, H, W]
+            outputs: Union[torch.Tensor, Dict[str, torch.Tensor]] = self.model(images)  # [B, C, H, W]
 
             if isinstance(outputs, dict):
                 main_out = outputs["out"]
@@ -282,9 +272,7 @@ class NeuralTrainer:
             # ──────────────────────────────────────────────────────────────
             # Валидация масок: замена невалидных значений на ignore_index
             # ──────────────────────────────────────────────────────────────
-            invalid = ((masks < 0) | (masks >= self.num_classes)) & (
-                masks != self.criterion.ignore_index
-            )
+            invalid = ((masks < 0) | (masks >= self.num_classes)) & (masks != self.criterion.ignore_index)
             if torch.any(invalid):
                 if batch_idx == 0:
                     print(
@@ -314,9 +302,7 @@ class NeuralTrainer:
             total_loss += loss.item()
             # Логирование прогресса
             if (batch_idx + 1) % 10 == 0:
-                print(
-                    f"   Batch {batch_idx + 1}/{len(self.train_loader)} | Loss: {loss.item():.4f}"
-                )
+                print(f"   Batch {batch_idx + 1}/{len(self.train_loader)} | Loss: {loss.item():.4f}")
 
         return total_loss / len(self.train_loader)
 
@@ -350,9 +336,7 @@ class NeuralTrainer:
                 images = batch["image"].to(self.device)
                 masks = batch["mask"].to(self.device)
 
-                outputs: Union[torch.Tensor, Dict[str, torch.Tensor]] = self.model(
-                    images
-                )
+                outputs: Union[torch.Tensor, Dict[str, torch.Tensor]] = self.model(images)
                 if isinstance(outputs, dict):
                     outputs = outputs["out"]
 
@@ -369,9 +353,7 @@ class NeuralTrainer:
         # ──────────────────────────────────────────────────────────────
         # Расчёт mIoU (macro, только присутствующие классы)
         # ──────────────────────────────────────────────────────────────
-        filtered: List[Tuple[int, int]] = [
-            (p, t) for p, t in zip(all_preds, all_targets) if t != self.ignore_index
-        ]
+        filtered: List[Tuple[int, int]] = [(p, t) for p, t in zip(all_preds, all_targets) if t != self.ignore_index]
         if filtered:
             f_preds, f_targets = zip(*filtered)
             present_labels: List[int] = list(set(f_targets))
@@ -458,9 +440,7 @@ class NeuralTrainer:
 
             # Текущий LR
             lr_now: float = self.optimizer.param_groups[0]["lr"]
-            print(
-                f"📊 Epoch {epoch + 1}/{epochs} | Time: {epoch_time:.3f}s | LR: {lr_now:.3e}"
-            )
+            print(f"📊 Epoch {epoch + 1}/{epochs} | Time: {epoch_time:.3f}s | LR: {lr_now:.3e}")
             print(f"   Train Loss: {train_loss:.4f}")
             print(f"   Val Loss:   {val_loss:.4f}")
             print(f"   Val mIoU:   {val_miou:.4f}")

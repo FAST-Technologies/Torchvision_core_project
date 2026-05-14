@@ -89,15 +89,10 @@ class GraphOptimizer:
         if method_name in self.config.exclude_methods:
             return CompilationStrategy.NONE
 
-        if (
-            self.config.include_methods
-            and method_name not in self.config.include_methods
-        ):
+        if self.config.include_methods and method_name not in self.config.include_methods:
             return CompilationStrategy.NONE
 
-        return COMPILATION_STRATEGIES.get(
-            method_name, COMPILATION_STRATEGIES.get("default", self.config.strategy)
-        )
+        return COMPILATION_STRATEGIES.get(method_name, COMPILATION_STRATEGIES.get("default", self.config.strategy))
 
     def optimize_method(
         self,
@@ -167,9 +162,7 @@ class GraphOptimizer:
         if strategy == CompilationStrategy.JIT_SCRIPT:
             compiled = self.jit_optimizer.compile_method(method_name, strategy="script")
             compile_time = (
-                self.jit_optimizer.compiled_methods.get(method_name, {})
-                .get("jit_script", {})
-                .get("compile_time_s", 0)
+                self.jit_optimizer.compiled_methods.get(method_name, {}).get("jit_script", {}).get("compile_time_s", 0)
                 * 1000
             )
 
@@ -180,9 +173,7 @@ class GraphOptimizer:
         elif strategy == CompilationStrategy.JIT_TRACE:
             compiled = self.jit_optimizer.compile_method(method_name, strategy="trace")
             compile_time = (
-                self.jit_optimizer.compiled_methods.get(method_name, {})
-                .get("jit_trace", {})
-                .get("compile_time_s", 0)
+                self.jit_optimizer.compiled_methods.get(method_name, {}).get("jit_trace", {}).get("compile_time_s", 0)
                 * 1000
             )
 
@@ -191,9 +182,7 @@ class GraphOptimizer:
             )["compiled_mean_ms"]
 
         elif strategy == CompilationStrategy.TORCH_COMPILE:
-            compiled = self.compile_optimizer.compile_method(
-                method_name, mode=self.config.compile_mode
-            )
+            compiled = self.compile_optimizer.compile_method(method_name, mode=self.config.compile_mode)
             compile_time = (
                 self.compile_optimizer.compiled_methods.get(method_name, {})
                 .get(f"compile_{self.config.compile_mode}", {})
@@ -222,9 +211,7 @@ class GraphOptimizer:
         if speedup < 1.1:
             recommendations.append("⚠️  Minimal speedup — consider skipping compilation")
         if compile_time > 1000:  # >1 sec compilation
-            recommendations.append(
-                "💡 Long compilation time — cache compiled model for reuse"
-            )
+            recommendations.append("💡 Long compilation time — cache compiled model for reuse")
         if strategy == CompilationStrategy.TORCH_COMPILE and speedup > 2.0:
             recommendations.append("✅ Excellent speedup — recommended for production")
 
@@ -242,10 +229,7 @@ class GraphOptimizer:
         self.reports.append(report)
 
         if self.config.verbose:
-            print(
-                f"✅ {method_name}: {report.speedup_formatted} speedup "
-                f"(compile: {compile_time:.1f} ms)"
-            )
+            print(f"✅ {method_name}: {report.speedup_formatted} speedup " f"(compile: {compile_time:.1f} ms)")
             for rec in recommendations:
                 print(f"   {rec}")
 
@@ -267,11 +251,7 @@ class GraphOptimizer:
             List[CompilationReport]
         """
         if methods is None:
-            methods = [
-                m
-                for m in self.segmenter.method_map.keys()
-                if m not in self.config.exclude_methods
-            ]
+            methods = [m for m in self.segmenter.method_map.keys() if m not in self.config.exclude_methods]
 
         if self.config.verbose:
             print(f"🚀 Optimizing {len(methods)} methods...")
@@ -301,8 +281,7 @@ class GraphOptimizer:
             "max_speedup": max(r.speedup for r in self.reports),
             "avg_compile_time_ms": np.mean([r.compile_time_ms for r in self.reports]),
             "total_time_saved_ms": sum(
-                (r.original_time_ms - r.compiled_time_ms) * 100  # Условные 100 запусков
-                for r in self.reports
+                (r.original_time_ms - r.compiled_time_ms) * 100 for r in self.reports  # Условные 100 запусков
             ),
         }
 
@@ -317,7 +296,5 @@ class GraphOptimizer:
         print(f"Avg speedup: {summary.get('avg_speedup', 0):.2f}×")
         print(f"Max speedup: {summary.get('max_speedup', 0):.2f}×")
         print(f"Avg compile time: {summary.get('avg_compile_time_ms', 0):.1f} ms")
-        print(
-            f"Est. time saved (100 runs): {summary.get('total_time_saved_ms', 0):.1f} ms"
-        )
+        print(f"Est. time saved (100 runs): {summary.get('total_time_saved_ms', 0):.1f} ms")
         print("=" * 60)

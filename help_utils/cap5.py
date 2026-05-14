@@ -38,9 +38,7 @@ mask = trt_seg.segment(img_rgb)
 # 5. Валидация
 print(f"✅ Mask shape: {mask.shape}, dtype: {mask.dtype}")
 print(f"✅ Mask min/max: {mask.min()}/{mask.max()}, unique values: {np.unique(mask)}")
-print(
-    f"✅ Mask area: {np.sum(mask > 0)} pixels ({np.sum(mask > 0) / mask.size * 100:.2f}%)"
-)
+print(f"✅ Mask area: {np.sum(mask > 0)} pixels ({np.sum(mask > 0) / mask.size * 100:.2f}%)")
 
 if mask.shape == (orig_h, orig_w) and mask.max() == 255 and np.sum(mask > 0) > 0:
     print("🎉 TRT сегментация работает корректно!")

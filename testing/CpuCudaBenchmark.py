@@ -2,7 +2,7 @@
 
 """Модуль для бенчмаркинга производительности и стабильности методов сегментации на CPU и CUDA.
 
-Предназначен для автоматизированного сравнения времени выполнения, ускорения (speedup) 
+Предназначен для автоматизированного сравнения времени выполнения, ускорения (speedup)
 и стабильности алгоритмов сегментации при запуске на разных устройствах и бэкендах:
 - Устройства: CPU, CUDA (GPU)
 - Бэкенды: PyTorch, OpenCV, Scikit-learn, ONNX, TensorRT
@@ -18,10 +18,10 @@
 - Генерация визуализаций: сравнительные гистограммы, графики ускорения, scatter-plot зависимости
 
 Примечание:
-- Имена методов ожидаются в формате: `{base_method}_{backend}_{precision}` 
+- Имена методов ожидаются в формате: `{base_method}_{backend}_{precision}`
   (например, `otsu_thresholding_ONNX_fp16`, `canny_edge_CV2_fp32`).
 - Для корректного переключения устройства сегментер должен иметь атрибут `.device` типа `torch.device`.
-- Бенчмарк не оценивает качество сегментации — только производительность. 
+- Бенчмарк не оценивает качество сегментации — только производительность.
   Для валидации качества используйте `BatchClassicTester2` или `SegmentationMetrics`.
 """
 
@@ -48,9 +48,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -204,11 +202,7 @@ class CpuCudaBenchmark:
                 pass
 
         # Основное тестирование
-        (
-            torch.cuda.synchronize()
-            if device == "cuda" and torch.cuda.is_available()
-            else None
-        )
+        (torch.cuda.synchronize() if device == "cuda" and torch.cuda.is_available() else None)
         start_total: float = time.perf_counter()
 
         for run in range(self.n_runs):
@@ -218,11 +212,7 @@ class CpuCudaBenchmark:
                 start: float = time.perf_counter()
                 if hasattr(segmenter, "segment_with_mask"):
                     result_opt, mask_opt = segmenter.segment_with_mask(image)
-                    result = (
-                        result_opt
-                        if result_opt is not None
-                        else segmenter.segment(image)
-                    )
+                    result = result_opt if result_opt is not None else segmenter.segment(image)
                     mask = mask_opt if mask_opt is not None else result
                 else:
                     result = segmenter.segment(image)
@@ -238,11 +228,7 @@ class CpuCudaBenchmark:
                 print(f"⚠️ Error in {method_name} ({device}), run {run + 1}: {e}")
                 break
 
-        (
-            torch.cuda.synchronize()
-            if device == "cuda" and torch.cuda.is_available()
-            else None
-        )
+        (torch.cuda.synchronize() if device == "cuda" and torch.cuda.is_available() else None)
         end_total: float = time.perf_counter()
 
         artifact_paths: Dict[str, Optional[str]] = {
@@ -269,9 +255,7 @@ class CpuCudaBenchmark:
                     result_pil = Image.fromarray(result_to_save.astype(np.uint8))
 
                 # Сохранение результата
-                result_path: str = os.path.join(
-                    output_dir, f"{method_name}_{device}_result.jpg"
-                )
+                result_path: str = os.path.join(output_dir, f"{method_name}_{device}_result.jpg")
                 result_pil.save(result_path)
                 artifact_paths["result"] = result_path
 
@@ -285,9 +269,7 @@ class CpuCudaBenchmark:
                     else:
                         mask_to_save = mask_to_save.astype(np.uint8)
 
-                    mask_path: str = os.path.join(
-                        output_dir, f"{method_name}_{device}_mask.png"
-                    )
+                    mask_path: str = os.path.join(output_dir, f"{method_name}_{device}_mask.png")
                     Image.fromarray(mask_to_save).save(mask_path)
                     artifact_paths["mask"] = mask_path
 
@@ -301,19 +283,13 @@ class CpuCudaBenchmark:
 
                         # Приводим результат к 3 каналам если нужно
                         if result_to_save.ndim == 2:
-                            result_rgb: np.ndarray = np.stack(
-                                [result_to_save] * 3, axis=-1
-                            )
+                            result_rgb: np.ndarray = np.stack([result_to_save] * 3, axis=-1)
                         else:
                             result_rgb = result_to_save
 
                         # Alpha-смешивание: 30% оригинал + 70% результат
-                        overlay: np.ndarray = (
-                            orig_rgb * 0.3 + result_rgb * 0.7
-                        ).astype(np.uint8)
-                        overlay_path: str = os.path.join(
-                            output_dir, f"{method_name}_{device}_overlay.jpg"
-                        )
+                        overlay: np.ndarray = (orig_rgb * 0.3 + result_rgb * 0.7).astype(np.uint8)
+                        overlay_path: str = os.path.join(output_dir, f"{method_name}_{device}_overlay.jpg")
                         Image.fromarray(overlay).save(overlay_path)
                         artifact_paths["overlay"] = overlay_path
 
@@ -417,9 +393,7 @@ class CpuCudaBenchmark:
             print(f"\n🔹 Метод: {method_name}")
             for device in devices:
                 if save_artifacts and artifact_base_dir:
-                    method_artifact_dir: str = os.path.join(
-                        artifact_base_dir, device, method_name
-                    )
+                    method_artifact_dir: str = os.path.join(artifact_base_dir, device, method_name)
                     os.makedirs(method_artifact_dir, exist_ok=True)
 
                 if device == "cuda":
@@ -454,9 +428,7 @@ class CpuCudaBenchmark:
                     print(f"      ⏭️ Пропущено/Ошибка")
 
                 if res["mean_time"] != float("inf"):
-                    time_str: str = (
-                        f"{res['mean_time']*1000:.2f}ms ± {res['std_time']*1000:.2f}ms"
-                    )
+                    time_str: str = f"{res['mean_time']*1000:.2f}ms ± {res['std_time']*1000:.2f}ms"
                     print(f"   {device}: {time_str} ({res['n_runs']} runs)")
 
                     # Логируем сохранённые артефакты
@@ -470,36 +442,21 @@ class CpuCudaBenchmark:
 
             # Ускорение
             cpu_res = next(
-                (
-                    r
-                    for r in all_results
-                    if r["method"] == method_name and r["device"] == "cpu"
-                ),
+                (r for r in all_results if r["method"] == method_name and r["device"] == "cpu"),
                 None,
             )
             cuda_res = next(
-                (
-                    r
-                    for r in all_results
-                    if r["method"] == method_name and r["device"] == "cuda"
-                ),
+                (r for r in all_results if r["method"] == method_name and r["device"] == "cuda"),
                 None,
             )
 
-            if (
-                cpu_res
-                and cuda_res
-                and cpu_res["mean_time"] > 0
-                and cuda_res["mean_time"] > 0
-            ):
+            if cpu_res and cuda_res and cpu_res["mean_time"] > 0 and cuda_res["mean_time"] > 0:
                 speedup = cpu_res["mean_time"] / cuda_res["mean_time"]
                 print(f"      ⚡ Ускорение: {speedup:.2f}x")
 
         df: pd.DataFrame = pd.DataFrame(all_results)
         df_valid: pd.DataFrame = df[
-            (df["error"].isna())
-            | (df["error"] == "None")
-            | (df["error"] == "Failed/Skipped")
+            (df["error"].isna()) | (df["error"] == "None") | (df["error"] == "Failed/Skipped")
         ].copy()
 
         self._save_results(df, test_name, output_dir=output_dir)
@@ -512,9 +469,7 @@ class CpuCudaBenchmark:
         return df
 
     # ──────────────────────────────────────────────────────────────────────
-    def _save_results(
-        self, df: pd.DataFrame, test_name: str, output_dir: Optional[str] = None
-    ) -> None:
+    def _save_results(self, df: pd.DataFrame, test_name: str, output_dir: Optional[str] = None) -> None:
         """Сохраняет результаты бенчмарка в нескольких форматах.
 
         Создаёт директорию (если не указана), записывает:
@@ -530,9 +485,7 @@ class CpuCudaBenchmark:
         """
         if output_dir is None:
             timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = os.path.join(
-                self.base_output_dir, f"benchmark_{test_name}_{timestamp}"
-            )
+            output_dir = os.path.join(self.base_output_dir, f"benchmark_{test_name}_{timestamp}")
         os.makedirs(output_dir, exist_ok=True)
 
         # CSV
@@ -566,9 +519,7 @@ class CpuCudaBenchmark:
         is_multi_backend: bool = "backend" in df.columns and "base_method" in df.columns
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("=" * 90 + "\n")
-            f.write(
-                "📊 ОТЧЁТ: СРАВНЕНИЕ ПРОИЗВОДИТЕЛЬНОСТИ (CPU vs CUDA | Multi-Backend)\n"
-            )
+            f.write("📊 ОТЧЁТ: СРАВНЕНИЕ ПРОИЗВОДИТЕЛЬНОСТИ (CPU vs CUDA | Multi-Backend)\n")
             f.write("=" * 90 + "\n")
             f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Количество методов: {df['method'].nunique()}\n")
@@ -592,9 +543,7 @@ class CpuCudaBenchmark:
                 if ref_mask.any():
                     # Берём среднее время всех PyTorch fp32 CPU методов как стабильный референс
                     ref_time = df.loc[ref_mask, "mean_time"].mean()
-                    print(
-                        f"✅ Референс найден (PyTorch/fp32/CPU): {ref_time * 1000:.2f}ms"
-                    )
+                    print(f"✅ Референс найден (PyTorch/fp32/CPU): {ref_time * 1000:.2f}ms")
                     f.write(f"Current ref mask: {ref_mask}")
                     f.write(f"Current ref time: {ref_time}")
                 else:
@@ -607,17 +556,13 @@ class CpuCudaBenchmark:
                     if not cpu_valid.empty:
                         # Медиана устойчива к сверхбыстрым CV2 методам (0.3ms) и сверхмедленным Sklearn (40ms)
                         ref_time = cpu_valid["mean_time"].median()
-                        ref_method = cpu_valid.loc[
-                            cpu_valid["mean_time"].idxmin(), "method"
-                        ]
+                        ref_method = cpu_valid.loc[cpu_valid["mean_time"].idxmin(), "method"]
                         f.write(
                             f"\n⚠️ PyTorch/fp32/CPU не найден. Fallback (медиана CPU): {ref_time*1000:.2f}ms (от {ref_method})\n"
                         )
 
                 f.write("🔹 MULTI-BACKEND ANALYSIS:\n" + "-" * 90 + "\n")
-                valid_base_methods: List[Any] = [
-                    m for m in df["base_method"].unique() if pd.notna(m)
-                ]
+                valid_base_methods: List[Any] = [m for m in df["base_method"].unique() if pd.notna(m)]
                 for base_method in sorted(valid_base_methods):
                     f.write(f"🔸 БАЗОВЫЙ МЕТОД: {base_method}\n")
                     f.write(
@@ -641,18 +586,11 @@ class CpuCudaBenchmark:
                         )
 
                         if not cpu_data.empty and cuda_data["mean_time"].values[0] > 0:
-                            speedup: float = (
-                                cpu_data["mean_time"].values[0]
-                                / cuda_data["mean_time"].values[0]
-                            )
+                            speedup: float = cpu_data["mean_time"].values[0] / cuda_data["mean_time"].values[0]
                             f.write(f"  ⚡ Ускорение: {speedup:.2f}x\n")
                     for _, row in subset.iterrows():
                         is_success = pd.isna(row["error"])
-                        if (
-                            is_success
-                            and pd.notna(row["mean_time"])
-                            and row["mean_time"] > 0
-                        ):
+                        if is_success and pd.notna(row["mean_time"]) and row["mean_time"] > 0:
                             time_ms: float = row["mean_time"] * 1000
                             std_ms: float = row["std_time"] * 1000
                             time_str: str = f"{time_ms:.2f} ± {std_ms:.2f}"
@@ -660,9 +598,7 @@ class CpuCudaBenchmark:
                             speedup_str: str = "N/A"
                             if ref_time and ref_time > 0:
                                 spd: float = ref_time / row["mean_time"]
-                                speedup_str = (
-                                    f"{spd:.2f}x {'⚡' if spd > 1.0 else '🐢'}"
-                                )
+                                speedup_str = f"{spd:.2f}x {'⚡' if spd > 1.0 else '🐢'}"
                         else:
                             time_str = "N/A"
                             speedup_str = "N/A"
@@ -674,33 +610,20 @@ class CpuCudaBenchmark:
 
                 # Топ ускорений относительно референса
                 if ref_time:
-                    f.write(
-                        "=" * 90
-                        + "\n🏆 ТОП-5 УСКОРЕНИЙ (относительно PyTorch/fp32/CPU):\n"
-                        + "=" * 90
-                        + "\n"
-                    )
+                    f.write("=" * 90 + "\n🏆 ТОП-5 УСКОРЕНИЙ (относительно PyTorch/fp32/CPU):\n" + "=" * 90 + "\n")
                     valid: pd.DataFrame = df[
-                        (df["mean_time"] != float("inf"))
-                        & (df["mean_time"] > 0)
-                        & (df["error"].isna())
+                        (df["mean_time"] != float("inf")) & (df["mean_time"] > 0) & (df["error"].isna())
                     ]
                     speedups = []
                     for _, r in valid.iterrows():
-                        if not (
-                            r["backend"] == "PyTorch"
-                            and r["precision"] == "fp32"
-                            and r["device"] == "cpu"
-                        ):
+                        if not (r["backend"] == "PyTorch" and r["precision"] == "fp32" and r["device"] == "cpu"):
                             speedups.append(
                                 (
                                     f"{r['base_method']} / {r['backend']} / {r['precision']} / {r['device']}",
                                     ref_time / r["mean_time"],
                                 )
                             )
-                    for i, (name, spd) in enumerate(
-                        sorted(speedups, key=lambda x: x[1], reverse=True)[:20], 1
-                    ):
+                    for i, (name, spd) in enumerate(sorted(speedups, key=lambda x: x[1], reverse=True)[:20], 1):
                         f.write(f"  {i}. {name}: {spd:.2f}x\n")
                     f.write("\n")
 
@@ -720,16 +643,12 @@ class CpuCudaBenchmark:
 
                     cpu_t: float = cpu["mean_time"].values[0] * 1000
                     cuda_t: float = (
-                        cuda["mean_time"].values[0] * 1000
-                        if cuda["mean_time"].values[0] > 0
-                        else float("inf")
+                        cuda["mean_time"].values[0] * 1000 if cuda["mean_time"].values[0] > 0 else float("inf")
                     )
                     spd = cpu_t / cuda_t if cuda_t > 0 else float("inf")
                     speedups_legacy.append((method, spd))
 
-                    f.write(
-                        f"{method:<40s}: CPU={cpu_t:7.2f}ms | CUDA={cuda_t:7.2f}ms | ⚡ Speedup={spd:.2f}x\n"
-                    )
+                    f.write(f"{method:<40s}: CPU={cpu_t:7.2f}ms | CUDA={cuda_t:7.2f}ms | ⚡ Speedup={spd:.2f}x\n")
 
             speedups_legacy.sort(key=lambda x: x[0], reverse=True)
             for i, (method, speedup) in enumerate(speedups_legacy[:30], 1):
@@ -738,9 +657,7 @@ class CpuCudaBenchmark:
         print(f"✅ Результаты сохранены в: {output_dir}/report.txt")
 
     # ──────────────────────────────────────────────────────────────────────
-    def _plot_results(
-        self, df: pd.DataFrame, test_name: str, output_dir: Optional[str] = None
-    ) -> None:
+    def _plot_results(self, df: pd.DataFrame, test_name: str, output_dir: Optional[str] = None) -> None:
         """Генерирует и сохраняет визуализации производительности.
 
         Создаёт три графика:
@@ -789,21 +706,15 @@ class CpuCudaBenchmark:
             cpu_data = method_data[method_data["device"] == "cpu"]
             cuda_data = method_data[method_data["device"] == "cuda"]
 
-            cpu_times.append(
-                cpu_data["mean_time"].values[0] * 1000 if not cpu_data.empty else 0
-            )
-            cuda_times.append(
-                cuda_data["mean_time"].values[0] * 1000 if not cuda_data.empty else 0
-            )
+            cpu_times.append(cpu_data["mean_time"].values[0] * 1000 if not cpu_data.empty else 0)
+            cuda_times.append(cuda_data["mean_time"].values[0] * 1000 if not cuda_data.empty else 0)
 
         plt.bar(x - width / 2, cpu_times, width, label="CPU", color="#3498db")
         plt.bar(x + width / 2, cuda_times, width, label="CUDA", color="#e74c3c")
 
         plt.xlabel("Метод сегментации", fontsize=12)
         plt.ylabel("Время выполнения (ms)", fontsize=12)
-        plt.title(
-            "Сравнение производительности: CPU vs CUDA", fontsize=14, fontweight="bold"
-        )
+        plt.title("Сравнение производительности: CPU vs CUDA", fontsize=14, fontweight="bold")
         plt.xticks(x, methods, rotation=45, ha="right", fontsize=9)
         plt.legend(fontsize=11)
         plt.grid(axis="y", alpha=0.3, linestyle="--")
@@ -828,10 +739,7 @@ class CpuCudaBenchmark:
 
                 if not cpu_data.empty and not cuda_data.empty:
                     if cuda_data["mean_time"].values[0] > 0:
-                        speedup = (
-                            cpu_data["mean_time"].values[0]
-                            / cuda_data["mean_time"].values[0]
-                        )
+                        speedup = cpu_data["mean_time"].values[0] / cuda_data["mean_time"].values[0]
                         speedups.append(speedup)
                         method_names.append(method)
 
@@ -839,30 +747,21 @@ class CpuCudaBenchmark:
                 x = np.arange(len(method_names))
 
                 # Используем функцию для безопасного сравнения
-                colors: List[str] = [
-                    "#2ecc71" if _parse_speedup(s) > 1.0 else "#e74c3c"
-                    for s in speedups
-                ]
+                colors: List[str] = ["#2ecc71" if _parse_speedup(s) > 1.0 else "#e74c3c" for s in speedups]
 
                 plt.bar(x, speedups, color=colors, edgecolor="black", linewidth=1.2)
-                plt.axhline(
-                    y=1, color="gray", linestyle="--", linewidth=2, label="CPU = CUDA"
-                )
+                plt.axhline(y=1, color="gray", linestyle="--", linewidth=2, label="CPU = CUDA")
 
                 plt.xlabel("Метод сегментации", fontsize=12)
                 plt.ylabel("Ускорение (CPU time / CUDA time)", fontsize=12)
-                plt.title(
-                    "Ускорение при использовании CUDA", fontsize=14, fontweight="bold"
-                )
+                plt.title("Ускорение при использовании CUDA", fontsize=14, fontweight="bold")
                 plt.xticks(x, method_names, rotation=45, ha="right", fontsize=9)
                 plt.legend(fontsize=11)
                 plt.grid(axis="y", alpha=0.3, linestyle="--")
                 plt.tight_layout()
 
                 speedup_path: str = os.path.join(output_dir, "speedup_comparison.png")
-                plt.savefig(
-                    speedup_path, dpi=300, bbox_inches="tight", facecolor="white"
-                )
+                plt.savefig(speedup_path, dpi=300, bbox_inches="tight", facecolor="white")
                 plt.close()
                 print(f"📊 График ускорения сохранён: {speedup_path}")
 
@@ -885,15 +784,11 @@ class CpuCudaBenchmark:
                     method_labels.append(method)
 
             if cpu_vals:
-                plt.scatter(
-                    cpu_vals, cuda_vals, s=100, alpha=0.7, c="blue", edgecolors="black"
-                )
+                plt.scatter(cpu_vals, cuda_vals, s=100, alpha=0.7, c="blue", edgecolors="black")
 
                 # Линия равенства
                 max_val = max(max(cpu_vals), max(cuda_vals))
-                plt.plot(
-                    [0, max_val], [0, max_val], "r--", linewidth=2, label="CPU = CUDA"
-                )
+                plt.plot([0, max_val], [0, max_val], "r--", linewidth=2, label="CPU = CUDA")
 
                 # Подписи точек
                 for i, method in enumerate(method_labels):
@@ -908,17 +803,13 @@ class CpuCudaBenchmark:
 
                 plt.xlabel("CPU время (ms)", fontsize=12)
                 plt.ylabel("CUDA время (ms)", fontsize=12)
-                plt.title(
-                    "CPU vs CUDA: Время выполнения", fontsize=14, fontweight="bold"
-                )
+                plt.title("CPU vs CUDA: Время выполнения", fontsize=14, fontweight="bold")
                 plt.legend(fontsize=11)
                 plt.grid(True, alpha=0.3, linestyle="--")
                 plt.tight_layout()
 
                 scatter_path: str = os.path.join(output_dir, "cpu_cuda_scatter.png")
-                plt.savefig(
-                    scatter_path, dpi=300, bbox_inches="tight", facecolor="white"
-                )
+                plt.savefig(scatter_path, dpi=300, bbox_inches="tight", facecolor="white")
                 plt.close()
                 print(f"📊 Scatter plot сохранён: {scatter_path}")
 
@@ -929,15 +820,11 @@ class CpuCudaBenchmark:
             cuda_df: pd.DataFrame = df[df["device"] == "cuda"].copy()
             if not cuda_df.empty:
                 plt.figure(figsize=(16, 8))
-                valid_base = [
-                    m for m in cuda_df["base_method"].dropna().unique() if pd.notna(m)
-                ]
+                valid_base = [m for m in cuda_df["base_method"].dropna().unique() if pd.notna(m)]
                 base_methods = sorted(valid_base)
                 x = np.arange(len(base_methods))
                 width = 0.2
-                valid_backends: List[str] = [
-                    b for b in cuda_df["backend"].dropna().unique() if pd.notna(b)
-                ]
+                valid_backends: List[str] = [b for b in cuda_df["backend"].dropna().unique() if pd.notna(b)]
                 backends = sorted(valid_backends)
                 offsets = {b: i for i, b in enumerate(backends)}
 
@@ -997,19 +884,13 @@ class CpuCudaBenchmark:
             if not ref_row.empty:
                 ref_time: float = ref_row.iloc[0]["mean_time"]
                 df_plot: pd.DataFrame = df.copy()
-                df_plot["speedup"] = np.where(
-                    df_plot["mean_time"] > 0, ref_time / df_plot["mean_time"], np.nan
-                )
+                df_plot["speedup"] = np.where(df_plot["mean_time"] > 0, ref_time / df_plot["mean_time"], np.nan)
 
                 plt.figure(figsize=(14, 7))
-                valid: pd.DataFrame = df_plot[
-                    (df_plot["speedup"].notna()) & (df_plot["device"] == "cuda")
-                ].copy()
+                valid: pd.DataFrame = df_plot[(df_plot["speedup"].notna()) & (df_plot["device"] == "cuda")].copy()
                 valid = valid.sort_values("speedup", ascending=True)
                 if not valid.empty:
-                    colors = [
-                        "#2ecc71" if s > 1 else "#e74c3c" for s in valid["speedup"]
-                    ]
+                    colors = ["#2ecc71" if s > 1 else "#e74c3c" for s in valid["speedup"]]
                     plt.barh(
                         valid["method"],
                         valid["speedup"],

@@ -165,6 +165,7 @@ Example:
 python async with _comparator_lock: _comparator_tasks[task_id]["progress"] = 50.0
 """
 
+
 # ──────────────────────────────────────────────────────────────────────
 class NumpyEncoder(json.JSONEncoder):
     """Кастомный JSON-энкодер для безопасной сериализации numpy-типов.
@@ -187,6 +188,7 @@ class NumpyEncoder(json.JSONEncoder):
     Methods:
         default(self, obj: Any) -> Any: Переопределённый метод сериализации.
     """
+
     def default(self, obj: Any) -> Any:
         """Сериализует объект, не поддерживаемый стандартным JSONEncoder.
 
@@ -213,7 +215,7 @@ class NumpyEncoder(json.JSONEncoder):
 # ──────────────────────────────────────────────────────────────────────
 def safe_json_response(content: Any, status_code: int = 200) -> JSONResponse:
     """Возвращает FastAPI JSONResponse с безопасной сериализацией контента.
-    
+
     Использует `NumpyEncoder` для обработки numpy-типов и специальных значений.
 
     Args:
@@ -231,9 +233,7 @@ def safe_json_response(content: Any, status_code: int = 200) -> JSONResponse:
             return safe_json_response(metrics)
         ```
     """
-    return JSONResponse(
-        content=content, status_code=status_code, media_type="application/json"
-    )
+    return JSONResponse(content=content, status_code=status_code, media_type="application/json")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -442,9 +442,7 @@ async def _run_comparator_task(
         segmenters: List[Dict[str, Any]] = []
         for cfg in methods_config:
             try:
-                library: str = cfg.get("library") or _extract_library_from_name(
-                    cfg["name"]
-                )
+                library: str = cfg.get("library") or _extract_library_from_name(cfg["name"])
                 method_name: str = cfg["method"]
                 params: Dict[str, Any] = cfg.get("params") or {}
 
@@ -469,9 +467,7 @@ async def _run_comparator_task(
         # 🔹 Прогресс: 0-20% подготовка, 20-90% сравнение, 90-100% сохранение
         async with _comparator_lock:
             _comparator_tasks[task_id]["progress"] = 20
-            _comparator_tasks[task_id][
-                "message"
-            ] = f"Запущено {len(segmenters)} методов"
+            _comparator_tasks[task_id]["message"] = f"Запущено {len(segmenters)} методов"
 
         # 🔹 Пакетное сравнение с пошаговым обновлением
         results: List[Dict[str, Any]] = []
@@ -479,9 +475,7 @@ async def _run_comparator_task(
             progress: float = 20 + (i / len(segmenters)) * 70
             async with _comparator_lock:
                 _comparator_tasks[task_id]["progress"] = progress
-                _comparator_tasks[task_id][
-                    "message"
-                ] = f"Сравнение {cfg['name']} ({i+1}/{len(segmenters)})"
+                _comparator_tasks[task_id]["message"] = f"Сравнение {cfg['name']} ({i+1}/{len(segmenters)})"
             await asyncio.sleep(0)
 
             try:
@@ -492,9 +486,7 @@ async def _run_comparator_task(
                 ref_mask: np.ndarray = ref_seg.segment(image)
                 ref_time: float = time.perf_counter() - t0 - test_time
 
-                metrics: Dict[str, float] = comparator.compute_metrics(
-                    ref_mask, test_mask, ref_name, cfg["name"]
-                )
+                metrics: Dict[str, float] = comparator.compute_metrics(ref_mask, test_mask, ref_name, cfg["name"])
 
                 results.append(
                     {
@@ -535,19 +527,11 @@ async def _run_comparator_task(
                     "name": r["method"],
                     "segmenter": _create_segmenter(
                         next(
-                            (
-                                c["library"]
-                                for c in methods_config
-                                if c["name"] == r["method"]
-                            ),
+                            (c["library"] for c in methods_config if c["name"] == r["method"]),
                             "opencv",
                         ),
                         next(
-                            (
-                                c["method"]
-                                for c in methods_config
-                                if c["name"] == r["method"]
-                            ),
+                            (c["method"] for c in methods_config if c["name"] == r["method"]),
                             "otsu_thresholding",
                         ),
                         {},
@@ -609,9 +593,7 @@ async def _run_comparator_task(
             _comparator_tasks[task_id]["error_details"] = {
                 "error_type": type(e).__name__,
                 "failed_at": _comparator_tasks[task_id]["message"],
-                "traceback": (
-                    traceback.format_exc() if logger.level == logging.DEBUG else None
-                ),
+                "traceback": (traceback.format_exc() if logger.level == logging.DEBUG else None),
             }
 
 

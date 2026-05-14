@@ -65,9 +65,7 @@ class BackendRegistry:
             description="torch-tensorrt (официальный NVIDIA бэкенд)",
             requirements=["tensorrt>=10.0", "torch-tensorrt>=2.0"],
             notes=(
-                f"TensorRT version: {trt_info.get('tensorrt_version', 'N/A')}"
-                if trt_info.get("torch_tensorrt")
-                else ""
+                f"TensorRT version: {trt_info.get('tensorrt_version', 'N/A')}" if trt_info.get("torch_tensorrt") else ""
             ),
         )
 
@@ -78,18 +76,12 @@ class BackendRegistry:
             priority=3,
             description="torch2trt (NVIDIA-AI-IOT, требует сборки)",
             requirements=["tensorrt", "build-essential", "python-dev"],
-            notes=(
-                "⚠️ Может требовать компиляции из исходников"
-                if not trt_info.get("torch2trt")
-                else ""
-            ),
+            notes=("⚠️ Может требовать компиляции из исходников" if not trt_info.get("torch2trt") else ""),
         )
 
     def list_backends(self, available_only: bool = False) -> List[str]:
         """Список бэкендов, отсортированный по приоритету."""
-        backends = [
-            b for b in self._backends.values() if not available_only or b.available
-        ]
+        backends = [b for b in self._backends.values() if not available_only or b.available]
         return [b.name for b in sorted(backends, key=lambda x: x.priority)]
 
     def get_backend_info(self, name: str) -> Optional[BackendInfo]:
@@ -103,9 +95,7 @@ class BackendRegistry:
             raise RuntimeError("No export backends available!")
         return min(available, key=lambda x: x.priority).name
 
-    def get_converter(
-        self, backend_name: str, segmenter, image_shape: tuple = (3, 512, 512)
-    ):
+    def get_converter(self, backend_name: str, segmenter, image_shape: tuple = (3, 512, 512)):
         """
         Получить конвертер для указанного бэкенда.
 
@@ -115,15 +105,10 @@ class BackendRegistry:
         """
         backend = self._backends.get(backend_name)
         if not backend:
-            raise ValueError(
-                f"Unknown backend: {backend_name}. "
-                f"Available: {list(self._backends.keys())}"
-            )
+            raise ValueError(f"Unknown backend: {backend_name}. " f"Available: {list(self._backends.keys())}")
 
         if not backend.available:
-            raise ImportError(
-                f"Backend '{backend_name}' not available. " f"{backend.notes}"
-            )
+            raise ImportError(f"Backend '{backend_name}' not available. " f"{backend.notes}")
 
         # Импорт конвертеров с защитой
         if backend_name == "onnx":

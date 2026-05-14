@@ -60,9 +60,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -140,18 +138,14 @@ def compute_metrics(
     # Значения в ground truth должны быть в диапазоне [0, num_classes-1]
     gt_min, gt_max = gt_valid.min(), gt_valid.max()
     if gt_min < 0 or gt_max >= num_classes:
-        print(
-            f"⚠️ Warning: gt_mask values out of range [{gt_min}, {gt_max}], expected [0, {num_classes - 1}]"
-        )
+        print(f"⚠️ Warning: gt_mask values out of range [{gt_min}, {gt_max}], expected [0, {num_classes - 1}]")
         gt_valid = np.clip(gt_valid, 0, num_classes - 1)
 
     # Pixel Accuracy
     pixel_acc: float = accuracy_score(gt_valid, pred_valid)
 
     # Confusion matrix
-    cm: np.ndarray = confusion_matrix(
-        gt_valid, pred_valid, labels=list(range(num_classes))
-    )
+    cm: np.ndarray = confusion_matrix(gt_valid, pred_valid, labels=list(range(num_classes)))
 
     # Per-class IoU
     iou_per_class: List[float] = []
@@ -242,22 +236,14 @@ def extract_logits_info(
             logits = (
                 outputs.logits
                 if hasattr(outputs, "logits")
-                else (
-                    outputs[0]
-                    if isinstance(outputs, tuple) and len(outputs) > 0
-                    else None
-                )
+                else (outputs[0] if isinstance(outputs, tuple) and len(outputs) > 0 else None)
             )
         # === Torchvision DeepLab / FCN ===
         elif model_type in ["deeplab_tv", "fcn_tv"]:
             # Torchvision: dict["out"][0] или tensor[0]
             if isinstance(outputs, dict) and "out" in outputs:
                 out_val: torch.Tensor = outputs["out"]
-                logits = (
-                    out_val[0]
-                    if isinstance(out_val, (tuple, list)) and len(out_val) > 0
-                    else out_val
-                )
+                logits = out_val[0] if isinstance(out_val, (tuple, list)) and len(out_val) > 0 else out_val
             elif isinstance(outputs, (tuple, list)) and len(outputs) > 0:
                 logits = outputs[0] if isinstance(outputs[0], torch.Tensor) else None
             elif isinstance(outputs, torch.Tensor):
@@ -286,11 +272,7 @@ def extract_logits_info(
             "segnet_custom",
         ]:
             # SMP/Custom: ожидаем Tensor формы [B, C, H, W]
-            logits = (
-                outputs
-                if isinstance(outputs, torch.Tensor) and outputs.dim() == 4
-                else None
-            )
+            logits = outputs if isinstance(outputs, torch.Tensor) and outputs.dim() == 4 else None
         else:
             # Fallback: если outputs — Tensor, используем его
             logits = outputs if isinstance(outputs, torch.Tensor) else None
@@ -381,9 +363,7 @@ def analyze_prediction(
     total: int = len(mask_valid)
 
     print("\n📊 Prediction Analysis")
-    print(
-        f"   Valid pixels: {total:,} / {mask.size:,} ({100 * total / mask.size:.3f}%)"
-    )
+    print(f"   Valid pixels: {total:,} / {mask.size:,} ({100 * total / mask.size:.3f}%)")
     print(f"   Unique classes: {len(unique)}")
 
     # Топ классы
@@ -394,9 +374,7 @@ def analyze_prediction(
         cls = unique[idx]
         cnt: np.ndarray = counts[idx]
         pct: np.ndarray = 100 * cnt / total
-        name: str = (
-            class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
-        )
+        name: str = class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
         print(f"     {cls:3d}: {name:25s} {cnt:7,} px ({pct:5.3f}%)")
 
     # Проверка на доминирующий класс
@@ -404,9 +382,7 @@ def analyze_prediction(
     if len(counts) > 0 and counts[0] / total > 0.5:
         dominant_cls: int = int(unique[np.argmax(counts)])
         dominant_class = dominant_cls
-        print(
-            f"\n   ⚠️  Dominant class: {dominant_cls} ({100 * counts.max() / total:.3f}% of pixels)"
-        )
+        print(f"\n   ⚠️  Dominant class: {dominant_cls} ({100 * counts.max() / total:.3f}% of pixels)")
         print("      This may indicate under-segmentation or background bias")
 
     return {
@@ -469,9 +445,7 @@ def generate_class_report(
     rows: List[Dict[str, Any]] = []
     for cls, cnt in zip(unique, counts):
         if cnt >= min_pixels:  # Фильтрация шума
-            name: str = (
-                class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
-            )
+            name: str = class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
             rows.append(
                 {
                     "class_id": int(cls),

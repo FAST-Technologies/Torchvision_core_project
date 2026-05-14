@@ -88,9 +88,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -124,9 +122,7 @@ MODEL_TYPE_MAPPING: Dict[str, str] = {
 
 
 # ──────────────────────────────────────────────────────────────────────
-def analyze_augmentation_impact() -> (
-    Optional[Tuple[Optional[pd.DataFrame], Optional[Dict[str, Image.Image]]]]
-):
+def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Optional[Dict[str, Image.Image]]]]:
     """Исследование влияния аугментаций на качество сегментации.
 
     Исправленная версия с поддержкой всех моделей и корректными метриками.
@@ -188,12 +184,8 @@ def analyze_augmentation_impact() -> (
 
     print("\n📥 Загрузка тестовых данных...")
     repo_id: str = "hf-internal-testing/fixtures_ade20k"
-    img_path: str = hf_hub_download(
-        repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset"
-    )
-    mask_path: str = hf_hub_download(
-        repo_id=repo_id, filename="ADE_val_00000001.png", repo_type="dataset"
-    )
+    img_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset")
+    mask_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.png", repo_type="dataset")
 
     test_image: Image.Image = Image.open(img_path).convert("RGB")
     gt_mask_pil: Image.Image = Image.open(mask_path)
@@ -230,9 +222,7 @@ def analyze_augmentation_impact() -> (
             start_time: float = time.perf_counter()
             pred_mask: MaskArray
             pred_info: Dict[str, Any]
-            pred_mask, pred_info = segmenter.predict_segmentation_map(
-                test_image, verbose=False, gt_mask=gt_mask
-            )
+            pred_mask, pred_info = segmenter.predict_segmentation_map(test_image, verbose=False, gt_mask=gt_mask)
             inference_time: float = time.perf_counter() - start_time
 
             # Бинарная сегментация для совместимости
@@ -252,9 +242,7 @@ def analyze_augmentation_impact() -> (
             # ──────────────────────────────────────────────────────────────
             # Расчёт mIoU (многоклассовый)
             # ──────────────────────────────────────────────────────────────
-            classes: np.ndarray = np.unique(
-                np.concatenate([gt_mask, pred_mask_resized])
-            )
+            classes: np.ndarray = np.unique(np.concatenate([gt_mask, pred_mask_resized]))
             iou_per_class: List[float] = []
 
             for cls in classes:
@@ -319,9 +307,7 @@ def analyze_augmentation_impact() -> (
             # overlay_path: Path = output_dir / f"overlay_{display_name}_{aug_level}.jpg"
             # overlay.save(overlay_path)
 
-            print(
-                f"      ✅ IoU (mIoU): {m_iou:.4f}, Dice: {metrics.get('dice', 0):.4f}"
-            )
+            print(f"      ✅ IoU (mIoU): {m_iou:.4f}, Dice: {metrics.get('dice', 0):.4f}")
             print(f"      ✅ Время: {inference_time:.3f}s")
             print(f"      ✅ Сохранено: {overlay_path}")
 
@@ -357,9 +343,7 @@ def analyze_augmentation_impact() -> (
         aggfunc="mean",
     )
     print(pivot_all.round(4).to_string())
-    pivot_iou: pd.DataFrame = df.pivot_table(
-        values="iou", index="model", columns="augmentation", aggfunc="mean"
-    )
+    pivot_iou: pd.DataFrame = df.pivot_table(values="iou", index="model", columns="augmentation", aggfunc="mean")
     print(pivot_iou.round(4).to_string())
 
     # 5. Визуализация
@@ -406,9 +390,7 @@ def analyze_augmentation_impact() -> (
             ax.axis("off")
             continue
 
-        plot_data: pd.DataFrame = (
-            df.groupby(["model", "augmentation"])[metric].first().unstack()
-        )
+        plot_data: pd.DataFrame = df.groupby(["model", "augmentation"])[metric].first().unstack()
         plot_data.plot(kind="bar", ax=ax, colormap="viridis", edgecolor="black")
         ax.set_title(f"{metric_names[metric]} по моделям и аугментациям", fontsize=11)
         ax.set_ylabel("Score")
@@ -418,9 +400,7 @@ def analyze_augmentation_impact() -> (
         ax.tick_params(axis="x", rotation=45)
 
     plt.tight_layout()
-    plt.savefig(
-        f"{output_dir}/augmentation_impact_metrics.png", dpi=300, bbox_inches="tight"
-    )
+    plt.savefig(f"{output_dir}/augmentation_impact_metrics.png", dpi=300, bbox_inches="tight")
     print(f"   ✅ График метрик сохранен: {output_dir}/augmentation_impact_metrics.png")
     plt.close()
 
@@ -431,9 +411,7 @@ def analyze_augmentation_impact() -> (
     plt.ylabel("mIoU")
     plt.title("Влияние аугментаций на качество сегментации (mIoU)")
     plt.tight_layout()
-    plt.savefig(
-        f"{output_dir}/augmentation_impact_miou.png", dpi=300, bbox_inches="tight"
-    )
+    plt.savefig(f"{output_dir}/augmentation_impact_miou.png", dpi=300, bbox_inches="tight")
     plt.close()
     print(f"   ✅ График mIoU сохранен: {output_dir}/augmentation_impact_miou.png")
 
@@ -443,28 +421,20 @@ def analyze_augmentation_impact() -> (
     if "none" in pivot_gain.columns:
         for col in ["basic", "medium"]:
             if col in pivot_gain.columns:
-                pivot_gain[col] = (
-                    (pivot_gain[col] - pivot_gain["none"])
-                    / pivot_gain["none"].replace(0, 1e-8)
-                    * 100
-                )
+                pivot_gain[col] = (pivot_gain[col] - pivot_gain["none"]) / pivot_gain["none"].replace(0, 1e-8) * 100
 
     sns.heatmap(pivot_gain, annot=True, fmt=".4f", cmap="RdYlGn", center=0)
     plt.title("Прирост mIoU относительно 'none' (%)")
     plt.ylabel("Модель")
     plt.xlabel("Аугментация")
     plt.tight_layout()
-    plt.savefig(
-        f"{output_dir}/augmentation_gain_heatmap.png", dpi=300, bbox_inches="tight"
-    )
+    plt.savefig(f"{output_dir}/augmentation_gain_heatmap.png", dpi=300, bbox_inches="tight")
     plt.close()
     print(f"   ✅ Heatmap сохранен: {output_dir}/augmentation_gain_heatmap.png")
 
     # График 4: Heatmap прироста
     fig, ax = plt.subplots(figsize=(12, 8))
-    heatmap_data: pd.DataFrame = df.pivot_table(
-        index="model", columns="augmentation", values="iou", aggfunc="first"
-    )
+    heatmap_data: pd.DataFrame = df.pivot_table(index="model", columns="augmentation", values="iou", aggfunc="first")
 
     sns.heatmap(
         heatmap_data,
@@ -481,17 +451,13 @@ def analyze_augmentation_impact() -> (
     ax.set_ylabel("Модель")
 
     plt.tight_layout()
-    plt.savefig(
-        f"{output_dir}/augmentation_heatmap_iou.png", dpi=300, bbox_inches="tight"
-    )
+    plt.savefig(f"{output_dir}/augmentation_heatmap_iou.png", dpi=300, bbox_inches="tight")
     print(f"   ✅ Heatmap сохранен: {output_dir}/augmentation_heatmap_iou.png")
     plt.close()
 
     # График 5: Сравнение времени выполнения
     plt.figure(figsize=(12, 6))
-    sns.barplot(
-        data=df, x="model", y="inference_time", hue="augmentation", palette="coolwarm"
-    )
+    sns.barplot(data=df, x="model", y="inference_time", hue="augmentation", palette="coolwarm")
     plt.xticks(rotation=45, ha="right")
     plt.ylabel("Время (сек)")
     plt.title("Время инференса по моделям и аугментациям")
@@ -516,14 +482,10 @@ def analyze_augmentation_impact() -> (
 
         if len(none_iou) > 0 and len(basic_iou) > 0:
             basic_gain: float = (basic_iou[0] - none_iou[0]) * 100
-            medium_gain: float = (
-                (medium_iou[0] - none_iou[0]) * 100 if len(medium_iou) > 0 else 0
-            )
+            medium_gain: float = (medium_iou[0] - none_iou[0]) * 100 if len(medium_iou) > 0 else 0
 
             axes[0].bar(f"{model}\n(basic-none)", basic_gain, alpha=0.7)
-            axes[1].bar(
-                f"{model}\n(medium-none)", medium_gain, alpha=0.7, color="orange"
-            )
+            axes[1].bar(f"{model}\n(medium-none)", medium_gain, alpha=0.7, color="orange")
 
     axes[0].axhline(y=0, color="black", linestyle="-", linewidth=0.5)
     axes[0].set_title("Прирост IoU: Basic vs None (%)", fontsize=11)
@@ -570,9 +532,7 @@ def analyze_augmentation_impact() -> (
                 axes[idx].axis("off")
 
         plt.tight_layout()
-        plt.savefig(
-            f"{output_dir}/comparison_{model}.png", dpi=300, bbox_inches="tight"
-        )
+        plt.savefig(f"{output_dir}/comparison_{model}.png", dpi=300, bbox_inches="tight")
         plt.close()
         print(f"   ✅ Сравнение для {model}: {output_dir}/comparison_{model}.png")
 
@@ -591,9 +551,7 @@ def analyze_augmentation_impact() -> (
     print("\n📊 Средний mIoU по уровням аугментаций:")
     print(f"   None:   {avg_none:.4f}")
     print(f"   Basic:  {avg_basic:.4f} (прирост: {(avg_basic - avg_none) * 100:+.2f}%)")
-    print(
-        f"   Medium: {avg_medium:.4f} (прирост: {(avg_medium - avg_none) * 100:+.2f}%)"
-    )
+    print(f"   Medium: {avg_medium:.4f} (прирост: {(avg_medium - avg_none) * 100:+.2f}%)")
 
     # Лучшая комбинация
     best_idx = df["iou"].idxmax()
@@ -619,9 +577,7 @@ def analyze_augmentation_impact() -> (
         f.write(f"- Средний mIoU (None): {avg_none:.4f}\n")
         f.write(f"- Средний mIoU (Basic): {avg_basic:.4f}\n")
         f.write(f"- Средний mIoU (Medium): {avg_medium:.4f}\n\n")
-        f.write(
-            f"### Лучшая комбинация: `{best_row['model']}_{best_row['augmentation']}`\n"
-        )
+        f.write(f"### Лучшая комбинация: `{best_row['model']}_{best_row['augmentation']}`\n")
         f.write(f"- mIoU: **{best_row['iou']:.4f}**\n")
 
     print(f"📄 Отчёт сохранён: {report_path}")
@@ -659,9 +615,7 @@ def save_augmentation_comparison_grid(
             parts = key.rsplit("_", 1)
             return parts[0] if len(parts) > 1 else key
 
-        models: List[str] = list(
-            set(extract_model_name(k) for k in overlay_images.keys())
-        )
+        models: List[str] = list(set(extract_model_name(k) for k in overlay_images.keys()))
     else:
         models = model_names
 
@@ -679,9 +633,7 @@ def save_augmentation_comparison_grid(
 
             if key in overlay_images:
                 ax.imshow(overlay_images[key])
-                ax.set_title(
-                    f"{aug.upper()}", fontsize=10, fontweight="bold", color="darkblue"
-                )
+                ax.set_title(f"{aug.upper()}", fontsize=10, fontweight="bold", color="darkblue")
                 ax.axis("off")
             else:
                 ax.set_facecolor("#f5f5f5")
@@ -696,9 +648,7 @@ def save_augmentation_comparison_grid(
                     color="gray",
                     fontweight="bold",
                 )
-                ax.set_title(
-                    f"{aug.upper()}", fontsize=10, fontweight="bold", color="gray"
-                )
+                ax.set_title(f"{aug.upper()}", fontsize=10, fontweight="bold", color="gray")
                 ax.axis("off")
 
         axes[row, 0].set_ylabel(
@@ -735,17 +685,13 @@ if __name__ == "__main__":
     print(f"   CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         print(f"   Device: {torch.cuda.get_device_name(0)}")
-        print(
-            f"   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB"
-        )
+        print(f"   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
     result_df: Optional[pd.DataFrame]
     overlay_images_result: Optional[Dict[str, Image.Image]]
     analysis_result = analyze_augmentation_impact()
 
     if analysis_result is None:
-        print(
-            "\n❌ Анализ не вернул результатов (возможно, не найдены чекпоинты или произошла ошибка)."
-        )
+        print("\n❌ Анализ не вернул результатов (возможно, не найдены чекпоинты или произошла ошибка).")
         exit(1)
 
     results_df, overlay_images_result = analysis_result
@@ -761,14 +707,10 @@ if __name__ == "__main__":
             parts: List[str] = key.rsplit("_", 1)
             return parts[0] if len(parts) > 1 else key
 
-        models: List[str] = list(
-            set(extract_model_name(k) for k in overlay_images_result.keys())
-        )
+        models: List[str] = list(set(extract_model_name(k) for k in overlay_images_result.keys()))
         print(f"   {models}")
 
         if results_df is not None:
             model_names: List[str] = results_df["model"].unique().tolist()
-            save_augmentation_comparison_grid(
-                overlay_images_result, model_names=model_names
-            )
+            save_augmentation_comparison_grid(overlay_images_result, model_names=model_names)
             print("\n✅ Анализ завершён!")

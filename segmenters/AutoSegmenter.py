@@ -85,9 +85,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -3856,9 +3854,7 @@ METHODS_BY_LIBRARY: Dict[str, Dict[str, MethodProfile]] = {
 # ──────────────────────────────────────────────────────────────────────
 # Flat dict для быстрого доступа (как было)
 ALL_METHODS: Dict[str, MethodProfile] = {
-    name: profile
-    for lib_methods in METHODS_BY_LIBRARY.values()
-    for name, profile in lib_methods.items()
+    name: profile for lib_methods in METHODS_BY_LIBRARY.values() for name, profile in lib_methods.items()
 }
 """Плоский словарь всех методов для быстрого поиска по имени."""
 
@@ -3922,9 +3918,7 @@ class AutoSegmenter:
         }
         self.goal: SegmentationGoal = goal
         self.custom_weights: Dict[str, float] = custom_weights or {}
-        self.benchmark_data: BenchmarkData = self._load_benchmark_data(
-            benchmark_data_path
-        )
+        self.benchmark_data: BenchmarkData = self._load_benchmark_data(benchmark_data_path)
         self.available_methods: Dict[str, Any] = self._register_methods()
 
         for name, profile in self.benchmark_data.items():
@@ -5300,9 +5294,7 @@ class AutoSegmenter:
         }
 
     # ──────────────────────────────────────────────────────────────────────
-    def get_available_methods(
-        self, library: Optional[str] = None
-    ) -> Dict[str, MethodProfile]:
+    def get_available_methods(self, library: Optional[str] = None) -> Dict[str, MethodProfile]:
         """Возвращает доступные методы, опционально отфильтрованные по библиотеке.
 
         Args:
@@ -5356,14 +5348,10 @@ class AutoSegmenter:
         gray_f: np.ndarray = gray.astype(np.float64)
         mean_intensity: float = float(np.mean(gray_f))
         std_intensity: float = float(np.std(gray_f))
-        contrast: float = float(
-            (np.max(gray_f) - np.min(gray_f)) / (np.max(gray_f) + 1e-6)
-        )
+        contrast: float = float((np.max(gray_f) - np.min(gray_f)) / (np.max(gray_f) + 1e-6))
 
         # Оценка шума (через локальную дисперсию)
-        local_std: np.ndarray = (
-            cv2.blur(gray_f**2, (3, 3)) - cv2.blur(gray_f, (3, 3)) ** 2
-        )
+        local_std: np.ndarray = cv2.blur(gray_f**2, (3, 3)) - cv2.blur(gray_f, (3, 3)) ** 2
         mean_local_std: float = float(np.mean(local_std))  # type: ignore[arg-type]
         noise_level: float = float(np.sqrt(mean_local_std) / (std_intensity + 1e-6))
 
@@ -5495,24 +5483,18 @@ class AutoSegmenter:
         for method_name, profile in candidates.items():
             if library and profile.library != library:
                 continue
-            score: float = self._calculate_method_score(
-                method_name, profile, characteristics
-            )
+            score: float = self._calculate_method_score(method_name, profile, characteristics)
             scores[method_name] = (score, profile)
 
         # Выбор лучшего метода
         if not scores:
             raise ValueError(f"No methods found for library='{library}'")
 
-        best_method, (best_score, best_profile) = max(
-            scores.items(), key=lambda x: x[1][0]
-        )
+        best_method, (best_score, best_profile) = max(scores.items(), key=lambda x: x[1][0])
 
         # Нормализация уверенности
         all_scores: List[float] = [s for s, _ in scores.values()]
-        z_score: float = float(
-            (best_score - np.mean(all_scores)) / (np.std(all_scores) + 1e-6)
-        )
+        z_score: float = float((best_score - np.mean(all_scores)) / (np.std(all_scores) + 1e-6))
         confidence: float = float(1 / (1 + np.exp(-z_score)))  # Sigmoid
 
         params_raw = self.available_methods.get(best_method, {}).get("params", {})
@@ -5570,11 +5552,7 @@ class AutoSegmenter:
         memory_score: float = 1 - (profile.memory_mb / max_memory)
 
         # Базовый score
-        score = (
-            weights["time"] * time_score
-            + weights["accuracy"] * accuracy_score
-            + weights["memory"] * memory_score
-        )
+        score = weights["time"] * time_score + weights["accuracy"] * accuracy_score + weights["memory"] * memory_score
 
         # Бонус за подходящий тип изображения
         if characteristics.estimated_type in profile.best_for_type:
@@ -5601,7 +5579,7 @@ class AutoSegmenter:
     ) -> Union[MaskArray, Tuple[MaskArray, RecommendationDict]]:
         """Выполнение сегментации изображения.
 
-        Основной метод класса. 
+        Основной метод класса.
         Поддерживает два режима:
         1. **Автоматический** (`auto_select=True`): выбор метода через `select_best_method()`.
         2. **Ручной** (`auto_select=False`): использование указанного метода и библиотеки.
@@ -5656,23 +5634,14 @@ class AutoSegmenter:
 
         if auto_select:
             # Автоматический выбор
-            selected_method, selected_lib, params, confidence = self.select_best_method(
-                image, library=library
-            )
-            print(
-                f"🤖 Auto-selected: {selected_method.upper()} "
-                f"(confidence: {confidence:.2f})"
-            )
+            selected_method, selected_lib, params, confidence = self.select_best_method(image, library=library)
+            print(f"🤖 Auto-selected: {selected_method.upper()} " f"(confidence: {confidence:.2f})")
         else:
             if not method_name or not library:
-                raise ValueError(
-                    "method_name and library required when auto_select=False"
-                )
+                raise ValueError("method_name and library required when auto_select=False")
             if method_name not in METHODS_BY_LIBRARY.get(library, {}):
                 available = list(METHODS_BY_LIBRARY[library].keys())
-                raise ValueError(
-                    f"Method '{method_name}' not in library '{library}'. Available: {available}"
-                )
+                raise ValueError(f"Method '{method_name}' not in library '{library}'. Available: {available}")
             selected_method = method_name
             selected_lib = library
             profile = METHODS_BY_LIBRARY[library][method_name]
@@ -5686,9 +5655,7 @@ class AutoSegmenter:
         segmenter = segmenter_class(**params)
 
         # Выполнение сегментации
-        result: Union[Tuple[BinaryMask, Optional[ProbabilityMask]], MaskArray] = (
-            segmenter.segment_with_mask(image)
-        )
+        result: Union[Tuple[BinaryMask, Optional[ProbabilityMask]], MaskArray] = segmenter.segment_with_mask(image)
         mask: Optional[MaskArray] = None
         if isinstance(result, tuple) and len(result) == 2:
             _, mask = result
@@ -5714,9 +5681,7 @@ class AutoSegmenter:
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def _get_segmenter_class(
-        self, method_name: str, library: str
-    ) -> Type[BaseSegmenter]:
+    def _get_segmenter_class(self, method_name: str, library: str) -> Type[BaseSegmenter]:
         """Возврат класса сегментера по библиотеке.
 
         Фабричный метод для динамического импорта сегментеров.
@@ -5749,9 +5714,7 @@ class AutoSegmenter:
             return OpenCVSegmenter
 
     # ──────────────────────────────────────────────────────────────────────
-    def get_recommendations(
-        self, image: ImageArray, top_k: int = 5
-    ) -> List[RecommendationDict]:
+    def get_recommendations(self, image: ImageArray, top_k: int = 5) -> List[RecommendationDict]:
         """Получение топ-K рекомендаций методов для изображения.
 
         Возвращает ранжированный список методов с метаданными для UI или логирования.
@@ -5789,9 +5752,7 @@ class AutoSegmenter:
         scores: Dict[str, Dict[str, Any]] = {}
 
         for method_name, profile in self.benchmark_data.items():
-            score: float = self._calculate_method_score(
-                method_name, profile, characteristics
-            )
+            score: float = self._calculate_method_score(method_name, profile, characteristics)
             scores[method_name] = {
                 "score": score,
                 "profile": profile,

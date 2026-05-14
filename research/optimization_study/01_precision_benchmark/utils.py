@@ -74,9 +74,7 @@ def compute_pixel_agreement(
     return float(agreement)
 
 
-def compute_mse(
-    mask_a: Union[torch.Tensor, np.ndarray], mask_b: Union[torch.Tensor, np.ndarray]
-) -> float:
+def compute_mse(mask_a: Union[torch.Tensor, np.ndarray], mask_b: Union[torch.Tensor, np.ndarray]) -> float:
     """Вычисляет MSE между двумя масками."""
     if isinstance(mask_a, torch.Tensor):
         mask_a = mask_a.cpu().numpy()
@@ -148,9 +146,7 @@ def convert_tensor_precision(
             scale = torch.tensor(1.0, device=tensor.device)
 
         # Квантуем → де-квантуем для бенчмарка
-        quantized = torch.quantize_per_tensor(
-            tensor.float(), scale=scale.item(), zero_point=0, dtype=torch.qint8
-        )
+        quantized = torch.quantize_per_tensor(tensor.float(), scale=scale.item(), zero_point=0, dtype=torch.qint8)
         return quantized.dequantize().to(target_dtype)
 
     # Простая конвертация для FP16/BF16

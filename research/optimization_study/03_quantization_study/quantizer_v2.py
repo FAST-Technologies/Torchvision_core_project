@@ -218,10 +218,7 @@ class QuantizedSegmenter:
         # Проверка поддержки квантования
         original_func = self.original.method_map[method_name]
         if not is_method_quantizable(method_name, original_func):
-            warnings.warn(
-                f"Method '{method_name}' may not support quantization. "
-                f"Proceeding with caution."
-            )
+            warnings.warn(f"Method '{method_name}' may not support quantization. " f"Proceeding with caution.")
 
         # Обработка по схемам
         if scheme == "fp32":
@@ -231,9 +228,7 @@ class QuantizedSegmenter:
         elif scheme == "fp16":
             # Полуточность через autocast
             def fp16_wrapper(x):
-                with torch.autocast(
-                    device_type=str(self.device.type), dtype=torch.float16, enabled=True
-                ):
+                with torch.autocast(device_type=str(self.device.type), dtype=torch.float16, enabled=True):
                     return original_func(x)
 
             quantized_func = fp16_wrapper
@@ -243,9 +238,7 @@ class QuantizedSegmenter:
             try:
                 wrapper = QuantizationWrapper(original_func)
                 wrapper.qconfig = self._get_qconfig(scheme)
-                quantized_func = torch.ao.quantization.convert(
-                    wrapper.eval(), inplace=False
-                )
+                quantized_func = torch.ao.quantization.convert(wrapper.eval(), inplace=False)
             except Exception as e:
                 warnings.warn(f"Dynamic quantization failed: {e}. Using FP32 fallback.")
                 quantized_func = original_func
@@ -273,10 +266,7 @@ class QuantizedSegmenter:
         if self.config.verbose:
             orig_size = estimate_model_size(original_func, torch.float32)
             quant_size = estimate_model_size(quantized_func, SUPPORTED_DTYPES[scheme])
-            print(
-                f"✅ Quantized '{method_name}' ({scheme}): "
-                f"{format_size_reduction(orig_size, quant_size)}"
-            )
+            print(f"✅ Quantized '{method_name}' ({scheme}): " f"{format_size_reduction(orig_size, quant_size)}")
 
         return quantized_func
 
@@ -404,9 +394,7 @@ class QuantizedSegmenter:
             orig_mask = original_func(input_tensor)
             quant_mask = quant_func(input_tensor)
 
-        accuracy = compute_quantization_error(
-            orig_mask, quant_mask, tolerance=self.config.tolerance
-        )
+        accuracy = compute_quantization_error(orig_mask, quant_mask, tolerance=self.config.tolerance)
 
         # Статистика времени
         times_orig_np = np.array(times_orig)
@@ -453,9 +441,7 @@ class QuantizedSegmenter:
         # Определение списков
         if methods is None:
             methods = self.config.include_methods or [
-                m
-                for m in self.original.method_map.keys()
-                if m not in self.config.exclude_methods
+                m for m in self.original.method_map.keys() if m not in self.config.exclude_methods
             ]
 
         if schemes is None:
@@ -490,10 +476,7 @@ class QuantizedSegmenter:
                     if self.config.verbose:
                         speedup = result["speedup"]
                         agree = result["pixel_agreement"]
-                        print(
-                            f"✓ {format_speedup(speedup)} speedup, "
-                            f"{agree*100:.2f}% agreement"
-                        )
+                        print(f"✓ {format_speedup(speedup)} speedup, " f"{agree*100:.2f}% agreement")
 
                 except Exception as e:
                     if self.config.verbose:

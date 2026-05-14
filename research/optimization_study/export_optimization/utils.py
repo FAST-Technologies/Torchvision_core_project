@@ -91,9 +91,7 @@ def format_speedup(ratio: float) -> str:
         return f"{ratio:.3f}×"
 
 
-def save_benchmark_results(
-    results: Dict[str, Dict], output_path: Union[str, Path], format: str = "json"
-) -> Path:
+def save_benchmark_results(results: Dict[str, Dict], output_path: Union[str, Path], format: str = "json") -> Path:
     """
     Сохраняет результаты бенчмарка в файл.
 
@@ -146,9 +144,7 @@ def warmup_inference(func, input_tensor, n_warmup: int = 10):
             torch.cuda.synchronize()
 
 
-def measure_inference(
-    func, input_tensor, n_runs: int = 100, sync_cuda: bool = True
-) -> Dict[str, float]:
+def measure_inference(func, input_tensor, n_runs: int = 100, sync_cuda: bool = True) -> Dict[str, float]:
     """
     Замер времени инференса.
 

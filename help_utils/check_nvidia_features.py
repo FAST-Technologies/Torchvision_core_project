@@ -21,11 +21,7 @@ print_gpu_mem()
 # ──────────────────────────────────────────────────────────────────────
 def run(cmd) -> str:
     try:
-        return (
-            subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
-            .decode()
-            .strip()
-        )
+        return subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT).decode().strip()
     except Exception as e:
         return f"❌ Ошибка: {e}"
 
@@ -33,9 +29,7 @@ def run(cmd) -> str:
 print("🔍 NVIDIA Feature Check\n" + "=" * 40)
 
 # 1. Базовый драйвер
-print(
-    "1. nvidia-smi:", run("nvidia-smi --query-gpu=name --format=csv,noheader") or "❌"
-)
+print("1. nvidia-smi:", run("nvidia-smi --query-gpu=name --format=csv,noheader") or "❌")
 
 # 2. CUDA Compiler
 print("2. nvcc:", run("nvcc --version | grep release") or "❌ Не установлен")
@@ -88,9 +82,7 @@ try:
         timeout=10,
     )
     if result.returncode == 0 and "NVIDIA" in result.stdout:
-        print(
-            "   ✅ Encoder support detected (check 'nvidia-smi encodersessions' for active sessions)"
-        )
+        print("   ✅ Encoder support detected (check 'nvidia-smi encodersessions' for active sessions)")
     else:
         print("   ⚠️  Encoder query returned no data (normal if no active sessions)")
 except Exception as e:

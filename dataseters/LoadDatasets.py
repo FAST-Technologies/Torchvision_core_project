@@ -37,18 +37,7 @@ import zipfile
 import tarfile
 import shutil
 import requests
-from typing import (
-    List,
-    Tuple,
-    Dict,
-    Optional,
-    Literal,
-    Callable,
-    Any,
-    Union,
-    TypeAlias,
-    cast
-)
+from typing import List, Tuple, Dict, Optional, Literal, Callable, Any, Union, TypeAlias, cast
 from dataclasses import dataclass, field
 from pathlib import Path
 from enum import Enum, auto
@@ -77,9 +66,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -124,6 +111,7 @@ class DatasetType(Enum):
         BINARY: Бинарная сегментация (общий случай).
         CUSTOM: Пользовательский датасет.
     """
+
     SEMANTIC = "semantic"  # ADE20K, Cityscapes
     INSTANCE = "instance"  # COCO
     PANOPTIC = "panoptic"
@@ -143,6 +131,7 @@ class SourceType(Enum):
         TAR: TAR/GZ архив.
         DIRECT: Прямая ссылка на файл/папку.
     """
+
     HF = "hf"  # HuggingFace Hub
     ZIP = "zip"  # ZIP-архив
     TAR = "tar"  # TAR/GZ архив
@@ -160,6 +149,7 @@ class DataFormat(Enum):
         NPZ: NumPy архивы.
         HDF5: HDF5 для больших данных.
     """
+
     JPG = "jpg"
     PNG = "png"
     NIFTI = "nii.gz"  # Медицинские 3D
@@ -193,6 +183,7 @@ class DatasetConfig:
         expected_structure: Ожидаемая структура файлов для валидации.
         postprocess_script: Путь к скрипту пост-обработки (опционально).
     """
+
     name: str
     dataset_type: DatasetType
     source_type: SourceType
@@ -243,6 +234,7 @@ class MedicalConfig(DatasetConfig):
         anatomy: Основная анатомическая область (опционально).
         task_type: Тип задачи ("segmentation", "classification", "detection").
     """
+
     modality: Literal["X-Ray", "CT", "MRI", "Ultrasound", "Dermoscopy"] = "X-Ray"
     pixel_spacing: Optional[Tuple[float, float]] = None  # мм/пиксель
     intensity_normalization: Literal["minmax", "zscore", "histogram"] = "zscore"
@@ -364,9 +356,7 @@ class DatasetManager:
             "error": "❌",
         }
 
-        logger.info(
-            f"[{timestamp}] {colors.get(level, '')}{prefix.get(level, '•')} {message}{colors['reset']}"
-        )
+        logger.info(f"[{timestamp}] {colors.get(level, '')}{prefix.get(level, '•')} {message}{colors['reset']}")
 
     # ──────────────────────────────────────────────────────────────────────
     def _check_disk_space(self, path: Path, required_gb: float) -> bool:
@@ -549,9 +539,7 @@ class DatasetManager:
         config: DatasetConfig = self.get_config(dataset_name)
 
         logger.info(f"\n{'=' * 70}")
-        logger.info(
-            f"📦 ЗАГРУЗКА ДАТАСЕТА: {config.name.upper()} ({config.dataset_type.name})..."
-        )
+        logger.info(f"📦 ЗАГРУЗКА ДАТАСЕТА: {config.name.upper()} ({config.dataset_type.name})...")
         logger.info(f"{'=' * 70}")
         logger.info(f"Тип: {config.dataset_type.name}")
         logger.info(f"Источник: {config.source_type.name.upper()}")
@@ -624,14 +612,8 @@ class DatasetManager:
 
             if img_dir.exists():
                 n_images: int = len(list(img_dir.glob(f"*{config.image_ext}")))
-                n_masks: int = (
-                    len(list(ann_dir.glob(f"*{config.mask_ext}")))
-                    if ann_dir.exists()
-                    else 0
-                )
-                logger.info(
-                    f"   {split_name:12s}: {n_images:5d} images, {n_masks:5d} masks"
-                )
+                n_masks: int = len(list(ann_dir.glob(f"*{config.mask_ext}"))) if ann_dir.exists() else 0
+                logger.info(f"   {split_name:12s}: {n_images:5d} images, {n_masks:5d} masks")
 
         logger.info(f"{'-' * 50}")
 
@@ -655,9 +637,7 @@ class DatasetManager:
                     return
 
                 self._log("📊 Загрузка через datasets library...")
-                hf_dataset = load_dataset(
-                    path=config.source_url, cache_dir=str(self.base_dir / ".cache")
-                )
+                hf_dataset = load_dataset(path=config.source_url, cache_dir=str(self.base_dir / ".cache"))
                 self._log("✅ Загружено через datasets library")
                 self._create_index_from_hf_dataset(config, hf_dataset)
                 return
@@ -676,29 +656,21 @@ class DatasetManager:
 
         except Exception as e:
             error_msg: str = str(e)
-            if config.name == "chexpert" and (
-                "401" in error_msg or "Repository Not Found" in error_msg
-            ):
+            if config.name == "chexpert" and ("401" in error_msg or "Repository Not Found" in error_msg):
                 self._log("❌ CheXpert requires manual download:", "error")
                 self._log(
                     "   1. Register at https://stanfordmlgroup.github.io/competitions/chexpert/",
                     "error",
                 )
                 self._log("   2. Download CheXpert-v1.0.zip manually", "error")
-                self._log(
-                    "   3. Extract to data/chexpert/ and run validation again", "error"
-                )
-                raise ValueError(
-                    "CheXpert requires manual download due to access restrictions"
-                )
+                self._log("   3. Extract to data/chexpert/ and run validation again", "error")
+                raise ValueError("CheXpert requires manual download due to access restrictions")
 
             self._log(f"⚠️ HF download failed, trying fallback: {error_msg}", "warning")
             self._hf_fallback_download(config)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _hf_fallback_download(
-        self, config: DatasetConfig, use_api: bool = False
-    ) -> None:
+    def _hf_fallback_download(self, config: DatasetConfig, use_api: bool = False) -> None:
         """Fallback-метод загрузки из HF: пофайловая загрузка.
 
         Args:
@@ -714,9 +686,7 @@ class DatasetManager:
         files: List[str] = list_repo_files(repo_id, repo_type="dataset")
 
         # Фильтруем только нужные файлы
-        image_files: List[str] = [
-            f for f in files if f.endswith((".jpg", ".jpeg", ".png"))
-        ]
+        image_files: List[str] = [f for f in files if f.endswith((".jpg", ".jpeg", ".png"))]
         mask_files: List[str] = [f for f in files if f.endswith((".png", ".nii.gz"))]
 
         for file_list, desc in [
@@ -726,9 +696,7 @@ class DatasetManager:
             if not file_list:
                 continue
             logger.info(f"{desc}: {len(file_list)} файлов")
-            for filename in tqdm(
-                file_list, desc=f"{config.name}/{desc.split()[1]}", unit="files"
-            ):
+            for filename in tqdm(file_list, desc=f"{config.name}/{desc.split()[1]}", unit="files"):
                 local_path: Path = local_dir / filename
                 local_path.parent.mkdir(parents=True, exist_ok=True)
                 if not local_path.exists():
@@ -755,11 +723,7 @@ class DatasetManager:
             response.raise_for_status()
 
             files_info: List[Dict[str, Any]] = response.json().get("siblings", [])
-            target_files: List[str] = [
-                f["rfilename"]
-                for f in files_info
-                if f["rfilename"].endswith((".jpg", ".png"))
-            ]
+            target_files: List[str] = [f["rfilename"] for f in files_info if f["rfilename"].endswith((".jpg", ".png"))]
 
             for filename in tqdm(target_files, desc=f"📥 {config.name}", unit="files"):
                 hf_hub_download(  # type: ignore
@@ -769,9 +733,7 @@ class DatasetManager:
                     local_dir=str(local_dir),
                 )
         except Exception as e:
-            logger.warning(
-                f"⚠️ API-скачивание не удалось: {e}. Переключаюсь на стандартный метод..."
-            )
+            logger.warning(f"⚠️ API-скачивание не удалось: {e}. Переключаюсь на стандартный метод...")
             # Fallback на стандартный метод
             return self._hf_fallback_download(config, use_api=False)
 
@@ -818,9 +780,7 @@ class DatasetManager:
                 for member in tqdm(members, desc="Распаковка", unit="files"):
                     # Безопасная распаковка (защита от path traversal)
                     target_path: Path = extract_dir / member
-                    if not str(target_path.resolve()).startswith(
-                        str(extract_dir.resolve())
-                    ):
+                    if not str(target_path.resolve()).startswith(str(extract_dir.resolve())):
                         raise ValueError(f"Unsafe path in archive: {member}")
                     zip_ref.extract(member, extract_dir)
             logger.info("✅ Распаковка завершена!")
@@ -863,9 +823,7 @@ class DatasetManager:
                 logger.info(f"   Всего файлов: {len(members)}")
                 for member in tqdm(members, desc="Распаковка", unit="files"):
                     target_path = extract_dir / member.name
-                    if not str(target_path.resolve()).startswith(
-                        str(extract_dir.resolve())
-                    ):
+                    if not str(target_path.resolve()).startswith(str(extract_dir.resolve())):
                         raise ValueError(f"Unsafe path in archive: {member.name}")
                     tar_ref.extract(member, extract_dir)
 
@@ -923,13 +881,16 @@ class DatasetManager:
         destination.parent.mkdir(parents=True, exist_ok=True)
         # sha256_hash = hashlib.sha256() if expected_checksum else None
 
-        with open(destination, "wb") as f, tqdm(
-            desc=destination.name,
-            total=total_size,
-            unit="B",
-            unit_scale=True,
-            unit_divisor=1024,
-        ) as pbar:
+        with (
+            open(destination, "wb") as f,
+            tqdm(
+                desc=destination.name,
+                total=total_size,
+                unit="B",
+                unit_scale=True,
+                unit_divisor=1024,
+            ) as pbar,
+        ):
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
@@ -941,9 +902,7 @@ class DatasetManager:
             if actual_checksum != expected_checksum:
                 destination.unlink()
                 raise ValueError(
-                    f"❌ Checksum mismatch!\n"
-                    f"Expected: {expected_checksum}\n"
-                    f"Actual:   {actual_checksum}"
+                    f"❌ Checksum mismatch!\n" f"Expected: {expected_checksum}\n" f"Actual:   {actual_checksum}"
                 )
         self._log("✅ Контрольная сумма совпадает", "success")
 
@@ -1030,9 +989,7 @@ class DatasetManager:
                     logger.info(f"{subindent}📄 {f}")
             raise ValueError("Could not find images/annotations structure in archive")
 
-        if (
-            use_symlinks and sys.platform != "win32"
-        ):  # Windows требует прав администратора
+        if use_symlinks and sys.platform != "win32":  # Windows требует прав администратора
             try:
                 for split in ["training", "validation"]:
                     src: Path = target / split
@@ -1072,9 +1029,7 @@ class DatasetManager:
         logger.info("✅ Пост-обработка завершена")
 
     # ──────────────────────────────────────────────────────────────────────
-    def _decode_image_from_hf(
-        self, data: Any, convert_to_rgb: bool = True
-    ) -> Optional[Image.Image]:
+    def _decode_image_from_hf(self, data: Any, convert_to_rgb: bool = True) -> Optional[Image.Image]:
         """Универсальный декодер для данных из HuggingFace datasets.
 
         Поддерживает форматы:
@@ -1183,9 +1138,7 @@ class DatasetManager:
         # Создаём целевые директории
         for split in ["training", "validation", "train", "val", "test"]:
             (config.full_path / "images" / split).mkdir(parents=True, exist_ok=True)
-            (config.full_path / "annotations" / split).mkdir(
-                parents=True, exist_ok=True
-            )
+            (config.full_path / "annotations" / split).mkdir(parents=True, exist_ok=True)
 
         image_keys: List[str] = [
             "image",
@@ -1215,15 +1168,9 @@ class DatasetManager:
                 df: pd.DataFrame = pd.read_parquet(pq_file)
                 total_rows += len(df)
                 self._log(f"\n📊 Обработка {pq_file.name}: {len(df)} строк")
-                img_key: Optional[str] = next(
-                    (k for k in image_keys if k in df.columns), None
-                )
-                mask_key: Optional[str] = next(
-                    (k for k in mask_keys if k in df.columns), None
-                )
-                split_key: Optional[str] = next(
-                    (k for k in split_keys if k in df.columns), None
-                )
+                img_key: Optional[str] = next((k for k in image_keys if k in df.columns), None)
+                mask_key: Optional[str] = next((k for k in mask_keys if k in df.columns), None)
+                split_key: Optional[str] = next((k for k in split_keys if k in df.columns), None)
 
                 if not img_key:
                     self._log(
@@ -1238,9 +1185,7 @@ class DatasetManager:
                 if split_key:
                     logger.info(f"   📑 Ключ split: '{split_key}'")
 
-                for idx, row in tqdm(
-                    df.iterrows(), total=len(df), desc="   Конвертация", unit="rows"
-                ):
+                for idx, row in tqdm(df.iterrows(), total=len(df), desc="   Конвертация", unit="rows"):
                     if converted_count >= 1000 and not self.verbose:
                         break
 
@@ -1267,9 +1212,7 @@ class DatasetManager:
                                 split = "training"
 
                         # === Декодирование изображения ===
-                        img: Optional[Image.Image] = self._decode_image_from_hf(
-                            row[img_key], convert_to_rgb=True
-                        )
+                        img: Optional[Image.Image] = self._decode_image_from_hf(row[img_key], convert_to_rgb=True)
                         if img is None:
                             error_count += 1
                             continue
@@ -1277,26 +1220,17 @@ class DatasetManager:
                         # === Декодирование маски (если есть) ===
                         mask: Optional[Image.Image] = None
                         if mask_key and mask_key in row and row[mask_key] is not None:
-                            mask = self._decode_image_from_hf(
-                                row[mask_key], convert_to_rgb=False
-                            )
+                            mask = self._decode_image_from_hf(row[mask_key], convert_to_rgb=False)
                             if mask and mask.mode != "L":
                                 mask = mask.convert("L")
 
                         # === Сохранение ===
                         filename: str = f"{config.name}_{split}_{idx:06d}"
-                        img_path: Path = (
-                            config.full_path / "images" / split / f"{filename}.jpg"
-                        )
+                        img_path: Path = config.full_path / "images" / split / f"{filename}.jpg"
                         img.save(img_path, quality=95)
 
                         if mask:
-                            mask_path = (
-                                config.full_path
-                                / "annotations"
-                                / split
-                                / f"{filename}.png"
-                            )
+                            mask_path = config.full_path / "annotations" / split / f"{filename}.png"
                             mask.save(mask_path)
 
                         converted_count += 1
@@ -1314,9 +1248,7 @@ class DatasetManager:
                 self._log(f"⚠️ Ошибка обработки {pq_file.name}: {e}", "warning")
                 continue
 
-        self._log(
-            f"✅ Converted {converted_count} samples, {error_count} errors", "success"
-        )
+        self._log(f"✅ Converted {converted_count} samples, {error_count} errors", "success")
 
         logger.info(f"\n{'=' * 50}")
         logger.info("📊 СТАТИСТИКА КОНВЕРТАЦИИ")
@@ -1342,9 +1274,7 @@ class DatasetManager:
         Args:
             config: Конфигурация медицинского датасета.
         """
-        self._log(
-            f"🏥 Применение медицинской пост-обработки: {config.intensity_normalization}"
-        )
+        self._log(f"🏥 Применение медицинской пост-обработки: {config.intensity_normalization}")
 
         # Пример: нормализация интенсивности для рентгена
         if config.modality == "X-Ray" and config.intensity_normalization == "histogram":
@@ -1368,9 +1298,7 @@ class DatasetManager:
             return
 
         logger.info("🔧 Применение CLAHE к изображениям...")
-        for img_path in tqdm(
-            list(images_dir.rglob("*.jpg")), desc="CLAHE", unit="imgs"
-        ):
+        for img_path in tqdm(list(images_dir.rglob("*.jpg")), desc="CLAHE", unit="imgs"):
             try:
                 img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
                 if img is None:
@@ -1435,16 +1363,9 @@ class DatasetManager:
         for split_name, split_dir in config.splits.items():
             img_dir: Path = config.full_path / "images" / split_dir
             if img_dir.exists():
-                images: List[str] = sorted(
-                    [f.name for f in img_dir.glob(f"*{config.image_ext}")]
-                )
+                images: List[str] = sorted([f.name for f in img_dir.glob(f"*{config.image_ext}")])
                 masks: List[str] = sorted(
-                    [
-                        f.name
-                        for f in (config.full_path / "annotations" / split_dir).glob(
-                            f"*{config.mask_ext}"
-                        )
-                    ]
+                    [f.name for f in (config.full_path / "annotations" / split_dir).glob(f"*{config.mask_ext}")]
                 )
 
                 # Валидация соответствия
@@ -1498,19 +1419,13 @@ class DatasetManager:
             "annotations/validation",
         ]
         if config.dataset_type == DatasetType.MEDICAL_BINARY:
-            has_images: bool = any(
-                (config.full_path / "images").rglob(f"*{config.image_ext}")
-            )
-            has_masks: bool = any(
-                (config.full_path / "annotations").rglob(f"*{config.mask_ext}")
-            )
+            has_images: bool = any((config.full_path / "images").rglob(f"*{config.image_ext}"))
+            has_masks: bool = any((config.full_path / "annotations").rglob(f"*{config.mask_ext}"))
             if has_images and has_masks:
                 self._log("✅ Структура медицинского датасета валидирована", "success")
                 return True
 
-        missing: List[str] = [
-            d for d in required_dirs if not (config.full_path / d).exists()
-        ]
+        missing: List[str] = [d for d in required_dirs if not (config.full_path / d).exists()]
         if missing:
             self._log(f"❌ Отсутствуют директории: {missing}", "error")
             return False
@@ -1538,13 +1453,9 @@ class DatasetManager:
         if config.expected_structure:
             for key, expected_files in config.expected_structure.items():
                 actual_files: List[Path] = (
-                    list((config.full_path / key).glob("*"))
-                    if (config.full_path / key).exists()
-                    else []
+                    list((config.full_path / key).glob("*")) if (config.full_path / key).exists() else []
                 )
-                if (
-                    len(actual_files) < len(expected_files) * 0.9
-                ):  # Допускаем 10% потерь
+                if len(actual_files) < len(expected_files) * 0.9:  # Допускаем 10% потерь
                     self._log(
                         f"⚠️ Несоответствие файлов в {key}: ожидалось ~{len(expected_files)}, найдено {len(actual_files)}",
                         "warning",
@@ -1600,9 +1511,7 @@ class DatasetManager:
         return img, mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def _create_index_from_hf_dataset(
-        self, config: DatasetConfig, hf_dataset: Any
-    ) -> None:
+    def _create_index_from_hf_dataset(self, config: DatasetConfig, hf_dataset: Any) -> None:
         """Создаёт индексный файл для датасета, загруженного через `datasets` library.
 
         Args:
@@ -1623,11 +1532,7 @@ class DatasetManager:
             split_data = hf_dataset[split_name]
             index["splits"][split_name] = {  # type: ignore[index]
                 "count": len(split_data),
-                "columns": (
-                    list(split_data.features.keys())
-                    if hasattr(split_data, "features")
-                    else []
-                ),
+                "columns": (list(split_data.features.keys()) if hasattr(split_data, "features") else []),
             }
 
         config.full_path.mkdir(parents=True, exist_ok=True)
@@ -1660,7 +1565,7 @@ class DatasetManager:
                 dataset = load_dataset(repo_id, split=split)
                 if "image" in dataset.features:
                     img = dataset[0]["image"]
-                    return cast(Optional[Image.Image], img.convert("RGB")) 
+                    return cast(Optional[Image.Image], img.convert("RGB"))
                 else:
                     logger.warning(f"   ⚠️  Нет признака 'image' в {repo_id}")
                     return None
@@ -1702,9 +1607,7 @@ class DatasetManager:
                 self.ann_dir: Path = config.full_path / "annotations" / self.split_dir
                 self.transform: Optional[Callable] = transform
 
-                self.images: List[Path] = sorted(
-                    list(self.img_dir.glob(f"*{config.image_ext}"))
-                )
+                self.images: List[Path] = sorted(list(self.img_dir.glob(f"*{config.image_ext}")))
                 self._log(f"Загружено {len(self.images)} образцов из {split}")
 
             # ──────────────────────────────────────────────────────────────────────
@@ -1733,9 +1636,7 @@ class DatasetManager:
                     else:
                         mask_np = np.array(mask_pil, dtype=np.uint8)
                 else:
-                    mask_np = np.zeros(
-                        (img_pil.size[1], img_pil.size[0]), dtype=np.uint8
-                    )
+                    mask_np = np.zeros((img_pil.size[1], img_pil.size[0]), dtype=np.uint8)
 
                 if self.transform:
                     augmented = self.transform(image=np.array(img_pil), mask=mask_np)
@@ -1810,9 +1711,7 @@ class MedicalDatasetUtils:
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def window_ct(
-        image: np.ndarray, window_center: float, window_width: float
-    ) -> np.ndarray:
+    def window_ct(image: np.ndarray, window_center: float, window_width: float) -> np.ndarray:
         """Применение CT windowing для визуализации."""
         min_val: float = window_center - window_width / 2
         max_val: float = window_center + window_width / 2
@@ -1833,9 +1732,7 @@ class MedicalDatasetUtils:
         output_dir.mkdir(parents=True, exist_ok=True)
         if config.modality == "X-Ray":
             if image.dtype != np.uint8:
-                image = (
-                    (image - image.min()) / (image.max() - image.min()) * 255
-                ).astype(np.uint8)
+                image = ((image - image.min()) / (image.max() - image.min()) * 255).astype(np.uint8)
             Image.fromarray(image).save(output_dir / f"{prefix}_img.png")
         else:
             # Для 3D: сохраняем как npz
@@ -1843,9 +1740,7 @@ class MedicalDatasetUtils:
 
         # Сохранение маски
         if mask.ndim == 2:
-            Image.fromarray(mask.astype(np.uint8)).save(
-                output_dir / f"{prefix}_mask.png"
-            )
+            Image.fromarray(mask.astype(np.uint8)).save(output_dir / f"{prefix}_mask.png")
 
 
 # ============================================================================
@@ -1864,20 +1759,12 @@ def main() -> None:
         choices=list(DatasetManager._registry.keys()),
         help="Datasets to download",
     )
-    parser.add_argument(
-        "--all", action="store_true", help="Download all registered datasets"
-    )
-    parser.add_argument(
-        "--medical-only", action="store_true", help="Download only medical datasets"
-    )
-    parser.add_argument(
-        "--base-dir", default="./data", help="Base directory for datasets"
-    )
+    parser.add_argument("--all", action="store_true", help="Download all registered datasets")
+    parser.add_argument("--medical-only", action="store_true", help="Download only medical datasets")
+    parser.add_argument("--base-dir", default="./data", help="Base directory for datasets")
     parser.add_argument("--force", action="store_true", help="Force re-download")
     parser.add_argument("--list", action="store_true", help="List available datasets")
-    parser.add_argument(
-        "--sample", type=str, help="Load and display sample: dataset_name:split:idx"
-    )
+    parser.add_argument("--sample", type=str, help="Load and display sample: dataset_name:split:idx")
 
     args = parser.parse_args()
 
@@ -1887,22 +1774,16 @@ def main() -> None:
         logger.info("\n📋 Available datasets:")
         for name, config in manager._registry.items():
             med_tag = " [MEDICAL]" if isinstance(config, MedicalConfig) else ""
-            logger.info(
-                f"  • {name:15s} {med_tag:10s} {config.dataset_type.name:12s} [{config.source_type}]"
-            )
+            logger.info(f"  • {name:15s} {med_tag:10s} {config.dataset_type.name:12s} [{config.source_type}]")
             if isinstance(config, MedicalConfig):
-                logger.info(
-                    f"    └─ Modality: {config.modality}, Classes: {config.num_classes}"
-                )
+                logger.info(f"    └─ Modality: {config.modality}, Classes: {config.num_classes}")
         return
 
     # Определение списка датасетов
     if args.all:
         datasets = list(manager._registry.keys())
     elif args.medical_only:
-        datasets = [
-            n for n, c in manager._registry.items() if isinstance(c, MedicalConfig)
-        ]
+        datasets = [n for n, c in manager._registry.items() if isinstance(c, MedicalConfig)]
     elif args.datasets:
         datasets = args.datasets
     else:
@@ -1948,20 +1829,12 @@ if __name__ == "__main__":
         choices=list(DatasetManager._registry.keys()),
         help="Datasets to download",
     )
-    parser.add_argument(
-        "--all", action="store_true", help="Download all registered datasets"
-    )
-    parser.add_argument(
-        "--medical-only", action="store_true", help="Download only medical datasets"
-    )
-    parser.add_argument(
-        "--base-dir", default="./data", help="Base directory for datasets"
-    )
+    parser.add_argument("--all", action="store_true", help="Download all registered datasets")
+    parser.add_argument("--medical-only", action="store_true", help="Download only medical datasets")
+    parser.add_argument("--base-dir", default="./data", help="Base directory for datasets")
     parser.add_argument("--force", action="store_true", help="Force re-download")
     parser.add_argument("--list", action="store_true", help="List available datasets")
-    parser.add_argument(
-        "--sample", type=str, help="Load and display sample: dataset_name:split:idx"
-    )
+    parser.add_argument("--sample", type=str, help="Load and display sample: dataset_name:split:idx")
     args = parser.parse_args()
     manager = DatasetManager(base_dir=args.base_dir)
     logger.info("\n Cityscapes Dataset...")
@@ -1975,9 +1848,7 @@ if __name__ == "__main__":
     if coco_img is not None:
         coco_img.save("./../data/coco_img.jpg")
     logger.info("\n Medical Dataset (ISIC - Skin Lesion)...")
-    isic_img = manager.load_test_image_from_hf(
-        "researchjyotsna/isic2018_10", split="train"
-    )
+    isic_img = manager.load_test_image_from_hf("researchjyotsna/isic2018_10", split="train")
     if isic_img is not None:
         isic_img.save("./../data/isic_img.jpg")
     logger.info("\n Chest X-Ray Segmentation...")

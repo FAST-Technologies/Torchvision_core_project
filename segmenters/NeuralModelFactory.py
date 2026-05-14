@@ -67,16 +67,7 @@ Note:
 # ──────────────────────────────────────────────────────────────────────
 from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
 
-from typing import (
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-    Union,
-    List,
-    Literal,
-    cast
-)
+from typing import Tuple, Dict, Any, Optional, Union, List, Literal, cast
 from enum import Enum
 from pathlib import Path
 
@@ -118,9 +109,7 @@ try:
     try:
         from ultralytics import YOLO
     except ImportError:
-        raise ImportError(
-            "ultralytics library required for YOLOv8. Install with: pip install ultralytics"
-        )
+        raise ImportError("ultralytics library required for YOLOv8. Install with: pip install ultralytics")
 except ImportError:
     SAM_AVAILABLE = False
     print("⚠️ Warning: ultralytics not installed")
@@ -132,9 +121,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -370,9 +357,7 @@ class NeuralModelFactory:
         # Для SMP моделей — получаем encoder из конфига
         if model_type == "unet":
             encoders = config["models"]["unet"].get("encoders", ["resnet34"])
-            encoder_name: str = kwargs.get(
-                "encoder_name", encoders[0] if variant is None else variant
-            )
+            encoder_name: str = kwargs.get("encoder_name", encoders[0] if variant is None else variant)
             return cls.create_model(
                 ModelType.UNET_SMP,
                 device=device,
@@ -524,9 +509,7 @@ class NeuralModelFactory:
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
-    def load_segformer_variant(
-        cls, variant: str = "b2", device: DeviceStr = "cuda"
-    ) -> ModelTuple:
+    def load_segformer_variant(cls, variant: str = "b2", device: DeviceStr = "cuda") -> ModelTuple:
         """Загружает конкретную версию SegFormer для сравнения.
 
         Поддерживаемые варианты: b0, b1, b2, b3, b4, b5.
@@ -545,9 +528,7 @@ class NeuralModelFactory:
         variants = config["models"]["segformer"]["variants"]
 
         if variant not in variants:
-            raise ValueError(
-                f"Unknown SegFormer variant: {variant}. Available: {list(variants.keys())}"
-            )
+            raise ValueError(f"Unknown SegFormer variant: {variant}. Available: {list(variants.keys())}")
 
         model_name: str = variants[variant]
         processor = SegformerImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
@@ -574,9 +555,7 @@ class NeuralModelFactory:
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
-    def print_segformer_variant_params(
-        cls, variant: str = "b2", device: DeviceStr = "cuda"
-    ) -> None:
+    def print_segformer_variant_params(cls, variant: str = "b2", device: DeviceStr = "cuda") -> None:
         """Выводит параметры конкретной версии SegFormer.
 
         Args:
@@ -607,9 +586,7 @@ class NeuralModelFactory:
     # MASK2FORMER / MASKFORMER / ONEFORMER / DPT / UPERNET
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
-    def _load_mask2former(
-        cls, model_name: Optional[str], device: DeviceStr = "cuda"
-    ) -> ModelTuple:
+    def _load_mask2former(cls, model_name: Optional[str], device: DeviceStr = "cuda") -> ModelTuple:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
 
@@ -635,9 +612,7 @@ class NeuralModelFactory:
 
     # ========== MASKFORMER ==========
     @classmethod
-    def _load_maskformer(
-        cls, model_name: Optional[str], device: str = "cuda"
-    ) -> Tuple[Any, Any, str]:
+    def _load_maskformer(cls, model_name: Optional[str], device: str = "cuda") -> Tuple[Any, Any, str]:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
 
@@ -663,20 +638,14 @@ class NeuralModelFactory:
 
     # ========== ONEFORMER ==========
     @classmethod
-    def _load_oneformer(
-        cls, model_name: Optional[str], device: DeviceStr = "cuda"
-    ) -> ModelTuple:
+    def _load_oneformer(cls, model_name: Optional[str], device: DeviceStr = "cuda") -> ModelTuple:
         if model_name is None:
             raise ValueError("model_name обязателен для OneFormer")
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
 
         files: List[str] = list_repo_files(model_name)
-        print(
-            "✅ safetensors found!"
-            if any(f.endswith(".safetensors") for f in files)
-            else "❌ Только pickle (.bin)"
-        )
+        print("✅ safetensors found!" if any(f.endswith(".safetensors") for f in files) else "❌ Только pickle (.bin)")
         processor = OneFormerProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
         model = OneFormerForUniversalSegmentation.from_pretrained(model_name).to(device).eval()  # type: ignore[arg-type]
         return model, processor, "oneformer"
@@ -690,11 +659,7 @@ class NeuralModelFactory:
     ) -> None:
         """Вывод параметров OneFormer."""
         files: List[str] = list_repo_files(name)
-        print(
-            "✅ safetensors found!"
-            if any(f.endswith(".safetensors") for f in files)
-            else "❌ Только pickle (.bin)"
-        )
+        print("✅ safetensors found!" if any(f.endswith(".safetensors") for f in files) else "❌ Только pickle (.bin)")
         processor = OneFormerProcessor.from_pretrained(name)  # type: ignore[arg-type]
         model = OneFormerForUniversalSegmentation.from_pretrained(name).to(device)  # type: ignore[arg-type]
         print(processor)
@@ -705,9 +670,7 @@ class NeuralModelFactory:
 
     # ========== DPT ==========
     @classmethod
-    def _load_dpt(
-        cls, model_name: Optional[str], device: DeviceStr = "cuda"
-    ) -> ModelTuple:
+    def _load_dpt(cls, model_name: Optional[str], device: DeviceStr = "cuda") -> ModelTuple:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
 
@@ -717,9 +680,7 @@ class NeuralModelFactory:
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
-    def print_dpt_params(
-        cls, model_name: str = "Intel/dpt-large-ade", device: DeviceStr = "cuda"
-    ) -> None:
+    def print_dpt_params(cls, model_name: str = "Intel/dpt-large-ade", device: DeviceStr = "cuda") -> None:
         """Вывод параметров DPT."""
         processor = DPTImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
         model = DPTForSemanticSegmentation.from_pretrained(model_name).to(device)  # type: ignore[arg-type]
@@ -731,18 +692,12 @@ class NeuralModelFactory:
 
     # ========== UPERNET ==========
     @classmethod
-    def _load_upernet(
-        cls, model_name: Optional[str], device: DeviceStr = "cuda"
-    ) -> ModelTuple:
+    def _load_upernet(cls, model_name: Optional[str], device: DeviceStr = "cuda") -> ModelTuple:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
 
         processor = AutoImageProcessor.from_pretrained(model_name)  # type: ignore[arg-type]
-        model = (
-            AutoModelForSemanticSegmentation.from_pretrained(model_name)  # type: ignore[arg-type]
-            .to(device)
-            .eval()
-        )
+        model = AutoModelForSemanticSegmentation.from_pretrained(model_name).to(device).eval()  # type: ignore[arg-type]
         return model, processor, "upernet"
 
     # ──────────────────────────────────────────────────────────────────────
@@ -778,18 +733,12 @@ class NeuralModelFactory:
         if checkpoint_path and os.path.exists(safe_path):
             model = tv_seg.deeplabv3_resnet101(weights=None)
             model.classifier[4] = torch.nn.Conv2d(256, num_classes, kernel_size=1)
-            checkpoint = torch.load(
-                checkpoint_path, map_location=device, weights_only=False
-            )
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
                 state_dict = checkpoint["model_state_dict"]
             else:
                 state_dict = checkpoint
-            model_keys: Dict = {
-                k: v
-                for k, v in state_dict.items()
-                if not k.startswith("aux_classifier")
-            }
+            model_keys: Dict = {k: v for k, v in state_dict.items() if not k.startswith("aux_classifier")}
             model.load_state_dict(model_keys, strict=False)
             print(f"✅ Loaded DeepLabV3+ from checkpoint: {checkpoint_path}")
         else:
@@ -830,9 +779,7 @@ class NeuralModelFactory:
 
         safe_path: str = checkpoint_path or "model_path.pth"
         if checkpoint_path and os.path.exists(safe_path):
-            checkpoint = torch.load(
-                checkpoint_path, map_location=device, weights_only=False
-            )
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             if "model_state_dict" in checkpoint:
                 model.load_state_dict(checkpoint["model_state_dict"])
             else:
@@ -862,9 +809,7 @@ class NeuralModelFactory:
             activation=None,
         )
         if checkpoint_path and os.path.exists(checkpoint_path):
-            checkpoint = torch.load(
-                checkpoint_path, map_location=device, weights_only=False
-            )
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             if "model_state_dict" in checkpoint:
                 model.load_state_dict(checkpoint["model_state_dict"])
             else:
@@ -896,9 +841,7 @@ class NeuralModelFactory:
 
         safe_path: str = checkpoint_path or "model_path.pth"
         if checkpoint_path and os.path.exists(safe_path):
-            checkpoint = torch.load(
-                checkpoint_path, map_location=device, weights_only=False
-            )
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             if "model_state_dict" in checkpoint:
                 model.load_state_dict(checkpoint["model_state_dict"])
             else:
@@ -938,9 +881,7 @@ class NeuralModelFactory:
         )
 
         if checkpoint_path and os.path.exists(checkpoint_path):
-            checkpoint = torch.load(
-                checkpoint_path, map_location=device, weights_only=False
-            )
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             if "model_state_dict" in checkpoint:
                 model.load_state_dict(checkpoint["model_state_dict"])
             else:
@@ -977,9 +918,7 @@ class NeuralModelFactory:
 
         safe_path: str = checkpoint_path or "model_path.pth"
         if checkpoint_path and os.path.exists(safe_path):
-            checkpoint = torch.load(
-                checkpoint_path, map_location=device, weights_only=False
-            )
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             if "model_state_dict" in checkpoint:
                 model.load_state_dict(checkpoint["model_state_dict"])
             else:
@@ -1023,9 +962,7 @@ class NeuralModelFactory:
         )
 
         if checkpoint_path and os.path.exists(checkpoint_path):
-            checkpoint = torch.load(
-                checkpoint_path, map_location=device, weights_only=False
-            )
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             if "model_state_dict" in checkpoint:
                 model.load_state_dict(checkpoint["model_state_dict"])
             else:
@@ -1060,17 +997,13 @@ class NeuralModelFactory:
 
         model = variants[variant](weights=None)
         old_classifier = model.classifier[4]
-        model.classifier[4] = torch.nn.Conv2d(
-            old_classifier.in_channels, num_classes, kernel_size=1
-        )
+        model.classifier[4] = torch.nn.Conv2d(old_classifier.in_channels, num_classes, kernel_size=1)
         torch.nn.init.normal_(model.classifier[4].weight, 0, 0.01)
         torch.nn.init.constant_(model.classifier[4].bias, 0)
 
         safe_path = checkpoint_path or "model_path.pth"
         if checkpoint_path and os.path.exists(safe_path):
-            checkpoint = torch.load(
-                checkpoint_path, map_location=device, weights_only=False
-            )
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
                 model.load_state_dict(checkpoint["model_state_dict"], strict=False)
             else:
@@ -1085,9 +1018,7 @@ class NeuralModelFactory:
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
-    def print_fcn_params(
-        cls, variant: str = "fcn_resnet50", device: str = "cuda"
-    ) -> None:
+    def print_fcn_params(cls, variant: str = "fcn_resnet50", device: str = "cuda") -> None:
         """Вывод параметров FCN."""
         variants = {
             "fcn_resnet50": tv_seg.fcn_resnet50,
@@ -1121,9 +1052,7 @@ class NeuralModelFactory:
 
         safe_path: str = checkpoint_path or "model_path.pth"
         if checkpoint_path and os.path.exists(safe_path):
-            checkpoint = torch.load(
-                checkpoint_path, map_location=device, weights_only=False
-            )
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             if "model_state_dict" in checkpoint:
                 model.load_state_dict(checkpoint["model_state_dict"])
             else:
@@ -1136,9 +1065,7 @@ class NeuralModelFactory:
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
-    def print_segnet_params(
-        cls, encoder_name: str = "resnet34", device: str = "cuda"
-    ) -> None:
+    def print_segnet_params(cls, encoder_name: str = "resnet34", device: str = "cuda") -> None:
         """Вывод параметров SegNet."""
         try:
             model = smp.Unet(
@@ -1159,18 +1086,14 @@ class NeuralModelFactory:
     # ──────────────────────────────────────────────────────────────────────
     # ========== SAM ==========
     @classmethod
-    def _load_sam(
-        cls, model_name: Optional[str], device: DeviceStr = "cuda"
-    ) -> ModelTuple:
+    def _load_sam(cls, model_name: Optional[str], device: DeviceStr = "cuda") -> ModelTuple:
         if model_name is None:
             raise ValueError("model_name обязателен для OneFormer")
         if not SAM_AVAILABLE:
             raise ImportError("ultralytics library required for SAM")
 
         if os.path.exists(model_name):
-            print(
-                f"   📁 Found: {model_name} ({os.path.getsize(model_name) / 1024**2:.3f} MB)"
-            )
+            print(f"   📁 Found: {model_name} ({os.path.getsize(model_name) / 1024**2:.3f} MB)")
         elif not model_name.startswith("sam2"):
             print(f"   ⚠️ Warning: {model_name} not found in current directory")
 
@@ -1184,14 +1107,10 @@ class NeuralModelFactory:
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
-    def print_sam_params(
-        cls, model_name: str = "mobile_sam.pt", device: str = "cuda"
-    ) -> None:
+    def print_sam_params(cls, model_name: str = "mobile_sam.pt", device: str = "cuda") -> None:
         """Вывод параметров SAM."""
         if os.path.exists(model_name):
-            print(
-                f"   📁 Found: {model_name} ({os.path.getsize(model_name) / 1024**2:.3f} MB)"
-            )
+            print(f"   📁 Found: {model_name} ({os.path.getsize(model_name) / 1024**2:.3f} MB)")
         elif not model_name.startswith("sam2"):
             print(f"   ⚠️ Warning: {model_name} not found in current directory")
 
@@ -1202,9 +1121,7 @@ class NeuralModelFactory:
 
     # ========== MASK R-CNN ==========
     @classmethod
-    def _load_maskrcnn_tv(
-        cls, device: DeviceStr, variant: str = "maskrcnn_resnet50_fpn", **kwargs: Any
-    ) -> ModelTuple:
+    def _load_maskrcnn_tv(cls, device: DeviceStr, variant: str = "maskrcnn_resnet50_fpn", **kwargs: Any) -> ModelTuple:
         variants = {
             "maskrcnn_resnet50_fpn": tv_det.maskrcnn_resnet50_fpn,
             "maskrcnn_resnet50_fpn_v2": tv_det.maskrcnn_resnet50_fpn_v2,
@@ -1220,9 +1137,7 @@ class NeuralModelFactory:
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
-    def print_mask_rcnn_params(
-        cls, variant: str = "maskrcnn_resnet50_fpn", device: str = "cuda"
-    ) -> None:
+    def print_mask_rcnn_params(cls, variant: str = "maskrcnn_resnet50_fpn", device: str = "cuda") -> None:
         """Вывод параметров Mask R-CNN."""
         variants = {
             "maskrcnn_resnet50_fpn": tv_det.maskrcnn_resnet50_fpn,
@@ -1230,9 +1145,7 @@ class NeuralModelFactory:
         }
         if variant not in variants:
             raise ValueError(f"Unknown Mask R-CNN variant: {variant}")
-        model = variants[variant](
-            weights=None
-        )  # Было weights="DEFAULT", pretrained=False
+        model = variants[variant](weights=None)  # Было weights="DEFAULT", pretrained=False
         model = model.to(device)
         print(model)
         print("✅ Mask R-CNN загружена!")
@@ -1240,9 +1153,7 @@ class NeuralModelFactory:
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
-    def _load_yolov8(
-        cls, model_name: Optional[str], device: DeviceStr = "cuda"
-    ) -> ModelTuple:
+    def _load_yolov8(cls, model_name: Optional[str], device: DeviceStr = "cuda") -> ModelTuple:
         """Загрузка YOLOv8 для сегментации."""
         if model_name is None:
             model_name = "yolov8n-seg.pt"
@@ -1306,16 +1217,12 @@ class NeuralModelFactory:
             **extra_kwargs,
         )
         if checkpoint_path and os.path.exists(checkpoint_path):
-            checkpoint = torch.load(
-                checkpoint_path, map_location=device, weights_only=False
-            )
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             if "model_state_dict" in checkpoint:
                 model.load_state_dict(checkpoint["model_state_dict"])
             else:
                 model.load_state_dict(checkpoint)
-            print(
-                f"✅ Loaded {architecture.upper()} from checkpoint: {checkpoint_path}"
-            )
+            print(f"✅ Loaded {architecture.upper()} from checkpoint: {checkpoint_path}")
         model = model.to(device).eval()
         if key is None:
             key = f"{architecture}_{encoder_name.replace('-', '_')}"
@@ -1345,34 +1252,24 @@ class NeuralModelFactory:
 
         # FPN + MiT-B5
         fpn_checkpoint: str = os.path.join(checkpoint_dir, "fpn_mit_b5_best.pth")
-        fpn_model, _, fpn_type = cls._load_fpn_smp(
-            device, num_classes, fpn_checkpoint, encoder_name="mit_b5"
-        )
+        fpn_model, _, fpn_type = cls._load_fpn_smp(device, num_classes, fpn_checkpoint, encoder_name="mit_b5")
         models_dict["fpn_mit_b5_pretrained"] = (fpn_model, None, fpn_type)
 
         # PSPNet + MiT-B5
         psp_checkpoint: str = os.path.join(checkpoint_dir, "psp_mit_b5_best.pth")
-        psp_model, _, psp_type = cls._load_psp_smp(
-            device, num_classes, psp_checkpoint, encoder_name="mit_b5"
-        )
+        psp_model, _, psp_type = cls._load_psp_smp(device, num_classes, psp_checkpoint, encoder_name="mit_b5")
         models_dict["psp_mit_b5_pretrained"] = (psp_model, None, psp_type)
 
         # FCN ResNet-50
-        fcn_model, _, fcn_type = cls._load_fcn_tv(
-            device, num_classes, variant="fcn_resnet50"
-        )
+        fcn_model, _, fcn_type = cls._load_fcn_tv(device, num_classes, variant="fcn_resnet50")
         models_dict["fcn_resnet50_pretrained"] = (fcn_model, None, fcn_type)
 
         # SegNet (U-Net proxy)
-        segnet_model, _, segnet_type = cls._load_segnet(
-            device, num_classes, encoder_name="resnet34"
-        )
+        segnet_model, _, segnet_type = cls._load_segnet(device, num_classes, encoder_name="resnet34")
         models_dict["segnet_resnet34_pretrained"] = (segnet_model, None, segnet_type)
 
         # Mask R-CNN (COCO)
-        mrcnn_model, _, mrcnn_type = cls._load_maskrcnn_tv(
-            device, variant="maskrcnn_resnet50_fpn"
-        )
+        mrcnn_model, _, mrcnn_type = cls._load_maskrcnn_tv(device, variant="maskrcnn_resnet50_fpn")
         models_dict["maskrcnn_pretrained"] = (mrcnn_model, None, mrcnn_type)
 
         print("\n✅ All pre-trained CNN models loaded!")

@@ -86,9 +86,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -136,18 +134,12 @@ class ONNXSegmenter(BaseSegmenter):
         try:
             import onnxruntime as ort
         except ImportError:
-            raise ImportError(
-                "onnxruntime-gpu не установлен: pip install onnxruntime-gpu"
-            )
+            raise ImportError("onnxruntime-gpu не установлен: pip install onnxruntime-gpu")
         providers: List[str] = (
-            ["CUDAExecutionProvider", "CPUExecutionProvider"]
-            if device == "cuda"
-            else ["CPUExecutionProvider"]
+            ["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
         )
         sess_options: ort.SessionOptions = ort.SessionOptions()
-        sess_options.graph_optimization_level = (
-            ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        )
+        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
         self.session: ort.InferenceSession = ort.InferenceSession(
             onnx_path, sess_options=sess_options, providers=providers
@@ -158,8 +150,7 @@ class ONNXSegmenter(BaseSegmenter):
         # Проверяем реальный output shape из модели
         out_shape: Tuple[Union[str, int], ...] = self.session.get_outputs()[0].shape
         logger.info(
-            f"ONNX '{method_name}': input={self.input_name}, "
-            f"output={self.output_name}, output_shape={out_shape}"
+            f"ONNX '{method_name}': input={self.input_name}, " f"output={self.output_name}, output_shape={out_shape}"
         )
 
     def _preprocess(self, image: npt.NDArray[np.uint8]) -> PreprocessedTensor:
@@ -174,9 +165,7 @@ class ONNXSegmenter(BaseSegmenter):
         if image.ndim == 2:
             image = np.stack([image] * 3, axis=-1)
         if image.ndim == 3 and image.shape[2] == 3:
-            tensor: npt.NDArray[np.float32] = (
-                np.transpose(image, (2, 0, 1)).astype(np.float32) / 255.0
-            )
+            tensor: npt.NDArray[np.float32] = np.transpose(image, (2, 0, 1)).astype(np.float32) / 255.0
             return np.expand_dims(tensor, 0)  # (1,3,H,W)
         # Уже (B,C,H,W)
         return image.astype(np.float32)
@@ -199,9 +188,7 @@ class ONNXSegmenter(BaseSegmenter):
         """
         try:
             tensor: PreprocessedTensor = self._preprocess(image)
-            outputs: List[RawOutput] = self.session.run(
-                [self.output_name], {self.input_name: tensor}
-            )
+            outputs: List[RawOutput] = self.session.run([self.output_name], {self.input_name: tensor})
             if not outputs or outputs[0] is None:
                 logger.error(f"ONNX '{self.method}' returned None output")
                 return np.zeros(image.shape[:2], dtype=np.uint8)
@@ -230,9 +217,7 @@ class ONNXSegmenter(BaseSegmenter):
             w = image.shape[1] if image.ndim >= 2 else self.input_shape[3]
             return np.zeros((h, w), dtype=np.uint8)
 
-    def segment_with_mask(
-        self, image: ImageInput, **kwargs: Any
-    ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
+    def segment_with_mask(self, image: ImageInput, **kwargs: Any) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
         """Сегментация с возвратом бинарной и вероятностной масок.
 
         Для ONNX-модели возвращаем только бинарную маску,
@@ -295,9 +280,7 @@ class TRTSegmenter(BaseSegmenter):
 
             loaded_model: Optional[TRTModel] = load_trt_model(trt_model_or_path)
             if loaded_model is None:
-                raise RuntimeError(
-                    f"Не удалось загрузить TRT модель: {trt_model_or_path}"
-                )
+                raise RuntimeError(f"Не удалось загрузить TRT модель: {trt_model_or_path}")
             self.model: TRTModel = loaded_model
         else:
             self.model = trt_model_or_path
@@ -327,12 +310,7 @@ class TRTSegmenter(BaseSegmenter):
 
             # Нормализация и конвертация в torch
             tensor: torch.Tensor = (
-                torch.from_numpy(image)
-                .permute(2, 0, 1)
-                .float()
-                .div(255.0)
-                .unsqueeze(0)
-                .to(self.device)
+                torch.from_numpy(image).permute(2, 0, 1).float().div(255.0).unsqueeze(0).to(self.device)
             )
 
             with torch.no_grad():
@@ -344,9 +322,7 @@ class TRTSegmenter(BaseSegmenter):
                 mask_tensor = mask_tensor.squeeze(0)
 
             # Конвертация в uint8 [0, 255]
-            mask: BinaryMask = (
-                (mask_tensor.cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
-            )
+            mask: BinaryMask = (mask_tensor.cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
             return mask
 
         except Exception as e:
@@ -354,9 +330,7 @@ class TRTSegmenter(BaseSegmenter):
             h, w = image.shape[:2]
             return np.zeros((h, w), dtype=np.uint8)
 
-    def segment_with_mask(
-        self, image: ImageInput, **kwargs: Any
-    ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
+    def segment_with_mask(self, image: ImageInput, **kwargs: Any) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
         """Сегментация с возвратом бинарной и вероятностной масок.
 
         Для TRT-модели возвращаем только бинарную маску,

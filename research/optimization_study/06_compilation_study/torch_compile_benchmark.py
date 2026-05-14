@@ -60,10 +60,7 @@ class TorchCompileOptimizer:
 
         # Проверка доступности torch.compile
         if not hasattr(torch, "compile") or torch.__version__ < "2.0":
-            warnings.warn(
-                "torch.compile() requires PyTorch >= 2.0. "
-                f"Current version: {torch.__version__}"
-            )
+            warnings.warn("torch.compile() requires PyTorch >= 2.0. " f"Current version: {torch.__version__}")
             self._compile_available = False
         else:
             self._compile_available = True
@@ -168,10 +165,7 @@ class TorchCompileOptimizer:
             return compiled_func
 
         except Exception as e:
-            warnings.warn(
-                f"torch.compile failed for '{method_name}': {e}. "
-                f"Using original function."
-            )
+            warnings.warn(f"torch.compile failed for '{method_name}': {e}. " f"Using original function.")
             return
 
     def benchmark(
@@ -236,9 +230,7 @@ class TorchCompileOptimizer:
         speedup = orig_mean / comp_mean if comp_mean > 0 else float("inf")
 
         # Получаем время компиляции из кэша
-        compile_info = self.compiled_methods.get(method_name, {}).get(
-            f"compile_{mode}", {}
-        )
+        compile_info = self.compiled_methods.get(method_name, {}).get(f"compile_{mode}", {})
 
         return {
             "method": method_name,

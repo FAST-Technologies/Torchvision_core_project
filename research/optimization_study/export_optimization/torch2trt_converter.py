@@ -75,8 +75,7 @@ class Torch2TRTOptimizer:
         """
         if method_name not in self.segmenter.method_map:
             raise ValueError(
-                f"Method '{method_name}' not found. "
-                f"Available: {list(self.segmenter.method_map.keys())}"
+                f"Method '{method_name}' not found. " f"Available: {list(self.segmenter.method_map.keys())}"
             )
 
         original_func = self.segmenter.method_map[method_name]
@@ -117,9 +116,7 @@ class Torch2TRTOptimizer:
         self.engines[method_name] = trt_wrapper
         return trt_wrapper
 
-    def benchmark_trt_vs_torch(
-        self, method_name: str, n_runs: int = 100, **convert_kwargs
-    ) -> Dict[str, float]:
+    def benchmark_trt_vs_torch(self, method_name: str, n_runs: int = 100, **convert_kwargs) -> Dict[str, float]:
         """Бенчмарк torch2trt vs оригинал."""
         if method_name not in self.engines:
             trt_func = self.convert_method_to_trt(method_name, **convert_kwargs)

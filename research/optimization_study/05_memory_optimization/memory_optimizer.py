@@ -98,15 +98,10 @@ class MemoryOptimizer:
         if method_name in self.config.exclude_methods:
             return MemoryPolicy.LAZY
 
-        if (
-            self.config.include_methods
-            and method_name not in self.config.include_methods
-        ):
+        if self.config.include_methods and method_name not in self.config.include_methods:
             return MemoryPolicy.LAZY
 
-        return MEMORY_POLICIES.get(
-            method_name, MEMORY_POLICIES.get("default", self.config.policy)
-        )
+        return MEMORY_POLICIES.get(method_name, MEMORY_POLICIES.get("default", self.config.policy))
 
     def _apply_inplace_optimizations(
         self,
@@ -148,8 +143,7 @@ class MemoryOptimizer:
                 shape=(1, 1, window_size, window_size),
                 dtype=torch.float32,
                 device=self.device,
-                creator=lambda s, d, dev: torch.ones(s, dtype=d, device=dev)
-                / (window_size**2),
+                creator=lambda s, d, dev: torch.ones(s, dtype=d, device=dev) / (window_size**2),
             )
 
         # Градиентные методы
@@ -165,9 +159,7 @@ class MemoryOptimizer:
                     shape=(1, 1, 3, 3),
                     dtype=torch.float32,
                     device=self.device,
-                    creator=lambda s, d, dev: torch.tensor(
-                        kernel_data, dtype=d, device=dev
-                    ).view(s),
+                    creator=lambda s, d, dev: torch.tensor(kernel_data, dtype=d, device=dev).view(s),
                 )
 
     def optimize_method(
@@ -197,9 +189,7 @@ class MemoryOptimizer:
         if self.config.verbose:
             print(f"🔍 Profiling {method_name} (baseline)...")
 
-        baseline_report = self.profiler.profile_method(
-            original_func, input_tensor, n_runs=n_runs
-        )
+        baseline_report = self.profiler.profile_method(original_func, input_tensor, n_runs=n_runs)
         original_peak = baseline_report.get("peak_mb_mean", 0)
 
         # === Применение оптимизаций ===
@@ -210,9 +200,7 @@ class MemoryOptimizer:
         self._precompute_and_cache_kernels(method_name)
 
         # 2. Inplace-оптимизации
-        optimized_func = self._apply_inplace_optimizations(
-            original_func, method_name, input_tensor
-        )
+        optimized_func = self._apply_inplace_optimizations(original_func, method_name, input_tensor)
 
         # 3. Очистка перед замером
         clear_memory(str(self.device.type), aggressive=True)
@@ -221,16 +209,13 @@ class MemoryOptimizer:
         if self.config.verbose:
             print(f"🔍 Profiling {method_name} (optimized)...")
 
-        optimized_report = self.profiler.profile_method(
-            optimized_func, input_tensor, n_runs=n_runs
-        )
+        optimized_report = self.profiler.profile_method(optimized_func, input_tensor, n_runs=n_runs)
         optimized_peak = optimized_report.get("peak_mb_mean", 0)
 
         # === Анализ результатов ===
         memory_saved = original_peak - optimized_peak
         speedup = (
-            baseline_report.get("time_mean_ms", 1)
-            / optimized_report.get("time_mean_ms", 1)
+            baseline_report.get("time_mean_ms", 1) / optimized_report.get("time_mean_ms", 1)
             if "time_mean_ms" in baseline_report
             else 1.0
         )
@@ -238,9 +223,7 @@ class MemoryOptimizer:
         # Рекомендации
         recommendations = []
         if memory_saved < 0:
-            recommendations.append(
-                "⚠️  Memory increased — check for redundant allocations"
-            )
+            recommendations.append("⚠️  Memory increased — check for redundant allocations")
         if optimized_report.get("leak_detected", False):
             recommendations.append("🔍 Memory leak detected — review tensor lifecycle")
         if policy == MemoryPolicy.LAZY and original_peak > 100:
@@ -285,11 +268,7 @@ class MemoryOptimizer:
             List[OptimizationReport]
         """
         if methods is None:
-            methods = [
-                m
-                for m in self.segmenter.method_map.keys()
-                if m not in self.config.exclude_methods
-            ]
+            methods = [m for m in self.segmenter.method_map.keys() if m not in self.config.exclude_methods]
 
         if input_tensor is None:
             input_tensor = torch.randn(1, 1, 512, 512, device=self.device)

@@ -28,8 +28,7 @@ def get_compilation_capabilities(device: str = "cuda") -> Dict[str, Any]:
     capabilities = {
         "torch_version": torch.__version__,
         "jit_available": hasattr(torch, "jit"),
-        "torch_compile_available": hasattr(torch, "compile")
-        and torch.__version__ >= "2.0",
+        "torch_compile_available": hasattr(torch, "compile") and torch.__version__ >= "2.0",
         "cudagraphs_supported": False,
         "inductor_available": False,
     }
@@ -51,9 +50,7 @@ def get_compilation_capabilities(device: str = "cuda") -> Dict[str, Any]:
     return capabilities
 
 
-def is_graph_stable(
-    func: Callable, example_input: torch.Tensor, n_tests: int = 3
-) -> bool:
+def is_graph_stable(func: Callable, example_input: torch.Tensor, n_tests: int = 3) -> bool:
     """
     Проверяет стабильность графа вычислений функции.
 
@@ -85,9 +82,7 @@ def is_graph_stable(
         return False
 
 
-def estimate_compilation_overhead(
-    compile_func: Callable, example_input: torch.Tensor, n_warmup: int = 3
-) -> float:
+def estimate_compilation_overhead(compile_func: Callable, example_input: torch.Tensor, n_warmup: int = 3) -> float:
     """
     Оценивает накладные расходы на компиляцию.
 
@@ -121,9 +116,7 @@ def format_speedup(ratio: float) -> str:
         return f"{ratio:.3f}×"
 
 
-def analyze_graph_structure(
-    func: Callable, example_input: torch.Tensor
-) -> Dict[str, Any]:
+def analyze_graph_structure(func: Callable, example_input: torch.Tensor) -> Dict[str, Any]:
     """
     Анализирует структуру графа вычислений.
 
@@ -148,15 +141,11 @@ def analyze_graph_structure(
 
         # Оценка сложности
         num_ops = len(operations)
-        num_params = sum(
-            1 for n in operations if n.kind() in ["prim::Param", "prim::Constant"]
-        )
+        num_params = sum(1 for n in operations if n.kind() in ["prim::Param", "prim::Constant"])
 
         # Потенциал для оптимизации
         fusion_candidates = sum(
-            1
-            for op in op_types.keys()
-            if any(k in op.lower() for k in ["conv", "add", "mul", "relu", "batchnorm"])
+            1 for op in op_types.keys() if any(k in op.lower() for k in ["conv", "add", "mul", "relu", "batchnorm"])
         )
 
         return {

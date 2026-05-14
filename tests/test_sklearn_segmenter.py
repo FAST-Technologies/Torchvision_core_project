@@ -7,9 +7,10 @@
 - Конвертацию в оттенки серого через `preprocess_image(as_gray=True)`.
 - Поведение при попытке использовать неизвестный метод.
 
-Все тесты проверяют целостность выходной маски: форма `(H, W)`, 
+Все тесты проверяют целостность выходной маски: форма `(H, W)`,
 тип `uint8`, отсутствие `None` или артефактов.
 """
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -27,12 +28,13 @@ from segmenters.SklearnSegmenter import SklearnSegmenter
 # ──────────────────────────────────────────────────────────────────────
 class TestSklearnSegmenter:
     """Класс тестов для SklearnSegmenter."""
+
     @pytest.fixture
     def segmenter(self) -> SklearnSegmenter:
         """Создаёт базовый экземпляр сегментера для изолированных тестов.
-        
+
         Returns:
-            SklearnSegmenter: Сегментер с методом `global_thresholding` 
+            SklearnSegmenter: Сегментер с методом `global_thresholding`
             и порогом 0.5.
         """
         return SklearnSegmenter("global_thresholding", threshold=0.5)
@@ -40,6 +42,7 @@ class TestSklearnSegmenter:
     def test_import(self) -> None:
         """Проверяет успешный импорт класса SklearnSegmenter."""
         from segmenters.SklearnSegmenter import SklearnSegmenter
+
         assert SklearnSegmenter is not None
 
     def test_initialization(self) -> None:
@@ -57,8 +60,8 @@ class TestSklearnSegmenter:
 
     def test_segment_grayscale_normalized(self) -> None:
         """Тестирует обработку нормализованного grayscale-входа [0, 1].
-        
-        Убеждается, что метод корректно работает с float32-входом 
+
+        Убеждается, что метод корректно работает с float32-входом
         без предварительного масштабирования к [0, 255].
         """
         gray: np.ndarray = np.random.rand(128, 128).astype(np.float32)
@@ -79,13 +82,11 @@ class TestSklearnSegmenter:
             ("canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
         ],
     )
-    def test_methods_basic(
-        self, rgb_image: np.ndarray, method: str, params: Dict[str, Any]
-    ) -> None:
+    def test_methods_basic(self, rgb_image: np.ndarray, method: str, params: Dict[str, Any]) -> None:
         """Параметризованный тест базовых методов сегментации.
-        
-        Проверяет, что каждый метод из списка успешно инициализируется, 
-        принимает указанные параметры и возвращает валидную бинарную маску 
+
+        Проверяет, что каждый метод из списка успешно инициализируется,
+        принимает указанные параметры и возвращает валидную бинарную маску
         правильной формы и типа данных.
         """
         seg = SklearnSegmenter(method, **params)
@@ -103,8 +104,8 @@ class TestSklearnSegmenter:
 
     def test_canny_with_quantiles(self, rgb_image: np.ndarray) -> None:
         """Валидирует работу Canny с отключённым режимом квантилей (`use_quantiles=False`).
-        
-        Ожидается корректная интерпретация порогов `low`/`high` как 
+
+        Ожидается корректная интерпретация порогов `low`/`high` как
         абсолютных значений вместо процентилей.
         """
         seg = SklearnSegmenter("canny_edge", low=0.1, high=0.3, use_quantiles=False)

@@ -109,9 +109,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -179,7 +177,7 @@ class PredictionCache:
     Ключи генерируются на основе mtime чекпоинта, пути к изображению и хэша конфигурации.
 
     Args:
-        cache_dir: Путь к директории для хранения `.pkl` файлов.
+        cache_dir: Путь к директории для хранения `.npy` файлов.
         max_size_gb: Максимальный размер кэша в гигабайтах.
 
     Returns:
@@ -221,17 +219,17 @@ class PredictionCache:
         Returns:
             Optional[np.ndarray]: Массив предсказания или None, если кэш отсутствует/повреждён.
         """
-        cache_file: Path = self.cache_dir / f"{key}.pkl"
+        cache_file: Path = self.cache_dir / f"{key}.npy"  # ← меняем расширение
         if cache_file.exists():
             try:
-                with open(cache_file, "rb") as f:
-                    result = pickle.load(f)
-                    if isinstance(result, np.ndarray):
-                        return result
-                    logger.warning(f"⚠️  Неверный тип в кэше {key}: {type(result)}")
-                    cache_file.unlink(missing_ok=True)
+                # np.load безопасен для файлов, созданных np.save
+                result = np.load(cache_file, allow_pickle=False)
+                if isinstance(result, np.ndarray):
+                    return result
+                logger.warning(f"⚠️ Неверный тип в кэше {key}: {type(result)}")
+                cache_file.unlink(missing_ok=True)
             except Exception as e:
-                logger.warning(f"⚠️  Ошибка чтения кэша {key}: {e}")
+                logger.warning(f"⚠️ Ошибка чтения кэша {key}: {e}")
                 cache_file.unlink(missing_ok=True)
         return None
 
@@ -245,20 +243,20 @@ class PredictionCache:
 
         Note:
             Перед записью проверяется суммарный размер каталога.
-            При превышении лимита удаляются самые старые `.pkl` файлы.
+            При превышении лимита удаляются самые старые `.npy` файлы.
         """
-        cache_file: Path = self.cache_dir / f"{key}.pkl"
-        total_size: int = sum(f.stat().st_size for f in self.cache_dir.glob("*.pkl"))
+        cache_file: Path = self.cache_dir / f"{key}.npy"
+        total_size: int = sum(f.stat().st_size for f in self.cache_dir.glob("*.npy"))
         while total_size + prediction.nbytes > self.max_bytes:
             oldest: Optional[Path] = min(
-                self.cache_dir.glob("*.pkl"),
+                self.cache_dir.glob("*.npy"),
                 key=lambda f: f.stat().st_mtime,
                 default=None,
             )
             if oldest is None:
                 break
             oldest.unlink()
-            total_size = sum(f.stat().st_size for f in self.cache_dir.glob("*.pkl"))
+            total_size = sum(f.stat().st_size for f in self.cache_dir.glob("*.npy"))
 
         with open(cache_file, "wb") as f:
             pickle.dump(prediction, f)
@@ -271,7 +269,7 @@ class PredictionCache:
             int: Количество удалённых файлов.
         """
         count: int = 0
-        for f in self.cache_dir.glob("*.pkl"):
+        for f in self.cache_dir.glob("*.npy"):
             f.unlink()
             count += 1
         logger.info(f"🗑️  Очищено {count} файлов кэша")
@@ -463,16 +461,12 @@ def safe_inference_context(model_name: str, image_name: str):
         gc.collect()
         raise
     except Exception as e:
-        logger.error(
-            f"Ошибка {model_name}/{image_name}: {type(e).__name__}: {e}", exc_info=True
-        )
+        logger.error(f"Ошибка {model_name}/{image_name}: {type(e).__name__}: {e}", exc_info=True)
         raise
 
 
 # ──────────────────────────────────────────────────────────────────────
-def _check_precision_support(
-    model: Optional[nn.Module], dtype: torch.dtype, device: str
-) -> bool:
+def _check_precision_support(model: Optional[nn.Module], dtype: torch.dtype, device: str) -> bool:
     """Проверка совместимости точности вычислений с устройством.
 
     Args:
@@ -573,9 +567,7 @@ def save_augmentation_comparison_grid(
     output_path.mkdir(parents=True, exist_ok=True)
 
     if model_names is None:
-        models: List[str] = list(
-            set(extract_model_aug_from_key(k)[0] for k in overlay_images.keys())
-        )
+        models: List[str] = list(set(extract_model_aug_from_key(k)[0] for k in overlay_images.keys()))
     else:
         models = model_names
 
@@ -589,16 +581,12 @@ def save_augmentation_comparison_grid(
     for row, model in enumerate(models):
         for col, aug in enumerate(["none", "basic", "medium"]):
             # Ищем ключи, содержащие модель и аугментацию (любое изображение)
-            matching_keys: List[str] = [
-                k for k in overlay_images.keys() if k.startswith(f"{model}_{aug}_")
-            ]
+            matching_keys: List[str] = [k for k in overlay_images.keys() if k.startswith(f"{model}_{aug}_")]
             ax = axes[row, col]
 
             if matching_keys and overlay_images[matching_keys[0]] is not None:
                 ax.imshow(overlay_images[matching_keys[0]])
-                ax.set_title(
-                    f"{aug.upper()}", fontsize=10, fontweight="bold", color="darkblue"
-                )
+                ax.set_title(f"{aug.upper()}", fontsize=10, fontweight="bold", color="darkblue")
                 ax.axis("off")
             else:
                 ax.set_facecolor("#f5f5f5")
@@ -613,9 +601,7 @@ def save_augmentation_comparison_grid(
                     color="gray",
                     fontweight="bold",
                 )
-                ax.set_title(
-                    f"{aug.upper()}", fontsize=10, fontweight="bold", color="gray"
-                )
+                ax.set_title(f"{aug.upper()}", fontsize=10, fontweight="bold", color="gray")
                 ax.axis("off")
 
         axes[row, 0].set_ylabel(
@@ -637,9 +623,7 @@ def save_augmentation_comparison_grid(
     plt.tight_layout(rect=(0, 0, 1, 0.98))
 
     grid_path: Path = output_path / Path("full_comparison_grid.png")
-    plt.savefig(
-        grid_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none"
-    )
+    plt.savefig(grid_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close()
     print(f"✅ Полная сетка сравнения: {grid_path}")
 
@@ -661,9 +645,7 @@ def save_model_augmentation_comparisons(
     output_path.mkdir(parents=True, exist_ok=True)
 
     if models is None:
-        models = list(
-            set(extract_model_aug_from_key(k)[0] for k in overlay_images.keys())
-        )
+        models = list(set(extract_model_aug_from_key(k)[0] for k in overlay_images.keys()))
 
     print(f"\n🖼️ Сохранение сравнения визуализаций ({len(overlay_images)} оверлеев)...")
     print(f"   Найдено моделей: {models}")
@@ -673,9 +655,7 @@ def save_model_augmentation_comparisons(
         fig.suptitle(f"{model}: сравнение аугментаций", fontsize=14, fontweight="bold")
 
         for idx, aug in enumerate(["none", "basic", "medium"]):
-            matching_keys: List[str] = [
-                k for k in overlay_images.keys() if k.startswith(f"{model}_{aug}_")
-            ]
+            matching_keys: List[str] = [k for k in overlay_images.keys() if k.startswith(f"{model}_{aug}_")]
             ax = axes[idx]
 
             if matching_keys:
@@ -751,9 +731,7 @@ class BatchNeuralTester:
             if getattr(config, "clear_cache", False):
                 temp_cache: PredictionCache = PredictionCache(cache_dir)
                 temp_cache.clear()
-            self.cache = PredictionCache(
-                cache_dir=cache_dir, max_size_gb=getattr(config, "cache_max_gb", 10.0)
-            )
+            self.cache = PredictionCache(cache_dir=cache_dir, max_size_gb=getattr(config, "cache_max_gb", 10.0))
             logger.info(f"✅ Кэш инициализирован: {cache_dir}")
 
         self.tracker: Optional[str] = None
@@ -845,31 +823,21 @@ class BatchNeuralTester:
         if local_path and Path(local_path).exists():
             data_path: Path = Path(local_path)
             print(f"🔍 Поиск датасета в: {data_path.resolve()}")
-            print(
-                f"   images/validation: {(data_path / 'images' / 'validation').exists()}"
-            )
-            print(
-                f"   annotations/validation: {(data_path / 'annotations' / 'validation').exists()}"
-            )
+            print(f"   images/validation: {(data_path / 'images' / 'validation').exists()}")
+            print(f"   annotations/validation: {(data_path / 'annotations' / 'validation').exists()}")
 
             images_dir: Path = data_path / "images" / "validation"
             masks_dir: Path = data_path / "annotations" / "validation"
 
             if not images_dir.exists():
-                alt_images: Path = (
-                    data_path / "ADEChallengeData2016" / "images" / "validation"
-                )
-                alt_masks: Path = (
-                    data_path / "ADEChallengeData2016" / "annotations" / "validation"
-                )
+                alt_images: Path = data_path / "ADEChallengeData2016" / "images" / "validation"
+                alt_masks: Path = data_path / "ADEChallengeData2016" / "annotations" / "validation"
                 if alt_images.exists() and alt_masks.exists():
                     print(f"   [Alt] images/validation: {alt_images.exists()}")
                     print(f"   [Alt] annotations/validation: {alt_masks.exists()}")
                     images_dir, masks_dir = alt_images, alt_masks
                     if self.config.verbose:
-                        logger.info(
-                            f"🔍 Используется альтернативная структура: ADEChallengeData2016"
-                        )
+                        logger.info(f"🔍 Используется альтернативная структура: ADEChallengeData2016")
 
             if not images_dir.exists():
                 alt_images = data_path / "ade20k" / "images" / "validation"
@@ -889,18 +857,10 @@ class BatchNeuralTester:
                 mask_files: List[str] = [f for f in files if f.endswith(".png")]
 
                 for img_file in img_files[: self.config.subset_size or len(img_files)]:
-                    img_path = Path(
-                        hf_hub_download(
-                            repo_id=repo_id, filename=img_file, repo_type="dataset"
-                        )
-                    )
+                    img_path = Path(hf_hub_download(repo_id=repo_id, filename=img_file, repo_type="dataset"))
                     mask_file = img_file.replace(".jpg", ".png")
                     if mask_file in mask_files:
-                        mask_path = Path(
-                            hf_hub_download(
-                                repo_id=repo_id, filename=mask_file, repo_type="dataset"
-                            )
-                        )
+                        mask_path = Path(hf_hub_download(repo_id=repo_id, filename=mask_file, repo_type="dataset"))
                         image_mask_pairs.append((Path(img_path), Path(mask_path)))
             except Exception as e:
                 logger.error(f"Ошибка загрузки из HF: {e}")
@@ -922,9 +882,7 @@ class BatchNeuralTester:
 
         if self.config.subset_size and len(image_mask_pairs) > self.config.subset_size:
             np.random.seed(self.config.random_seed)
-            indices: np.ndarray = np.random.choice(
-                len(image_mask_pairs), self.config.subset_size, replace=False
-            )
+            indices: np.ndarray = np.random.choice(len(image_mask_pairs), self.config.subset_size, replace=False)
             image_mask_pairs = [image_mask_pairs[i] for i in sorted(indices)]
 
         if self.config.verbose:
@@ -933,9 +891,7 @@ class BatchNeuralTester:
         return image_mask_pairs
 
     # ──────────────────────────────────────────────────────────────────────
-    def _resize_mask(
-        self, mask: MaskArray, target_shape: Tuple[int, int], order: int = 0
-    ) -> MaskArray:
+    def _resize_mask(self, mask: MaskArray, target_shape: Tuple[int, int], order: int = 0) -> MaskArray:
         """Ресайз маски предсказания под размер Ground Truth.
 
         Args:
@@ -978,9 +934,7 @@ class BatchNeuralTester:
 
         pred_valid: np.ndarray = np.where(valid_mask, pred, ignore_index)
         gt_valid: MaskArray = gt
-        classes: np.ndarray = np.unique(
-            np.concatenate([gt_valid[valid_mask], pred_valid[valid_mask]])
-        )
+        classes: np.ndarray = np.unique(np.concatenate([gt_valid[valid_mask], pred_valid[valid_mask]]))
         iou_per_class: Dict[int, float] = {}
 
         for cls in classes:
@@ -1070,22 +1024,16 @@ class BatchNeuralTester:
                 gt_c: np.ndarray = gt == cls
                 intersection: int = int(np.logical_and(pred_c, gt_c).sum())
                 union: int = int(pred_c.sum() + gt_c.sum())
-                dice: float = (
-                    (2.0 * intersection) / (union + 1e-8) if union > 0 else 0.0
-                )
+                dice: float = (2.0 * intersection) / (union + 1e-8) if union > 0 else 0.0
                 dice_per_class[cls] = dice
                 results[f"dice_class_{cls}"] = dice
 
-            results["m_dice"] = (
-                float(np.mean(list(dice_per_class.values()))) if dice_per_class else 0.0
-            )
+            results["m_dice"] = float(np.mean(list(dice_per_class.values()))) if dice_per_class else 0.0
 
             # ──────────────────────────────────────────────────────────────
             # 3. Per-class Precision/Recall (для анализа дисбаланса)
             # ──────────────────────────────────────────────────────────────
-            for cls in range(
-                min(20, num_classes)
-            ):  # Ограничим первыми 10 классами для экономии
+            for cls in range(min(20, num_classes)):  # Ограничим первыми 10 классами для экономии
                 if cls == ignore_index:
                     continue
                 pred_c = (pred == cls).astype(np.uint8)
@@ -1111,9 +1059,7 @@ class BatchNeuralTester:
                 gt_mask_c: np.ndarray = gt == cls
 
                 # Границы = dilation XOR erosion
-                pred_boundary = binary_dilation(pred_mask_c) ^ binary_erosion(
-                    pred_mask_c
-                )
+                pred_boundary = binary_dilation(pred_mask_c) ^ binary_erosion(pred_mask_c)
                 gt_boundary = binary_dilation(gt_mask_c) ^ binary_erosion(gt_mask_c)
 
                 tp_b = np.logical_and(pred_boundary, gt_boundary).sum()
@@ -1197,21 +1143,13 @@ class BatchNeuralTester:
         # === 1. Загрузка модели с учётом точности ===
         dtype: torch.dtype = self._resolve_torch_dtype(precision)
         if not _check_precision_support(None, dtype, self.config.device):
-            logger.warning(
-                f"⚠️ {precision} не поддерживается на {self.config.device}, fallback на fp32"
-            )
+            logger.warning(f"⚠️ {precision} не поддерживается на {self.config.device}, fallback на fp32")
             dtype = torch.float32
             precision = "fp32"
 
         if self.config.verbose:
-            actual_precision = (
-                "fp16"
-                if dtype == torch.float16
-                else "bf16" if dtype == torch.bfloat16 else "fp32"
-            )
-            logger.info(
-                f"🎯 Точность инференса: {actual_precision} (запрошено: {precision})"
-            )
+            actual_precision = "fp16" if dtype == torch.float16 else "bf16" if dtype == torch.bfloat16 else "fp32"
+            logger.info(f"🎯 Точность инференса: {actual_precision} (запрошено: {precision})")
 
         segmenter = NeuralSegmenter(
             model_type=checkpoint.model_type,
@@ -1225,14 +1163,10 @@ class BatchNeuralTester:
         if dtype != torch.float32:
             segmenter.model = segmenter.model.to(dtype)
 
-        autocast_enabled: bool = (dtype != torch.float32) and (
-            self.config.device == "cuda"
-        )
+        autocast_enabled: bool = (dtype != torch.float32) and (self.config.device == "cuda")
 
         if self.config.verbose:
-            logger.info(
-                f"Тестирование {checkpoint.display_name} на {len(image_pairs)} изображениях..."
-            )
+            logger.info(f"Тестирование {checkpoint.display_name} на {len(image_pairs)} изображениях...")
 
         completed: Set[str] = self._load_completed_runs()
 
@@ -1254,20 +1188,14 @@ class BatchNeuralTester:
 
                 cached_pred: Optional[np.ndarray] = None
                 if cache is not None and config_hash:
-                    cache_key: str = cache._get_key(
-                        checkpoint.path, img_path, config_hash
-                    )
+                    cache_key: str = cache._get_key(checkpoint.path, img_path, config_hash)
                     cached_pred = cache.get(cache_key)
                     if cached_pred is not None and self.config.verbose:
                         logger.debug(f"♻️  Кэш-хит: {cache_key}")
 
                 # === 2. Инференс с контролем точности ===
                 with safe_inference_context(checkpoint.key, img_path.name):
-                    amp_ctx = (
-                        torch.amp.autocast(self.config.device, dtype=dtype)
-                        if autocast_enabled
-                        else nullcontext()
-                    )
+                    amp_ctx = torch.amp.autocast(self.config.device, dtype=dtype) if autocast_enabled else nullcontext()
 
                     if cached_pred is not None:
                         pred_mask = cached_pred
@@ -1279,20 +1207,12 @@ class BatchNeuralTester:
 
                             # Конвертация в Tensor с явной типизацией
                             if isinstance(input_raw, np.ndarray):
-                                input_tensor: torch.Tensor = torch.from_numpy(
-                                    input_raw
-                                ).float()
+                                input_tensor: torch.Tensor = torch.from_numpy(input_raw).float()
                             elif isinstance(input_raw, torch.Tensor):
                                 # Если уже тензор — приводим к нужной точности
-                                input_tensor = (
-                                    input_raw.float()
-                                    if input_raw.is_floating_point()
-                                    else input_raw
-                                )
+                                input_tensor = input_raw.float() if input_raw.is_floating_point() else input_raw
                             else:
-                                raise TypeError(
-                                    f"Неожиданный тип входных данных: {type(input_raw)}"
-                                )
+                                raise TypeError(f"Неожиданный тип входных данных: {type(input_raw)}")
 
                             # Перенос на устройство + приведение к точности (одной операцией)
                             input_tensor = input_tensor.to(
@@ -1301,9 +1221,7 @@ class BatchNeuralTester:
                                 non_blocking=True,
                             )
                             if input_tensor.dtype != dtype:
-                                input_tensor = input_tensor.to(
-                                    dtype=dtype, non_blocking=True
-                                )
+                                input_tensor = input_tensor.to(dtype=dtype, non_blocking=True)
 
                             if hasattr(segmenter, "_forward"):
                                 with (
@@ -1311,18 +1229,12 @@ class BatchNeuralTester:
                                     if autocast_enabled
                                     else nullcontext()
                                 ):
-                                    output = segmenter._forward(
-                                        input_tensor.unsqueeze(0)
-                                    )
-                                    pred_mask = (
-                                        output.squeeze(0).argmax(dim=0).cpu().numpy()
-                                    )
+                                    output = segmenter._forward(input_tensor.unsqueeze(0))
+                                    pred_mask = output.squeeze(0).argmax(dim=0).cpu().numpy()
                             else:
                                 # Fallback: обрабатываем разный return type
-                                result: Tuple[np.ndarray, Dict[str, Any]] = (
-                                    segmenter.predict_segmentation_map(
-                                        test_image, verbose=False, gt_mask=gt_mask
-                                    )
+                                result: Tuple[np.ndarray, Dict[str, Any]] = segmenter.predict_segmentation_map(
+                                    test_image, verbose=False, gt_mask=gt_mask
                                 )
                                 if isinstance(result, tuple) and len(result) >= 2:
                                     pred_mask, _ = result
@@ -1334,9 +1246,7 @@ class BatchNeuralTester:
                             inference_time = time.perf_counter() - start_time
 
                         if cache is not None and config_hash and pred_mask is not None:
-                            cache_key = cache._get_key(
-                                checkpoint.path, img_path, config_hash
-                            )
+                            cache_key = cache._get_key(checkpoint.path, img_path, config_hash)
                             cache.set(cache_key, pred_mask)
 
                     self._mark_completed(checkpoint.key, img_path.name)
@@ -1346,33 +1256,23 @@ class BatchNeuralTester:
                 else:
                     pred_resized = pred_mask
 
-                m_iou, _ = self._calculate_multiclass_iou(
-                    pred_resized, gt_mask, self.config.ignore_index
-                )
-                binary_metrics = self._calculate_binary_metrics(
-                    pred_resized, gt_mask, self.config.metrics
-                )
+                m_iou, _ = self._calculate_multiclass_iou(pred_resized, gt_mask, self.config.ignore_index)
+                binary_metrics = self._calculate_binary_metrics(pred_resized, gt_mask, self.config.metrics)
                 comprehensive = self._calculate_comprehensive_metrics(
                     pred_resized,
                     gt_mask,
                     num_classes=self.config.num_classes,
                     ignore_index=self.config.ignore_index,
-                    compute_boundary_f1=getattr(
-                        self.config, "compute_boundary_f1", False
-                    ),
+                    compute_boundary_f1=getattr(self.config, "compute_boundary_f1", False),
                 )
 
                 # Визуализация: вынесено в отдельный метод + безопасный вызов
                 overlay: Image.Image
                 if self.config.save_visualizations:
                     try:
-                        if dtype != torch.float32 and hasattr(
-                            segmenter, "segment_image_unified"
-                        ):
+                        if dtype != torch.float32 and hasattr(segmenter, "segment_image_unified"):
                             model_for_viz: nn.Module = cast(nn.Module, segmenter.model)
-                            original_dtype: torch.dtype = self._get_model_dtype(
-                                model_for_viz
-                            )
+                            original_dtype: torch.dtype = self._get_model_dtype(model_for_viz)
 
                             model_for_viz = model_for_viz.float()
                             overlay_result = segmenter.segment_image_unified(  # type: ignore[union-attr]
@@ -1382,17 +1282,10 @@ class BatchNeuralTester:
                             )
                             model_for_viz = model_for_viz.to(original_dtype)
                             if overlay_result is None:
-                                logger.warning(
-                                    f"⚠️ segment_image_unified вернул None для {img_path.name}"
-                                )
-                                overlay = self._create_simple_overlay(
-                                    test_image, pred_resized
-                                )
+                                logger.warning(f"⚠️ segment_image_unified вернул None для {img_path.name}")
+                                overlay = self._create_simple_overlay(test_image, pred_resized)
                             else:
-                                if (
-                                    isinstance(overlay_result, tuple)
-                                    and len(overlay_result) > 0
-                                ):
+                                if isinstance(overlay_result, tuple) and len(overlay_result) > 0:
                                     overlay = overlay_result[0]
                                 else:
                                     overlay = overlay_result
@@ -1404,18 +1297,12 @@ class BatchNeuralTester:
                                         gt_mask,
                                         palette=NeuralSegmenter.ade_palette(),
                                         class_names=NeuralSegmenter.get_ade_class_names(),
-                                        alpha=getattr(
-                                            self.config, "overlay_alpha", 0.5
-                                        ),
+                                        alpha=getattr(self.config, "overlay_alpha", 0.5),
                                         show_legend=True,
                                     )
-                                    logger.debug(
-                                        f"🎨 Создан class-aware overlay для {img_path.name}"
-                                    )
+                                    logger.debug(f"🎨 Создан class-aware overlay для {img_path.name}")
                                 else:
-                                    overlay = self._create_simple_overlay(
-                                        test_image, pred_resized
-                                    )
+                                    overlay = self._create_simple_overlay(test_image, pred_resized)
                         elif hasattr(segmenter, "_segment_with_visualization"):
                             tensor_input = segmenter.preprocess_image(test_image)
                             overlay, _ = segmenter._segment_with_visualization(
@@ -1426,9 +1313,7 @@ class BatchNeuralTester:
                             )
                         else:
                             # Fallback: простой оверлей через PIL
-                            overlay = self._create_simple_overlay(
-                                test_image, pred_resized
-                            )
+                            overlay = self._create_simple_overlay(test_image, pred_resized)
 
                         # Сохранение через вынесенный метод
                         self._save_overlay_if_needed(checkpoint, img_path, overlay)
@@ -1438,18 +1323,13 @@ class BatchNeuralTester:
                         # Fallback: сохранить предсказанную маску
                         try:
                             if pred_mask is not None:
-                                mask_vis = (
-                                    pred_mask * 255 / (pred_mask.max() + 1e-8)
-                                ).astype(np.uint8)
+                                mask_vis = (pred_mask * 255 / (pred_mask.max() + 1e-8)).astype(np.uint8)
                                 if mask_vis.ndim == 2:
                                     mask_vis = np.stack([mask_vis] * 3, axis=-1)
-                                viz_dir: Path = (
-                                    Path(self.config.output_dir) / "overlays"
-                                )
+                                viz_dir: Path = Path(self.config.output_dir) / "overlays"
                                 viz_dir.mkdir(parents=True, exist_ok=True)
                                 Image.fromarray(mask_vis).save(
-                                    viz_dir
-                                    / f"{checkpoint.key}_{img_path.stem}_fallback.png"
+                                    viz_dir / f"{checkpoint.key}_{img_path.stem}_fallback.png"
                                 )
                         except:
                             pass
@@ -1533,9 +1413,7 @@ class BatchNeuralTester:
         return mapping.get(precision.lower(), torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _create_simple_overlay(
-        self, image: Image.Image, pred: MaskArray, alpha: float = 0.5
-    ) -> Image.Image:
+    def _create_simple_overlay(self, image: Image.Image, pred: MaskArray, alpha: float = 0.5) -> Image.Image:
         """Создание базового оверлея через PIL (fallback метод).
 
         Args:
@@ -1576,9 +1454,7 @@ class BatchNeuralTester:
                 import mlflow
 
                 mlflow.set_experiment("ADE20K_Augmentation_Analysis")
-                mlflow.start_run(
-                    run_name=f"run_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}"
-                )
+                mlflow.start_run(run_name=f"run_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}")
                 mlflow.log_params(asdict(self.config))
                 self.tracker = "mlflow"
                 logger.info("✅ MLflow инициализирован")
@@ -1735,9 +1611,7 @@ class BatchNeuralTester:
                         preds: List[np.ndarray] = []
                         for img in batch:
                             if target_size and img.size != target_size:
-                                img_resized = img.resize(
-                                    target_size, Image.Resampling.BILINEAR
-                                )
+                                img_resized = img.resize(target_size, Image.Resampling.BILINEAR)
                                 input_tensor = segmenter.preprocess_image(img_resized)
                             else:
                                 input_tensor = segmenter.preprocess_image(img)
@@ -1745,23 +1619,15 @@ class BatchNeuralTester:
                             if isinstance(input_tensor, np.ndarray):
                                 input_tensor = torch.from_numpy(input_tensor).float()
 
-                            input_tensor = input_tensor.to(
-                                self.config.device, dtype=dtype, non_blocking=True
-                            )
+                            input_tensor = input_tensor.to(self.config.device, dtype=dtype, non_blocking=True)
 
                             # Инференс
                             if hasattr(segmenter, "_forward"):
                                 output = segmenter._forward(input_tensor.unsqueeze(0))
-                                pred_mask = (
-                                    output.squeeze(0).argmax(dim=0).cpu().numpy()
-                                )
+                                pred_mask = output.squeeze(0).argmax(dim=0).cpu().numpy()
                             else:
-                                result = segmenter.predict_segmentation_map(
-                                    img, verbose=False
-                                )
-                                pred_mask = (
-                                    result[0] if isinstance(result, tuple) else result
-                                )
+                                result = segmenter.predict_segmentation_map(img, verbose=False)
+                                pred_mask = result[0] if isinstance(result, tuple) else result
 
                             preds.append(pred_mask)
 
@@ -1777,9 +1643,7 @@ class BatchNeuralTester:
                         break
 
                     current_batch_size = max(1, current_batch_size // 2)
-                    logger.warning(
-                        f"⚠️  OOM, уменьшаем batch_size до {current_batch_size}"
-                    )
+                    logger.warning(f"⚠️  OOM, уменьшаем batch_size до {current_batch_size}")
                     batch = images[i : i + current_batch_size]
 
                 except Exception as e:
@@ -1792,7 +1656,7 @@ class BatchNeuralTester:
     def _profile_model_inference(
         self,
         model: nn.Module,
-        model_key: str, 
+        model_key: str,
         sample_input: torch.Tensor,
         output_dir: Path,
         num_warmup: int = 10,
@@ -1844,33 +1708,15 @@ class BatchNeuralTester:
                         torch.cuda.synchronize()
 
         results: Dict[str, Any] = {
-            "total_time_ms": getattr(
-                prof, "cpu_time_total", getattr(prof, "self_cpu_time_total", 0)
-            )
-            / 1e3
-            / num_runs,
-            "cuda_time_ms": getattr(
-                prof, "cuda_time_total", getattr(prof, "self_cuda_time_total", 0)
-            )
-            / 1e3
-            / num_runs,
-            "cpu_time_ms": getattr(
-                prof, "cpu_time_total", getattr(prof, "self_cpu_time_total", 0)
-            )
-            / 1e3
-            / num_runs,
-            "memory_allocated_mb": (
-                torch.cuda.max_memory_allocated() / 1e6
-                if torch.cuda.is_available()
-                else 0
-            ),
+            "total_time_ms": getattr(prof, "cpu_time_total", getattr(prof, "self_cpu_time_total", 0)) / 1e3 / num_runs,
+            "cuda_time_ms": getattr(prof, "cuda_time_total", getattr(prof, "self_cuda_time_total", 0)) / 1e3 / num_runs,
+            "cpu_time_ms": getattr(prof, "cpu_time_total", getattr(prof, "self_cpu_time_total", 0)) / 1e3 / num_runs,
+            "memory_allocated_mb": (torch.cuda.max_memory_allocated() / 1e6 if torch.cuda.is_available() else 0),
             "flops": sum(e.flops for e in prof.key_averages() if e.flops > 0),
         }
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        prof.export_chrome_trace(
-            str(output_dir / f"trace_{model_key}.json")
-        )
+        prof.export_chrome_trace(str(output_dir / f"trace_{model_key}.json"))
         prof.export_stacks(
             str(output_dir / f"stacks_{model_key}.txt"),
             "self_cuda_time_total",
@@ -1887,10 +1733,7 @@ class BatchNeuralTester:
             results["top_ops"] = [
                 {
                     "name": getattr(e, "key", str(e)),
-                    "cuda_time_ms": getattr(
-                        e, "cuda_time_total", getattr(e, "self_cuda_time_total", 0)
-                    )
-                    / 1e3,
+                    "cuda_time_ms": getattr(e, "cuda_time_total", getattr(e, "self_cuda_time_total", 0)) / 1e3,
                     "calls": getattr(e, "count", 0),
                 }
                 for e in list(key_avgs)[:10]
@@ -1936,9 +1779,7 @@ class BatchNeuralTester:
                 palette = NeuralSegmenter.ade_palette()
             if not palette:
                 np.random.seed(42)
-                palette = [
-                    [int(c) for c in np.random.randint(0, 255, 3)] for _ in range(150)
-                ]
+                palette = [[int(c) for c in np.random.randint(0, 255, 3)] for _ in range(150)]
 
         # ──────────────────────────────────────────────────────────────
         # 2. Конвертация предсказания в цветное изображение
@@ -1964,9 +1805,7 @@ class BatchNeuralTester:
             pred_color = zoom(pred_color, (sh, sw, 1), order=1).astype(np.uint8)
 
         # Наложение с прозрачностью
-        overlay_array: np.ndarray = (
-            img_array * (1 - alpha) + pred_color * alpha
-        ).astype(np.uint8)
+        overlay_array: np.ndarray = (img_array * (1 - alpha) + pred_color * alpha).astype(np.uint8)
 
         overlay_pil: Image.Image = Image.fromarray(overlay_array)
 
@@ -1979,9 +1818,7 @@ class BatchNeuralTester:
             # Шрифт с безопасным fallback
             font: ImageFont.FreeTypeFont | ImageFont.ImageFont
             try:
-                font = ImageFont.truetype(
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", size=10
-                )
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", size=10)
             except (OSError, IOError):
                 font = ImageFont.load_default()
 
@@ -2006,9 +1843,9 @@ class BatchNeuralTester:
                     available_classes.append(cls_id)
 
             # Сортировка по частоте встречаемости (по убыванию)
-            shown_classes: List[int] = sorted(
-                available_classes, key=lambda c: int(np.sum(pred == c)), reverse=True
-            )[:max_classes_legend]
+            shown_classes: List[int] = sorted(available_classes, key=lambda c: int(np.sum(pred == c)), reverse=True)[
+                :max_classes_legend
+            ]
 
             for cls_id in shown_classes:
                 if cls_id >= len(palette) or cls_id >= len(class_names):
@@ -2018,11 +1855,7 @@ class BatchNeuralTester:
                 color_list: List[int] = palette[cls_id]
                 color_tuple: Tuple[int, int, int] = tuple(color_list)  # type: ignore[assignment]
 
-                name: str = (
-                    class_names[cls_id]
-                    if cls_id < len(class_names)
-                    else f"Class {cls_id}"
-                )
+                name: str = class_names[cls_id] if cls_id < len(class_names) else f"Class {cls_id}"
 
                 draw.rectangle(
                     [legend_x, legend_y, legend_x + 12, legend_y + 12],
@@ -2136,9 +1969,7 @@ class BatchNeuralTester:
             logger.info(f"✅ ONNX exported: {onnx_path}")
 
         except Exception as e:
-            logger.error(
-                f"❌ ONNX export failed (params=True): {type(e).__name__}: {e}"
-            )
+            logger.error(f"❌ ONNX export failed (params=True): {type(e).__name__}: {e}")
 
             # Запасной вариант: экспорт без весов
             try:
@@ -2166,9 +1997,7 @@ class BatchNeuralTester:
                 logger.info(f"✅ ONNX exported (no params): {onnx_path}")
 
             except Exception as e2:
-                logger.error(
-                    f"❌ ONNX export failed completely: {type(e2).__name__}: {e2}"
-                )
+                logger.error(f"❌ ONNX export failed completely: {type(e2).__name__}: {e2}")
 
                 # Последняя попытка: смена opset
                 if opset_version != 18:
@@ -2190,16 +2019,16 @@ class BatchNeuralTester:
 
                 trt_version = tuple(map(int, torch_tensorrt.__version__.split(".")[:2]))
                 if trt_version < (1, 4):
-                    logger.warning(f"⚠️  torch-tensorrt {torch_tensorrt.__version__} может быть несовместим. Пропускаем TRT экспорт.")
+                    logger.warning(
+                        f"⚠️  torch-tensorrt {torch_tensorrt.__version__} может быть несовместим. Пропускаем TRT экспорт."
+                    )
                     results["trt"] = None
                 else:
                     model_cuda = model.to(self.config.device).eval()
                     input_spec: List[torch_tensorrt.Input] = [
                         torch_tensorrt.Input(
                             sample_input.shape,
-                            dtype=(
-                                torch.float16 if trt_precision == "fp16" else torch.float32
-                            ),
+                            dtype=(torch.float16 if trt_precision == "fp16" else torch.float32),
                             name="input",
                         )
                     ]
@@ -2207,9 +2036,7 @@ class BatchNeuralTester:
                     trt_model = torch_tensorrt.compile(
                         model_cuda,
                         inputs=input_spec,
-                        enabled_precisions={
-                            torch.float16 if trt_precision == "fp16" else torch.float32
-                        },
+                        enabled_precisions={torch.float16 if trt_precision == "fp16" else torch.float32},
                         ir="ts",
                         # min_block_size=1,
                         # fallback_to_torch=True,
@@ -2225,8 +2052,9 @@ class BatchNeuralTester:
             except Exception as e:
                 logger.error(f"❌ TRT compile failed: {type(e).__name__}: {e}")
                 import traceback
+
                 logger.debug(f"🔍 Full traceback:\n{traceback.format_exc()}")
-                
+
                 # 🔥 Не ретраим с fp32 — ошибка не в точности, а в совместимости
                 logger.warning("⚠️  TensorRT экспорт пропущен из-за ошибки компиляции или несовместимости версий")
                 results["trt"] = None
@@ -2260,9 +2088,7 @@ class BatchNeuralTester:
 
         if self.config.verbose:
             logger.info(f"🔧 Конфигурация запуска:")
-            logger.info(
-                f"   • models_dir: {getattr(self.config, 'models_dir', './models')}"
-            )
+            logger.info(f"   • models_dir: {getattr(self.config, 'models_dir', './models')}")
             logger.info(f"   • random_seed: {self.config.random_seed}")
             logger.info(f"   • device: {self.config.device}")
             logger.info(f"   • precision: {self.config.precision}")
@@ -2295,9 +2121,7 @@ class BatchNeuralTester:
             logger.info(f"   • per_class_metrics: {self.config.per_class_metrics}")
             logger.info(f"   • use_mlflow: {self.config.use_mlflow}")
             logger.info(f"   • use_wandb: {self.config.use_wandb}")
-            logger.info(
-                f"   • class_aware_overlays: {self.config.class_aware_overlays}"
-            )
+            logger.info(f"   • class_aware_overlays: {self.config.class_aware_overlays}")
             logger.info(f"   • overlay_alpha: {self.config.overlay_alpha}")
             logger.info(f"   • save vizualization: {self.config.save_viz}")
 
@@ -2306,9 +2130,7 @@ class BatchNeuralTester:
             logger.error("Не найдено чекпоинтов для тестирования!")
             return pd.DataFrame()
 
-        image_pairs: List[Tuple[Path, Path]] = self._load_ade20k_images(
-            local_path=self.config.dataset_path
-        )
+        image_pairs: List[Tuple[Path, Path]] = self._load_ade20k_images(local_path=self.config.dataset_path)
         if not image_pairs:
             logger.error("Не удалось загрузить изображения датасета!")
             return pd.DataFrame()
@@ -2334,9 +2156,7 @@ class BatchNeuralTester:
                         device=self.config.device,
                         num_classes=self.config.num_classes,
                     )
-                    dummy_input: torch.Tensor = torch.randn(
-                        1, 3, 512, 512, device=self.config.device
-                    )
+                    dummy_input: torch.Tensor = torch.randn(1, 3, 512, 512, device=self.config.device)
 
                     profile_results: Dict[str, Any] = self._profile_model_inference(
                         model=segmenter_temp.model,
@@ -2347,16 +2167,10 @@ class BatchNeuralTester:
                         num_runs=getattr(self.config, "profile_runs", 50),
                     )
 
-                    logger.info(
-                        f"✅ Профиль сохранён: {profile_dir / f'trace_{checkpoint.key}.json'}"
-                    )
+                    logger.info(f"✅ Профиль сохранён: {profile_dir / f'trace_{checkpoint.key}.json'}")
                     if self.config.verbose:
-                        logger.info(
-                            f"   📈 Среднее время: {profile_results['total_time_ms']:.2f} ms"
-                        )
-                        logger.info(
-                            f"   🧠 Память: {profile_results['memory_allocated_mb']:.1f} MB"
-                        )
+                        logger.info(f"   📈 Среднее время: {profile_results['total_time_ms']:.2f} ms")
+                        logger.info(f"   🧠 Память: {profile_results['memory_allocated_mb']:.1f} MB")
 
                 except Exception as e:
                     logger.warning(f"⚠️  Ошибка профилирования {checkpoint.key}: {e}")
@@ -2368,9 +2182,7 @@ class BatchNeuralTester:
                     "device": self.config.device,
                     "ignore_index": self.config.ignore_index,
                 }
-                config_hash = sha256(
-                    json.dumps(config_dict, sort_keys=True).encode()
-                ).hexdigest()[:16]
+                config_hash = sha256(json.dumps(config_dict, sort_keys=True).encode()).hexdigest()[:16]
 
             if getattr(self.config, "export_onnx", False):
                 export_dir: Path = Path(self.config.output_dir) / "exports"
@@ -2391,38 +2203,26 @@ class BatchNeuralTester:
                             buf.data = buf.data.cpu()
 
                     # Создаём фиктивный вход для экспорта
-                    dummy_input = torch.randn(
-                        1, 3, 512, 512, device="cpu", dtype=torch.float32
-                    )
+                    dummy_input = torch.randn(1, 3, 512, 512, device="cpu", dtype=torch.float32)
 
-                    export_results: Dict[str, Optional[Path]] = (
-                        self._export_model_to_onnx_trt(
-                            model=segmenter_temp.model,
-                            model_key=checkpoint.key,
-                            sample_input=dummy_input,
-                            output_dir=Path(self.config.output_dir) / "exports",
-                            opset_version=getattr(self.config, "opset", 17),
-                            trt_precision=getattr(self.config, "trt_precision", "fp16"),
-                        )
+                    export_results: Dict[str, Optional[Path]] = self._export_model_to_onnx_trt(
+                        model=segmenter_temp.model,
+                        model_key=checkpoint.key,
+                        sample_input=dummy_input,
+                        output_dir=Path(self.config.output_dir) / "exports",
+                        opset_version=getattr(self.config, "opset", 17),
+                        trt_precision=getattr(self.config, "trt_precision", "fp16"),
                     )
 
                     if export_results["onnx"]:
-                        onnx_size: float = (
-                            export_results["onnx"].stat().st_size / 1e6
-                        )  # MB
-                        logger.info(
-                            f"✅ ONNX: {export_results['onnx'].name} ({onnx_size:.2f} MB)"
-                        )
+                        onnx_size: float = export_results["onnx"].stat().st_size / 1e6  # MB
+                        logger.info(f"✅ ONNX: {export_results['onnx'].name} ({onnx_size:.2f} MB)")
 
                     if export_results["trt"]:
                         trt_size: float = export_results["trt"].stat().st_size / 1e6
-                        logger.info(
-                            f"✅ TensorRT: {export_results['trt'].name} ({trt_size:.2f} MB)"
-                        )
+                        logger.info(f"✅ TensorRT: {export_results['trt'].name} ({trt_size:.2f} MB)")
                     elif getattr(self.config, "export_trt", False):
-                        logger.warning(
-                            "⚠️  TensorRT экспорт пропущен (возможно, не установлен torch-tensorrt)"
-                        )
+                        logger.warning("⚠️  TensorRT экспорт пропущен (возможно, не установлен torch-tensorrt)")
 
                 except Exception as e:
                     logger.error(f"❌ Ошибка экспорта модели {checkpoint.key}: {e}")
@@ -2444,9 +2244,7 @@ class BatchNeuralTester:
             return pd.DataFrame()
 
         df: pd.DataFrame = pd.DataFrame([r.to_dict() for r in all_results])
-        parsed: pd.DataFrame = df["model_key"].apply(
-            lambda k: pd.Series(extract_model_aug_from_key(k))
-        )
+        parsed: pd.DataFrame = df["model_key"].apply(lambda k: pd.Series(extract_model_aug_from_key(k)))
         df["model"] = parsed[0]
         df["augmentation"] = parsed[1]
 
@@ -2455,9 +2253,7 @@ class BatchNeuralTester:
         if self.config.verbose:
             print("\n🔍 Проверка парсинга в DataFrame:")
             for _, row in df.head(5).iterrows():
-                print(
-                    f"   {row['model_key']:35} → model='{row['model']}', aug='{row['augmentation']}'"
-                )
+                print(f"   {row['model_key']:35} → model='{row['model']}', aug='{row['augmentation']}'")
 
         if self.config.verbose:
             print(f"\n🔍 Структура DataFrame:")
@@ -2471,13 +2267,9 @@ class BatchNeuralTester:
                 group_sizes = df.groupby(["model", "augmentation", "precision"]).size()
                 print(f"\n🔍 Размеры групп для агрегации:")
                 print(f"   Всего групп: {len(group_sizes)}")
-                print(
-                    f"   Распределение размеров: {group_sizes.value_counts().sort_index().to_dict()}"
-                )
+                print(f"   Распределение размеров: {group_sizes.value_counts().sort_index().to_dict()}")
                 if (group_sizes == 1).any():
-                    print(
-                        f"   ⚠️  {((group_sizes == 1).sum())} групп содержат только 1 запись → std будет 0.0"
-                    )
+                    print(f"   ⚠️  {((group_sizes == 1).sum())} групп содержат только 1 запись → std будет 0.0")
 
         return df
 
@@ -2543,16 +2335,9 @@ class BatchNeuralTester:
             Для групп с 1 записью std заполняется 0.0.
         """
         # Перепарсинг если аугментация содержит подозрительные подстроки
-        if (
-            "augmentation" in df.columns
-            and df["augmentation"].str.contains("smp_|tv_", regex=True, na=False).any()
-        ):
-            logger.warning(
-                "⚠️ Подозрительные значения в 'augmentation', перепарсиваем..."
-            )
-            parsed = df["model_key"].apply(
-                lambda k: pd.Series(extract_model_aug_from_key(k))
-            )
+        if "augmentation" in df.columns and df["augmentation"].str.contains("smp_|tv_", regex=True, na=False).any():
+            logger.warning("⚠️ Подозрительные значения в 'augmentation', перепарсиваем...")
+            parsed = df["model_key"].apply(lambda k: pd.Series(extract_model_aug_from_key(k)))
             df["model"] = parsed[0]
             df["augmentation"] = parsed[1]
 
@@ -2565,24 +2350,14 @@ class BatchNeuralTester:
 
         # Fильтруем ТОЛЬКО числовые колонки для агрегации
         all_candidate_cols: List[str] = [
-            c
-            for c in df.columns
-            if c in self.config.metrics
-            or c in ["m_iou", "binary_iou", "inference_time"]
+            c for c in df.columns if c in self.config.metrics or c in ["m_iou", "binary_iou", "inference_time"]
         ]
 
         # Оставляем только числовые (numeric) колонки
-        metric_cols: List[str] = [
-            c for c in all_candidate_cols if pd.api.types.is_numeric_dtype(df[c])
-        ]
+        metric_cols: List[str] = [c for c in all_candidate_cols if pd.api.types.is_numeric_dtype(df[c])]
 
-        if (
-            getattr(self.config, "compute_boundary_f1", False)
-            and "boundary_f1" in df.columns
-        ):
-            if "boundary_f1" not in metric_cols and pd.api.types.is_numeric_dtype(
-                df["boundary_f1"]
-            ):
+        if getattr(self.config, "compute_boundary_f1", False) and "boundary_f1" in df.columns:
+            if "boundary_f1" not in metric_cols and pd.api.types.is_numeric_dtype(df["boundary_f1"]):
                 metric_cols.append("boundary_f1")
                 logger.info("🔍 Добавлена метрика 'boundary_f1' в агрегацию")
 
@@ -2590,9 +2365,7 @@ class BatchNeuralTester:
             # Включаем per-class колонки в агрегацию
             for col in df.columns:
                 if col.startswith(("precision_class_", "recall_class_", "iou_class_")):
-                    if col not in metric_cols and pd.api.types.is_numeric_dtype(
-                        df[col]
-                    ):
+                    if col not in metric_cols and pd.api.types.is_numeric_dtype(df[col]):
                         metric_cols.append(col)
 
         if not metric_cols:
@@ -2608,8 +2381,7 @@ class BatchNeuralTester:
 
         # Flatten multi-level columns
         aggregated.columns = [
-            "_".join(col).strip() if isinstance(col, tuple) else col
-            for col in aggregated.columns.values
+            "_".join(col).strip() if isinstance(col, tuple) else col for col in aggregated.columns.values
         ]
 
         # 🔧 Заполняем NaN для std в группах с 1 записью
@@ -2723,18 +2495,15 @@ class BatchNeuralTester:
                 "augmentation": str(best_global["augmentation"]),
                 "m_iou": float(best_global["m_iou"]),
                 "m_iou_std": float(
-                    df[
-                        (df["model"] == best_global["model"])
-                        & (df["augmentation"] == best_global["augmentation"])
-                    ]["m_iou"].std()
+                    df[(df["model"] == best_global["model"]) & (df["augmentation"] == best_global["augmentation"])][
+                        "m_iou"
+                    ].std()
                 ),
             }
 
             best_by_model: Dict[str, Any] = {}
             for model in df["model"].unique():
-                model_best = df[df["model"] == model].loc[
-                    df[df["model"] == model]["m_iou"].idxmax()
-                ]
+                model_best = df[df["model"] == model].loc[df[df["model"] == model]["m_iou"].idxmax()]
                 best_by_model[model] = {
                     "augmentation": str(model_best["augmentation"]),
                     "m_iou": float(model_best["m_iou"]),
@@ -2810,9 +2579,7 @@ class BatchNeuralTester:
                 best = stats["best_global"]
                 f.write(f"- **Модель:** `{best['model']}`\n")
                 f.write(f"- **Аугментации:** `{best['augmentation']}`\n")
-                f.write(
-                    f"- **mIoU:** `{best['m_iou']:.4f} ± {best['m_iou_std']:.4f}`\n\n"
-                )
+                f.write(f"- **mIoU:** `{best['m_iou']:.4f} ± {best['m_iou_std']:.4f}`\n\n")
 
             # Статистика по аугментациям
             if stats and "summary_by_augmentation" in stats:
@@ -2860,9 +2627,7 @@ class BatchNeuralTester:
 
             if "boundary_f1" in df.columns:
                 f.write("## 🎯 Boundary F1 (точность границ)\n\n")
-                f.write(
-                    f"- Средний Boundary F1: `{df['boundary_f1'].mean():.4f} ± {df['boundary_f1'].std():.4f}`\n\n"
-                )
+                f.write(f"- Средний Boundary F1: `{df['boundary_f1'].mean():.4f} ± {df['boundary_f1'].std():.4f}`\n\n")
 
         exported["report_md"] = md_path
 
@@ -2890,24 +2655,18 @@ class BatchNeuralTester:
         # Сетка сравнения визуализаций
         # ──────────────────────────────────────────────────────────────
         if self.overlays:
-            unique_models: List[str] = list(
-                set(extract_model_aug_from_key(k)[0] for k in self.overlays.keys())
-            )
+            unique_models: List[str] = list(set(extract_model_aug_from_key(k)[0] for k in self.overlays.keys()))
             save_augmentation_comparison_grid(
                 overlay_images=self.overlays,
                 output_dir=output / "overlays",
                 model_names=unique_models,
             )
-            exported["comparison_grid"] = (
-                output / "overlays" / "full_comparison_grid.png"
-            )
+            exported["comparison_grid"] = output / "overlays" / "full_comparison_grid.png"
 
         return exported
 
     # ──────────────────────────────────────────────────────────────────────
-    def plot_results(
-        self, df: pd.DataFrame, aggregated: pd.DataFrame
-    ) -> Dict[str, Path]:
+    def plot_results(self, df: pd.DataFrame, aggregated: pd.DataFrame) -> Dict[str, Path]:
         """Построение базовых графиков: mIoU bar, heatmap прироста, boxplot, время инференса.
 
         Args:
@@ -2938,16 +2697,12 @@ class BatchNeuralTester:
         plt.close()
         plots["miou_bar"] = plot_path
 
-        pivot: pd.DataFrame = df.pivot_table(
-            values="m_iou", index="model", columns="augmentation", aggfunc="mean"
-        )
+        pivot: pd.DataFrame = df.pivot_table(values="m_iou", index="model", columns="augmentation", aggfunc="mean")
         if "none" in pivot.columns:
             gain: pd.DataFrame = pivot.copy()
             for col in ["basic", "medium"]:
                 if col in gain.columns:
-                    gain[col] = (
-                        (gain[col] - gain["none"]) / gain["none"].replace(0, 1e-8) * 100
-                    )
+                    gain[col] = (gain[col] - gain["none"]) / gain["none"].replace(0, 1e-8) * 100
 
             plt.figure(figsize=(10, 6))
             sns.heatmap(gain, annot=True, fmt=".1f", cmap="RdYlGn", center=0)
@@ -3057,13 +2812,9 @@ class BatchNeuralTester:
                 continue
 
             # Агрегация: mean по (модель × аугментация)
-            plot_data: pd.DataFrame = (
-                df.groupby(["model", "augmentation"])[metric].mean().unstack()
-            )
+            plot_data: pd.DataFrame = df.groupby(["model", "augmentation"])[metric].mean().unstack()
             plot_data.plot(kind="bar", ax=ax, colormap="viridis", edgecolor="black")
-            ax.set_title(
-                f"{metric_names[metric]} по моделям и аугментациям", fontsize=11
-            )
+            ax.set_title(f"{metric_names[metric]} по моделям и аугментациям", fontsize=11)
             ax.set_ylabel("Score")
             ax.set_xlabel("Модель")
             ax.legend(title="Аугментации", loc="lower right", fontsize=8)
@@ -3100,16 +2851,12 @@ class BatchNeuralTester:
         # ──────────────────────────────────────────────────────────────
         # График 3: Heatmap прироста относительно baseline
         # ──────────────────────────────────────────────────────────────
-        pivot: pd.DataFrame = df.pivot_table(
-            values="m_iou", index="model", columns="augmentation", aggfunc="mean"
-        )
+        pivot: pd.DataFrame = df.pivot_table(values="m_iou", index="model", columns="augmentation", aggfunc="mean")
         if "none" in pivot.columns:
             gain: pd.DataFrame = pivot.copy()
             for col in ["basic", "medium"]:
                 if col in gain.columns:
-                    gain[col] = (
-                        (gain[col] - gain["none"]) / gain["none"].replace(0, 1e-8) * 100
-                    )
+                    gain[col] = (gain[col] - gain["none"]) / gain["none"].replace(0, 1e-8) * 100
 
             plt.figure(figsize=(10, 8))
             sns.heatmap(gain, annot=True, fmt=".1f", cmap="RdYlGn", center=0)
@@ -3217,15 +2964,9 @@ class BatchNeuralTester:
             if not none_data.empty and not medium_data.empty:
                 none_val = none_data.mean()
                 medium_val = medium_data.mean()
-                if (
-                    not np.isnan(none_val)
-                    and not np.isnan(medium_val)
-                    and none_val != 0
-                ):
+                if not np.isnan(none_val) and not np.isnan(medium_val) and none_val != 0:
                     medium_gain = (medium_val - none_val) / none_val * 100
-                    axes[1].bar(
-                        f"{model}", medium_gain, alpha=0.7, color="orange", label=model
-                    )
+                    axes[1].bar(f"{model}", medium_gain, alpha=0.7, color="orange", label=model)
 
         axes[0].axhline(y=0, color="black", linestyle="-", linewidth=0.5)
         axes[0].set_title("Прирост mIoU: Basic vs None (%)", fontsize=11)
@@ -3400,9 +3141,7 @@ def main() -> None:
         help="Директория с чекпоинтами моделей (по умолчанию: ./models)",
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument(
-        "--verbose", action="store_true", default=True, help="Подробный вывод"
-    )
+    parser.add_argument("--verbose", action="store_true", default=True, help="Подробный вывод")
 
     # ──────────────────────────────────────────────────────────────
     # Точность и устройство
@@ -3435,12 +3174,8 @@ def main() -> None:
         default="./cache/predictions",
         help="Директория для кэша предсказаний",
     )
-    parser.add_argument(
-        "--cache-max-gb", type=float, default=10.0, help="Максимальный размер кэша в ГБ"
-    )
-    parser.add_argument(
-        "--clear-cache", action="store_true", help="Очистить кэш перед запуском"
-    )
+    parser.add_argument("--cache-max-gb", type=float, default=10.0, help="Максимальный размер кэша в ГБ")
+    parser.add_argument("--clear-cache", action="store_true", help="Очистить кэш перед запуском")
 
     # Возобновление
     parser.add_argument(
@@ -3466,9 +3201,7 @@ def main() -> None:
         default="fp16",
         help="Точность для TensorRT (default: fp16)",
     )
-    parser.add_argument(
-        "--opset", type=int, default=17, help="ONNX opset version (default: 17)"
-    )
+    parser.add_argument("--opset", type=int, default=17, help="ONNX opset version (default: 17)")
     parser.add_argument(
         "--dynamic-shapes",
         action="store_true",
@@ -3513,12 +3246,8 @@ def main() -> None:
     )
 
     # Трекеры экспериментов
-    parser.add_argument(
-        "--use-mlflow", action="store_true", help="Логировать метрики в MLflow"
-    )
-    parser.add_argument(
-        "--use-wandb", action="store_true", help="Логировать метрики в Weights & Biases"
-    )
+    parser.add_argument("--use-mlflow", action="store_true", help="Логировать метрики в MLflow")
+    parser.add_argument("--use-wandb", action="store_true", help="Логировать метрики в Weights & Biases")
 
     # Визуализация
     parser.add_argument(
@@ -3589,9 +3318,7 @@ def main() -> None:
     print(f"\n🔍 CUDA: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         print(f"   Device: {torch.cuda.get_device_name(0)}")
-        print(
-            f"   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB"
-        )
+        print(f"   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
 
     df: pd.DataFrame = tester.run()
     if df.empty:
@@ -3605,13 +3332,9 @@ def main() -> None:
     stats: Dict[str, Any] = tester.statistical_analysis(df)
 
     if tester.overlays:
-        print(
-            f"\n📊 Генерация сравнительных визуализаций ({len(tester.overlays)} оверлеев)..."
-        )
+        print(f"\n📊 Генерация сравнительных визуализаций ({len(tester.overlays)} оверлеев)...")
 
-        unique_models: List[str] = list(
-            set(extract_model_aug_from_key(k)[0] for k in tester.overlays.keys())
-        )
+        unique_models: List[str] = list(set(extract_model_aug_from_key(k)[0] for k in tester.overlays.keys()))
 
         # Сохранение отдельных сравнений по моделям
         save_model_augmentation_comparisons(

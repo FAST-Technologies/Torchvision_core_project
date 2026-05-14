@@ -6,7 +6,7 @@
 
 Этот модуль проверяет:
 1. Корректность импорта и инициализации базового класса
-2. Работу метода `preprocess_image()` с разными типами входа 
+2. Работу метода `preprocess_image()` с разными типами входа
    (путь к файлу, PIL.Image, numpy.ndarray)
 3. Поведение метода `segment_with_mask()` и формат возвращаемых данных
 
@@ -42,20 +42,21 @@ class DummySegmenter(BaseSegmenter):
     - `segment()`: Возвращает нулевую маску того же размера, что и вход
     - `segment_with_mask()`: Возвращает кортеж (визуализация, маска)
 
-    Используется для тестирования общей логики базового класса 
+    Используется для тестирования общей логики базового класса
     без зависимости от конкретных алгоритмов сегментации.
 
     Attributes:
         None
 
     Note:
-        Этот класс не предназначен для реального использования — 
+        Этот класс не предназначен для реального использования —
         только для изолированного тестирования инфраструктуры.
     """
+
     def segment(self, image: ImageInput, **kwargs) -> np.ndarray:
         """Возвращает пустую бинарную маску того же размера, что и вход.
 
-        Заглушка метода сегментации для тестов. Не выполняет 
+        Заглушка метода сегментации для тестов. Не выполняет
         никакой реальной обработки — просто создаёт нулевой массив.
 
         Args:
@@ -63,7 +64,7 @@ class DummySegmenter(BaseSegmenter):
             **kwargs: Дополнительные параметры (игнорируются).
 
         Returns:
-            np.ndarray: Бинарная маска формы (H, W), dtype=uint8, 
+            np.ndarray: Бинарная маска формы (H, W), dtype=uint8,
             заполненная нулями.
         """
         # Возвращаем пустую маску того же размера что и вход
@@ -74,9 +75,7 @@ class DummySegmenter(BaseSegmenter):
         return np.zeros((h, w), dtype=np.uint8)
 
     # ──────────────────────────────────────────────────────────────────────
-    def segment_with_mask(
-        self, image: ImageInput, **kwargs
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def segment_with_mask(self, image: ImageInput, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         """Возвращает кортеж (визуализация, маска) для тестов.
 
         Заглушка метода с визуализацией. Возвращает:
@@ -96,11 +95,7 @@ class DummySegmenter(BaseSegmenter):
         mask: np.ndarray = self.segment(image, **kwargs)
         # Для визуализации просто копируем изображение
         if isinstance(image, np.ndarray):
-            result: np.ndarray = (
-                image.copy()
-                if len(image.shape) == 3
-                else np.stack([image] * 3, axis=-1)
-            )
+            result: np.ndarray = image.copy() if len(image.shape) == 3 else np.stack([image] * 3, axis=-1)
         else:
             result = np.zeros((256, 256, 3), dtype=np.uint8)
         return result, mask
@@ -119,7 +114,7 @@ class TestBaseSegmenter:
     def test_import(self) -> None:
         """Проверяет успешный импорт класса `BaseSegmenter`.
 
-        Убеждается, что модуль `segmenters.BaseSegmenter` доступен 
+        Убеждается, что модуль `segmenters.BaseSegmenter` доступен
         и класс `BaseSegmenter` может быть импортирован без ошибок.
 
         Raises:
@@ -144,7 +139,7 @@ class TestBaseSegmenter:
         3. Возвращает непустой результат
 
         Args:
-            temp_image_file (str): Путь к временному файлу изображения 
+            temp_image_file (str): Путь к временному файлу изображения
             (предоставляется фикстурой).
 
         Raises:
@@ -159,16 +154,14 @@ class TestBaseSegmenter:
     def test_preprocess_image_from_pil(self) -> None:
         """Тестирует предобработку изображения из объекта PIL.Image.
 
-        Проверяет, что метод `preprocess_image()` принимает объект 
+        Проверяет, что метод `preprocess_image()` принимает объект
         `PIL.Image` и корректно преобразует его во внутренний формат.
 
         Raises:
             AssertionError: Если результат предобработки равен None.
         """
         """Тест предобработки из PIL Image"""
-        img: Image.Image = Image.fromarray(
-            np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
-        )
+        img: Image.Image = Image.fromarray(np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8))
         seg = DummySegmenter()
         result: NumpyImage = seg.preprocess_image(img)
         assert result is not None
@@ -177,7 +170,7 @@ class TestBaseSegmenter:
     def test_preprocess_image_from_numpy(self) -> None:
         """Тестирует предобработку изображения из numpy массива.
 
-        Проверяет, что метод `preprocess_image()` принимает `np.ndarray` 
+        Проверяет, что метод `preprocess_image()` принимает `np.ndarray`
         и возвращает результат без ошибок.
 
         Raises:
@@ -200,7 +193,7 @@ class TestBaseSegmenter:
         Также проверяет типы данных возвращаемых значений.
 
         Raises:
-            AssertionError: Если формы или типы данных не соответствуют 
+            AssertionError: Если формы или типы данных не соответствуют
             ожидаемым.
         """
         """Тест базового segment_with_mask"""

@@ -56,16 +56,11 @@ class CompilationConfig:
         """Валидация конфигурации."""
         valid_modes = ["default", "reduce-overhead", "max-autotune"]
         if self.compile_mode not in valid_modes:
-            raise ValueError(
-                f"Invalid compile_mode: {self.compile_mode}. "
-                f"Available: {valid_modes}"
-            )
+            raise ValueError(f"Invalid compile_mode: {self.compile_mode}. " f"Available: {valid_modes}")
 
         valid_backends = ["inductor", "cudagraphs", "aot_eager", "onnxrt"]
         if self.backend not in valid_backends:
-            raise ValueError(
-                f"Invalid backend: {self.backend}. " f"Available: {valid_backends}"
-            )
+            raise ValueError(f"Invalid backend: {self.backend}. " f"Available: {valid_backends}")
 
 
 # Конфигурация по умолчанию

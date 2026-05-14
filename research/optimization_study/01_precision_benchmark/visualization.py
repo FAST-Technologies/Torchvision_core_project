@@ -80,9 +80,7 @@ class PrecisionVisualizer:
 
         if "speedup_vs_reference" not in df.columns:
             # Вычисляем speedup если нет в данных
-            ref_times = df[df["precision"] == reference_precision].set_index("method")[
-                "median_ms"
-            ]
+            ref_times = df[df["precision"] == reference_precision].set_index("method")["median_ms"]
             df = df.copy()
             df["speedup_vs_reference"] = df.apply(
                 lambda row: (
@@ -97,9 +95,7 @@ class PrecisionVisualizer:
             output_file = "speedup_by_precision.png"
         output_path = self.output_dir / output_file
 
-        plot_df = (
-            df.groupby(["method", "precision"])["speedup_vs_reference"].mean().unstack()
-        )
+        plot_df = df.groupby(["method", "precision"])["speedup_vs_reference"].mean().unstack()
 
         plt.figure(figsize=figsize)
         plot_df.plot(kind="bar", figsize=figsize)
@@ -170,11 +166,7 @@ class PrecisionVisualizer:
             prefix = ""
 
         return {
-            "time": self.plot_time_by_precision(
-                df, output_file=f"{prefix}time_by_precision.png"
-            ),
-            "speedup": self.plot_speedup(
-                df, output_file=f"{prefix}speedup_by_precision.png"
-            ),
+            "time": self.plot_time_by_precision(df, output_file=f"{prefix}time_by_precision.png"),
+            "speedup": self.plot_speedup(df, output_file=f"{prefix}speedup_by_precision.png"),
             "tradeoff": self.plot_tradeoff(df, output_file=f"{prefix}tradeoff.png"),
         }

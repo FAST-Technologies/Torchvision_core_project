@@ -34,9 +34,7 @@ class AllocationSnapshot:
             peak = torch.cuda.max_memory_allocated(device) / 1e6
 
         # Счётчик тензоров
-        tensor_count = sum(
-            1 for obj in gc.get_objects() if isinstance(obj, torch.Tensor)
-        )
+        tensor_count = sum(1 for obj in gc.get_objects() if isinstance(obj, torch.Tensor))
 
         return cls(
             timestamp=time.time(),
@@ -146,11 +144,7 @@ class AllocationTracker:
         Returns:
             Dict с анализом
         """
-        tensors = [
-            obj
-            for obj in gc.get_objects()
-            if isinstance(obj, torch.Tensor) and obj.is_leaf
-        ]
+        tensors = [obj for obj in gc.get_objects() if isinstance(obj, torch.Tensor) and obj.is_leaf]
 
         # Группировка по устройству и размеру
         by_device: Dict[str, List[torch.Tensor]] = defaultdict(list)
@@ -197,6 +191,5 @@ class AllocationTracker:
             "alloc_std_mb": np.std(allocs),
             "alloc_trend": allocs[-1] - allocs[0],
             "peak_max_mb": np.max(peaks),
-            "tensor_count_trend": self._snapshots[-1].tensor_count
-            - self._snapshots[0].tensor_count,
+            "tensor_count_trend": self._snapshots[-1].tensor_count - self._snapshots[0].tensor_count,
         }

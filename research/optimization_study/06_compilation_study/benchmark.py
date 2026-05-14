@@ -62,9 +62,7 @@ def parse_args():
     )
 
     # Параметры бенчмарка
-    parser.add_argument(
-        "--n-runs", type=int, default=50, help="Количество запусков для замера"
-    )
+    parser.add_argument("--n-runs", type=int, default=50, help="Количество запусков для замера")
     parser.add_argument(
         "--input-size",
         type=str,
@@ -73,13 +71,9 @@ def parse_args():
     )
 
     # Вывод
-    parser.add_argument(
-        "--output", type=str, default=None, help="Папка для сохранения результатов"
-    )
+    parser.add_argument("--output", type=str, default=None, help="Папка для сохранения результатов")
     parser.add_argument("--verbose", "-v", action="store_true", help="Подробный вывод")
-    parser.add_argument(
-        "--analyze-graph", action="store_true", help="Анализировать структуру графа"
-    )
+    parser.add_argument("--analyze-graph", action="store_true", help="Анализировать структуру графа")
 
     # Визуализация
     parser.add_argument("--plot", action="store_true", help="Сгенерировать графики")
@@ -149,13 +143,8 @@ def main():
             if method in segmenter.method_map:
                 from .utils import analyze_graph_structure
 
-                info = analyze_graph_structure(
-                    segmenter.method_map[method], example_input
-                )
-                print(
-                    f"   {method}: {info['num_operations']} ops, "
-                    f"potential: {info['optimization_potential']:.2f}"
-                )
+                info = analyze_graph_structure(segmenter.method_map[method], example_input)
+                print(f"   {method}: {info['num_operations']} ops, " f"potential: {info['optimization_potential']:.2f}")
 
     # Запуск оптимизации
     if args.compare_strategies:
@@ -204,9 +193,7 @@ def main():
         top = sorted(reports, key=lambda r: r.speedup, reverse=True)[:3]
         print(f"\n   🏆 Top 3 by speedup:")
         for i, r in enumerate(top, 1):
-            print(
-                f"      {i}. {r.method_name}: {r.speedup_formatted} " f"({r.strategy})"
-            )
+            print(f"      {i}. {r.method_name}: {r.speedup_formatted} " f"({r.strategy})")
 
     print("=" * 60)
 

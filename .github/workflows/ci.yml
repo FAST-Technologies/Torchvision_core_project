@@ -259,6 +259,14 @@ jobs:
         echo "- 📁 [segmenters](./docs/segmenters/)" >> $GITHUB_STEP_SUMMARY
         echo "- 📁 [testing](./docs/testing/)" >> $GITHUB_STEP_SUMMARY
         echo "- 📁 [metrics](./docs/metrics/)" >> $GITHUB_STEP_SUMMARY
+
+    - name: Debug deployment context
+      run: |
+        echo "📦 Repository: ${{ github.repository }}"
+        echo "🔀 Event: ${{ github.event_name }}"
+        echo "🎯 Ref: ${{ github.ref }}"
+        echo "👤 Actor: ${{ github.actor }}"
+        echo "🔑 Token exists: ${{ secrets.GITHUB_TOKEN != '' }}"
     
     - name: Deploy documentation to GitHub Pages
       uses: peaceiris/actions-gh-pages@v4

@@ -34,9 +34,7 @@ def main():
 
     # Динамическая фильтрация доступных прецизионных режимов
     available_precisions = [
-        p
-        for p in ["fp32", "fp16", "bf16", "int8"]
-        if is_dtype_supported(PRECISION_TO_DTYPE[p], str(device.type))
+        p for p in ["fp32", "fp16", "bf16", "int8"] if is_dtype_supported(PRECISION_TO_DTYPE[p], str(device.type))
     ]
     if not available_precisions:
         raise RuntimeError("Нет поддерживаемых типов данных для текущего устройства!")
@@ -105,9 +103,7 @@ def main():
 
     # Отчёты
     reporter = ReportGenerator(output_dir=str(output_dir))
-    report_paths = reporter.generate_all(
-        df, summary, base_name=f"precision_report_{timestamp}"
-    )
+    report_paths = reporter.generate_all(df, summary, base_name=f"precision_report_{timestamp}")
     print(f"📄 Отчёты сохранены в: {output_dir}")
 
     # Графики

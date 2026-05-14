@@ -132,11 +132,7 @@ class KernelCache:
                 # Перемещаем в конец (LRU)
                 self._cache.move_to_end(key)
                 self._hits += 1
-                return (
-                    entry.tensor.clone()
-                    if self.policy == MemoryPolicy.REUSE
-                    else entry.tensor
-                )
+                return entry.tensor.clone() if self.policy == MemoryPolicy.REUSE else entry.tensor
 
         # Miss — создаём новый
         self._misses += 1
@@ -175,11 +171,7 @@ class KernelCache:
     def _cleanup_expired(self):
         """Удаляет просроченные записи."""
         now = time.time()
-        expired = [
-            key
-            for key, entry in self._cache.items()
-            if now - entry.created_at > self.ttl_seconds
-        ]
+        expired = [key for key, entry in self._cache.items() if now - entry.created_at > self.ttl_seconds]
         for key in expired:
             del self._cache[key]
             self._evictions += 1
@@ -194,11 +186,7 @@ class KernelCache:
     def stats(self) -> Dict[str, int]:
         """Статистика кэша"""
         otal_size_mb = sum(e.size_mb for e in self._cache.values())
-        hit_rate = (
-            self._hits / (self._hits + self._misses)
-            if (self._hits + self._misses) > 0
-            else 0
-        )
+        hit_rate = self._hits / (self._hits + self._misses) if (self._hits + self._misses) > 0 else 0
         return {
             "size": len(self._cache),
             "max_size": self.max_size,
@@ -207,14 +195,8 @@ class KernelCache:
             "misses": self._misses,
             "evictions": self._evictions,
             "hit_rate_pct": hit_rate * 100,
-            "avg_access_count": (
-                np.mean([e.access_count for e in self._cache.values()])
-                if self._cache
-                else 0
-            ),
-            "memory_mb": sum(
-                t.element_size() * t.nelement() / 1024**2 for t in self._cache.values()
-            ),
+            "avg_access_count": (np.mean([e.access_count for e in self._cache.values()]) if self._cache else 0),
+            "memory_mb": sum(t.element_size() * t.nelement() / 1024**2 for t in self._cache.values()),
         }
 
     def __repr__(self) -> str:
@@ -243,9 +225,7 @@ class TensorPool:
         if device is None:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.pool: List[torch.Tensor] = [
-            torch.empty(shape, dtype=dtype, device=device) for _ in range(pool_size)
-        ]
+        self.pool: List[torch.Tensor] = [torch.empty(shape, dtype=dtype, device=device) for _ in range(pool_size)]
         self._available: List[int] = list(range(pool_size))
         self._in_use: Dict[int, str] = {}  # index -> owner name
 

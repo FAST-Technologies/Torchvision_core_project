@@ -2,7 +2,7 @@
 
 """Модуль для расчёта метрик качества семантической и бинарной сегментации.
 
-Предназначен для универсальной оценки соответствия предсказанных масок 
+Предназначен для универсальной оценки соответствия предсказанных масок
 эталонным (Ground Truth) с поддержкой:
 - Бинарной сегментации: объект/фон (0/1 или 0/255).
 - Многоклассовой сегментации: пер-классовые метрики, матрица ошибок.
@@ -77,9 +77,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -178,9 +176,7 @@ class SegmentationMetrics:
             float: Значение IoU в диапазоне [0, 1].
         """
         # Нормализуем маски к бинарному формату 0/1
-        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(
-            pred_mask, gt_mask, threshold
-        )
+        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(pred_mask, gt_mask, threshold)
 
         # Вычисляем пересечение и объединение
         intersection: int = int(np.logical_and(pred_binary, gt_binary).sum())
@@ -206,9 +202,7 @@ class SegmentationMetrics:
         Returns:
             float: Значение Accuracy в диапазоне [0, 1].
         """
-        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(
-            pred_mask, gt_mask, threshold
-        )
+        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(pred_mask, gt_mask, threshold)
 
         try:
             score: MetricValue = accuracy_score(gt_binary.ravel(), pred_binary.ravel())
@@ -234,14 +228,10 @@ class SegmentationMetrics:
         Returns:
             float: Значение Jaccard score в диапазоне [0, 1].
         """
-        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(
-            pred_mask, gt_mask, threshold
-        )
+        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(pred_mask, gt_mask, threshold)
 
         try:
-            score: MetricValue = jaccard_score(
-                gt_binary.ravel(), pred_binary.ravel(), zero_division=0.0
-            )
+            score: MetricValue = jaccard_score(gt_binary.ravel(), pred_binary.ravel(), zero_division=0.0)
             return float(score)
         except ValueError as e:
             warnings.warn(f"Ошибка вычисления jaccard_score: {e}. Возвращаем 0.0")
@@ -271,13 +261,9 @@ class SegmentationMetrics:
         Returns:
             float: Значение Dice coefficient в диапазоне [0, 1].
         """
-        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(
-            pred_mask, gt_mask, threshold
-        )
+        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(pred_mask, gt_mask, threshold)
         intersection: int = int(np.logical_and(pred_binary, gt_binary).sum())
-        dice: MetricValue = (2.0 * intersection + smooth) / (
-            int(pred_binary.sum()) + int(gt_binary.sum()) + smooth
-        )
+        dice: MetricValue = (2.0 * intersection + smooth) / (int(pred_binary.sum()) + int(gt_binary.sum()) + smooth)
         return float(dice)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -305,22 +291,14 @@ class SegmentationMetrics:
         Returns:
             Tuple[float, float]: (precision, recall) в диапазоне [0, 1].
         """
-        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(
-            pred_mask, gt_mask, threshold
-        )
+        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(pred_mask, gt_mask, threshold)
 
         # Sklearn (Эталон)
-        p_sklearn: MetricValue = precision_score(
-            gt_binary.ravel(), pred_binary.ravel(), zero_division=0
-        )
-        r_sklearn: MetricValue = recall_score(
-            gt_binary.ravel(), pred_binary.ravel(), zero_division=0
-        )
+        p_sklearn: MetricValue = precision_score(gt_binary.ravel(), pred_binary.ravel(), zero_division=0)
+        r_sklearn: MetricValue = recall_score(gt_binary.ravel(), pred_binary.ravel(), zero_division=0)
 
         # Confusion matrix также требует 1D
-        tn, fp, fn, tp = confusion_matrix(
-            gt_binary.ravel(), pred_binary.ravel(), labels=[0, 1]
-        ).ravel()
+        tn, fp, fn, tp = confusion_matrix(gt_binary.ravel(), pred_binary.ravel(), labels=[0, 1]).ravel()
 
         p_custom: MetricValue = tp / (tp + fp + 1e-8)
         r_custom: MetricValue = tp / (tp + fn + 1e-8)
@@ -361,12 +339,8 @@ class SegmentationMetrics:
         Returns:
             float: Значение F1 Score в диапазоне [0, 1].
         """
-        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(
-            pred_mask, gt_mask, threshold
-        )
-        precision, recall = SegmentationMetrics.calculate_precision_recall(
-            pred_mask, gt_mask, threshold
-        )
+        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(pred_mask, gt_mask, threshold)
+        precision, recall = SegmentationMetrics.calculate_precision_recall(pred_mask, gt_mask, threshold)
         if precision + recall == 0:
             f1_custom: MetricValue = 0.0
         else:
@@ -402,16 +376,8 @@ class SegmentationMetrics:
         pred_norm: np.ndarray
         gt_norm: np.ndarray
         if normalize:
-            pred_norm = (
-                pred_mask.astype(np.float32) / 255.0
-                if pred_mask.max() > 1
-                else pred_mask.astype(np.float32)
-            )
-            gt_norm = (
-                gt_mask.astype(np.float32) / 255.0
-                if gt_mask.max() > 1
-                else gt_mask.astype(np.float32)
-            )
+            pred_norm = pred_mask.astype(np.float32) / 255.0 if pred_mask.max() > 1 else pred_mask.astype(np.float32)
+            gt_norm = gt_mask.astype(np.float32) / 255.0 if gt_mask.max() > 1 else gt_mask.astype(np.float32)
         else:
             pred_norm = pred_mask.astype(np.float32)
             gt_norm = gt_mask.astype(np.float32)
@@ -449,9 +415,7 @@ class SegmentationMetrics:
         Returns:
             float: Значение расстояния Хаусдорфа (в пикселях) или `inf` при ошибке.
         """
-        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(
-            pred_mask, gt_mask, threshold
-        )
+        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(pred_mask, gt_mask, threshold)
 
         # Получаем координаты точек контуров
         pred_coords: np.ndarray = np.column_stack(np.where(pred_binary))
@@ -513,13 +477,9 @@ class SegmentationMetrics:
 
         # Сэмплируем 1000 случайных пикселей для скорости
         n_pixels: int = int(h * w)
-        indices: np.ndarray = np.random.choice(
-            n_pixels, min(n_samples, n_pixels), replace=False
-        )
+        indices: np.ndarray = np.random.choice(n_pixels, min(n_samples, n_pixels), replace=False)
 
-        X: np.ndarray = np.column_stack(
-            [y_coords.ravel()[indices], x_coords.ravel()[indices]]
-        )
+        X: np.ndarray = np.column_stack([y_coords.ravel()[indices], x_coords.ravel()[indices]])
         labels: np.ndarray = pred_mask.ravel()[indices]
 
         metrics: ClusteringMetricsDict = {}
@@ -561,9 +521,7 @@ class SegmentationMetrics:
         Returns:
             float: Значение точности в диапазоне [0, 1].
         """
-        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(
-            pred_mask, gt_mask, threshold
-        )
+        pred_binary, gt_binary = SegmentationMetrics._normalize_masks(pred_mask, gt_mask, threshold)
 
         correct_pixels: int = int((pred_binary == gt_binary).sum())
         total_pixels: int = int(pred_binary.size)
@@ -631,23 +589,15 @@ class SegmentationMetrics:
 
         # 1. Точность (Accuracy)
         if _need("accuracy"):
-            metrics["accuracy"] = SegmentationMetrics.calculate_accuracy_sklearn(
-                pred_mask, gt_mask, threshold
-            )
+            metrics["accuracy"] = SegmentationMetrics.calculate_accuracy_sklearn(pred_mask, gt_mask, threshold)
 
         # 2. IoU / Jaccard
         if _need("iou") or _need("jaccard_score"):
-            iou_custom: MetricValue = SegmentationMetrics.calculate_iou(
-                pred_mask, gt_mask, threshold
-            )
+            iou_custom: MetricValue = SegmentationMetrics.calculate_iou(pred_mask, gt_mask, threshold)
             if _need("iou"):
                 metrics["iou"] = iou_custom
             if _need("jaccard_score"):
-                iou_sklearn: MetricValue = (
-                    SegmentationMetrics.calculate_jaccard_sklearn(
-                        pred_mask, gt_mask, threshold
-                    )
-                )
+                iou_sklearn: MetricValue = SegmentationMetrics.calculate_jaccard_sklearn(pred_mask, gt_mask, threshold)
                 metrics["jaccard_score"] = iou_sklearn
 
             if verbose_comparison and _need("iou") and _need("jaccard_score"):
@@ -657,9 +607,7 @@ class SegmentationMetrics:
 
         # 3. Dice
         if _need("dice"):
-            metrics["dice"] = SegmentationMetrics.calculate_dice_coefficient(
-                pred_mask, gt_mask, threshold
-            )
+            metrics["dice"] = SegmentationMetrics.calculate_dice_coefficient(pred_mask, gt_mask, threshold)
 
         # 4. Precision & Recall (с внутренней проверкой)
         if _need("precision") or _need("recall") or _need("f1_score"):
@@ -679,22 +627,16 @@ class SegmentationMetrics:
 
         # 6. Pixel Accuracy
         if _need("pixel_accuracy"):
-            metrics["pixel_accuracy"] = SegmentationMetrics.calculate_pixel_accuracy(
-                pred_mask, gt_mask, threshold
-            )
+            metrics["pixel_accuracy"] = SegmentationMetrics.calculate_pixel_accuracy(pred_mask, gt_mask, threshold)
 
         # 7. MAE (с внутренней проверкой)
         if _need("mae"):
-            metrics["mae"] = SegmentationMetrics.calculate_mae(
-                pred_mask, gt_mask, verbose=verbose_comparison
-            )
+            metrics["mae"] = SegmentationMetrics.calculate_mae(pred_mask, gt_mask, verbose=verbose_comparison)
 
         # 8. Hausdorff
         if _need("hausdorff_distance") and include_hausdorff:
-            metrics["hausdorff_distance"] = (
-                SegmentationMetrics.calculate_hausdorff_distance(
-                    pred_mask, gt_mask, threshold
-                )
+            metrics["hausdorff_distance"] = SegmentationMetrics.calculate_hausdorff_distance(
+                pred_mask, gt_mask, threshold
             )
 
         # 9. Статистика областей и Confusion Matrix
@@ -709,9 +651,7 @@ class SegmentationMetrics:
             "true_negative",
         ]
         if any(_need(m) for m in area_or_cm_metrics):
-            pred_binary, gt_binary = SegmentationMetrics._normalize_masks(
-                pred_mask, gt_mask, threshold
-            )
+            pred_binary, gt_binary = SegmentationMetrics._normalize_masks(pred_mask, gt_mask, threshold)
 
             # Площади
             if _need("predicted_area"):
@@ -726,9 +666,7 @@ class SegmentationMetrics:
                 pred_area = int(np.sum(pred_binary))
                 gt_area = int(np.sum(gt_binary))
                 if max(pred_area, gt_area) > 0:
-                    metrics["area_ratio"] = min(pred_area, gt_area) / max(
-                        pred_area, gt_area
-                    )
+                    metrics["area_ratio"] = min(pred_area, gt_area) / max(pred_area, gt_area)
                 else:
                     metrics["area_ratio"] = 0.0
 
@@ -741,9 +679,7 @@ class SegmentationMetrics:
             ]
             if any(_need(m) for m in cm_metrics):
                 try:
-                    tn, fp, fn, tp = confusion_matrix(
-                        gt_binary.ravel(), pred_binary.ravel(), labels=[0, 1]
-                    ).ravel()
+                    tn, fp, fn, tp = confusion_matrix(gt_binary.ravel(), pred_binary.ravel(), labels=[0, 1]).ravel()
                     if _need("true_negative"):
                         metrics["true_negative"] = int(tn)
                     if _need("false_positive"):
@@ -788,9 +724,7 @@ class SegmentationMetrics:
             ValueError: Если длины списков не совпадают.
         """
         if len(pred_masks) != len(gt_masks):
-            raise ValueError(
-                "Количество предсказанных и ground truth масок должно совпадать"
-            )
+            raise ValueError("Количество предсказанных и ground truth масок должно совпадать")
 
         all_metrics: List[MetricsDict] = []
         individual_results: Dict[str, MetricsDict] = {}
@@ -808,9 +742,7 @@ class SegmentationMetrics:
             return {"average_metrics": {}, "individual_results": {}}
 
         for key in all_metrics[0].keys():
-            values: List[MetricValue] = [
-                m[key] for m in all_metrics if key in m and not np.isnan(m[key])
-            ]
+            values: List[MetricValue] = [m[key] for m in all_metrics if key in m and not np.isnan(m[key])]
             if values:
                 avg_metrics[f"avg_{key}"] = float(np.mean(values))
                 avg_metrics[f"std_{key}"] = float(np.std(values))

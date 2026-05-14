@@ -106,9 +106,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -223,24 +221,18 @@ class NeuralSegmenter(BaseSegmenter):
         """
         super().__init__()
         if not TRANSFORMERS_AVAILABLE:
-            raise ImportError(
-                "transformers library is required. Install with: pip install transformers"
-            )
+            raise ImportError("transformers library is required. Install with: pip install transformers")
         self.model_type_str: str = model_type
         self.model_type: ModelType = ModelType(model_type)
         self.model_name: str = model_name
         self.local_path: Optional[str] = local_path
         self.variant: Optional[str] = variant
-        self.device: torch.device = torch.device(
-            device if device else ("cuda" if torch.cuda.is_available() else "cpu")
-        )
+        self.device: torch.device = torch.device(device if device else ("cuda" if torch.cuda.is_available() else "cpu"))
         self.params: Dict[str, Any] = kwargs
         self.num_classes: int = int(num_classes)
 
         start_time: float = time.perf_counter()
-        cp_path: str = (
-            checkpoint_path if checkpoint_path is not None else "checkpoint.pth"
-        )
+        cp_path: str = checkpoint_path if checkpoint_path is not None else "checkpoint.pth"
         model_tuple: ModelTuple
         if variant is not None:
             # Загрузка из YAML-конфига
@@ -265,9 +257,7 @@ class NeuralSegmenter(BaseSegmenter):
         self.model, self.processor, self.model_type_str = model_tuple
         load_time: float = time.perf_counter() - start_time
         print(f"Модель загружена за {load_time:.4f} секунд")
-        self.palette: Optional[List[List[int]]] = (
-            palette if palette else self._get_default_palette()
-        )
+        self.palette: Optional[List[List[int]]] = palette if palette else self._get_default_palette()
 
         # ──────────────────────────────────────────────────────────────
         # Логирование
@@ -422,9 +412,7 @@ class NeuralSegmenter(BaseSegmenter):
 
         # Проверка
         print(f"✅ CheXpert observations: {len(chexpert_observation_names)} classes")
-        print(
-            f"✅ Chest segmentation: {len(chest_segmentation_class_names)} classes (binary)"
-        )
+        print(f"✅ Chest segmentation: {len(chest_segmentation_class_names)} classes (binary)")
         return chexpert_observation_names
 
     # ──────────────────────────────────────────────────────────────────────
@@ -484,9 +472,7 @@ class NeuralSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def _resize_mask_to_original(
-        mask: np.ndarray, target_size: Tuple[int, int]
-    ) -> np.ndarray:
+    def _resize_mask_to_original(mask: np.ndarray, target_size: Tuple[int, int]) -> np.ndarray:
         """Утилита для ресайза маски к оригинальному размеру изображения.
 
         Использует ближайшего соседа (`order=0`) для сохранения целочисленных меток.
@@ -545,17 +531,13 @@ class NeuralSegmenter(BaseSegmenter):
                     # RGBA
                     img = Image.fromarray(input_image).convert("RGB")
                 else:
-                    raise ValueError(
-                        f"Неподдерживаемое количество каналов: {input_image.shape[2]}"
-                    )
+                    raise ValueError(f"Неподдерживаемое количество каналов: {input_image.shape[2]}")
         elif isinstance(input_image, torch.Tensor):
             # PyTorch tensor → numpy → PIL
             t = input_image
             if t.dim() == 4:
                 t = t.squeeze(0)
-            np_img = (
-                t.permute(1, 2, 0).cpu().numpy() if t.dim() == 3 else t.cpu().numpy()
-            )
+            np_img = t.permute(1, 2, 0).cpu().numpy() if t.dim() == 3 else t.cpu().numpy()
             if np_img.max() <= 1.0:
                 np_img = (np_img * 255).astype(np.uint8)
             else:
@@ -593,10 +575,7 @@ class NeuralSegmenter(BaseSegmenter):
         """
         model_type_valid = cast(ValidModelType, self.model_type_str)  # type: ignore[reportInvalidTypeForm]
         class_names_fixed: Optional[Dict[int, str]] = (
-            {
-                int(k) if isinstance(k, str) and k.isdigit() else k: v  # type: ignore
-                for k, v in class_names.items()
-            }
+            {int(k) if isinstance(k, str) and k.isdigit() else k: v for k, v in class_names.items()}  # type: ignore
             if class_names is not None
             else None
         )
@@ -655,9 +634,7 @@ class NeuralSegmenter(BaseSegmenter):
         )
 
     # ──────────────────────────────────────────────────────────────────────
-    def prepare_mask_for_overlay(
-        self, mask_input: Union[np.ndarray, Image.Image]
-    ) -> np.ndarray:
+    def prepare_mask_for_overlay(self, mask_input: Union[np.ndarray, Image.Image]) -> np.ndarray:
         """Конвертирует маску в 2D numpy array для создания overlay.
 
         Обрабатывает:
@@ -729,9 +706,7 @@ class NeuralSegmenter(BaseSegmenter):
 
         # Blend original and mask
         orig_arr: np.ndarray = np.array(img.convert("RGB"))
-        overlay: np.ndarray = (orig_arr * (1 - alpha) + color_mask * alpha).astype(
-            np.uint8
-        )
+        overlay: np.ndarray = (orig_arr * (1 - alpha) + color_mask * alpha).astype(np.uint8)
         return Image.fromarray(overlay)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -803,17 +778,13 @@ class NeuralSegmenter(BaseSegmenter):
             if label < len(palette_array):
                 color_mask[seg_map == label] = palette_array[label]
 
-        result: np.ndarray = (img_np * (1 - alpha) + color_mask * alpha).astype(
-            np.uint8
-        )
+        result: np.ndarray = (img_np * (1 - alpha) + color_mask * alpha).astype(np.uint8)
 
         print(f"Neural segmentation completed in {time.time() - start_time:.2f}s")
         return result, mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def detailed_segmentation(
-        self, input_image: Union[str, Image.Image]
-    ) -> Dict[str, Any]:
+    def detailed_segmentation(self, input_image: Union[str, Image.Image]) -> Dict[str, Any]:
         """Детальная сегментация с возвратом всех промежуточных результатов.
 
         Возвращает:

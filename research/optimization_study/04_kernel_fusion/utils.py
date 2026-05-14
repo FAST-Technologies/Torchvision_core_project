@@ -26,9 +26,7 @@ def get_fusion_capabilities(device: str = "cuda") -> Dict[str, bool]:
     capabilities = {}
 
     # torch.compile (PyTorch >= 2.0)
-    capabilities["torch_compile"] = (
-        hasattr(torch, "compile") and torch.__version__ >= "2.0"
-    )
+    capabilities["torch_compile"] = hasattr(torch, "compile") and torch.__version__ >= "2.0"
 
     # Custom CUDA kernels (требует компилятора)
     try:
@@ -132,9 +130,7 @@ def format_speedup(ratio: float) -> str:
         return f"{ratio:.3f}×"
 
 
-def analyze_graph_complexity(
-    func: Callable, example_input: torch.Tensor
-) -> Dict[str, Any]:
+def analyze_graph_complexity(func: Callable, example_input: torch.Tensor) -> Dict[str, Any]:
     """
     Анализирует сложность графа вычислений функции.
 
@@ -159,9 +155,7 @@ def analyze_graph_complexity(
         num_ops = len(operations)
 
         # Подсчёт параметров
-        num_params = sum(
-            1 for n in operations if n.kind() in ["prim::Param", "prim::Constant"]
-        )
+        num_params = sum(1 for n in operations if n.kind() in ["prim::Param", "prim::Constant"])
 
         # Оценка памяти (грубая)
         memory_estimate = example_input.element_size() * example_input.numel()

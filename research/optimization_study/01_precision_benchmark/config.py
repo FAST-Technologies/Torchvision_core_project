@@ -45,15 +45,10 @@ class PrecisionConfig:
         valid_precisions = {"fp32", "fp16", "bf16", "int8"}
         for p in self.precisions:
             if p not in valid_precisions:
-                raise ValueError(
-                    f"Invalid precision: {p}. " f"Available: {valid_precisions}"
-                )
+                raise ValueError(f"Invalid precision: {p}. " f"Available: {valid_precisions}")
 
         if self.reference_precision not in self.precisions:
-            raise ValueError(
-                f"Reference precision '{self.reference_precision}' "
-                f"not in precisions list"
-            )
+            raise ValueError(f"Reference precision '{self.reference_precision}' " f"not in precisions list")
 
 
 # Конфигурация по умолчанию

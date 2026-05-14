@@ -67,14 +67,9 @@ class ReportGenerator:
                 if prec in summary["avg_time_by_precision"]:
                     time_val = summary["avg_time_by_precision"][prec]
                     speedup = (
-                        summary.get("avg_time_by_precision", {}).get("fp32", time_val)
-                        / time_val
-                        if time_val > 0
-                        else 1
+                        summary.get("avg_time_by_precision", {}).get("fp32", time_val) / time_val if time_val > 0 else 1
                     )
-                    lines.append(
-                        f"| {prec} | {format_time(time_val/1000)} | {format_speedup(speedup)} |"
-                    )
+                    lines.append(f"| {prec} | {format_time(time_val/1000)} | {format_speedup(speedup)} |")
             lines.append("")
 
         # Таблица точности
@@ -125,9 +120,7 @@ class ReportGenerator:
 
         # Проверка точности
         if "avg_agreement_by_precision" in summary:
-            safe_precisions = [
-                p for p, a in summary["avg_agreement_by_precision"].items() if a > 0.999
-            ]
+            safe_precisions = [p for p, a in summary["avg_agreement_by_precision"].items() if a > 0.999]
             if safe_precisions:
                 lines.append(
                     f"- For production with minimal accuracy loss: "
@@ -193,9 +186,7 @@ class ReportGenerator:
             base_name = f"precision_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         return {
-            "markdown": self.generate_markdown(
-                df, summary, output_file=f"{base_name}.md"
-            ),
+            "markdown": self.generate_markdown(df, summary, output_file=f"{base_name}.md"),
             "json": self.generate_json(df, summary, output_file=f"{base_name}.json"),
             "csv": self.generate_csv(df, output_file=f"{base_name}.csv"),
         }

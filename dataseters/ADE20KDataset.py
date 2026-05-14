@@ -60,9 +60,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -159,9 +157,7 @@ class ADE20KDataset(Dataset):
         if not os.path.exists(self.masks_dir):
             raise FileNotFoundError(f"Masks dir not found: {self.masks_dir}")
 
-        self.image_files: List[str] = sorted(
-            [f for f in os.listdir(self.images_dir) if f.endswith(".jpg")]
-        )
+        self.image_files: List[str] = sorted([f for f in os.listdir(self.images_dir) if f.endswith(".jpg")])
         logger.info(f"   Найдено {len(self.image_files)} изображений")
 
         self.valid_indices: List[int] = []
@@ -179,9 +175,7 @@ class ADE20KDataset(Dataset):
         self.img_transform: transforms.Compose = transforms.Compose(
             [
                 transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                ),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ]
         )
 
@@ -294,12 +288,8 @@ class ADE20KDataset(Dataset):
             new_h: int = max(1, int(orig_h * scale))
 
             # Ресайз
-            img = TF.resize(
-                img, (new_h, new_w), interpolation=TF.InterpolationMode.BILINEAR
-            )
-            mask = TF.resize(
-                mask, (new_h, new_w), interpolation=TF.InterpolationMode.NEAREST
-            )
+            img = TF.resize(img, (new_h, new_w), interpolation=TF.InterpolationMode.BILINEAR)
+            mask = TF.resize(mask, (new_h, new_w), interpolation=TF.InterpolationMode.NEAREST)
 
             # Crop/Pad к исходному размеру
             if new_w >= orig_w and new_h >= orig_h:
@@ -323,11 +313,7 @@ class ADE20KDataset(Dataset):
             transforms_applied.append(f"scale_{scale:.2f}")
 
         # 5. Random Affine (опционально, для aggressive уровня)
-        if (
-            self.augment
-            and self.augmentation_level == "aggressive"
-            and random.random() < 0.3
-        ):
+        if self.augment and self.augmentation_level == "aggressive" and random.random() < 0.3:
             angle = random.uniform(-15, 15)
             translate: Tuple[float, float] = (
                 random.uniform(-0.1, 0.1),
@@ -352,9 +338,7 @@ class ADE20KDataset(Dataset):
                 shear=shear,
                 fill=self.ignore_index,
             )
-            transforms_applied.append(
-                f"random_affine_{angle:.2f}°_translate={translate}_scale={scale}_shear={shear}"
-            )
+            transforms_applied.append(f"random_affine_{angle:.2f}°_translate={translate}_scale={scale}_shear={shear}")
         if transforms_applied and self.augment:
             logger.warning(f"🔧 Applied: {', '.join(transforms_applied)}")
 
@@ -389,9 +373,7 @@ class ADE20KDataset(Dataset):
 
         # 2. Random Grayscale
         if self.augmentation_level == "aggressive" and random.random() < 0.1:
-            img = TF.to_grayscale(
-                img, num_output_channels=3
-            )  # Конвертируем обратно в RGB
+            img = TF.to_grayscale(img, num_output_channels=3)  # Конвертируем обратно в RGB
 
         # 3. Random Gamma
         if self.augmentation_level == "aggressive" and random.random() < 0.2:
@@ -427,12 +409,8 @@ class ADE20KDataset(Dataset):
         """
         real_idx: int = self.valid_indices[idx]
         img_file: str = self.image_files[real_idx]
-        img: Image.Image = Image.open(os.path.join(self.images_dir, img_file)).convert(
-            "RGB"
-        )
-        mask_pil: Image.Image = Image.open(
-            os.path.join(self.masks_dir, img_file.replace(".jpg", ".png"))
-        ).convert("L")
+        img: Image.Image = Image.open(os.path.join(self.images_dir, img_file)).convert("RGB")
+        mask_pil: Image.Image = Image.open(os.path.join(self.masks_dir, img_file.replace(".jpg", ".png"))).convert("L")
         # 1. Применяем геометрические аугментации
         img, mask_pil = self._apply_geometric_augmentations(img, mask_pil)
 
@@ -483,9 +461,7 @@ class ADE20KDataset(Dataset):
         m: torch.Tensor = sample["mask"]
         valid: torch.Tensor = m[m != self.ignore_index]
         if len(valid) > 0:
-            assert (
-                valid.min() >= 0 and valid.max() <= 149
-            ), f"Mask values out of range: [{valid.min()}, {valid.max()}]"
+            assert valid.min() >= 0 and valid.max() <= 149, f"Mask values out of range: [{valid.min()}, {valid.max()}]"
         return True
 
 
@@ -517,14 +493,10 @@ class ADE20KDatasetWithTransforms(Dataset):
         self.masks_dir: Path = base_dir / "annotations" / split
 
         self.transform: Dict[str, transforms.Compose] = (
-            self._get_train_transforms()
-            if augment and split == "training"
-            else self._get_val_transforms()
+            self._get_train_transforms() if augment and split == "training" else self._get_val_transforms()
         )
 
-        self.image_files: List[str] = sorted(
-            [f for f in os.listdir(self.images_dir) if f.endswith(".jpg")]
-        )
+        self.image_files: List[str] = sorted([f for f in os.listdir(self.images_dir) if f.endswith(".jpg")])
         self.valid_indices: List[int] = []
         for i, img_file in enumerate(self.image_files):
             mask_file: str = img_file.replace(".jpg", ".png")
@@ -576,9 +548,7 @@ class ADE20KDatasetWithTransforms(Dataset):
         img_file: str = self.image_files[real_idx]
 
         img: Image.Image = Image.open(self.images_dir / img_file).convert("RGB")
-        mask: Image.Image = Image.open(
-            self.masks_dir / img_file.replace(".jpg", ".png")
-        ).convert("L")
+        mask: Image.Image = Image.open(self.masks_dir / img_file.replace(".jpg", ".png")).convert("L")
 
         # Геометрические аугментации
         if self.augment:
@@ -591,12 +561,8 @@ class ADE20KDatasetWithTransforms(Dataset):
                 mask = TF.rotate(mask, angle, fill=self.ignore_index)
 
         # Resize
-        img = TF.resize(
-            img, self.image_size, interpolation=TF.InterpolationMode.BILINEAR
-        )
-        mask = TF.resize(
-            mask, self.image_size, interpolation=TF.InterpolationMode.NEAREST
-        )
+        img = TF.resize(img, self.image_size, interpolation=TF.InterpolationMode.BILINEAR)
+        mask = TF.resize(mask, self.image_size, interpolation=TF.InterpolationMode.NEAREST)
 
         # Конвертация
         img_tensor: torch.Tensor = self.transform["image"](img)
@@ -651,13 +617,9 @@ def test_dataloader() -> bool:
             logger.info(
                 f"   Images: {images.shape}, dtype={images.dtype}, range=[{images.min():.3f}, {images.max():.3f}]"
             )
-            logger.info(
-                f"   Masks: {masks.shape}, dtype={masks.dtype}, unique={torch.unique(masks)[:15].tolist()}"
-            )
+            logger.info(f"   Masks: {masks.shape}, dtype={masks.dtype}, unique={torch.unique(masks)[:15].tolist()}")
             assert not torch.isnan(images).any(), "NaN in images!"
-            assert (
-                masks.min() >= 0 and masks.max() <= 150
-            ), f"Mask out of range: [{masks.min()}, {masks.max()}]"
+            assert masks.min() >= 0 and masks.max() <= 150, f"Mask out of range: [{masks.min()}, {masks.max()}]"
             non_ignore: torch.Tensor = masks[masks != 0]
             if len(non_ignore) > 0:
                 assert (
@@ -675,9 +637,7 @@ def test_dataloader() -> bool:
             mask: np.ndarray = batch["mask"][0].numpy()
 
             # Denormalize image
-            img = img * np.array([0.229, 0.224, 0.225]) + np.array(
-                [0.485, 0.456, 0.406]
-            )
+            img = img * np.array([0.229, 0.224, 0.225]) + np.array([0.485, 0.456, 0.406])
             img = np.clip(img, 0, 1)
 
             axes[0, i].imshow(img)

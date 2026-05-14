@@ -58,10 +58,7 @@ class TorchTRTOptimizer:
         try:
             import torch_tensorrt
         except ImportError:
-            raise ImportError(
-                "torch-tensorrt not installed. "
-                "Install via: pip install torch-tensorrt"
-            )
+            raise ImportError("torch-tensorrt not installed. " "Install via: pip install torch-tensorrt")
 
         self.segmenter = segmenter
         self.image_shape = image_shape
@@ -97,16 +94,13 @@ class TorchTRTOptimizer:
         """
         if method_name not in self.segmenter.method_map:
             raise ValueError(
-                f"Method '{method_name}' not found. "
-                f"Available: {list(self.segmenter.method_map.keys())}"
+                f"Method '{method_name}' not found. " f"Available: {list(self.segmenter.method_map.keys())}"
             )
 
         original_func = self.segmenter.method_map[method_name]
 
         # Пример входа
-        example_input = torch.randn(
-            1, *self.image_shape, device=self.device, dtype=torch.float32
-        )
+        example_input = torch.randn(1, *self.image_shape, device=self.device, dtype=torch.float32)
 
         # Настройки точности
         if enabled_precisions is None:
@@ -134,8 +128,7 @@ class TorchTRTOptimizer:
 
         except Exception as e:
             warnings.warn(
-                f"⚠️ torch-tensorrt compilation failed for '{method_name}': {e}. "
-                f"Falling back to original function."
+                f"⚠️ torch-tensorrt compilation failed for '{method_name}': {e}. " f"Falling back to original function."
             )
             return original_func
 
@@ -166,9 +159,7 @@ class TorchTRTOptimizer:
             compiled_func = self.convert_method(method_name, precision=precision)
 
         # Входной тензор
-        dummy_input = torch.randn(
-            1, *self.image_shape, device=self.device, dtype=torch.float32
-        )
+        dummy_input = torch.randn(1, *self.image_shape, device=self.device, dtype=torch.float32)
 
         # Замер оригинала
         warmup_inference(original_func, dummy_input, n_warmup)
@@ -211,9 +202,7 @@ class TorchTRTOptimizer:
         for precision in precisions:
             try:
                 compiled = self.convert_method(method_name, precision=precision)
-                results[precision] = self.benchmark(
-                    method_name, compiled, n_runs=n_runs, precision=precision
-                )
+                results[precision] = self.benchmark(method_name, compiled, n_runs=n_runs, precision=precision)
             except Exception as e:
                 warnings.warn(f"⚠️ {precision} failed: {e}")
                 results[precision] = {"error": str(e)}

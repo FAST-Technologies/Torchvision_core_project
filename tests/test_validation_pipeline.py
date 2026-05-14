@@ -31,6 +31,7 @@ import tempfile
 @pytest.mark.integration
 class TestValidationPipeline:
     """Класс тестов для реализации TorchImplementationValidator."""
+
     def test_torch_vs_opencv_validation(self, rgb_image: np.ndarray) -> None:
         """Валидация Torch vs OpenCV реализаций."""
         from testing.TorchImplementationValidator import TorchImplementationValidator
@@ -78,16 +79,10 @@ class TestValidationPipeline:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tester = SegmentationTester(base_output_dir=tmpdir)
-            tester.add_method(
-                "test_method", TorchSegmenter("global_thresholding", threshold=0.5)
-            )
+            tester.add_method("test_method", TorchSegmenter("global_thresholding", threshold=0.5))
 
-            df1: pd.DataFrame = tester.benchmark_methods(
-                rgb_image, n_runs=3, test_name="run1"
-            )
-            df2: pd.DataFrame = tester.benchmark_methods(
-                rgb_image, n_runs=3, test_name="run2"
-            )
+            df1: pd.DataFrame = tester.benchmark_methods(rgb_image, n_runs=3, test_name="run1")
+            df2: pd.DataFrame = tester.benchmark_methods(rgb_image, n_runs=3, test_name="run2")
 
             if not df1.empty and not df2.empty:
                 time1: float = df1.iloc[0]["Mean_Time_s"]

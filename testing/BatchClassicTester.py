@@ -2,7 +2,7 @@
 
 """Модуль для массового тестирования согласованности классических методов сегментации.
 
-Предназначен для автоматизированного сравнения реализаций алгоритмов пороговой обработки 
+Предназначен для автоматизированного сравнения реализаций алгоритмов пороговой обработки
 и выделения границ между различными библиотеками (PyTorch, OpenCV, Scikit-learn).
 Тестирование фокусируется на КОНСИСТЕНТНОСТИ реализаций, а не на качестве относительно GT.
 
@@ -56,9 +56,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -68,9 +66,7 @@ if not logger.handlers:
 MethodConfig = Tuple[str, Dict[str, Any]]
 LibraryName = Literal["torch", "torch_v2", "opencv", "sklearn"]
 ValidationStatus = Literal["PASS", "WARNING", "FAIL"]
-SegmenterClass = type[
-    Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter]
-]
+SegmenterClass = type[Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter]]
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -239,9 +235,7 @@ class BatchClassicTester:
         self.refresh_masks: bool = refresh_masks
 
         # Счётчики для выборки масок: {pair_key: {method_name: count}}
-        self._mask_sample_counts: Dict[str, Dict[str, int]] = defaultdict(
-            lambda: defaultdict(int)
-        )
+        self._mask_sample_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
         # Директория для масок
         if self.save_masks:
@@ -305,9 +299,7 @@ class BatchClassicTester:
         ]
 
         # Объединённый список всех методов
-        self.all_methods: List[MethodConfig] = (
-            self.all_threshold_methods + self.all_edge_methods
-        )
+        self.all_methods: List[MethodConfig] = self.all_threshold_methods + self.all_edge_methods
 
         # ──────────────────────────────────────────────────────────────
         # МЕТРИКИ И ПОРОГИ
@@ -341,15 +333,9 @@ class BatchClassicTester:
         self.results: Dict[str, Dict[str, Dict[str, List[float]]]] = defaultdict(
             lambda: defaultdict(lambda: defaultdict(list))
         )
-        self.execution_times: Dict[str, Dict[str, List[Tuple[float, float]]]] = (
-            defaultdict(lambda: defaultdict(list))
-        )
-        self.errors: Dict[str, Dict[str, List[str]]] = defaultdict(
-            lambda: defaultdict(list)
-        )
-        self.validation_status: Dict[str, Dict[str, List[ValidationStatus]]] = (
-            defaultdict(lambda: defaultdict(list))
-        )
+        self.execution_times: Dict[str, Dict[str, List[Tuple[float, float]]]] = defaultdict(lambda: defaultdict(list))
+        self.errors: Dict[str, Dict[str, List[str]]] = defaultdict(lambda: defaultdict(list))
+        self.validation_status: Dict[str, Dict[str, List[ValidationStatus]]] = defaultdict(lambda: defaultdict(list))
         self.torch_segmenter_version: Literal["v1", "v2"] = torch_segmenter_version
 
         # Пути для автосохранения
@@ -359,9 +345,7 @@ class BatchClassicTester:
         # Загрузка прогресса если нужно
         if resume and self.progress_file.exists():
             self._load_progress()
-            print(
-                f"📥 Восстановлен прогресс: {self._processed_count}/{self._total_tests} тестов"
-            )
+            print(f"📥 Восстановлен прогресс: {self._processed_count}/{self._total_tests} тестов")
 
     # ──────────────────────────────────────────────────────────────────────
     def _setup_signal_handlers(self) -> None:
@@ -420,11 +404,7 @@ class BatchClassicTester:
             - Для добавления новой библиотеки достаточно расширить словарь `mapping` и тип `LibraryName`.
         """
         mapping: Dict[LibraryName, SegmenterClass] = {
-            "torch": (
-                TorchSegmenter2
-                if self.torch_segmenter_version == "v2"
-                else TorchSegmenter
-            ),
+            "torch": (TorchSegmenter2 if self.torch_segmenter_version == "v2" else TorchSegmenter),
             "torch_v2": TorchSegmenter2,
             "opencv": OpenCVSegmenter,
             "sklearn": SklearnSegmenter,
@@ -550,9 +530,7 @@ class BatchClassicTester:
             # ──────────────────────────────────────────────────────
             # Приведение масок к одному формату и размеру
             # ──────────────────────────────────────────────────────
-            def normalize_mask(
-                mask: np.ndarray, target_shape: Tuple[int, int]
-            ) -> np.ndarray:
+            def normalize_mask(mask: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray:
                 """Приводит маску к бинарному uint8 и нужному размеру."""
                 if mask.shape != target_shape:
                     from skimage.transform import resize
@@ -739,9 +717,7 @@ class BatchClassicTester:
         lib_a, lib_b = pair_key.split("_vs_")
 
         # Создаём директорию
-        save_dir: Path = (
-            self.masks_dir / pair_key / method_name / img_name.replace(".", "_")
-        )
+        save_dir: Path = self.masks_dir / pair_key / method_name / img_name.replace(".", "_")
         save_dir.mkdir(parents=True, exist_ok=True)
 
         # Сохраняем маски
@@ -757,17 +733,14 @@ class BatchClassicTester:
 
         # Сохраняем метрики
         metrics_save: Dict[str, Any] = {
-            k: (float(v) if isinstance(v, (np.floating, np.integer)) else v)
-            for k, v in metrics.items()
+            k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in metrics.items()
         }
         with open(save_dir / "metrics.json", "w") as f:
             json.dump(metrics_save, f, indent=2)
 
         # Визуализация разницы (опционально)
         if self.save_visualizations:
-            self._save_difference_visualization(
-                save_dir, image, mask_a, mask_b, metrics, lib_a, lib_b, method_name
-            )
+            self._save_difference_visualization(save_dir, image, mask_a, mask_b, metrics, lib_a, lib_b, method_name)
 
     def _save_difference_visualization(
         self,
@@ -847,9 +820,7 @@ class BatchClassicTester:
 
         # 2. Маска библиотеки A
         axes[1].imshow(mask_a, cmap="gray", vmin=0, vmax=255)
-        axes[1].set_title(
-            f"{lib_a.upper()} Mask\nIoU: {metrics.get('iou', np.nan):.3f}"
-        )
+        axes[1].set_title(f"{lib_a.upper()} Mask\nIoU: {metrics.get('iou', np.nan):.3f}")
         axes[1].axis("off")
 
         # 3. Маска библиотеки B
@@ -860,15 +831,11 @@ class BatchClassicTester:
         # 4. Heatmap разницы
         diff: np.ndarray = np.abs(mask_a.astype(float) - mask_b.astype(float))
         im = axes[3].imshow(diff, cmap="hot", vmin=0, vmax=255)
-        axes[3].set_title(
-            f"Difference Heatmap\nStatus: {metrics.get('validation_status', 'N/A')}"
-        )
+        axes[3].set_title(f"Difference Heatmap\nStatus: {metrics.get('validation_status', 'N/A')}")
         axes[3].axis("off")
         plt.colorbar(im, ax=axes[3], fraction=0.046, label="Pixel Difference")
 
-        plt.suptitle(
-            f"Consistency Check: {method_name} ({lib_a} ↔ {lib_b})", fontsize=14
-        )
+        plt.suptitle(f"Consistency Check: {method_name} ({lib_a} ↔ {lib_b})", fontsize=14)
         plt.tight_layout()
 
         viz_path: Path = save_dir / "comparison.png"
@@ -1033,9 +1000,7 @@ class BatchClassicTester:
         if not images_dir.exists():
             raise FileNotFoundError(f"Images directory not found: {images_dir}")
 
-        image_files: List[str] = sorted(
-            [f for f in os.listdir(images_dir) if f.endswith((".jpg", ".jpeg", ".png"))]
-        )
+        image_files: List[str] = sorted([f for f in os.listdir(images_dir) if f.endswith((".jpg", ".jpeg", ".png"))])
 
         if self.max_images:
             image_files = image_files[: self.max_images]
@@ -1046,9 +1011,7 @@ class BatchClassicTester:
         for img_file in tqdm(image_files, desc="Loading images"):
             try:
                 img: Image.Image = Image.open(images_dir / img_file).convert("RGB")
-                img_array: np.ndarray = np.array(
-                    img.resize(self.image_size, Image.Resampling.BILINEAR)
-                )
+                img_array: np.ndarray = np.array(img.resize(self.image_size, Image.Resampling.BILINEAR))
                 data.append((img_file, img_array))
             except Exception as e:
                 print(f"❌ Error loading {img_file}: {e}")
@@ -1058,9 +1021,7 @@ class BatchClassicTester:
         return data
 
     # ──────────────────────────────────────────────────────────────────────
-    def _init_progress_tracking(
-        self, total_images: int, total_methods: int, total_pairs: int
-    ) -> None:
+    def _init_progress_tracking(self, total_images: int, total_methods: int, total_pairs: int) -> None:
         """Инициализирует внутренние счётчики и кэши для отслеживания прогресса тестирования.
 
         Подготавливает метаданные для:
@@ -1134,12 +1095,9 @@ class BatchClassicTester:
         self._start_time: float = time.time()
         self._last_save_time: float = time.time()
         self._method_index_cache: Dict[Tuple[str, str], int] = {
-            (name, json.dumps(params, sort_keys=True)): idx
-            for idx, (name, params) in enumerate(self.all_methods)
+            (name, json.dumps(params, sort_keys=True)): idx for idx, (name, params) in enumerate(self.all_methods)
         }
-        self._pair_index_cache: Dict[Tuple[str, str], int] = {
-            pair: idx for idx, pair in enumerate(self.library_pairs)
-        }
+        self._pair_index_cache: Dict[Tuple[str, str], int] = {pair: idx for idx, pair in enumerate(self.library_pairs)}
 
     # ──────────────────────────────────────────────────────────────────────
     def _update_progress_bar(
@@ -1217,9 +1175,7 @@ class BatchClassicTester:
             else:
                 return f"{s / 3600:.1f}ч"
 
-        total_errors: int = sum(
-            len(e) for m in self.errors.values() for e in m.values()
-        )
+        total_errors: int = sum(len(e) for m in self.errors.values() for e in m.values())
         error_rate: float = total_errors / current if current > 0 else 0
 
         pbar.set_postfix(
@@ -1314,10 +1270,7 @@ class BatchClassicTester:
                 "start_time": self._start_time,
                 "last_update": now,
             }
-            progress["mask_sample_counts"] = {
-                pair: dict(methods)
-                for pair, methods in self._mask_sample_counts.items()
-            }
+            progress["mask_sample_counts"] = {pair: dict(methods) for pair, methods in self._mask_sample_counts.items()}
             with open(self.progress_file, "w") as f:
                 json.dump(progress, f, indent=2)
 
@@ -1329,9 +1282,7 @@ class BatchClassicTester:
                 self.temp_results_file.replace(final_path)
 
             self._last_save_time = now
-            print(
-                f"\n💾 Автосохранение: {self._processed_count}/{self._total_tests} ✅"
-            )
+            print(f"\n💾 Автосохранение: {self._processed_count}/{self._total_tests} ✅")
 
         except Exception as e:
             print(f"\n⚠️  Ошибка автосохранения: {e}")
@@ -1414,19 +1365,11 @@ class BatchClassicTester:
                         method_name: str = method_dir.name
                         # Считаем уже сохранённые поддиректории
                         saved_count: int = len(
-                            [
-                                d
-                                for d in method_dir.iterdir()
-                                if d.is_dir() and (d / "metrics.json").exists()
-                            ]
+                            [d for d in method_dir.iterdir() if d.is_dir() and (d / "metrics.json").exists()]
                         )
-                        current_count: int = self._mask_sample_counts[pair_key][
-                            method_name
-                        ]
+                        current_count: int = self._mask_sample_counts[pair_key][method_name]
                         if saved_count < current_count:
-                            self._mask_sample_counts[pair_key][
-                                method_name
-                            ] = saved_count
+                            self._mask_sample_counts[pair_key][method_name] = saved_count
                             print(
                                 f"⚠️  Коррекция счётчика: {pair_key}/{method_name}: "
                                 f"{current_count} → {saved_count} (файлы удалены?)"
@@ -1556,34 +1499,21 @@ class BatchClassicTester:
 
                         # Пропуск выполненных тестов при resume
                         # 🔧 O(1) доступ вместо O(n) поиска
-                        if (
-                            self.resume
-                            and self._processed_count > 0
-                            and not self.refresh_masks
-                        ):
+                        if self.resume and self._processed_count > 0 and not self.refresh_masks:
                             method_key: Tuple[str, str] = (
                                 method_name,
                                 json.dumps(params, sort_keys=True),
                             )
-                            method_idx: Optional[int] = self._method_index_cache.get(
-                                method_key
-                            )
-                            pair_idx: Optional[int] = self._pair_index_cache.get(
-                                (lib_a, lib_b)
-                            )
+                            method_idx: Optional[int] = self._method_index_cache.get(method_key)
+                            pair_idx: Optional[int] = self._pair_index_cache.get((lib_a, lib_b))
 
                             if method_idx is None or pair_idx is None:
                                 # Если кэш не найден (маловероятно), вычисляем как fallback
-                                method_idx = self.all_methods.index(
-                                    (method_name, params)
-                                )
+                                method_idx = self.all_methods.index((method_name, params))
                                 pair_idx = self.library_pairs.index((lib_a, lib_b))
 
                             test_index: int = (
-                                img_idx * total_methods * total_pairs
-                                + method_idx * total_pairs
-                                + pair_idx
-                                + 1
+                                img_idx * total_methods * total_pairs + method_idx * total_pairs + pair_idx + 1
                             )
 
                             if self._processed_count >= test_index:
@@ -1596,27 +1526,16 @@ class BatchClassicTester:
 
                         # Обработка результатов
                         if error:
-                            self.errors[pair_key][method_name].append(
-                                f"{img_name}: {error}"
-                            )
+                            self.errors[pair_key][method_name].append(f"{img_name}: {error}")
                         elif metrics:
                             for metric_name in self.metrics_to_aggregate:
                                 if metric_name in metrics:
-                                    self.results[pair_key][method_name][
-                                        metric_name
-                                    ].append(metrics[metric_name])
+                                    self.results[pair_key][method_name][metric_name].append(metrics[metric_name])
                             if exec_times:
-                                self.execution_times[pair_key][method_name].append(
-                                    exec_times
-                                )
+                                self.execution_times[pair_key][method_name].append(exec_times)
                             if masks is not None:
                                 mask_a, mask_b = masks
-                                save_dir = (
-                                    self.masks_dir
-                                    / pair_key
-                                    / method_name
-                                    / img_name.replace(".", "_")
-                                )
+                                save_dir = self.masks_dir / pair_key / method_name / img_name.replace(".", "_")
                                 # 1. Сохраняем маски и изображение
                                 if self.refresh_masks or not save_dir.exists():
                                     self._save_segmentation_results(
@@ -1724,27 +1643,18 @@ class BatchClassicTester:
 
         for pair_key in self.results:
             for method_name in self.results[pair_key]:
-                images_tested: int = len(
-                    self.results[pair_key][method_name].get("iou", [])
-                )
+                images_tested: int = len(self.results[pair_key][method_name].get("iou", []))
 
                 row: Dict[str, Any] = {
                     "Method": method_name,
                     "Library_Pair": pair_key,
-                    "Torch_Version": (
-                        "v2"
-                        if "torch_v2" in pair_key
-                        or self.torch_segmenter_version == "v2"
-                        else "v1"
-                    ),
+                    "Torch_Version": ("v2" if "torch_v2" in pair_key or self.torch_segmenter_version == "v2" else "v1"),
                     "Images_Tested": images_tested,
                 }
 
                 # Средние значения метрик
                 for metric_name in self.metrics_to_aggregate:
-                    values: List[float] = self.results[pair_key][method_name].get(
-                        metric_name, []
-                    )
+                    values: List[float] = self.results[pair_key][method_name].get(metric_name, [])
                     if values:
                         row[f"{metric_name}_mean"] = np.mean(values)
                         row[f"{metric_name}_std"] = np.std(values)
@@ -1754,23 +1664,17 @@ class BatchClassicTester:
                         row[f"{metric_name}_mean"] = np.nan
 
                 # Время выполнения
-                times: List[Tuple[float, float]] = self.execution_times[pair_key][
-                    method_name
-                ]
+                times: List[Tuple[float, float]] = self.execution_times[pair_key][method_name]
                 if times:
                     times_a: List[float] = [t[0] for t in times]
                     times_b: List[float] = [t[1] for t in times]
                     row["time_a_mean"] = np.mean(times_a)
                     row["time_b_mean"] = np.mean(times_b)
-                    row["time_diff_mean"] = np.mean(
-                        [abs(a - b) for a, b in zip(times_a, times_b)]
-                    )
+                    row["time_diff_mean"] = np.mean([abs(a - b) for a, b in zip(times_a, times_b)])
 
                 # Ошибки и статус
                 errors: List[str] = self.errors[pair_key][method_name]
-                statuses: List[ValidationStatus] = self.validation_status[pair_key][
-                    method_name
-                ]
+                statuses: List[ValidationStatus] = self.validation_status[pair_key][method_name]
 
                 row["error_count"] = len(errors)
                 row["error_rate"] = len(errors) / max(images_tested, 1)
@@ -1778,9 +1682,7 @@ class BatchClassicTester:
                 if statuses:
                     status_counts: pd.Series = pd.Series(statuses).value_counts()
                     row["pass_rate"] = status_counts.get("PASS", 0) / len(statuses)
-                    row["warning_rate"] = status_counts.get("WARNING", 0) / len(
-                        statuses
-                    )
+                    row["warning_rate"] = status_counts.get("WARNING", 0) / len(statuses)
                     row["fail_rate"] = status_counts.get("FAIL", 0) / len(statuses)
 
                 rows.append(row)
@@ -1794,9 +1696,7 @@ class BatchClassicTester:
         return df
 
     # ──────────────────────────────────────────────────────────────────────
-    def save_results(
-        self, df: pd.DataFrame, prefix: str = "consistency_test"
-    ) -> Tuple[Path, Path, Path]:
+    def save_results(self, df: pd.DataFrame, prefix: str = "consistency_test") -> Tuple[Path, Path, Path]:
         """Экспортирует результаты в несколько форматов для дальнейшего анализа.
 
         Args:
@@ -1843,9 +1743,7 @@ class BatchClassicTester:
         """
         with open(path, "w", encoding="utf-8") as f:
             f.write("# 📊 Отчёт: Тестирование согласованности методов сегментации\n\n")
-            f.write(
-                f"**Пары библиотек:** {', '.join(f'{a}↔{b}' for a, b in self.library_pairs)}\n"
-            )
+            f.write(f"**Пары библиотек:** {', '.join(f'{a}↔{b}' for a, b in self.library_pairs)}\n")
             f.write(f"**Методов:** {len(self.all_methods)}\n")
             f.write(f"**Изображений:** {self.max_images or 'all'}\n\n")
 
@@ -1858,9 +1756,7 @@ class BatchClassicTester:
 
             # Сводная таблица
             f.write("## 📈 Полная таблица результатов\n\n")
-            cols: List[str] = ["Method", "Library_Pair"] + [
-                c for c in df.columns if c.endswith("_mean")
-            ]
+            cols: List[str] = ["Method", "Library_Pair"] + [c for c in df.columns if c.endswith("_mean")]
             f.write(df[cols].to_markdown(index=False, floatfmt=".4f") + "\n\n")
 
             # Статистика ошибок
@@ -1899,14 +1795,10 @@ class BatchClassicTester:
         # График 1: Рейтинг согласованности (IoU) по методам для каждой пары
         # ──────────────────────────────────────────────────────
         for pair in df_plot["Library_Pair"].unique():
-            df_pair = df_plot[df_plot["Library_Pair"] == pair].sort_values(
-                "iou_mean", ascending=True
-            )
+            df_pair = df_plot[df_plot["Library_Pair"] == pair].sort_values("iou_mean", ascending=True)
 
             plt.figure(figsize=(14, max(8, len(df_pair) * 0.35)))
-            sns.barplot(
-                data=df_pair.head(15), x="iou_mean", y="Method", palette="viridis"
-            )
+            sns.barplot(data=df_pair.head(15), x="iou_mean", y="Method", palette="viridis")
             plt.xlabel("Mean IoU (между реализациями)")
             plt.title(f"Топ-15 методов по согласованности: {pair.upper()}")
             plt.grid(axis="x", alpha=0.3)
@@ -1944,9 +1836,7 @@ class BatchClassicTester:
         # График 3: Тепловая карта метрик (по парам и методам)
         # ──────────────────────────────────────────────────────
         metric_cols: List[str] = [
-            c
-            for c in df.columns
-            if c.endswith("_mean") and c.split("_")[0] in self.metrics_to_aggregate
+            c for c in df.columns if c.endswith("_mean") and c.split("_")[0] in self.metrics_to_aggregate
         ]
         if metric_cols:
             # Топ-15 методов по среднему IoU across all pairs
@@ -1959,10 +1849,7 @@ class BatchClassicTester:
             pivot_data: Dict = {}
             for method in df_top:
                 for pair in df_heatmap["Library_Pair"].unique():
-                    row = df_heatmap[
-                        (df_heatmap["Method"] == method)
-                        & (df_heatmap["Library_Pair"] == pair)
-                    ]
+                    row = df_heatmap[(df_heatmap["Method"] == method) & (df_heatmap["Library_Pair"] == pair)]
                     if not row.empty:
                         for metric in [
                             "iou",
@@ -1978,14 +1865,9 @@ class BatchClassicTester:
             if pivot_data:
                 # Создаём DataFrame для heatmap
                 heatmap_df: pd.DataFrame = pd.DataFrame(
-                    [
-                        {"Method": m, "Pair": p, "Metric": met, "Value": v}
-                        for (m, p, met), v in pivot_data.items()
-                    ]
+                    [{"Method": m, "Pair": p, "Metric": met, "Value": v} for (m, p, met), v in pivot_data.items()]
                 )
-                pivot: pd.DataFrame = heatmap_df.pivot_table(
-                    index="Method", columns=["Pair", "Metric"], values="Value"
-                )
+                pivot: pd.DataFrame = heatmap_df.pivot_table(index="Method", columns=["Pair", "Metric"], values="Value")
 
                 sns.heatmap(pivot, annot=True, fmt=".3f", cmap="YlOrRd", linewidths=0.5)
                 plt.title("Тепловая карта метрик согласованности (Топ-15 методов)")
@@ -2002,18 +1884,14 @@ class BatchClassicTester:
         if "pass_rate" in df_plot.columns:
             plt.figure(figsize=(10, 6))
 
-            pass_by_pair: pd.Series = df_plot.groupby("Library_Pair")[
-                "pass_rate"
-            ].mean()
+            pass_by_pair: pd.Series = df_plot.groupby("Library_Pair")["pass_rate"].mean()
             sns.barplot(x=pass_by_pair.index, y=pass_by_pair.values, palette="Set2")
 
             plt.xlabel("Пара библиотек")
             plt.ylabel("Средняя доля PASS (%)")
             plt.title("Успешность валидации по парам реализаций")
             plt.ylim(0, 1)
-            plt.gca().yaxis.set_major_formatter(
-                plt.FuncFormatter(lambda y, _: f"{y * 100:.0f}%")
-            )
+            plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f"{y * 100:.0f}%"))
             plt.grid(axis="y", alpha=0.3)
             plt.tight_layout()
             plt.savefig(output_dir / "pass_rate_by_pair.png", dpi=150)
@@ -2086,26 +1964,16 @@ class BatchClassicTester:
             print(f"\n🔗 {pair.upper()}:")
             print("   🏆 Топ-5 по IoU:")
             for _, row in df_pair.head(5).iterrows():
-                print(
-                    f"      • {row['Method']}: IoU={row['iou_mean']:.4f} ± {row['iou_std']:.4f}"
-                )
+                print(f"      • {row['Method']}: IoU={row['iou_mean']:.4f} ± {row['iou_std']:.4f}")
 
             print("   ⚡ Топ-5 по скорости (наименьшая разница):")
-            fast = df_pair.dropna(subset=["time_diff_mean"]).nsmallest(
-                5, "time_diff_mean"
-            )
+            fast = df_pair.dropna(subset=["time_diff_mean"]).nsmallest(5, "time_diff_mean")
             for _, row in fast.iterrows():
-                print(
-                    f"      • {row['Method']}: Δt={row['time_diff_mean'] * 1000:.1f}мс"
-                )
+                print(f"      • {row['Method']}: Δt={row['time_diff_mean'] * 1000:.1f}мс")
 
             if df_pair["error_count"].sum() > 0:
                 print("   ❌ Методы с ошибками:")
-                err = (
-                    df_pair[df_pair["error_count"] > 0]
-                    .sort_values("error_count", ascending=False)
-                    .head(3)
-                )
+                err = df_pair[df_pair["error_count"] > 0].sort_values("error_count", ascending=False).head(3)
                 for _, row in err.iterrows():
                     print(f"      • {row['Method']}: {row['error_count']} ошибок")
 
@@ -2207,18 +2075,8 @@ class BatchClassicTester:
 
         # Создаём директорию
         if save_dir is None:
-            save_dir = (
-                self.output_dir
-                / "results"
-                / pair_key
-                / method_name
-                / img_name.replace(".", "_")
-            )
-        if (
-            not self.refresh_masks
-            and save_dir.exists()
-            and (save_dir / "metrics.json").exists()
-        ):
+            save_dir = self.output_dir / "results" / pair_key / method_name / img_name.replace(".", "_")
+        if not self.refresh_masks and save_dir.exists() and (save_dir / "metrics.json").exists():
             return
         save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2239,8 +2097,7 @@ class BatchClassicTester:
 
         # Сохраняем метрики
         metrics_save: Dict[str, Any] = {
-            k: (float(v) if isinstance(v, (np.floating, np.integer)) else v)
-            for k, v in metrics.items()
+            k: (float(v) if isinstance(v, (np.floating, np.integer)) else v) for k, v in metrics.items()
         }
         with open(save_dir / "metrics.json", "w") as f:
             json.dump(metrics_save, f, indent=2)
@@ -2348,9 +2205,7 @@ class BatchClassicTester:
 
         # Определяем статус
         status: ValidationStatus = self._check_validation_status(metrics)
-        status_color: str = {"PASS": "green", "WARNING": "orange", "FAIL": "red"}.get(
-            status, "red"
-        )
+        status_color: str = {"PASS": "green", "WARNING": "orange", "FAIL": "red"}.get(status, "red")
 
         # Создаём фигуру
         fig, axes = plt.subplots(1, 4, figsize=(20, 5))
@@ -2471,11 +2326,7 @@ class BatchClassicTester:
         df_sorted: pd.DataFrame = df_pair.sort_values("iou_mean", ascending=True)
         colors: List[str] = [
             {"PASS": "#2ecc71", "WARNING": "#f39c12", "FAIL": "#e74c3c"}.get(
-                row.get("pass_rate", 0) >= 0.8
-                and "PASS"
-                or row.get("pass_rate", 0) >= 0.5
-                and "WARNING"
-                or "FAIL",
+                row.get("pass_rate", 0) >= 0.8 and "PASS" or row.get("pass_rate", 0) >= 0.5 and "WARNING" or "FAIL",
                 "#95a5a6",
             )
             for _, row in df_sorted.iterrows()
@@ -2565,9 +2416,7 @@ class BatchClassicTester:
                 )
 
             plt.tight_layout()
-            plt.savefig(
-                charts_dir / "time_comparison.png", dpi=150, bbox_inches="tight"
-            )
+            plt.savefig(charts_dir / "time_comparison.png", dpi=150, bbox_inches="tight")
             plt.close()
 
         # ──────────────────────────────────────────────────────
@@ -2577,9 +2426,7 @@ class BatchClassicTester:
             plt.figure(figsize=(10, 6))
 
             pass_count: int = (df_pair["pass_rate"] >= 0.8).sum()
-            warning_count: int = (
-                (df_pair["pass_rate"] >= 0.5) & (df_pair["pass_rate"] < 0.8)
-            ).sum()
+            warning_count: int = ((df_pair["pass_rate"] >= 0.5) & (df_pair["pass_rate"] < 0.8)).sum()
             fail_count: int = (df_pair["pass_rate"] < 0.5).sum()
 
             sizes: List[int] = [pass_count, warning_count, fail_count]
@@ -2606,9 +2453,7 @@ class BatchClassicTester:
                 pad=20,
             )
             plt.tight_layout()
-            plt.savefig(
-                charts_dir / "status_distribution.png", dpi=150, bbox_inches="tight"
-            )
+            plt.savefig(charts_dir / "status_distribution.png", dpi=150, bbox_inches="tight")
             plt.close()
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2714,9 +2559,7 @@ class BatchClassicTester:
             )
             plt.xticks(rotation=45, ha="right")
             plt.tight_layout()
-            plt.savefig(
-                charts_dir / "global_iou_heatmap.png", dpi=200, bbox_inches="tight"
-            )
+            plt.savefig(charts_dir / "global_iou_heatmap.png", dpi=200, bbox_inches="tight")
             plt.close()
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2769,9 +2612,7 @@ class BatchClassicTester:
                         "pass_rate": row.get("pass_rate", 0),
                         "time_a_mean": row.get("time_a_mean", np.nan),
                         "time_b_mean": row.get("time_b_mean", np.nan),
-                        "validation_status": self._get_status_from_pass_rate(
-                            row.get("pass_rate", 0)
-                        ),
+                        "validation_status": self._get_status_from_pass_rate(row.get("pass_rate", 0)),
                         "viz_files": viz_files,
                         "results_dir": results_dir if results_dir.exists() else None,
                     }
@@ -3276,15 +3117,11 @@ class BatchClassicTester:
         # Форматируем значения
         for col in ["iou_mean", "dice_mean", "f1_score_mean", "pass_rate"]:
             if col in df_table.columns:
-                df_table[col] = df_table[col].apply(
-                    lambda x: f"{x:.4f}" if pd.notna(x) else "N/A"
-                )
+                df_table[col] = df_table[col].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
 
         for col in ["time_a_mean", "time_b_mean"]:
             if col in df_table.columns:
-                df_table[col] = df_table[col].apply(
-                    lambda x: f"{x * 1000:.2f}ms" if pd.notna(x) else "N/A"
-                )
+                df_table[col] = df_table[col].apply(lambda x: f"{x * 1000:.2f}ms" if pd.notna(x) else "N/A")
 
         # Переименовываем для читаемости
         col_names: Dict[str, str] = {
@@ -3302,8 +3139,6 @@ class BatchClassicTester:
         df_table = df_table.rename(columns=col_names)
 
         # Генерируем HTML таблицу
-        html_table: str = df_table.to_html(
-            index=False, classes="dataframe", escape=False
-        )
+        html_table: str = df_table.to_html(index=False, classes="dataframe", escape=False)
 
         return html_table

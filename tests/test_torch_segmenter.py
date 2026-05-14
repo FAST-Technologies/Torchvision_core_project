@@ -8,9 +8,10 @@
 - Доступность CUDA и переключение устройств.
 - Гарантированный возврат numpy-массива при любом типе входа (включая путь к файлу).
 
-Фокус на стабильности API и обратной совместимости с первой версией 
+Фокус на стабильности API и обратной совместимости с первой версией
 реализации без оптимизаций (torch.compile, mixed precision, кэширование).
 """
+
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
@@ -29,6 +30,7 @@ import torch
 # ──────────────────────────────────────────────────────────────────────
 class TestTorchSegmenter:
     """Класс тестов для базовой реализации TorchSegmenter."""
+
     @pytest.fixture
     def segmenter(self) -> TorchSegmenter:
         """Создаёт экземпляр сегментера по умолчанию для тестов."""
@@ -47,6 +49,7 @@ class TestTorchSegmenter:
     def test_import(self) -> None:
         """Проверяет успешный импорт класса TorchSegmenter."""
         from segmenters.TorchSegmenter import TorchSegmenter
+
         assert TorchSegmenter is not None
 
     def test_initialization(self) -> None:
@@ -91,12 +94,10 @@ class TestTorchSegmenter:
             ("canny_edge", {"low": 0.1, "high": 0.3}),
         ],
     )
-    def test_methods(
-        self, test_image: np.ndarray, method: str, params: Dict[str, Any]
-    ) -> None:
+    def test_methods(self, test_image: np.ndarray, method: str, params: Dict[str, Any]) -> None:
         """Параметризованный тест совместимости базовых методов.
-        
-        Проверяет, что каждый метод успешно запускается с заданными 
+
+        Проверяет, что каждый метод успешно запускается с заданными
         параметрами и возвращает маску ожидаемой формы и типа.
         """
         segmenter = TorchSegmenter(method, **params)
@@ -109,8 +110,8 @@ class TestTorchSegmenter:
     @pytest.mark.gpu
     def test_cuda_availability(self) -> None:
         """Проверяет корректное переключение на CUDA-устройство.
-        
-        Skip-маркер позволяет пропускать тест на CPU-машинах. 
+
+        Skip-маркер позволяет пропускать тест на CPU-машинах.
         Ожидается, что `str(segmenter.device) == "cuda"` при наличии GPU.
         """
         if torch.cuda.is_available():
@@ -121,9 +122,9 @@ class TestTorchSegmenter:
 
     def test_segment_returns_numpy(self, segmenter: TorchSegmenter) -> None:
         """Проверяет, что метод всегда возвращает numpy-массив даже при входе-строке.
-        
-        Тестирует поддержку путей к файлам как входных данных. 
-        Ожидается корректная загрузка, обработка и возврат `np.ndarray` 
+
+        Тестирует поддержку путей к файлам как входных данных.
+        Ожидается корректная загрузка, обработка и возврат `np.ndarray`
         с типом `uint8`.
         """
         result: np.ndarray = segmenter.segment("test_images/animals.jpg")

@@ -85,9 +85,7 @@ class PrecisionBenchmark:
         """
         self.segmenter = segmenter
         self.config = config or DEFAULT_CONFIG
-        self.device = torch.device(
-            device or ("cuda" if torch.cuda.is_available() else "cpu")
-        )
+        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
         # Предобработка изображения один раз
         self.reference_input = segmenter.preprocess_image(image).to(self.device)
@@ -101,9 +99,7 @@ class PrecisionBenchmark:
         if self.config.verbose:
             print(f"🔧 PrecisionBenchmark initialized:")
             print(f"   Device: {self.device}")
-            print(
-                f"   Available precisions: {get_available_dtypes(str(self.device.type))}"
-            )
+            print(f"   Available precisions: {get_available_dtypes(str(self.device.type))}")
             print(f"   Image shape: {self.reference_input.shape}")
 
     def _get_reference_mask(self, method_name: str) -> torch.Tensor:
@@ -114,14 +110,10 @@ class PrecisionBenchmark:
             with torch.inference_mode():
                 # FP32 reference — явный cast входа
                 ref_input = self.reference_input.float()
-                self._reference_masks[method_name] = self.segmenter.method_map[
-                    method_name
-                ](ref_input).clone()
+                self._reference_masks[method_name] = self.segmenter.method_map[method_name](ref_input).clone()
         return self._reference_masks[method_name]
 
-    def _convert_precision(
-        self, tensor: torch.Tensor, dtype: torch.dtype
-    ) -> torch.Tensor:
+    def _convert_precision(self, tensor: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
         """Конвертация тензора в нужный тип данных"""
         if dtype == torch.int8:
             # Для INT8 нужна квантовка
@@ -162,9 +154,7 @@ class PrecisionBenchmark:
 
         # Проверка поддержки dtype
         if not is_dtype_supported(dtype, str(self.device.type)):
-            raise RuntimeError(
-                f"Precision '{precision}' ({dtype}) not supported on {self.device}"
-            )
+            raise RuntimeError(f"Precision '{precision}' ({dtype}) not supported on {self.device}")
 
         # Warm-up: прогрев кэшей и JIT компиляции
         for _ in range(warmup):
@@ -212,9 +202,7 @@ class PrecisionBenchmark:
             "p99_ms": float(np.percentile(times_np, 99)),
         }
 
-    def benchmark_accuracy(
-        self, method_name: str, precision: str, reference_mask: np.ndarray
-    ) -> Dict[str, float]:
+    def benchmark_accuracy(self, method_name: str, precision: str, reference_mask: np.ndarray) -> Dict[str, float]:
         """
         Оценка потери точности при смене формата данных.
 
@@ -252,9 +240,7 @@ class PrecisionBenchmark:
         ref_norm = normalize_for_comparison(reference_mask)
 
         # Метрики согласия
-        agreement = compute_pixel_agreement(
-            pred_norm, ref_norm, tolerance=self.config.tolerance
-        )
+        agreement = compute_pixel_agreement(pred_norm, ref_norm, tolerance=self.config.tolerance)
         mse = compute_mse(pred_norm, ref_norm)
         max_diff = float(torch.max(torch.abs(pred_norm - ref_norm)).item())
 
@@ -311,9 +297,7 @@ class PrecisionBenchmark:
 
         if precisions is None:
             precisions = [
-                p
-                for p in self.config.precisions
-                if is_dtype_supported(PRECISION_TO_DTYPE[p], str(self.device.type))
+                p for p in self.config.precisions if is_dtype_supported(PRECISION_TO_DTYPE[p], str(self.device.type))
             ]
 
         if self.config.verbose:
@@ -343,13 +327,8 @@ class PrecisionBenchmark:
 
                     # Замер точности
                     accuracy = {}
-                    if (
-                        include_accuracy
-                        and precision != self.config.reference_precision
-                    ):
-                        accuracy = self.benchmark_accuracy(
-                            method_name, precision, reference_mask
-                        )
+                    if include_accuracy and precision != self.config.reference_precision:
+                        accuracy = self.benchmark_accuracy(method_name, precision, reference_mask)
 
                     row = {
                         "method": method_name,
@@ -376,16 +355,13 @@ class PrecisionBenchmark:
         # Добавление speedup относительно reference precision
         if not df.empty and self.config.reference_precision in df["precision"].values:
             for method in df["method"].unique():
-                ref_time = df[
-                    (df["method"] == method)
-                    & (df["precision"] == self.config.reference_precision)
-                ]["median_ms"].values
+                ref_time = df[(df["method"] == method) & (df["precision"] == self.config.reference_precision)][
+                    "median_ms"
+                ].values
 
                 if len(ref_time) > 0:
                     mask = df["method"] == method
-                    df.loc[mask, "speedup_vs_reference"] = (
-                        ref_time[0] / df.loc[mask, "median_ms"]
-                    )
+                    df.loc[mask, "speedup_vs_reference"] = ref_time[0] / df.loc[mask, "median_ms"]
 
         # Сохранение результатов
         if self.config.save_raw_data:

@@ -32,14 +32,10 @@ from .utils import save_benchmark_results, format_time, format_speedup
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Бенчмарк экспортированных методов сегментации"
-    )
+    parser = argparse.ArgumentParser(description="Бенчмарк экспортированных методов сегментации")
 
     # Входные данные
-    parser.add_argument(
-        "--image", type=str, required=True, help="Путь к тестовому изображению"
-    )
+    parser.add_argument("--image", type=str, required=True, help="Путь к тестовому изображению")
     parser.add_argument(
         "--image-size",
         type=str,
@@ -72,9 +68,7 @@ def parse_args():
     )
 
     # Параметры бенчмарка
-    parser.add_argument(
-        "--n-runs", type=int, default=100, help="Количество запусков для замера"
-    )
+    parser.add_argument("--n-runs", type=int, default=100, help="Количество запусков для замера")
     parser.add_argument("--n-warmup", type=int, default=10, help="Прогревочные запуски")
     parser.add_argument(
         "--compare-all-providers",
@@ -149,9 +143,7 @@ def main():
 
     # Получение конвертера
     try:
-        converter = registry.get_converter(
-            backend_name, segmenter, image_shape=image_shape
-        )
+        converter = registry.get_converter(backend_name, segmenter, image_shape=image_shape)
     except ImportError as e:
         print(f"❌ Failed to initialize converter: {e}")
         sys.exit(1)
@@ -167,15 +159,11 @@ def main():
             if backend_name == "onnx":
                 # Экспорт в ONNX
                 onnx_path = f"/tmp/{method_name}.onnx"
-                converter.export_method_to_onnx(
-                    method_name, onnx_path, verbose=args.verbose
-                )
+                converter.export_method_to_onnx(method_name, onnx_path, verbose=args.verbose)
 
                 if args.compare_all_providers:
                     # Бенчмарк на всех провайдерах
-                    method_results = converter.benchmark_all_providers(
-                        method_name, onnx_path, n_runs=args.n_runs
-                    )
+                    method_results = converter.benchmark_all_providers(method_name, onnx_path, n_runs=args.n_runs)
                 else:
                     # Бенчмарк на лучшем провайдере
                     method_results = converter.benchmark_onnx_vs_torch(
@@ -187,9 +175,7 @@ def main():
 
             elif backend_name == "torch_tensorrt":
                 # Компиляция через torch-tensorrt
-                compiled = converter.convert_method(
-                    method_name, precision=args.precision
-                )
+                compiled = converter.convert_method(method_name, precision=args.precision)
                 method_results = converter.benchmark(
                     method_name,
                     compiled,
@@ -213,13 +199,9 @@ def main():
             if "speedup" in method_results:
                 print(f"   ⚡ Speedup: {method_results['speedup_formatted']}")
             if "torch_mean_ms" in method_results:
-                print(
-                    f"   🐌 Torch: {format_time(method_results['torch_mean_ms']/1000)}"
-                )
+                print(f"   🐌 Torch: {format_time(method_results['torch_mean_ms']/1000)}")
             if "onnx_mean_ms" in method_results:
-                print(
-                    f"   🚀 ONNX:  {format_time(method_results['onnx_mean_ms']/1000)}"
-                )
+                print(f"   🚀 ONNX:  {format_time(method_results['onnx_mean_ms']/1000)}")
             if "trt_mean_ms" in method_results:
                 print(f"   🚀 TRT:   {format_time(method_results['trt_mean_ms']/1000)}")
 
@@ -233,10 +215,7 @@ def main():
 
     # === Сохранение результатов ===
     if args.output:
-        output_path = (
-            Path(args.output)
-            / f"benchmark_{backend_name}_{time.strftime('%Y%m%d_%H%M%S')}.json"
-        )
+        output_path = Path(args.output) / f"benchmark_{backend_name}_{time.strftime('%Y%m%d_%H%M%S')}.json"
         save_benchmark_results(results, output_path)
         print(f"\n💾 Results saved: {output_path}")
 
@@ -247,11 +226,7 @@ def main():
     print(f"   Completed: {successful}/{len(methods)} methods")
 
     if successful > 0:
-        speedups = [
-            r["speedup"]
-            for r in results.values()
-            if "speedup" in r and isinstance(r["speedup"], (int, float))
-        ]
+        speedups = [r["speedup"] for r in results.values() if "speedup" in r and isinstance(r["speedup"], (int, float))]
         if speedups:
             avg_speedup = np.mean(speedups)
             print(f"   Avg speedup: {format_speedup(avg_speedup)}")

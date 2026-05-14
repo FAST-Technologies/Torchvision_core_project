@@ -16,9 +16,7 @@ from .visualization import FusionVisualizer
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="⚡ Kernel Fusion Benchmark — исследование оптимизации через fusion"
-    )
+    parser = argparse.ArgumentParser(description="⚡ Kernel Fusion Benchmark — исследование оптимизации через fusion")
 
     # Выбор методов
     parser.add_argument(
@@ -56,9 +54,7 @@ def parse_args():
     )
 
     # Параметры бенчмарка
-    parser.add_argument(
-        "--n-runs", type=int, default=50, help="Количество запусков для замера"
-    )
+    parser.add_argument("--n-runs", type=int, default=50, help="Количество запусков для замера")
     parser.add_argument(
         "--input-size",
         type=str,
@@ -67,13 +63,9 @@ def parse_args():
     )
 
     # Вывод
-    parser.add_argument(
-        "--output", type=str, default=None, help="Папка для сохранения результатов"
-    )
+    parser.add_argument("--output", type=str, default=None, help="Папка для сохранения результатов")
     parser.add_argument("--verbose", "-v", action="store_true", help="Подробный вывод")
-    parser.add_argument(
-        "--profile-graph", action="store_true", help="Профилировать граф вычислений"
-    )
+    parser.add_argument("--profile-graph", action="store_true", help="Профилировать граф вычислений")
 
     # Визуализация
     parser.add_argument("--plot", action="store_true", help="Сгенерировать графики")
