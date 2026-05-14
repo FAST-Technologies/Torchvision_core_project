@@ -201,7 +201,7 @@ jobs:
   docs:
     runs-on: ubuntu-24.04
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     
     steps:
     - uses: actions/checkout@v4
@@ -304,6 +304,27 @@ jobs:
         publish_branch: gh-pages
         force_orphan: true
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    - name: Verify GitHub Pages deployment
+      run: |
+        echo "🔍 Checking gh-pages branch structure..."
+        git fetch origin gh-pages
+        echo "📁 Files in gh-pages root:"
+        git ls-tree --name-only origin/gh-pages | head -20
+        
+        echo "🔍 Checking for index.html:"
+        if git ls-tree --name-only origin/gh-pages | grep -q "^index.html$"; then
+          echo "✅ index.html found in root"
+        else
+          echo "❌ index.html NOT found in root"
+          echo "📂 Looking for index.html elsewhere:"
+          git ls-tree -r --name-only origin/gh-pages | grep index.html || echo "Not found anywhere"
+        fi
+        
+        echo "🌐 Testing site availability (may take a minute):"
+        sleep 60  # Wait for propagation
+        curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" \
+          https://FAST-Technologies.github.io/Torchvision_core_project/ || echo "Site not yet available"
   
   # ──────────────────────────────────────────────────────────────
   # 🔍 Проверка качества кода: docstring + type hints + complexity
@@ -406,7 +427,7 @@ jobs:
   
   gpu-tests:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     timeout-minutes: 45
     
     steps:
@@ -439,7 +460,7 @@ jobs:
   
   benchmark:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     
     steps:
     - uses: actions/checkout@v4
