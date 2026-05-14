@@ -1,1 +1,7 @@
 *.ipynb filter=lfs diff=lfs merge=lfs -text
+*.pth binary
+*.pt binary
+*.onnx binary
+*.trt binary
+*.png binary
+*.jpg binary

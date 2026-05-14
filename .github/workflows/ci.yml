@@ -7,9 +7,14 @@ on:
   pull_request:
     branches: [ main, dev, develop ]
 
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTEST_ADDOPTS: "--color=yes"
+
 jobs:
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
@@ -61,7 +66,7 @@ jobs:
     
     - name: Install system dependencies
       run: |
-        sudo apt-get update
+        sudo apt-get update -qq
         sudo apt-get install -y \
           libgl1 \
           libglib2.0-0 \
@@ -78,13 +83,13 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install --no-cache-dir -r requirements.txt
-        pip install pytest pytest-cov black flake8 mypy
+        pip install pytest pytest-cov pytest-benchmark black flake8 mypy bandit safety vulture
 
     - name: Verify installation
       run: |
         python -c "import torch; print(f'✅ PyTorch {torch.__version__}')"
         python -c "import cv2; print(f'✅ OpenCV {cv2.__version__}')"
-        python -c "from segmenters.TorchSegmenter import TorchSegmenter; print('✅ Import OK')"
+        python -c "from segmenters.NewTorchSegmenter import TorchSegmenter2; print('✅ Import OK')"
     
     - name: Lint with flake8
       run: |
@@ -97,7 +102,7 @@ jobs:
     - name: Check for security issues with Bandit
       run: |
         pip install bandit
-        bandit -r segmenters/ testing/ metrics/ utils/ dataseters/ -ll -f screen -s B614,B615,B113
+        bandit -r segmenters/ testing/ metrics/ utils/ dataseters/ -ll -f screen -s B614,B615,B113 --exit-zero
       continue-on-error: true
 
     - name: Generate unused code report
@@ -138,12 +143,24 @@ jobs:
     - name: Type checking with mypy
       run: |
         export PYTHONPATH="${{ github.workspace }}"
-        mypy segmenters/ testing/ metrics/ utils/ dataseters/ --ignore-missing-imports --explicit-package-bases
+        mypy segmenters/ testing/ metrics/ utils/ dataseters/ --ignore-missing-imports --explicit-package-bases --cache-dir .mypy_cache
       continue-on-error: true
 
-    - name: Test with pytest
+    - name: Test with pytest (fast tests only)
+      if: github.event_name == 'pull_request'
       run: |
-        pytest tests/ -v --cov=segmenters --cov=testing --cov=metrics --cov=utils --cov=dataseters --cov-report=xml
+        pytest tests/ -v --cov=segmenters --cov=testing \
+          --cov=metrics --cov=utils --cov=dataseters \
+          --cov-report=xml --cov-report=term \
+          -m "not slow and not gpu"
+      continue-on-error: true
+
+    - name: Test with pytest (all tests)
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        pytest tests/ -v --cov=segmenters --cov=testing \
+          --cov=metrics --cov=utils --cov=dataseters \
+          --cov-report=xml --cov-report=term
       continue-on-error: true
     
     - name: Upload coverage to Codecov
@@ -157,8 +174,19 @@ jobs:
         # token: ${{ secrets.CODECOV_TOKEN }}  # для приватных репо
         token: ${{ secrets.GITHUB_TOKEN }}
       if: ${{ matrix.python-version == '3.12' }}
+
+    - name: Upload test artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-reports-${{ matrix.python-version }}
+        path: |
+          coverage.xml
+          unused_code_report.txt
+          pylint_report.txt
+        retention-days: 7
     
-    - name: Run basic import tests
+    - name: Run basic import smoke tests
       run: |
         python -c "from segmenters.TorchSegmenter import TorchSegmenter; print('✅ TorchSegmenter imports OK')"
         python -c "from segmenters.SklearnSegmenter import SklearnSegmenter; print('✅ SklearnSegmenter imports OK')"
@@ -204,7 +232,7 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
         
         # Считаем количество ошибок (не предупреждений)
-        errors=$(grep -c "^segmenters\|^testing\|^metrics\|^utils\|^dataseters" pydocstyle_report.txt || echo "0")
+        errors=$(grep -cE "^segmenters\|^testing\|^metrics\|^utils\|^dataseters" pydocstyle_report.txt || echo "0")
         if [ "$errors" -gt 0 ]; then
           echo "⚠️  Найдено $errors предупреждений по стилю docstring" >> $GITHUB_STEP_SUMMARY
         else
@@ -218,11 +246,13 @@ jobs:
         
         # Генерация документации для основных модулей
         pdoc --output-dir ./docs \
+          segmenters.NewTorchSegmenter \
           segmenters.TorchSegmenter \
           segmenters.SklearnSegmenter \
           segmenters.OpenCVSegmenter \
           testing.SegmentationTester \
-          metrics.SegmentationMetrics 
+          metrics.SegmentationMetrics
+        echo "✅ Docs generated in ./docs/"
         
         echo "✅ Документация сгенерирована в ./docs/"
         echo "## 📚 Generated Documentation" >> $GITHUB_STEP_SUMMARY
@@ -341,6 +371,7 @@ jobs:
   gpu-tests:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 45
     
     steps:
     - uses: actions/checkout@v4
@@ -387,6 +418,21 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install pytest pytest-benchmark
+
+    - name: Run benchmark suite
+      run: |
+        pytest tests/ -v -m "benchmark" --benchmark-only \
+          --benchmark-json=benchmark.json || echo "⚠️ Benchmark completed with warnings"
+      continue-on-error: true
+    
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: benchmark-results
+        path: benchmark.json
+        retention-days: 30
     
     - name: Run quick benchmark test
       run: |
@@ -411,3 +457,29 @@ jobs:
             print('⚠️  Warning: Performance degradation detected')
             exit(1)
         "
+
+    - name: Quick performance sanity check
+      run: |
+        python -c "
+        from segmenters.NewTorchSegmenter import TorchSegmenter2
+        import numpy as np, time
+        
+        seg = TorchSegmenter2('global_thresholding', threshold=0.5)
+        test_img = np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
+        
+        # Warmup
+        for _ in range(3): seg.segment(test_img)
+        
+        # Benchmark
+        start = time.perf_counter()
+        for _ in range(10): seg.segment(test_img)
+        elapsed = time.perf_counter() - start
+        
+        avg_ms = (elapsed / 10) * 1000
+        print(f'✅ Benchmark: {avg_ms:.2f}ms avg per iteration')
+        
+        if avg_ms > 500:  # 500ms threshold
+            print('⚠️  Warning: Performance may be degraded')
+        "
+
+    

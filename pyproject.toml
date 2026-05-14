@@ -29,6 +29,7 @@ addopts = [
     "--cov=segmenters",
     "--cov=metrics", 
     "--cov=testing",
+    "--cov-report=xml",
     "--cov-report=html",
     "--cov-report=term-missing",
 ]
@@ -97,7 +98,7 @@ known-first-party = ["segmenters", "metrics", "testing", "utils"]
 
 [tool.black]
 line-length = 120
-target-version = ["py313"]
+target-version = ["py312"]
 include = '\.pyi?$'
 
 # ===== BUILD SYSTEM (если планируется публикация) =====
