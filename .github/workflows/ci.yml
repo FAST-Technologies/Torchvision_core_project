@@ -199,8 +199,7 @@ jobs:
           segmenters.SklearnSegmenter \
           segmenters.OpenCVSegmenter \
           testing.SegmentationTester \
-          metrics.SegmentationMetrics \
-          --force
+          metrics.SegmentationMetrics 
         
         echo "✅ Документация сгенерирована в ./docs/"
         echo "## 📚 Generated Documentation" >> $GITHUB_STEP_SUMMARY

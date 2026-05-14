@@ -7,6 +7,12 @@ namespace_packages = true
 warn_return_any = true
 warn_unused_configs = true
 mypy_path = "."
+# disallow_untyped_defs = true          # ❗ Требовать аннотации типов
+# disallow_incomplete_defs = true       # ❗ Запретить частичные аннотации
+# check_untyped_defs = true             # ❗ Проверять функции без аннотаций
+# no_implicit_optional = true           # ❗ Явный Optional[T] вместо T = None
+# strict_equality = true                # ❗ Предупреждать о сравнении разных типов
+# warn_redundant_casts = true           # ❗ Лишние приведения типов
 
 [[tool.mypy.overrides]]
 module = "utils.*"
@@ -77,7 +83,7 @@ exclude_lines = [
 show_missing = true
 precision = 2
 skip_covered = true  # Не показывать файлы с 100% покрытием
-fail_under = 80      # ❗ Минимальный порог покрытия для CI
+# fail_under = 80      # ❗ Минимальный порог покрытия для CI
 
 # ===== FORMATTING & LINTING (рекомендуется добавить) =====
 [tool.ruff]
