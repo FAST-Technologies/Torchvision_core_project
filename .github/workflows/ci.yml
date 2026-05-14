@@ -267,6 +267,11 @@ jobs:
         echo "🎯 Ref: ${{ github.ref }}"
         echo "👤 Actor: ${{ github.actor }}"
         echo "🔑 Token exists: ${{ secrets.GITHUB_TOKEN != '' }}"
+        echo "🔐 Token type: ${{ secrets.GITHUB_TOKEN != '' && 'GITHUB_TOKEN' || 'MISSING' }}"
+
+        curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+        https://api.github.com/repos/${{ github.repository }}/collaborators/${{ github.actor }}/permission \
+        | jq -r '.permission // "unknown"' || echo "❌ Не удалось проверить права"
     
     - name: Deploy documentation to GitHub Pages
       uses: peaceiris/actions-gh-pages@v4
