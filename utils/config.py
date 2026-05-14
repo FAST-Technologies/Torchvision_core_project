@@ -9,7 +9,7 @@ Attributes:
     model_config (SettingsConfigDict): Конфигурация Pydantic.
         - env_file: Имя файла с переменными окружения (".env").
         - extra: Поведение при неизвестных полях ("ignore").
-    
+
     MODEL_DIR (Path): Базовая директория для сохранения/загрузки моделей.
         По умолчанию: значение из utils.paths.MODELS_DIR.
         Переопределяется: env var `MODEL_DIR`.

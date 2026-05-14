@@ -984,6 +984,7 @@ class SegmentationTester:
             stats: Список словарей со статистикой по методам.
             output_dir: Директория для сохранения.
         """
+
         # Функция для конвертации numpy типов в стандартные Python типы
         def convert_numpy_types(obj: Any) -> Any:
             if isinstance(obj, np.integer):

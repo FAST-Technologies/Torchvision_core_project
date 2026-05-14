@@ -2439,9 +2439,12 @@ class OpenCVSegmenter(BaseSegmenter):
         magnitude: FloatArray = np.sqrt(grad_x**2 + grad_y**2)
 
         # Нормализация к [0, 255]
-        magnitude_norm = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX).astype(
-            np.float32
-        )  # type: ignore[call-overload]
+        if magnitude.max() > magnitude.min():
+            magnitude_norm = ((magnitude - magnitude.min()) / (magnitude.max() - magnitude.min()) * 255).astype(
+                np.uint8
+            )
+        else:
+            magnitude_norm = np.zeros_like(magnitude, dtype=np.uint8)
 
         # Пороговая бинаризация
         _, mask_raw = cv2.threshold(magnitude_norm.astype(np.float32), threshold, 255.0, cv2.THRESH_BINARY)
