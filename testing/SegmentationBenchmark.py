@@ -223,7 +223,7 @@ class SegmentationBenchmark:
     # ЗАГРУЗКА МОДЕЛЕЙ (Fluent Interface)
     # ──────────────────────────────────────────────────────────────────────
     def load_trained_model(
-        self, key: str, model_type: ModelType, checkpoint_path: str, **kwargs
+        self, key: str, model_type: ModelType, checkpoint_path: str, **kwargs: Any
     ) -> "SegmentationBenchmark":
         """Регистрация загруженной модели из чекпоинта для бенчмарка.
 
@@ -889,7 +889,7 @@ class SegmentationBenchmark:
         self,
         metric_name: str,
         title: Optional[str] = None,
-        figsize=(12, 6),
+        figsize: Tuple[int, int] = (12, 6),
         show_values: bool = True,
         path: str = "./data/ade20k_test_trained/plot_comparison_chart.jpg",
     ) -> None:
@@ -992,7 +992,7 @@ class SegmentationBenchmark:
     def plot_per_class_iou(
         self,
         top_k: int = 20,
-        figsize=(14, 8),
+        figsize: Tuple[int, int] = (14, 8),
         cmap: str = "RdYlGn",
         show_only_present_classes: bool = True,
         path: str = "./data/ade20k_test_trained/plot_per_class_iou.jpg",
@@ -1066,7 +1066,7 @@ class SegmentationBenchmark:
         self,
         model_key: str,
         normalize: str = "true",
-        figsize=(10, 8),
+        figsize: Tuple[int, int] = (10, 8),
         show_values: bool = True,
         path: str = "./data/ade20k_test_trained/plot_confusion_matrix.jpg",
     ) -> None:
@@ -1125,7 +1125,7 @@ class SegmentationBenchmark:
     # ──────────────────────────────────────────────────────────────────────
     def plot_all_metrics(
         self,
-        figsize=(15, 5),
+        figsize: Tuple[int, int] = (15, 5),
         path: str = "./data/ade20k_test_trained/plot_all_metrix.jpg",
     ) -> None:
         """Строит сводные графики по всем основным метрикам.

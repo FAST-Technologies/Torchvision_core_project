@@ -2688,7 +2688,7 @@ class SklearnSegmenter(BaseSegmenter):
         # region_masks = [np.ones((h, w), dtype=bool)]
 
         # Простая реализация Split
-        def split_region(region, mask):
+        def split_region(region: np.ndarray, mask: np.ndarray) -> List[Tuple[np.ndarray, np.ndarray]]:
             h_reg, w_reg = region.shape
             if h_reg * w_reg <= min_size:
                 return [(region, mask)]
@@ -2728,7 +2728,7 @@ class SklearnSegmenter(BaseSegmenter):
             return result
 
         # Split фаза
-        split_results = split_region(gray, np.ones((h, w), dtype=bool))
+        split_results: List[Tuple[np.ndarray, np.ndarray]] = split_region(gray, np.ones((h, w), dtype=bool))
 
         # Merge фаза (упрощенная)
         mask = np.zeros((h, w), dtype=np.uint8)
@@ -2816,7 +2816,7 @@ class SklearnSegmenter(BaseSegmenter):
         min_size = self.params.get("min_size", 50)
 
         # Рекурсивная функция split
-        def split_region(x1, y1, x2, y2):
+        def split_region(x1: int, y1: int, x2: int, y2: int) -> List[Tuple[int, int, int, int]]:
             if (x2 - x1) * (y2 - y1) <= min_size:
                 return [(x1, y1, x2, y2)]
 
@@ -2841,7 +2841,7 @@ class SklearnSegmenter(BaseSegmenter):
             return regions
 
         # Split фаза
-        regions = split_region(0, 0, w, h)
+        regions: List[Tuple[int, int, int, int]] = split_region(0, 0, w, h)
 
         # Merge фаза (упрощенная)
         mask = np.zeros((h, w), dtype=bool)

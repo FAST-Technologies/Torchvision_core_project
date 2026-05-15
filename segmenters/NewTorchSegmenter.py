@@ -95,7 +95,7 @@ import warnings
 from PIL import Image
 import time
 import traceback
-from typing import Protocol, List, Union, Tuple, Dict, Any, Optional, Callable, Literal, cast, overload
+from typing import Protocol, List, Union, Tuple, Dict, Any, Optional, Callable, Literal, cast, overload, Generator
 
 from numba import njit, prange
 import numpy as np
@@ -132,7 +132,7 @@ class SegmentMethod(Protocol):
     """Протокол для методов сегментации."""
 
     def __call__(
-        self, tensor: torch.Tensor, *, precision: Optional[str] = None, export_mode: bool = False, **kwargs
+        self, tensor: torch.Tensor, *, precision: Optional[str] = None, export_mode: bool = False, **kwargs: Any
     ) -> torch.Tensor:
         """Протокол - его вызов."""
         ...
@@ -335,7 +335,7 @@ class PrecisionManager:
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def numpy_to_torch_dtype(np_dtype) -> torch.dtype:
+    def numpy_to_torch_dtype(np_dtype: np.dtype) -> torch.dtype:
         """Конвертация numpy dtype в torch dtype."""
         import numpy as np
 
@@ -360,7 +360,7 @@ class PrecisionManager:
 
     # ──────────────────────────────────────────────────────────────────────
     @contextmanager
-    def autocast(self, precision: str = "fp16", enabled: bool = True):
+    def autocast(self, precision: str = "fp16", enabled: bool = True) -> Generator[None, None, None]:
         """Контекстный менеджер для AMP (Automatic Mixed Precision)."""
         if not enabled:
             yield
@@ -384,7 +384,7 @@ class PrecisionManager:
 
     # ──────────────────────────────────────────────────────────────────────
     @contextmanager
-    def autocast_float8(self, enabled: bool = True):
+    def autocast_float8(self, enabled: bool = True) -> Generator[None, None, None]:
         """Специальный контекстный менеджер для float8 (PyTorch 2.1+).
 
         Требует: torch >= 2.1, CUDA compute capability >= 9.0.
@@ -1074,7 +1074,9 @@ class TorchSegmenter2(BaseSegmenter):
     @overload
     def _get_conv_kernel(
         self,
-        kernel_type: Literal["sobel", "prewitt", "scharr", "roberts", "gaussian", "ones", "laplacian"],
+        kernel_type: Literal[
+            "sobel", "prewitt", "scharr", "roberts", "gaussian", "ones", "laplacian", "sobel_x", "sobel_y"
+        ],
         size: int = 3,
         sigma: Optional[float] = None,
         dtype: Optional[torch.dtype] = None,
@@ -1086,7 +1088,9 @@ class TorchSegmenter2(BaseSegmenter):
     @overload
     def _get_conv_kernel(
         self,
-        kernel_type: Literal["sobel", "prewitt", "scharr", "roberts", "gaussian", "ones", "laplacian"],
+        kernel_type: Literal[
+            "sobel", "prewitt", "scharr", "roberts", "gaussian", "ones", "laplacian", "sobel_x", "sobel_y"
+        ],
         size: int = 3,
         sigma: Optional[float] = None,
         dtype: Optional[torch.dtype] = None,
@@ -1097,7 +1101,9 @@ class TorchSegmenter2(BaseSegmenter):
 
     def _get_conv_kernel(
         self,
-        kernel_type: Literal["sobel", "prewitt", "scharr", "roberts", "gaussian", "ones", "laplacian"],
+        kernel_type: Literal[
+            "sobel", "prewitt", "scharr", "roberts", "gaussian", "ones", "laplacian", "sobel_x", "sobel_y"
+        ],
         size: int = 3,
         sigma: Optional[float] = None,
         dtype: Optional[torch.dtype] = None,
@@ -1325,7 +1331,7 @@ class TorchSegmenter2(BaseSegmenter):
         )
         return kernel
 
-    def _normalize_params(self, **kwargs) -> Dict[str, Any]:
+    def _normalize_params(self, **kwargs: Any) -> Dict[str, Any]:
         """Нормализует параметры для консистентности между GPU/CPU версиями."""
         normalized = self.params.copy()
         normalized.update(kwargs)
@@ -1417,7 +1423,7 @@ class TorchSegmenter2(BaseSegmenter):
         self,
         image: Union[str, np.ndarray, Image.Image, torch.Tensor],
         use_cache: bool = True,
-        **kwargs,
+        **kwargs: Any,
     ) -> np.ndarray:
         """Сегментация с опциональным кэшированием результатов."""
         if not use_cache:
@@ -1779,7 +1785,7 @@ class TorchSegmenter2(BaseSegmenter):
 
     @torch.no_grad()
     def segment_batch(
-        self, images: Union[List[np.ndarray], List[torch.Tensor], np.ndarray], **kwargs
+        self, images: Union[List[np.ndarray], List[torch.Tensor], np.ndarray], **kwargs: Any
     ) -> Union[List[np.ndarray], np.ndarray]:
         """Пакетная сегментация нескольких изображений."""
         if isinstance(images, np.ndarray) and images.ndim == 4:
@@ -2148,8 +2154,8 @@ class TorchSegmenter2(BaseSegmenter):
         original_func = segmenter._segment_func
 
         # Мониторим вызовы .cpu(), .numpy(), .to()
-        def make_tracked_method(original, name: str):
-            def tracked(*args, **kwargs):
+        def make_tracked_method(original: Any, name: str) -> Any:
+            def tracked(*args: Any, **kwargs: Any) -> Any:
                 warnings.append(f"⚠️  Вызов {name}() — возможен трансфер CPU↔GPU")
                 return original(*args, **kwargs)
 
@@ -3256,7 +3262,7 @@ class TorchSegmenter2(BaseSegmenter):
         xyz = xyz / np.array([0.95047, 1.0, 1.08883])
 
         # Функция f(t) для Lab
-        def f(t):
+        def f(t: np.ndarray) -> np.ndarray:
             return np.where(t > 0.008856, t ** (1 / 3), (7.787 * t) + (16 / 116))
 
         fx, fy, fz = f(xyz[..., 0]), f(xyz[..., 1]), f(xyz[..., 2])
@@ -7524,7 +7530,7 @@ class TorchSegmenter2(BaseSegmenter):
     # ──────────────────────────────────────────────────────────────────────
     # Вариант А: Векторизованный BFS на PyTorch (для небольших изображений)
     @torch.no_grad()
-    def _region_growing_opt(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _region_growing_opt(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Region Growing — векторизованная версия на PyTorch.
 
         Использует batch-обработку очереди через буфер индексов вместо Python-цикла.
@@ -7596,7 +7602,7 @@ class TorchSegmenter2(BaseSegmenter):
         return mask.float().unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _region_growing_opt2(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _region_growing_opt2(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Region Growing с fallback на Numba для CPU."""
         gray = self._to_grayscale(tensor).squeeze(0)
         if gray.max() <= 1.0:
@@ -7957,7 +7963,7 @@ class TorchSegmenter2(BaseSegmenter):
         connectivity: int = 4,
         colorize_regions: bool = True,  # Показывать разные регионы разными цветами
         precision: Optional[str] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для FloodFill с поддержкой цветной сегментации регионов.
 
@@ -8572,7 +8578,7 @@ class TorchSegmenter2(BaseSegmenter):
         color_radius: Optional[int] = None,
         downsample: Optional[float] = None,
         precision: Optional[str] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для MeanShift с поддержкой AMP и минимальными трансферами.
 
@@ -9720,7 +9726,7 @@ class TorchSegmenter2(BaseSegmenter):
         color: Tuple[int, int, int] = (255, 0, 0),
         show_markers: bool = False,
         precision: Optional[str] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для Watershed с поддержкой AMP и минимальными трансферами.
 
@@ -10260,7 +10266,7 @@ class TorchSegmenter2(BaseSegmenter):
         xyz = xyz / np.array([0.95047, 1.0, 1.08883])
 
         # Функция f(t) для Lab
-        def f(t):
+        def f(t: np.ndarray) -> np.ndarray:
             return np.where(t > 0.008856, t ** (1 / 3), 7.787 * t + 16 / 116)
 
         fx, fy, fz = f(xyz[..., 0]), f(xyz[..., 1]), f(xyz[..., 2])
@@ -10941,7 +10947,7 @@ class TorchSegmenter2(BaseSegmenter):
         num_iterations: Optional[int] = None,
         n_components: int = 5,
         precision: Optional[str] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для GrabCut с поддержкой AMP и минимальными трансферами.
 

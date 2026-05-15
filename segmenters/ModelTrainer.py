@@ -516,7 +516,7 @@ class ModelTrainer:
                 model = SegNet(num_classes=NUM_CLASSES)
 
                 # Инициализация весов
-                def _init_weights(m):
+                def _init_weights(m: Any) -> None:
                     if isinstance(m, (nn.Conv2d, nn.Linear)):
                         nn.init.xavier_uniform_(m.weight)
                         if m.bias is not None:

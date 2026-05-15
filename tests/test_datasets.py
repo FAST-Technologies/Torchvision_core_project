@@ -32,9 +32,11 @@ from pathlib import Path
 from PIL import Image
 import torch
 
+from dataseters.ADE20KDataset import ADE20KDataset
+
 
 # ──────────────────────────────────────────────────────────────────────
-def import_ade20k():
+def import_ade20k() -> type[ADE20KDataset]:
     """Динамически импортирует класс `ADE20KDataset`.
 
     Использует отложенный импорт для избежания циклических зависимостей
@@ -47,7 +49,6 @@ def import_ade20k():
         Функция вынесена отдельно, чтобы можно было протестировать
         сам факт импорта без создания экземпляра.
     """
-    from dataseters.ADE20KDataset import ADE20KDataset
 
     return ADE20KDataset
 
@@ -275,7 +276,7 @@ class TestADE20KDataset:
         assert valid_values.max() <= 149
 
     # ──────────────────────────────────────────────────────────────────────
-    def test_validation_split(self, temp_dataset_dir) -> None:
+    def test_validation_split(self, temp_dataset_dir: str) -> None:
         """Тестирует загрузку валидационного набора данных.
 
         Проверяет, что при `split="validation"` датасет корректно

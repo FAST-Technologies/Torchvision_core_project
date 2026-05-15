@@ -116,7 +116,7 @@ import io
 import base64
 import logging
 import traceback
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, Callable
 
 import numpy as np
 from PIL import Image
@@ -588,9 +588,9 @@ def _process_single_method(
     method_name: str,
     params: Dict[str, Any],
     img_array: np.ndarray,
-    primary_class,
-    reference_class,
-    validator,
+    primary_class: Callable,
+    reference_class: Callable,
+    validator: Any,
 ) -> Dict[str, Any]:
     """Синхронная обработка одного метода валидации.
 

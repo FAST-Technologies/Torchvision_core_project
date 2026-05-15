@@ -165,7 +165,7 @@ class TorchSegmenter(BaseSegmenter):
         method: str = "global_thresholding",
         device: Optional[str] = None,
         use_external_libs: bool = True,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Инициализация класса TorchSegmenter."""
         super().__init__()
@@ -1064,7 +1064,7 @@ class TorchSegmenter(BaseSegmenter):
         xyz = xyz / np.array([0.95047, 1.0, 1.08883])
 
         # Функция f(t) для Lab
-        def f(t):
+        def f(t: np.ndarray) -> np.ndarray:
             return np.where(t > 0.008856, t ** (1 / 3), (7.787 * t) + (16 / 116))
 
         fx, fy, fz = f(xyz[..., 0]), f(xyz[..., 1]), f(xyz[..., 2])
@@ -1228,7 +1228,7 @@ class TorchSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
-    def segment(self, image: Union[str, np.ndarray, Image.Image, torch.Tensor], **kwargs) -> np.ndarray:
+    def segment(self, image: Union[str, np.ndarray, Image.Image, torch.Tensor], **kwargs: Any) -> np.ndarray:
         """Основной метод сегментации.
 
         Args:
@@ -1282,7 +1282,7 @@ class TorchSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     def segment_with_mask(
-        self, image: Union[str, np.ndarray, Image.Image, torch.Tensor], **kwargs
+        self, image: Union[str, np.ndarray, Image.Image, torch.Tensor], **kwargs: Any
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Сегментация с возвратом визуализации и маски.
 
@@ -1345,7 +1345,7 @@ class TorchSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     def _segment_with_visualization(
-        self, tensor: torch.Tensor, alpha: float = 0.9, **kwargs
+        self, tensor: torch.Tensor, alpha: float = 0.9, **kwargs: Any
     ) -> Tuple[Union[torch.Tensor, np.ndarray], torch.Tensor]:
         """Сегментация с визуализацией для конкретного метода."""
         if self.method == "watershed":
@@ -1417,7 +1417,7 @@ class TorchSegmenter(BaseSegmenter):
     # ──────────────────────────────────────────────────────────────────────
     # ПОРОГОВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ
     # ──────────────────────────────────────────────────────────────────────
-    def _global_thresholding(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _global_thresholding(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Глобальная пороговая сегментация.
 
         Применяет фиксированный порог ко всему изображению.
@@ -1445,7 +1445,7 @@ class TorchSegmenter(BaseSegmenter):
         return cast(torch.Tensor, mask)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _adaptive_thresholding(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _adaptive_thresholding(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Адаптивная пороговая сегментация (Gaussian).
 
         Вычисляет локальный порог для каждой области изображения.
@@ -1482,7 +1482,7 @@ class TorchSegmenter(BaseSegmenter):
         return cast(torch.Tensor, mask)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _otsu_thresholding(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _otsu_thresholding(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Автоматическая бинаризация по методу Оцу.
 
         Находит оптимальный порог, максимизирующий межклассовую дисперсию между фоном и объектом.
@@ -1534,7 +1534,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask.unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _threshold_niblack(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _threshold_niblack(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Адаптивная пороговая обработка по Ниблаку.
 
         Порог вычисляется как: T = μ + k·σ, где μ и σ — локальное среднее и СКО.
@@ -1592,7 +1592,7 @@ class TorchSegmenter(BaseSegmenter):
             return self._global_thresholding(tensor)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _threshold_sauvola(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _threshold_sauvola(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Улучшенная адаптивная пороговая обработка по Сауволе.
 
         Порог: T = μ·(1 + k·(σ/R - 1)), где R — динамический диапазон (обычно 128).
@@ -1650,7 +1650,7 @@ class TorchSegmenter(BaseSegmenter):
             return self._global_thresholding(tensor)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _threshold_bernsen(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _threshold_bernsen(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Пороговая обработка по методу Бернсена.
 
         Локальный адаптивный порог на основе контраста в окне.
@@ -1743,7 +1743,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _threshold_phansalkar(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _threshold_phansalkar(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Пороговая обработка по методу Фансалкара.
 
         Улучшенная версия Ниблака для изображений с низким контрастом.
@@ -1802,7 +1802,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _threshold_percentile(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _threshold_percentile(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Процентильная пороговая обработка.
 
         Использует локальный процентиль вместо среднего для вычисления порога.
@@ -1843,7 +1843,7 @@ class TorchSegmenter(BaseSegmenter):
         return cast(torch.Tensor, mask.unsqueeze(0).unsqueeze(0))
 
     # ──────────────────────────────────────────────────────────────────────
-    def _threshold_kittler_illingworth(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _threshold_kittler_illingworth(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Пороговая обработка по методу Киттлера-Иллингворта.
 
         Минимизирует ошибку классификации, предполагая гауссово распределение классов.
@@ -1946,7 +1946,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask.unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _threshold_entropy_kapur(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _threshold_entropy_kapur(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Пороговая обработка на основе максимизации энтропии Капура."""
         gray = self._to_grayscale(tensor).squeeze()
         if gray.dim() == 3 and gray.shape[0] == 1:
@@ -2023,7 +2023,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask.unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _threshold_triangle(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _threshold_triangle(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Треугольный метод пороговой обработки.
 
         Строит линию от пика гистограммы до конца и находит точку
@@ -2094,7 +2094,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask.unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _threshold_multi_otsu(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _threshold_multi_otsu(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Мульти-пороговый метод Оцу для разделения на несколько классов."""
         gray = self._to_grayscale(tensor).squeeze()
         if gray.dim() == 3 and gray.shape[0] == 1:
@@ -2175,7 +2175,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask.unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _threshold_local_contrast(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _threshold_local_contrast(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Локальный контрастный порог.
 
         Порог вычисляется на основе локального контраста:
@@ -2243,7 +2243,7 @@ class TorchSegmenter(BaseSegmenter):
     # ──────────────────────────────────────────────────────────────────────
     # КРАЕВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ
     # ──────────────────────────────────────────────────────────────────────
-    def _sobel_edge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _sobel_edge(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Обнаружение границ оператором Собеля.
 
         Вычисляет градиент интенсивности по горизонтали и вертикали, затем объединяет их.
@@ -2290,7 +2290,7 @@ class TorchSegmenter(BaseSegmenter):
         return cast(torch.Tensor, mask)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _canny_edge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _canny_edge(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Обнаружение границ оператором Кэнни.
 
         Многоэтапный алгоритм:
@@ -2483,7 +2483,7 @@ class TorchSegmenter(BaseSegmenter):
         return cast(torch.Tensor, final_mask)  # Возвращаем (1, 1, H, W)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _prewitt_edge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _prewitt_edge(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Обнаружение границ оператором Прюитта.
 
         Аналогичен Собелю, но с более простыми ядрами.
@@ -2533,7 +2533,7 @@ class TorchSegmenter(BaseSegmenter):
         return cast(torch.Tensor, mask)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _scharr_edge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _scharr_edge(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Обнаружение границ оператором Шарра.
 
         Улучшенная версия Собеля с лучшей ротационной симметрией.
@@ -2582,7 +2582,7 @@ class TorchSegmenter(BaseSegmenter):
         return cast(torch.Tensor, mask)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _laplacian_edge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _laplacian_edge(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Обнаружение границ через лапласиан изображения.
 
         Применяет оператор Лапласа для выделения областей быстрого изменения интенсивности.
@@ -2646,7 +2646,7 @@ class TorchSegmenter(BaseSegmenter):
         return cast(torch.Tensor, mask)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _roberts_edge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _roberts_edge(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Обнаружение границ оператором Робертса.
 
         Простой 2×2 оператор для быстрого обнаружения диагональных границ.
@@ -2688,7 +2688,7 @@ class TorchSegmenter(BaseSegmenter):
         return cast(torch.Tensor, mask)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _log_edge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _log_edge(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Детектор границ Laplacian of Gaussian.
 
         Применяет гауссово размытие, затем лапласиан, ищет пересечения нуля.
@@ -2762,7 +2762,7 @@ class TorchSegmenter(BaseSegmenter):
     def _dog_edge(
         self,
         tensor: torch.Tensor,
-        **kwargs,
+        **kwargs: Any,
     ) -> torch.Tensor:
         """Детектор границ Difference of Gaussian.
 
@@ -2833,7 +2833,7 @@ class TorchSegmenter(BaseSegmenter):
         return cast(torch.Tensor, mask)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _marr_hildreth_edge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _marr_hildreth_edge(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Детектор границ Марра-Хилдрета (LoG с нулевым пересечением).
 
         Улучшенная версия LoG с подавлением немаксимумов.
@@ -2915,7 +2915,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def _gradient_magnitude_direction(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _gradient_magnitude_direction(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Вычисление градиента с магнитудой и направлением.
 
         Возвращает маску границ на основе магнитуды градиента.
@@ -3009,7 +3009,7 @@ class TorchSegmenter(BaseSegmenter):
     def _phase_congruency_edge(
         self,
         tensor: torch.Tensor,
-        **kwargs,
+        **kwargs: Any,
     ) -> torch.Tensor:
         """Детектор границ на основе фазовой конгруэнтности (полная реализация Ковези).
 
@@ -3160,7 +3160,7 @@ class TorchSegmenter(BaseSegmenter):
     # ──────────────────────────────────────────────────────────────────────
     # РЕГИОНАЛЬНЫЕ МЕТОДЫ СЕГМЕНТАЦИИ
     # ──────────────────────────────────────────────────────────────────────
-    def _region_growing(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _region_growing(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Сегментация методом Region Growing (роста регионов).
 
         Начинает с заданной точки (или центра) и рекурсивно добавляет соседние пиксели,
@@ -3220,7 +3220,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask.float().unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _split_and_merge(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _split_and_merge(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Рекурсивный алгоритм разделения и слияния регионов.
 
         Рекурсивно делит изображение на квадранты до тех пор, пока дисперсия внутри региона
@@ -3250,7 +3250,9 @@ class TorchSegmenter(BaseSegmenter):
             threshold = self.params.get("threshold", 20)
 
             # Используем простую квадродеревную сегментацию
-            def recursive_split(y, x, h_r, w_r, min_size, threshold):
+            def recursive_split(
+                y: int, x: int, h_r: int, w_r: int, min_size: int, threshold: float
+            ) -> List[Tuple[int, int, int, int]]:
                 if h_r <= min_size or w_r <= min_size:
                     return [(y, x, h_r, w_r)]
 
@@ -3260,7 +3262,7 @@ class TorchSegmenter(BaseSegmenter):
 
                 h_half, w_half = h_r // 2, w_r // 2
 
-                subregions = []
+                subregions: List[Tuple[int, int, int, int]] = []
                 subregions.extend(recursive_split(y, x, h_half, w_half, min_size, threshold))
                 subregions.extend(recursive_split(y, x + w_half, h_half, w_r - w_half, min_size, threshold))
                 subregions.extend(recursive_split(y + h_half, x, h_r - h_half, w_half, min_size, threshold))
@@ -3307,7 +3309,7 @@ class TorchSegmenter(BaseSegmenter):
             return self._kmeans_segmentation(tensor)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _floodfill(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _floodfill(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Сегментация методом заливки (Flood Fill).
 
         Начиная с заданной точки, рекурсивно заполняет все связанные пиксели,
@@ -3358,7 +3360,7 @@ class TorchSegmenter(BaseSegmenter):
             return self._region_growing(tensor)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _floodfill_torch_visualization(self, tensor: torch.Tensor, **kwargs) -> Tuple[np.ndarray, torch.Tensor]:
+    def _floodfill_torch_visualization(self, tensor: torch.Tensor, **kwargs: Any) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для FloodFill."""
         try:
             start_time = time.time()
@@ -3410,7 +3412,7 @@ class TorchSegmenter(BaseSegmenter):
         tensor: torch.Tensor,
         start_point: Tuple[int, int],
         tolerance: float = 0.1,
-        **kwargs,
+        **kwargs: Any,
     ) -> torch.Tensor:
         """Floodfill из одной точки."""
         start_time = time.time()
@@ -3465,7 +3467,7 @@ class TorchSegmenter(BaseSegmenter):
         tensor: torch.Tensor,
         points: List[Tuple[int, int]],
         tolerance: float = 0.1,
-        **kwargs,
+        **kwargs: Any,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Floodfill из нескольких точек."""
         c, h, w = tensor.shape[1], tensor.shape[2], tensor.shape[3]
@@ -3508,7 +3510,7 @@ class TorchSegmenter(BaseSegmenter):
     # ──────────────────────────────────────────────────────────────────────
     # МЕТОДЫ КЛАСТЕРИЗАЦИИ
     # ──────────────────────────────────────────────────────────────────────
-    def _kmeans_segmentation(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _kmeans_segmentation(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Сегментация методом K-Means кластеризации.
 
         Группирует пиксели по цветовому признаку в K кластеров.
@@ -3551,7 +3553,7 @@ class TorchSegmenter(BaseSegmenter):
         return cast(torch.Tensor, mask.float())
 
     # ──────────────────────────────────────────────────────────────────────
-    def _dbscan_segmentation(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _dbscan_segmentation(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Сегментация методом DBSCAN кластеризации.
 
         Группирует пиксели на основе плотности. Пиксели, не принадлежащие ни одному кластеру (шум),
@@ -3615,7 +3617,7 @@ class TorchSegmenter(BaseSegmenter):
             return self._kmeans_segmentation(tensor)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _meanshift(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _meanshift(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Сегментация методом MeanShift.
 
         Итеративно сдвигает каждый пиксель к локальному центру масс в пространстве признаков
@@ -3696,7 +3698,7 @@ class TorchSegmenter(BaseSegmenter):
             return self._kmeans_segmentation(tensor)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _meanshift_torch_visualization(self, tensor: torch.Tensor, **kwargs) -> Tuple[np.ndarray, torch.Tensor]:
+    def _meanshift_torch_visualization(self, tensor: torch.Tensor, **kwargs: Any) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для MeanShift - как в старом коде."""
         try:
             # Убираем batch dimension если есть
@@ -3776,7 +3778,7 @@ class TorchSegmenter(BaseSegmenter):
     # ──────────────────────────────────────────────────────────────────────
     # МЕТОДЫ АКТИВНЫХ КОНТУРОВ
     # ──────────────────────────────────────────────────────────────────────
-    def _active_contour(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _active_contour(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Сегментация активными контурами (Snakes).
 
         Инициализирует замкнутый контур (обычно окружность) и деформирует его под действием
@@ -3854,16 +3856,18 @@ class TorchSegmenter(BaseSegmenter):
         a4 = beta
 
         # Строим циклическую матрицу как сумму сдвигов
-        def circulant_row(coeffs_dict):
+        def circulant_row(coeffs_dict: Any) -> torch.Tensor:
             """coeffs_dict: {offset: value} для циклической строки."""
-            r = torch.zeros(N, device=self.device)
+            r: torch.Tensor = torch.zeros(N, device=self.device)
             for off, val in coeffs_dict.items():
                 r[off % N] += val
             return r
 
         # Вторые разности: xi-1 - 2xi + xi+1 → коэффициенты: {-1:1, 0:-2, 1:1}
         # Четвёртые разности: xi-2 - 4xi-1 + 6xi - 4xi+1 + xi+2
-        first_row = circulant_row({0: 2 * a2 + 6 * a4, 1: -a2 - 4 * a4, N - 1: -a2 - 4 * a4, 2: a4, N - 2: a4})
+        first_row: torch.Tensor = circulant_row(
+            {0: 2 * a2 + 6 * a4, 1: -a2 - 4 * a4, N - 1: -a2 - 4 * a4, 2: a4, N - 2: a4}
+        )
 
         # Строим циклическую матрицу через FFT (эффективно)
         # A * x = (I + gamma * A)^{-1} * (x + gamma * f_ext)
@@ -3941,7 +3945,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def _gvf_contour(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _gvf_contour(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Сегментация на основе Gradient Vector Flow (GVF).
 
         Вычисляет векторное поле, распространяющее информацию о градиентах по всему изображению.
@@ -3995,7 +3999,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _morphological_snakes(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _morphological_snakes(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Сегментация морфологическими змеями.
 
         Итеративно расширяет или сужает бинарную маску на основе величины градиента.
@@ -4078,7 +4082,7 @@ class TorchSegmenter(BaseSegmenter):
             return self._otsu_thresholding(tensor)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _chan_vese(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _chan_vese(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Модель Chan-Vese — активные контуры без градиентов.
 
         Энергетическая модель, которая разделяет изображение на две области с минимальной
@@ -4195,7 +4199,7 @@ class TorchSegmenter(BaseSegmenter):
             return (gray > threshold).float()
 
     # ──────────────────────────────────────────────────────────────────────
-    def _watershed_segmentation_torch(self, tensor: torch.Tensor, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _watershed_segmentation_torch(self, tensor: torch.Tensor, **kwargs: Any) -> Tuple[torch.Tensor, torch.Tensor]:
         """Вспомогательная функция для Watershed - ПОЛНАЯ РЕАЛИЗАЦИЯ."""
         # Проверяем размерность тензора
         if tensor.dim() == 4:  # (B, C, H, W)
@@ -4318,7 +4322,7 @@ class TorchSegmenter(BaseSegmenter):
         return gradient_magnitude.squeeze(), mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def _watershed_torch_visualization(self, tensor: torch.Tensor, **kwargs) -> Tuple[np.ndarray, torch.Tensor]:
+    def _watershed_torch_visualization(self, tensor: torch.Tensor, **kwargs: Any) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для Watershed - теперь как в CV2."""
         try:
             # Получаем градиент и маску
@@ -4368,7 +4372,7 @@ class TorchSegmenter(BaseSegmenter):
             return img_np, mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def _random_walker(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _random_walker(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Сегментация методом Random Walker (чистый PyTorch + опционально scipy для СЛАУ).
 
         На основе маркеров (пользовательских или автоматических) решается задача на графе:
@@ -4470,7 +4474,7 @@ class TorchSegmenter(BaseSegmenter):
     # ──────────────────────────────────────────────────────────────────────
     # SUPER-PIXEL МЕТОДЫ СЕГМЕНТАЦИИ
     # ──────────────────────────────────────────────────────────────────────
-    def _quickshift(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _quickshift(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Quickshift сегментация (чистый PyTorch/numpy).
 
         Mode-seeking алгоритм для сегментации в пространстве признаков.
@@ -4580,7 +4584,7 @@ class TorchSegmenter(BaseSegmenter):
             return self._kmeans_segmentation(tensor)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _slic(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _slic(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """SLIC (Simple Linear Iterative Clustering) — чистая реализация на numpy/PyTorch.
 
         Суперпиксельная сегментация в пространстве (цвет + координаты).
@@ -4741,7 +4745,7 @@ class TorchSegmenter(BaseSegmenter):
         n_segments: int,
         min_size_factor: float,
         max_size_factor: float,
-        **kwargs,
+        **kwargs: Any,
     ) -> np.ndarray:
         """Принудительная связность регионов (упрощённая реализация).
 
@@ -4821,7 +4825,7 @@ class TorchSegmenter(BaseSegmenter):
         return cast(np.ndarray, labels_out)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _felzenszwalb(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _felzenszwalb(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Алгоритм Felzenszwalb — иерархическая сегментация на основе графов.
 
         Графовая сегментация на основе минимального остовного дерева.
@@ -4897,7 +4901,7 @@ class TorchSegmenter(BaseSegmenter):
             self.covs: nn.Parameter = nn.Parameter(torch.eye(3).unsqueeze(0).repeat(n_components, 1, 1))
             self.weights: nn.Parameter = nn.Parameter(torch.ones(n_components) / n_components)
 
-        def forward(self, x) -> torch.Tensor:
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
             """Returns forward propagination."""
             probs = []
             for i in range(self.n_components):
@@ -4907,7 +4911,7 @@ class TorchSegmenter(BaseSegmenter):
             return torch.stack(probs, dim=-1).sum(dim=-1)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _grabcut(self, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _grabcut(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Интерактивная сегментация GrabCut.
 
         Использует прямоугольник для инициализации фона и переднего плана.
@@ -4980,7 +4984,7 @@ class TorchSegmenter(BaseSegmenter):
             return torch.ones(h, w, device=self.device) * 0.5
 
     # ──────────────────────────────────────────────────────────────────────
-    def _grabcut_torch_visualization(self, tensor: torch.Tensor, **kwargs) -> Tuple[np.ndarray, torch.Tensor]:
+    def _grabcut_torch_visualization(self, tensor: torch.Tensor, **kwargs: Any) -> Tuple[np.ndarray, torch.Tensor]:
         """Визуализация для GrabCut."""
         try:
             start_time = time.time()

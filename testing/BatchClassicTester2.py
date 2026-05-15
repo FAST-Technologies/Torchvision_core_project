@@ -35,6 +35,7 @@ import time
 import json
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
+from types import FrameType
 from collections import defaultdict
 
 import numpy as np
@@ -161,7 +162,7 @@ class BatchClassicTester:
         текущего прогресса и результатов, после чего процесс завершается с кодом 130.
         """
 
-        def handle_interrupt(signum, frame):
+        def handle_interrupt(signum: int, frame: Optional[FrameType]) -> None:
             print("\n\n⚠️  Получен сигнал прерывания!")
             print("💾 Выполняется финальное автосохранение...")
             self._save_progress(force=True)
@@ -187,7 +188,7 @@ class BatchClassicTester:
         self._last_save_time: float = time.time()
 
     # ──────────────────────────────────────────────────────────────────────
-    def _update_progress_bar(self, pbar, current_count: int, method_name: str, img_name: str) -> None:
+    def _update_progress_bar(self, pbar: Any, current_count: int, method_name: str, img_name: str) -> None:
         """Обновляет postfix прогресс-бара динамической статистикой.
 
         Рассчитывает прошедшее время, ETA, скорость обработки (тестов/мин),

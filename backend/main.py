@@ -71,6 +71,7 @@ from typing import (
     TypeAlias,
 )
 from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 from pathlib import Path
 
 import numpy as np
@@ -693,7 +694,7 @@ NEURAL_CONFIGS: NeuralConfigDict = {
 # FASTAPI ПРИЛОЖЕНИЕ
 # ──────────────────────────────────────────────────────────────────────
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Жизненный цикл приложения: инициализация и очистка ресурсов.
 
     Выполняется:

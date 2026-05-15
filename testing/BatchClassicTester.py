@@ -26,6 +26,7 @@ import time
 import json
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Literal, Union
+from types import FrameType
 from collections import defaultdict
 from datetime import datetime
 import torch
@@ -354,7 +355,7 @@ class BatchClassicTester:
         текущего прогресса и результатов, после чего процесс завершается с кодом 130.
         """
 
-        def handle_interrupt(signum, frame):
+        def handle_interrupt(signum: int, frame: Optional[FrameType]) -> None:
             print("\n\n⚠️  Получен сигнал прерывания!")
             print("💾 Выполняется финальное автосохранение...")
             self._save_progress(force=True)
@@ -1101,7 +1102,7 @@ class BatchClassicTester:
     # ──────────────────────────────────────────────────────────────────────
     def _update_progress_bar(
         self,
-        pbar,
+        pbar: Any,
         current: int,
         pair: Tuple[LibraryName, LibraryName],
         method: str,

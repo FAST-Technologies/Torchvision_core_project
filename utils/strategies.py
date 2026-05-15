@@ -780,7 +780,7 @@ class SegNet(torch.nn.Module):
         self.classifier = torch.nn.Conv2d(64, num_classes, kernel_size=1)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _make_encoder(self, in_ch, out_ch):
+    def _make_encoder(self, in_ch: int, out_ch: int) -> torch.nn.Sequential:
         """Создание энкодера для модели SegNet."""
         return torch.nn.Sequential(
             torch.nn.Conv2d(in_ch, out_ch, 3, padding=1),
@@ -792,7 +792,7 @@ class SegNet(torch.nn.Module):
         )
 
     # ──────────────────────────────────────────────────────────────────────
-    def _make_decoder(self, in_ch, out_ch):
+    def _make_decoder(self, in_ch: int, out_ch: int) -> torch.nn.Sequential:
         """Создание декодера для модели SegNet."""
         return torch.nn.Sequential(
             torch.nn.Conv2d(in_ch, out_ch, 3, padding=1),
@@ -807,7 +807,7 @@ class SegNet(torch.nn.Module):
         )
 
     # ──────────────────────────────────────────────────────────────────────
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Прямой ход для модели SegNet."""
         # Encoder
         e1, p1 = self._encode(self.enc1, x)
@@ -823,10 +823,11 @@ class SegNet(torch.nn.Module):
         d2 = self._decode(self.dec2, d3, e2.size())
         d1 = self._decode(self.dec1, d2, e1.size())
 
-        return self.classifier(d1)
+        result: torch.Tensor = self.classifier(d1)
+        return result
 
     # ──────────────────────────────────────────────────────────────────────
-    def _encode(self, encoder, x):
+    def _encode(self, encoder: torch.nn.Module, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """Encoder step: conv → batchnorm → relu → maxpool.
 
         max_pool2d возвращает (output, indices), берём только output.
@@ -836,11 +837,12 @@ class SegNet(torch.nn.Module):
         return x, pooled
 
     # ──────────────────────────────────────────────────────────────────────
-    def _decode(self, decoder, x, output_size):
+    def _decode(self, decoder: torch.nn.Module, x: torch.Tensor, output_size: torch.Size) -> torch.Tensor:
         """Decoder step: upsample → conv → batchnorm → relu."""
         # Upsampling к размеру encoder features
         x = torch.nn.functional.interpolate(x, size=output_size[2:], mode="bilinear", align_corners=False)
-        return decoder(x)
+        result: torch.Tensor = decoder(x)
+        return result
 
 
 # ──────────────────────────────────────────────────────────────────────

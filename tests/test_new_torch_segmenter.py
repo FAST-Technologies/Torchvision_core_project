@@ -20,7 +20,7 @@
 # ──────────────────────────────────────────────────────────────────────
 import sys
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -393,7 +393,7 @@ METHODS_FOR_PRECISION_TEST = [
 @skip_if_no_cuda
 @pytest.mark.parametrize("method", METHODS_FOR_PRECISION_TEST)
 @pytest.mark.parametrize("precision", ["fp32"])  # Только fp32 для кросс-платформенности
-def test_precision_correctness(method: str, precision: str, sample_image: np.ndarray):
+def test_precision_correctness(method: str, precision: str, sample_image: np.ndarray) -> None:
     """Валидирует численную согласованность низкоточных реализаций.
 
     Сравнивает маску низкоточного формата с fp32-референсом через IoU.
@@ -435,7 +435,7 @@ def test_precision_correctness(method: str, precision: str, sample_image: np.nda
 @pytest.mark.benchmark(group="precision")
 @pytest.mark.parametrize("precision", ["fp32", "fp16", "bf16"])
 @skip_if_no_cuda
-def test_precision_performance(benchmark, precision: str, sample_image: np.ndarray):
+def test_precision_performance(benchmark: Any, precision: str, sample_image: np.ndarray) -> None:
     """Бенчмарк производительности для разных числовых точностей.
 
     Использует `pytest-benchmark` для точного замера времени выполнения.
@@ -458,8 +458,8 @@ def test_precision_performance(benchmark, precision: str, sample_image: np.ndarr
     _ = segmenter.segment(sample_image)
     torch.cuda.synchronize()
 
-    def run():
-        result = segmenter.segment(sample_image)
+    def run() -> np.ndarray:
+        result: np.ndarray = segmenter.segment(sample_image)
         torch.cuda.synchronize()
         return result
 
@@ -479,7 +479,7 @@ def test_precision_performance(benchmark, precision: str, sample_image: np.ndarr
 # ТЕСТЫ AUTOCast И PRECISION MANAGER
 # ──────────────────────────────────────────────────────────────────────
 @skip_if_no_cuda
-def test_autocast_consistency(sample_image: np.ndarray):
+def test_autocast_consistency(sample_image: np.ndarray) -> None:
     """Проверяет корректность работы PrecisionManager.autocast.
 
     Валидирует, что контекстный менеджер `autocast` действительно переключает
@@ -514,7 +514,7 @@ def test_autocast_consistency(sample_image: np.ndarray):
         ("canny_edge", {"fullgraph": False}),
     ],
 )
-def test_compile_config_validity(method: str, config: dict):
+def test_compile_config_validity(method: str, config: dict) -> None:
     """Проверяет валидацию конфигураций torch.compile при инициализации.
 
     Ожидается, что создание сегментера с указанными `fullgraph`/`dynamic`/`mode`

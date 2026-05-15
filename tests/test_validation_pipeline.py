@@ -72,7 +72,7 @@ class TestValidationPipeline:
         assert metrics1["dice"] == metrics2["dice"]
 
     # ──────────────────────────────────────────────────────────────────────
-    def test_benchmark_reproducibility(self, rgb_image) -> None:
+    def test_benchmark_reproducibility(self, rgb_image: np.ndarray) -> None:
         """Проверка воспроизводимости бенчмарка."""
         from testing.SegmentationTester import SegmentationTester
         from segmenters.TorchSegmenter import TorchSegmenter

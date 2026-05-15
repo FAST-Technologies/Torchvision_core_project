@@ -80,7 +80,7 @@ import time
 from hashlib import sha256
 import pickle
 from pathlib import Path
-from typing import List, Tuple, Dict, Any, Optional, Union, Literal, Set, cast
+from typing import List, Tuple, Dict, Any, Optional, Union, Literal, Set, cast, Generator
 from dataclasses import dataclass, field, asdict
 from collections import OrderedDict
 
@@ -440,7 +440,7 @@ class TestResult:
 
 # ──────────────────────────────────────────────────────────────────────
 @contextmanager
-def safe_inference_context(model_name: str, image_name: str):
+def safe_inference_context(model_name: str, image_name: str) -> Generator[None, None, None]:
     """Контекст-менеджер для безопасного выполнения инференса.
 
     Отлавливает CUDA OOM и другие критические ошибки, очищает память и логирует детали.
@@ -1583,7 +1583,7 @@ class BatchNeuralTester:
     # ──────────────────────────────────────────────────────────────────────
     def _batch_predict_with_memory_control(
         self,
-        segmenter,
+        segmenter: Any,
         images: List[Image.Image],
         batch_size: int = 4,
         target_size: Optional[Tuple[int, int]] = None,

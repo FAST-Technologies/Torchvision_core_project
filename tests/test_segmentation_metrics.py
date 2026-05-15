@@ -16,7 +16,7 @@
 # ──────────────────────────────────────────────────────────────────────
 import sys
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -76,7 +76,7 @@ class TestSegmentationMetrics:
 
         assert SegmentationMetrics is not None
 
-    def test_calculate_all_metrics_perfect(self, perfect_prediction) -> None:
+    def test_calculate_all_metrics_perfect(self, perfect_prediction: Any) -> None:
         """Валидирует метрики при идеальном совпадении GT и Prediction.
 
         Ожидается, что IoU, Dice, Precision, Recall, F1 и Pixel Accuracy
@@ -92,7 +92,7 @@ class TestSegmentationMetrics:
         assert metrics["f1_score"] == pytest.approx(1.0, rel=1e-5)
         assert metrics["pixel_accuracy"] == pytest.approx(1.0, rel=1e-5)
 
-    def test_calculate_all_metrics_random(self, random_prediction) -> None:
+    def test_calculate_all_metrics_random(self, random_prediction: Any) -> None:
         """Проверяет корректность метрик при случайном предсказании.
 
         Убеждается, что все метрики лежат в допустимом диапазоне [0, 1],
@@ -108,7 +108,7 @@ class TestSegmentationMetrics:
         assert 0 <= metrics["f1_score"] <= 1
         assert 0 <= metrics["pixel_accuracy"] <= 1
 
-    def test_empty_prediction_metrics(self, empty_prediction) -> None:
+    def test_empty_prediction_metrics(self, empty_prediction: Any) -> None:
         """Валидирует поведение метрик при полностью пустом предсказании.
 
         Ожидается, что IoU, Dice, Precision и Recall будут равны 0

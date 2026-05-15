@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Any
 from PIL import Image
 from segmenters.BaseSegmenter import (
     BaseSegmenter,
@@ -53,7 +53,7 @@ class DummySegmenter(BaseSegmenter):
         только для изолированного тестирования инфраструктуры.
     """
 
-    def segment(self, image: ImageInput, **kwargs) -> np.ndarray:
+    def segment(self, image: ImageInput, **kwargs: Any) -> np.ndarray:
         """Возвращает пустую бинарную маску того же размера, что и вход.
 
         Заглушка метода сегментации для тестов. Не выполняет
@@ -75,7 +75,7 @@ class DummySegmenter(BaseSegmenter):
         return np.zeros((h, w), dtype=np.uint8)
 
     # ──────────────────────────────────────────────────────────────────────
-    def segment_with_mask(self, image: ImageInput, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
+    def segment_with_mask(self, image: ImageInput, **kwargs: Any) -> Tuple[np.ndarray, np.ndarray]:
         """Возвращает кортеж (визуализация, маска) для тестов.
 
         Заглушка метода с визуализацией. Возвращает:
@@ -130,7 +130,7 @@ class TestBaseSegmenter:
     #         BaseSegmenter()
 
     # ──────────────────────────────────────────────────────────────────────
-    def test_preprocess_image_from_path(self, temp_image_file) -> None:
+    def test_preprocess_image_from_path(self, temp_image_file: np.ndarray) -> None:
         """Тестирует предобработку изображения из пути к файлу.
 
         Проверяет, что метод `preprocess_image()` корректно:

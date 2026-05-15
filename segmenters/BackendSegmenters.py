@@ -73,6 +73,7 @@ from typing import (
     TYPE_CHECKING,
 )
 import logging
+from PIL import Image
 
 if TYPE_CHECKING:
     from torch_tensorrt import Module as TRTModule
@@ -166,7 +167,7 @@ class ONNXSegmenter(BaseSegmenter):
         # Уже (B,C,H,W)
         return image.astype(np.float32)
 
-    def segment(self, image, **kwargs: Any) -> BinaryMask:
+    def segment(self, image: Union[str, np.ndarray, Image.Image, torch.Tensor], **kwargs: Any) -> BinaryMask:
         """Запускает ONNX инференс.
 
         Алгоритм:
@@ -182,12 +183,22 @@ class ONNXSegmenter(BaseSegmenter):
             BinaryMask: Бинарная маска формы (H, W), uint8, значения {0, 255}.
                        При ошибке возвращает пустую маску того же размера.
         """
+        if isinstance(image, str):
+            image_np = np.array(Image.open(image).convert("RGB"))
+        elif isinstance(image, Image.Image):
+            image_np = np.array(image)
+        elif isinstance(image, torch.Tensor):
+            image_np = image.cpu().numpy()
+            if image_np.ndim == 3 and image_np.shape[0] in (1, 3):
+                image_np = np.transpose(image_np, (1, 2, 0))
+        else:
+            image_np = image
         try:
-            tensor: PreprocessedTensor = self._preprocess(image)
+            tensor: PreprocessedTensor = self._preprocess(image_np)
             outputs: List[RawOutput] = self.session.run([self.output_name], {self.input_name: tensor})
             if not outputs or outputs[0] is None:
                 logger.error(f"ONNX '{self.method}' returned None output")
-                return np.zeros(image.shape[:2], dtype=np.uint8)
+                return np.zeros(image_np.shape[:2], dtype=np.uint8)
 
             mask: RawOutput = outputs[0]
             # Flatten до (H,W)
@@ -209,8 +220,8 @@ class ONNXSegmenter(BaseSegmenter):
 
         except Exception as e:
             logger.error(f"ONNX '{self.method}' inference error: {e}")
-            h = image.shape[0] if image.ndim >= 1 else self.input_shape[2]
-            w = image.shape[1] if image.ndim >= 2 else self.input_shape[3]
+            h = image_np.shape[0] if image_np.ndim >= 1 else self.input_shape[2]
+            w = image_np.shape[1] if image_np.ndim >= 2 else self.input_shape[3]
             return np.zeros((h, w), dtype=np.uint8)
 
     def segment_with_mask(self, image: ImageInput, **kwargs: Any) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
@@ -232,20 +243,19 @@ class ONNXSegmenter(BaseSegmenter):
         from PIL import Image as PILImageModule
 
         # Конвертация входного изображения в numpy
-        if not isinstance(image, np.ndarray):
-            if isinstance(image, PILImageModule.Image):
-                image_np: npt.NDArray[np.uint8] = np.array(image)
-            elif isinstance(image, str):
-                image_np = np.array(PILImageModule.open(image).convert("RGB"))
-            elif isinstance(image, torch.Tensor):
-                image_np = image.cpu().numpy()
-                if image_np.ndim == 3 and image_np.shape[0] in (1, 3):
-                    image_np = np.transpose(image_np, (1, 2, 0))
-            else:
-                raise TypeError(f"Unsupported image type: {type(image)}")
+        if isinstance(image, str):
+            image_np = np.array(Image.open(image).convert("RGB"))
+        elif isinstance(image, Image.Image):
+            image_np = np.array(image)
+        elif isinstance(image, torch.Tensor):
+            image_np = image.cpu().numpy()
+            if image_np.ndim == 3 and image_np.shape[0] in (1, 3):
+                image_np = np.transpose(image_np, (1, 2, 0))
         else:
-            image_np = image
-        binary_mask: BinaryMask = self.segment(image, **kwargs)
+            image_np = image  # Уже np.ndarray
+
+        # ✅ Передаём image_np, а не image
+        binary_mask: BinaryMask = self.segment(image_np, **kwargs)
         return binary_mask, None
 
 
@@ -282,7 +292,7 @@ class TRTSegmenter(BaseSegmenter):
             self.model = trt_model_or_path
         self.model.eval()
 
-    def segment(self, image, **kwargs: Any) -> BinaryMask:
+    def segment(self, image: ImageInput, **kwargs: Any) -> BinaryMask:
         """Запускает TRT инференс.
 
         Алгоритм:
@@ -299,14 +309,24 @@ class TRTSegmenter(BaseSegmenter):
             BinaryMask: Бинарная маска формы (H, W), uint8, значения {0, 255}.
                        При ошибке возвращает пустую маску того же размера.
         """
+        if isinstance(image, str):
+            image_np = np.array(Image.open(image).convert("RGB"))
+        elif isinstance(image, Image.Image):
+            image_np = np.array(image)
+        elif isinstance(image, torch.Tensor):
+            image_np = image.cpu().numpy()
+            if image_np.ndim == 3 and image_np.shape[0] in (1, 3):
+                image_np = np.transpose(image_np, (1, 2, 0))
+        else:
+            image_np = image
         try:
             # Конвертация в 3 канала если нужно
-            if image.ndim == 2:
-                image = np.stack([image] * 3, axis=-1)
+            if image_np.ndim == 2:
+                image_np = np.stack([image_np] * 3, axis=-1)
 
             # Нормализация и конвертация в torch
             tensor: torch.Tensor = (
-                torch.from_numpy(image).permute(2, 0, 1).float().div(255.0).unsqueeze(0).to(self.device)
+                torch.from_numpy(image_np).permute(2, 0, 1).float().div(255.0).unsqueeze(0).to(self.device)
             )
 
             with torch.no_grad():
@@ -323,7 +343,7 @@ class TRTSegmenter(BaseSegmenter):
 
         except Exception as e:
             logger.error(f"TRT '{self.method}' inference error: {e}")
-            h, w = image.shape[:2]
+            h, w = image_np.shape[:2]
             return np.zeros((h, w), dtype=np.uint8)
 
     def segment_with_mask(self, image: ImageInput, **kwargs: Any) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:

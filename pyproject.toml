@@ -7,11 +7,11 @@ namespace_packages = true
 warn_return_any = true
 warn_unused_configs = true
 mypy_path = "."
-# disallow_untyped_defs = true          # ❗ Требовать аннотации типов
-# disallow_incomplete_defs = true       # ❗ Запретить частичные аннотации
-# check_untyped_defs = true             # ❗ Проверять функции без аннотаций
-# no_implicit_optional = true           # ❗ Явный Optional[T] вместо T = None
-# strict_equality = true                # ❗ Предупреждать о сравнении разных типов
+disallow_untyped_defs = true          # ❗ Требовать аннотации типов
+disallow_incomplete_defs = true       # ❗ Запретить частичные аннотации
+check_untyped_defs = true             # ❗ Проверять функции без аннотаций
+no_implicit_optional = true           # ❗ Явный Optional[T] вместо T = None
+strict_equality = true                # ❗ Предупреждать о сравнении разных типов
 # warn_redundant_casts = true           # ❗ Лишние приведения типов
 
 [[tool.mypy.overrides]]

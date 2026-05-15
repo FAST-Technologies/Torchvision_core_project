@@ -16,6 +16,7 @@
 # ──────────────────────────────────────────────────────────────────────
 import sys
 from pathlib import Path
+from typing import Any, Literal
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -37,7 +38,7 @@ class TestOpenCVSegmenter:
     """
 
     @pytest.fixture
-    def segmenter(self):
+    def segmenter(self) -> OpenCVSegmenter:
         """Фикстура: создаёт экземпляр OpenCVSegmenter с методом global_thresholding.
 
         Returns:
@@ -114,7 +115,20 @@ class TestOpenCVSegmenter:
         ],
     )
     # ──────────────────────────────────────────────────────────────────────
-    def test_methods_basic(self, rgb_image: np.ndarray, method, params) -> None:
+    def test_methods_basic(
+        self,
+        rgb_image: np.ndarray,
+        method: Literal[
+            "global_thresholding",
+            "otsu_thresholding",
+            "adaptive_thresholding",
+            "threshold_niblack",
+            "threshold_sauvola",
+            "sobel_edge",
+            "canny_edge",
+        ],
+        params: Any,
+    ) -> None:
         """Параметризованный тест базовой работоспособности методов.
 
         Проверяет, что каждый из перечисленных методов:

@@ -151,7 +151,7 @@ class SegmenterMethodWrapper(nn.Module):
 # ONNX export
 # ──────────────────────────────────────────────────────────────────────────────
 def export_method_to_onnx_safe(
-    segmenter,
+    segmenter: Any,
     method_name: str,
     output_path: Union[str, Path],
     opset_version: int = 25,

@@ -32,6 +32,7 @@ from PIL import Image
 from pathlib import Path
 import os
 import torch
+from typing import Any
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -310,7 +311,7 @@ def large_image() -> np.ndarray:
 
 
 # ──────────────────────────────────────────────────────────────────────
-def pytest_configure(config) -> None:
+def pytest_configure(config: Any) -> None:
     """Регистрирует пользовательские маркеры pytest при инициализации.
 
     Этот хук вызывается pytest при старте и позволяет определить
@@ -337,7 +338,7 @@ def pytest_configure(config) -> None:
 
 # ──────────────────────────────────────────────────────────────────────
 @pytest.fixture(autouse=True)
-def skip_if_no_gpu(request) -> None:
+def skip_if_no_gpu(request: Any) -> None:
     """Автоматически пропускает тесты с маркером @pytest.mark.gpu при отсутствии CUDA.
 
     Фикстура с `autouse=True` применяется ко всем тестам автоматически.
