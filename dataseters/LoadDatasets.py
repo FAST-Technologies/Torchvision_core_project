@@ -757,7 +757,9 @@ class DatasetManager:
             if config.checksum:
                 logger.info(f"   SHA256: {config.checksum[:16]}...")
             try:
-                head = requests.head(config.source_url, allow_redirects=True)
+                head = requests.head(
+                    config.source_url, allow_redirects=True, timeout=100  # ← Максимальное время ожидания ответа
+                )
                 size_bytes: int = int(head.headers.get("content-length", 0))
                 logger.info(f"   Размер: ~{size_bytes / (1024 * 1024 * 1024):.1f} GB")
             except Exception:
@@ -874,37 +876,44 @@ class DatasetManager:
         Raises:
             ValueError: Если контрольная сумма не совпадает.
         """
-        response = requests.get(url, stream=True, timeout=30)
-        response.raise_for_status()
+        try:
+            response = requests.get(url, stream=True, timeout=300, allow_redirects=True)
+            response.raise_for_status()
 
-        total_size: int = int(response.headers.get("content-length", 0))
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        # sha256_hash = hashlib.sha256() if expected_checksum else None
+            total_size: int = int(response.headers.get("content-length", 0))
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            # sha256_hash = hashlib.sha256() if expected_checksum else None
 
-        with (
-            open(destination, "wb") as f,
-            tqdm(
-                desc=destination.name,
-                total=total_size,
-                unit="B",
-                unit_scale=True,
-                unit_divisor=1024,
-            ) as pbar,
-        ):
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    pbar.update(len(chunk))
+            with (
+                open(destination, "wb") as f,
+                tqdm(
+                    desc=destination.name,
+                    total=total_size,
+                    unit="B",
+                    unit_scale=True,
+                    unit_divisor=1024,
+                ) as pbar,
+            ):
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        pbar.update(len(chunk))
 
-        # Валидация контрольной суммы
-        if expected_checksum:
-            actual_checksum: str = self._compute_sha256(destination)
-            if actual_checksum != expected_checksum:
-                destination.unlink()
-                raise ValueError(
-                    f"❌ Checksum mismatch!\n" f"Expected: {expected_checksum}\n" f"Actual:   {actual_checksum}"
-                )
-        self._log("✅ Контрольная сумма совпадает", "success")
+            # Валидация контрольной суммы
+            if expected_checksum:
+                actual_checksum: str = self._compute_sha256(destination)
+                if actual_checksum != expected_checksum:
+                    destination.unlink()
+                    raise ValueError(
+                        f"❌ Checksum mismatch!\n" f"Expected: {expected_checksum}\n" f"Actual:   {actual_checksum}"
+                    )
+            self._log("✅ Контрольная сумма совпадает", "success")
+        except requests.Timeout:
+            logger.error(f"⏱️  Таймаут при скачивании {url}")
+            raise
+        except requests.RequestException as e:
+            logger.error(f"❌ Ошибка скачивания: {e}")
+            raise
 
     # ──────────────────────────────────────────────────────────────────────
     def _reorganize_ade_structure(

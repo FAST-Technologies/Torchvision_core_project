@@ -2221,7 +2221,7 @@ class TorchSegmenter2(BaseSegmenter):
         🔹 Поддерживает Linear, Conv2d.
         """
         if self.device.type != "cpu":
-            logger.warn("⚠️  Квантование доступно только на CPU")
+            logger.warning("⚠️  Квантование доступно только на CPU")
             return module
 
         try:

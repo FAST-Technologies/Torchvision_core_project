@@ -1503,4 +1503,12 @@ if os.path.exists(_DIST):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    host: str = os.getenv("API_HOST", "127.0.0.1")  # ← Безопасный дефолт
+    port: int = int(os.getenv("API_PORT", 8000))
+    reload: bool = os.getenv("API_RELOAD", "false").lower() == "true"
+
+    logger.info(f"🚀 Запуск API: http://{host}:{port}")
+    if os.getenv("API_HOST") == "0.0.0.0":
+        logger.warning("⚠️  Внимание: сервер доступен на всех интерфейсах!")
+
+    uvicorn.run("main:app", host=host, port=port, reload=reload)

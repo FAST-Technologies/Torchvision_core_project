@@ -105,7 +105,7 @@ jobs:
     - name: Check for security issues with Bandit
       run: |
         pip install bandit
-        bandit -r segmenters/ testing/ metrics/ utils/ dataseters/ backend/ routers/ tests/ -ll -f screen -s B614,B615,B113 --exit-zero
+        bandit -r segmenters/ testing/ metrics/ utils/ dataseters/ backend/ routers/ tests/ -ll -f screen -s B614,B615,B104 --exit-zero
       continue-on-error: true
 
     - name: Generate unused code report
@@ -259,15 +259,12 @@ jobs:
           --edit-url utils=${REPO_URL}/utils \
           --edit-url dataseters=${REPO_URL}/dataseters \
           --edit-url backend=${REPO_URL}/backend \
-          --edit-url routers=${REPO_URL}/routers \
           --edit-url tests=${REPO_URL}/tests \
           backend.main \
           dataseters.ADE20KDataset \
           dataseters.DatasetParquetLoader \
           dataseters.LoadDatasets \
           metrics.SegmentationMetrics \
-          routers.comparator \
-          routers.validator \
           segmenters.AutoSegmenter \
           segmenters.BackendSegmenters \
           segmenters.BaseSegmenter \
@@ -314,7 +311,6 @@ jobs:
         echo "- 📁 [backend](./docs/backend/)" >> $GITHUB_STEP_SUMMARY
         echo "- 📁 [dataseters](./docs/dataseters/)" >> $GITHUB_STEP_SUMMARY
         echo "- 📁 [metrics](./docs/metrics/)" >> $GITHUB_STEP_SUMMARY
-        echo "- 📁 [routers](./docs/routers/)" >> $GITHUB_STEP_SUMMARY
         echo "- 📁 [segmenters](./docs/segmenters/)" >> $GITHUB_STEP_SUMMARY
         echo "- 📁 [testing](./docs/testing/)" >> $GITHUB_STEP_SUMMARY
         echo "- 📁 [utils](./docs/utils/)" >> $GITHUB_STEP_SUMMARY

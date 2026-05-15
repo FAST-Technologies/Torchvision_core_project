@@ -240,7 +240,6 @@ class ONNXSegmenter(BaseSegmenter):
             - Вероятностная маска: None (не поддерживается).
         """
         import numpy as np
-        from PIL import Image as PILImageModule
 
         # Конвертация входного изображения в numpy
         if isinstance(image, str):
