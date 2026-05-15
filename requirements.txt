@@ -63,4 +63,7 @@ pdoc>=16.0.0
 plotly>=6.7.0
 pydocstyle>=6.3.0
 setuptools>=81.0.0
+pydantic>=2.12.5
+pydantic_core>=2.41.5
+pydantic-settings>=2.13.1
 # statsmodels>=0.14.6
