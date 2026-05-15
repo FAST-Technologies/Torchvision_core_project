@@ -104,7 +104,7 @@ from pydantic import BaseModel
 
 import numpy as np
 import torch
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Form, File, UploadFile
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Form, File, UploadFile, Depends
 from fastapi.responses import JSONResponse
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -775,7 +775,7 @@ async def start_benchmark(
     use_default_image: bool = Form(True),
     image_path: Optional[str] = Form(None),
     config: Optional[str] = Form(None),
-    bg: Optional[BackgroundTasks] = None,
+    bg: BackgroundTasks = Depends(),
 ) -> Dict[str, str]:
     """Запускает асинхронный бенчмарк сегментации.
 

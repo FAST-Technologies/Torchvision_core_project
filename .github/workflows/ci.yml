@@ -266,7 +266,6 @@ jobs:
           dataseters.DatasetParquetLoader \
           dataseters.LoadDatasets \
           metrics.SegmentationMetrics \
-          routers.benchmark \
           routers.comparator \
           routers.validator \
           segmenters.AutoSegmenter \

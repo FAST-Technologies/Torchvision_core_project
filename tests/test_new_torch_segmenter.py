@@ -168,17 +168,22 @@ class TestTorchSegmenter2_Precision:
         но не вызывать краш. На GPU используется нативная точность.
         """
         device = "cuda" if torch.cuda.is_available() and precision != "fp32" else "cpu"
-        tolerance = 0.05 if precision in ["fp16", "bf16"] and device == "cpu" else 0.01
+        # tolerance = 0.05 if precision in ["fp16", "bf16"] and device == "cpu" else 0.01
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             segmenter = TorchSegmenter2(
                 method="sobel_edge",
                 device=device,
                 precision=precision,
-                use_compile=False,  # Отключаем compile для стабильности тестов
+                use_compile=False,
             )
 
             mask = segmenter.segment(test_image)
+            if precision in ["fp16", "bf16"] and device == "cpu":
+                # Проверяем, что было предупреждение о fallback
+                assert any(
+                    "не поддерживается на CPU" in str(warning.message).lower() for warning in w
+                ), "Ожидалось предупреждение о fallback"
 
         assert mask.dtype == np.uint8
         assert mask.shape == test_image.shape[:2]
