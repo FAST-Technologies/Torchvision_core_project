@@ -258,9 +258,7 @@ jobs:
           --edit-url metrics=${REPO_URL}/metrics \
           --edit-url utils=${REPO_URL}/utils \
           --edit-url dataseters=${REPO_URL}/dataseters \
-          --edit-url backend=${REPO_URL}/backend \
           --edit-url tests=${REPO_URL}/tests \
-          backend.main \
           dataseters.ADE20KDataset \
           dataseters.DatasetParquetLoader \
           dataseters.LoadDatasets \
@@ -308,7 +306,6 @@ jobs:
         
         echo "✅ Документация сгенерирована в ./docs/"
         echo "## 📚 Generated Documentation" >> $GITHUB_STEP_SUMMARY
-        echo "- 📁 [backend](./docs/backend/)" >> $GITHUB_STEP_SUMMARY
         echo "- 📁 [dataseters](./docs/dataseters/)" >> $GITHUB_STEP_SUMMARY
         echo "- 📁 [metrics](./docs/metrics/)" >> $GITHUB_STEP_SUMMARY
         echo "- 📁 [segmenters](./docs/segmenters/)" >> $GITHUB_STEP_SUMMARY
