@@ -20,7 +20,7 @@
 # ──────────────────────────────────────────────────────────────────────
 import sys
 from pathlib import Path
-from typing import Dict, Any, Callable
+from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -44,7 +44,8 @@ def skip_if_no_cuda(test_func: Callable) -> Callable:
     Returns:
         Callable: Обёрнутая функция с маркером skipif.
     """
-    return pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")(test_func)
+    result: Callable = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")(test_func)
+    return result
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -364,7 +365,8 @@ class TestTorchSegmenter2_Advanced:
         success = seg.export_to_jit(output_path="./test_export", example_input=dummy)
         assert success is True
 
-        import os, shutil
+        import os
+        import shutil
 
         if os.path.exists("./test_export"):
             shutil.rmtree("./test_export")

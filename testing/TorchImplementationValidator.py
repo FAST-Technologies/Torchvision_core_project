@@ -566,7 +566,7 @@ class TorchImplementationValidator:
                 print(f"    ✅ Время второго метода {execution_method_2_time:.3f}s")
                 print(f"    ✅ Разница по времени {difference_methods_time:.3f}s")
                 if is_first_torch2:
-                    print(f"    🔧 Использован TorchSegmenter2")
+                    print("    🔧 Использован TorchSegmenter2")
 
             except Exception as e:
                 print(f"   ❌ Ошибка: {e}")

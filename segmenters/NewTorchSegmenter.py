@@ -104,7 +104,8 @@ from functools import lru_cache
 from contextlib import contextmanager
 from collections import OrderedDict
 import hashlib
-import json
+
+# import json
 
 import torch
 import torch.nn.functional as F
@@ -404,7 +405,7 @@ class PrecisionManager:
 
         # Используем torch.float8_e4m3fn для активаций
         try:
-            from torch._dynamo import config as dynamo_config
+            # from torch._dynamo import config as dynamo_config
 
             # В будущих версиях PyTorch будет полноценная поддержка
             with torch.autocast(device_type="cuda", dtype=torch.float16):
@@ -6888,7 +6889,7 @@ class TorchSegmenter2(BaseSegmenter):
 
         precision_val = precision if precision is not None else "fp32"
         with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
-            llaplacian_5x5 = cast(torch.Tensor, self._prepare_kernel_for_conv(laplacian_5x5, gray.dtype))
+            laplacian_5x5 = cast(torch.Tensor, self._prepare_kernel_for_conv(laplacian_5x5, gray.dtype))
             laplacian = self._safe_conv2d(gray, laplacian_5x5, padding=2)
 
             # === ZERO-CROSSING С ПРОВЕРКОЙ МАГНИТУДЫ ===

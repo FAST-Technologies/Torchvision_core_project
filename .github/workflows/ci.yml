@@ -252,8 +252,7 @@ jobs:
         # Генерация документации для основных модулей
         pdoc --output-dir ./docs \
           --include-undocumented \
-          --include-private \
-          --show-source-code \
+          --show-source \
           --edit-url segmenters=${REPO_URL}/segmenters \
           --edit-url testing=${REPO_URL}/testing \
           --edit-url metrics=${REPO_URL}/metrics \
@@ -299,7 +298,16 @@ jobs:
           utils.strategies \
           utils.threshold_warmup \
           utils.utils \
-          utils.warmup
+          utils.warmup \
+          tests.conftest \
+          tests.test_base_segmenter \
+          tests.test_datasets \
+          tests.test_new_torch_segmenter \
+          tests.test_opencv_segmenter \
+          tests.test_segmentation_metrics \
+          tests.test_sklearn_segmenter \
+          tests.test_torch_segmenter \
+          tests.test_validation_pipeline
         echo "✅ Docs generated in ./docs/"
         
         echo "✅ Документация сгенерирована в ./docs/"

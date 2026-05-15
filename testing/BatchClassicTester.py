@@ -46,7 +46,6 @@ from segmenters.SklearnSegmenter import SklearnSegmenter
 from segmenters.TorchSegmenter import TorchSegmenter
 from segmenters.NewTorchSegmenter import TorchSegmenter2
 from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict
-import torch
 import gc
 
 import logging

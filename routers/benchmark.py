@@ -541,15 +541,15 @@ async def run_benchmark(
         config_dict: BenchmarkConfig = cast(BenchmarkConfig, config or {})
         inference_params: Dict[str, Any] = config_dict.get("inference", {})
         alpha: float = float(inference_params.get("alpha", 0.6))
-        warmup_runs: int = int(inference_params.get("warmup_runs", 2))
+        # warmup_runs: int = int(inference_params.get("warmup_runs", 2))
 
-        filters: Dict[str, Any] = config_dict.get("filters", {})
-        min_iou: float = float(filters.get("min_iou", 0.0))
-        only_passed: bool = bool(filters.get("only_passed", False))
+        # filters: Dict[str, Any] = config_dict.get("filters", {})
+        # min_iou: float = float(filters.get("min_iou", 0.0))
+        # only_passed: bool = bool(filters.get("only_passed", False))
 
         viz_params: Dict[str, Any] = config_dict.get("visualization", {})
-        show_overlay: bool = bool(viz_params.get("show_overlay", True))
-        show_gt: bool = bool(viz_params.get("show_gt", True))
+        # show_overlay: bool = bool(viz_params.get("show_overlay", True))
+        # show_gt: bool = bool(viz_params.get("show_gt", True))
         palette_name: str = str(viz_params.get("color_palette", "ade"))
 
         from utils.palettes import ade_palette, coco_palette, cityscapes_palette

@@ -69,24 +69,24 @@ import os
 from pathlib import Path
 from typing import (
     Any,
-    Dict,
-    List,
+    # Dict,
+    # List,
     Optional,
     Set,
     Tuple,
     Union,
-    Sequence,
-    Mapping,
-    Collection,
+    # Sequence,
+    # Mapping,
+    # Collection,
     Literal,
-    TYPE_CHECKING,
+    # TYPE_CHECKING,
 )
 
 import torch
 import torch.nn as nn
 
-if TYPE_CHECKING:
-    from segmenters.NewTorchSegmenter import TorchSegmenter2
+# if TYPE_CHECKING:
+#     from segmenters.NewTorchSegmenter import TorchSegmenter2
 
 import logging
 
@@ -230,7 +230,7 @@ def export_method_to_onnx_safe(
             model_simplified, ok = simplify(model)
             if ok:
                 onnx.save(model_simplified, output_path)
-                print(f"   ✅ ONNX simplified")
+                print("   ✅ ONNX simplified")
         except ImportError:
             pass
         except Exception as e_sim:
@@ -356,7 +356,7 @@ def export_method_to_trt_dynamo(
 
         # Fallback: пробуем fp32 если была fp16
         if precision == "fp16":
-            print(f"💡 Повтор с fp32...")
+            print("💡 Повтор с fp32...")
             return export_method_to_trt_dynamo(
                 segmenter,
                 method_name,
@@ -516,7 +516,7 @@ def export_method_to_trt_jit(
         if os.path.exists(output_path):
             os.remove(output_path)
         if precision == "fp16":
-            print(f"💡 Повтор с fp32...")
+            print("💡 Повтор с fp32...")
             return export_method_to_trt_jit(
                 segmenter,
                 method_name,

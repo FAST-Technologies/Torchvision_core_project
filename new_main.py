@@ -58,6 +58,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import (
     Dict,
+    Set,
     List,
     Tuple,
     Optional,
@@ -82,7 +83,7 @@ from huggingface_hub import hf_hub_download
 from tabulate import tabulate
 
 # Локальные импорты
-from segmenters.BaseSegmenter import BaseSegmenter
+# from segmenters.BaseSegmenter import BaseSegmenter
 from segmenters.NeuralSegmenter import NeuralSegmenter
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
@@ -92,9 +93,10 @@ from segmenters.ModelTrainer import ModelTrainer, TrainingConfig, TrainingResult
 from segmenters.NeuralModelFactory import NeuralModelFactory
 from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
 from utils.backend_exporter import (
-    export_method_to_trt_dynamo,
+    # export_method_to_trt_dynamo,
     export_method_to_onnx_safe,
     export_method_to_trt_jit,
+    load_trt_model,
 )
 from testing.SegmentationTester import SegmentationTester
 from testing.SegmentationComparator import SegmentationComparator
@@ -774,14 +776,14 @@ def parse_method_name(method_name: str) -> Dict[str, str]:
     - Известные точности: fp32, fp16, bf16, v1, v2
     """
     # 🔥 Известные значения — ключ к надёжному парсингу
-    BACKENDS = {"Torch", "ONNX", "TRT", "CV2", "Sklearn"}
-    PRECISIONS = {"fp32", "fp16", "bf16", "v1", "v2"}
+    BACKENDS: Set[str] = {"Torch", "ONNX", "TRT", "CV2", "Sklearn"}
+    PRECISIONS: Set[str] = {"fp32", "fp16", "bf16", "v1", "v2"}
 
-    parts = method_name.split("_")
+    parts: List[str] = method_name.split("_")
 
     # Ищем бэкенд и точность с конца строки
-    backend = "Unknown"
-    precision = "fp32"
+    backend: str = "Unknown"
+    precision: str = "fp32"
 
     # Проверяем последние 1-2 части
     for i in range(len(parts) - 1, max(-1, len(parts) - 3), -1):
@@ -796,8 +798,8 @@ def parse_method_name(method_name: str) -> Dict[str, str]:
 
     # Базовое имя — всё до бэкенда
     if backend != "Unknown" and backend in parts:
-        backend_idx = parts.index(backend)
-        base_method = "_".join(parts[:backend_idx])
+        backend_idx: int = parts.index(backend)
+        base_method: str = "_".join(parts[:backend_idx])
     else:
         # Fallback: удаляем известные суффиксы
         base_parts = parts[:]
@@ -809,7 +811,7 @@ def parse_method_name(method_name: str) -> Dict[str, str]:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# 🔥 РЕГИСТРАЦИЯ БЭКЕНДОВ С ПОДДЕРЖКОЙ МНОЖЕСТВЕННЫХ ТОЧНОСТЕЙ
+# РЕГИСТРАЦИЯ БЭКЕНДОВ С ПОДДЕРЖКОЙ МНОЖЕСТВЕННЫХ ТОЧНОСТЕЙ
 # ──────────────────────────────────────────────────────────────────────
 def _register_backend_methods_with_precision(
     tester: SegmentationTester,
@@ -846,7 +848,7 @@ def _register_backend_methods_with_precision(
                 precision="fp32",
                 use_compile=False,  # Чистый eager mode для сравнения
             )
-            method_key = f"{method_name}_Torch_fp32"
+            method_key: str = f"{method_name}_Torch_fp32"
             tester.add_method(method_key, pt_seg)
             registered["success"].append(method_key)
             print(f"   ✅ {method_key}")
@@ -858,7 +860,7 @@ def _register_backend_methods_with_precision(
         # 2. ONNX для каждой доступной точности
         # ──────────────────────────────────────────────────
         for precision in precisions:
-            onnx_path = f"{output_base_dir}/onnx/{precision}/{method_name}.onnx"
+            onnx_path: str = f"{output_base_dir}/onnx/{precision}/{method_name}.onnx"
             if not os.path.exists(onnx_path):
                 registered["skipped"].append(f"{method_name}_ONNX_{precision} (файл не найден)")
                 continue
@@ -886,7 +888,7 @@ def _register_backend_methods_with_precision(
             continue
 
         for precision in precisions:
-            trt_path = f"{output_base_dir}/tensorrt/{precision}/{method_name}.trt"
+            trt_path: str = f"{output_base_dir}/tensorrt/{precision}/{method_name}.trt"
             if not os.path.exists(trt_path):
                 registered["skipped"].append(f"{method_name}_TRT_{precision} (файл не найден)")
                 continue
@@ -894,7 +896,7 @@ def _register_backend_methods_with_precision(
             try:
                 from utils.backend_exporter import load_trt_model
 
-                trt_model = load_trt_model(trt_path)
+                trt_model: Any = load_trt_model(trt_path)
                 if trt_model is not None:
                     trt_seg = TRTSegmenter(
                         method_name,
@@ -922,13 +924,13 @@ def _register_backend_methods_with_precision(
     # ──────────────────────────────────────────────────
     # Сводка регистрации
     # ──────────────────────────────────────────────────
-    print(f"\n📊 Сводка регистрации бэкендов:")
+    print("\n📊 Сводка регистрации бэкендов:")
     print(f"   ✅ Успешно: {len(registered['success'])}")
     print(f"   ❌ Ошибки: {len(registered['failed'])}")
     print(f"   ⚠️  Пропущено: {len(registered['skipped'])}")
 
     if registered["failed"]:
-        print(f"\n⚠️  Ошибки:")
+        print("\n⚠️  Ошибки:")
         for err in registered["failed"][:5]:  # Показываем первые 5
             print(f"   • {err}")
 
@@ -947,7 +949,7 @@ def _extract_method_name_from_key(method_key: str) -> str:
         "Otsu_Thresholding_Torch" -> "otsu_thresholding"
     """
     # Убираем суффиксы _v1, _v2
-    name = method_key
+    name: str = method_key
     if name.endswith("_v1") or name.endswith("_v2"):
         name = name.rsplit("_", 1)[0]
 
@@ -956,13 +958,11 @@ def _extract_method_name_from_key(method_key: str) -> str:
         name = name[:-6]
 
     # Конвертируем из PascalCase/CamelCase в snake_case
-    import re
-
-    snake_case = re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+    snake_case: str = re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
     # Добавляем суффикс _edge или _thresholding если нужно
     # Это эвристика - лучше хранить маппинг явно
-    edge_methods = {
+    edge_methods: Set[str] = {
         "sobel",
         "canny",
         "prewitt",
@@ -975,7 +975,7 @@ def _extract_method_name_from_key(method_key: str) -> str:
         "gradient_magnitude_direction",
         "phase_congruency",
     }
-    threshold_methods = {
+    threshold_methods: Set[str] = {
         "global_threshold",
         "adaptive_threshold",
         "otsu_threshold",
@@ -4534,12 +4534,6 @@ def _create_backend_methods(
     input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
 ) -> dict:
     """Создаёт методы для PyTorch / ONNX / TensorRT."""
-    from utils.backend_exporter import (
-        export_method_to_onnx_safe,
-        export_method_to_trt_dynamo,
-        load_trt_model,
-        export_method_to_trt_jit,
-    )
     import os
 
     os.makedirs(output_dir, exist_ok=True)

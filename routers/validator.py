@@ -426,7 +426,7 @@ async def _run_validation_task(
             progress: float = 10 + (idx / total_methods) * 80
             async with _validation_lock:
                 _validation_tasks[task_id]["progress"] = round(progress, 2)
-                _validation_tasks[task_id]["message"] = f"Обработка {method_name} ({idx+1}/{total_methods})"
+                _validation_tasks[task_id]["message"] = f"Обработка {method_name} ({idx + 1}/{total_methods})"
             await asyncio.sleep(0)
 
             try:
@@ -449,7 +449,7 @@ async def _run_validation_task(
                 _validation_tasks[task_id]["processed"] = idx + 1
                 _validation_tasks[task_id]["progress"] = round(10 + (idx + 1) / total_methods * 80, 2)
                 _validation_tasks[task_id]["elapsed_ms"] = elapsed_ms
-                _validation_tasks[task_id]["message"] = f"Завершён {method_name} ({idx+1}/{total_methods})"
+                _validation_tasks[task_id]["message"] = f"Завершён {method_name} ({idx + 1}/{total_methods})"
             await asyncio.sleep(0)
 
         # 🔹 Финализация

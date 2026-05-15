@@ -47,12 +47,19 @@ Attributes:
 Note:
     - Все эндпоинты возвращают JSON с base64-кодированными изображениями.
     - Для расчёта метрик необходимо передать GT-маску через параметр gt_mask.
-    - Нейронные модели загружаются лениво и кешируются для повторного использования. 
+    - Нейронные модели загружаются лениво и кешируются для повторного использования.
 """
 # ──────────────────────────────────────────────────────────────────────
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
-import os, sys, json, io, math, logging, time, uuid, base64
+import os
+import sys
+import json
+import io
+import math
+import logging
+import time
+import base64
 from typing import (
     Dict,
     Any,
@@ -76,11 +83,11 @@ from fastapi import (
     Form,
     HTTPException,
     Request,
-    BackgroundTasks,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+
+# from fastapi.responses import JSONResponse
 
 # Локальные импорты
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -1201,7 +1208,7 @@ async def segment(
     Returns:
         SegmentResponseDict: Словарь с маской, overlay, метриками, рекомендациями и временем.
 
-    
+
     Raises:
         HTTPException (422): При невалидных входных данных:
             - Неизвестная библиотека или метод.
@@ -1419,7 +1426,7 @@ async def get_recommendations_ep(
     file: UploadFile = File(...),
 ) -> Dict[str, List[RecommendationDict]]:
     r"""Возвращает топ-5 рекомендаций методов для загруженного изображения.
-    
+
     Предназначение:
     - Быстрый предпросмотр подходящих методов без выполнения сегментации.
     - Помощь пользователю в выборе метода перед запуском тяжёлых вычислений.

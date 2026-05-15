@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Генерация сводного отчёта по тестам."""
+from typing import List, Dict, Literal, Any
 import subprocess
 import json
 import sys
-from pathlib import Path
 
 
-def check_json_plugin():
+def check_json_plugin() -> bool:
     """Проверяет наличие плагина pytest-json-report."""
     try:
         result = subprocess.run([sys.executable, "-m", "pytest", "--help"], capture_output=True, text=True, check=True)
@@ -15,9 +15,9 @@ def check_json_plugin():
         return False
 
 
-def run_tests_with_json():
+def run_tests_with_json() -> bool:
     """Запуск тестов с JSON-отчётом."""
-    cmd = [
+    cmd: List[str] = [
         sys.executable,
         "-m",
         "pytest",
@@ -42,9 +42,9 @@ def run_tests_with_json():
     return result.returncode == 0
 
 
-def run_tests_basic():
+def run_tests_basic() -> bool:
     """Запуск тестов без JSON-плагина (фоллбэк)."""
-    cmd = [
+    cmd: List[str] = [
         sys.executable,
         "-m",
         "pytest",
@@ -61,7 +61,7 @@ def run_tests_basic():
     return result.returncode == 0
 
 
-def parse_basic_output():
+def parse_basic_output() -> None:
     """Парсинг базового вывода pytest (если JSON недоступен)."""
     # Запускаем pytest с --collect-only для получения списка тестов
     result = subprocess.run(
@@ -70,9 +70,9 @@ def parse_basic_output():
         text=True,
     )
 
-    lines = result.stdout.strip().split("\n")
+    lines: List[str] = result.stdout.strip().split("\n")
     # Последняя строка обычно содержит итог: "X passed, Y failed, Z skipped"
-    summary_line = [l for l in lines if "passed" in l or "failed" in l or "skipped" in l]
+    summary_line: List[str] = [line for line in lines if "passed" in line or "failed" in line or "skipped" in line]
 
     if summary_line:
         print(f"📋 Сводка: {summary_line[-1]}")
@@ -80,12 +80,12 @@ def parse_basic_output():
         print("⚠️  Не удалось распарсить сводку")
 
 
-def main():
+def main() -> Literal[1, 0]:
     print("🔍 Проверка окружения...")
 
     if check_json_plugin():
         print("✅ Плагин pytest-json-report обнаружен")
-        success = run_tests_with_json()
+        success: bool = run_tests_with_json()
 
         if not success:
             print("❌ Тесты завершились с ошибками")
@@ -96,13 +96,13 @@ def main():
             with open("report.json") as f:
                 report = json.load(f)
 
-            summary = report.get("summary", {})
-            print(f"\n{'='*60}")
+            summary: Dict[str, Any] = report.get("summary", {})
+            print(f"\n{'=' * 60}")
             print(f"✅ Пройдено: {summary.get('passed', 0)}")
             print(f"❌ Провалено: {summary.get('failed', 0)}")
             print(f"⏭  Пропущено: {summary.get('skipped', 0)}")
             print(f"⏱  Всего: {summary.get('total', 0)}")
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
 
             if summary.get("failed", 0) > 0:
                 print("\n❗ Детали ошибок:")
@@ -111,7 +111,7 @@ def main():
                         nodeid = test.get("nodeid", "unknown")
                         # Безопасное извлечение сообщения об ошибке
                         crash = test.get("call", {}).get("crash", {})
-                        message = crash.get("message", "No message")
+                        message: str = crash.get("message", "No message")
                         print(f"  • {nodeid}: {message[:200]}")
 
         except FileNotFoundError:

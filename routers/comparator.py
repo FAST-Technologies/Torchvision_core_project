@@ -475,7 +475,7 @@ async def _run_comparator_task(
             progress: float = 20 + (i / len(segmenters)) * 70
             async with _comparator_lock:
                 _comparator_tasks[task_id]["progress"] = progress
-                _comparator_tasks[task_id]["message"] = f"Сравнение {cfg['name']} ({i+1}/{len(segmenters)})"
+                _comparator_tasks[task_id]["message"] = f"Сравнение {cfg['name']} ({i + 1}/{len(segmenters)})"
             await asyncio.sleep(0)
 
             try:
@@ -561,6 +561,7 @@ async def _run_comparator_task(
                 if any("f1_score" in r for r in results)
                 else None
             ),
+            "df": df,
         }
 
         # 🔹 Сериализация графиков

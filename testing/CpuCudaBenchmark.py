@@ -425,10 +425,10 @@ class CpuCudaBenchmark:
                         f" {device.upper()}:     {res['mean_time'] * 1000:.2f}ms ± {res['std_time'] * 1000:.2f}ms ({res['n_runs']} runs)"
                     )
                 else:
-                    print(f"      ⏭️ Пропущено/Ошибка")
+                    print("      ⏭️ Пропущено/Ошибка")
 
                 if res["mean_time"] != float("inf"):
-                    time_str: str = f"{res['mean_time']*1000:.2f}ms ± {res['std_time']*1000:.2f}ms"
+                    time_str: str = f"{res['mean_time'] * 1000:.2f}ms ± {res['std_time'] * 1000:.2f}ms"
                     print(f"   {device}: {time_str} ({res['n_runs']} runs)")
 
                     # Логируем сохранённые артефакты
@@ -438,7 +438,7 @@ class CpuCudaBenchmark:
                         if saved:
                             print(f"   💾 Сохранено: {', '.join(saved)}")
                 else:
-                    print(f"      ⏭️ Пропущено/Ошибка")
+                    print("      ⏭️ Пропущено/Ошибка")
 
             # Ускорение
             cpu_res = next(
@@ -558,7 +558,7 @@ class CpuCudaBenchmark:
                         ref_time = cpu_valid["mean_time"].median()
                         ref_method = cpu_valid.loc[cpu_valid["mean_time"].idxmin(), "method"]
                         f.write(
-                            f"\n⚠️ PyTorch/fp32/CPU не найден. Fallback (медиана CPU): {ref_time*1000:.2f}ms (от {ref_method})\n"
+                            f"\n⚠️ PyTorch/fp32/CPU не найден. Fallback (медиана CPU): {ref_time * 1000:.2f}ms (от {ref_method})\n"
                         )
 
                 f.write("🔹 MULTI-BACKEND ANALYSIS:\n" + "-" * 90 + "\n")

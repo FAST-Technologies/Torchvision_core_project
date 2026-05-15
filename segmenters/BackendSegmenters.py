@@ -51,12 +51,7 @@ from __future__ import annotations  # PEP 563: отложенная оценка
 
 from segmenters.BaseSegmenter import (
     BaseSegmenter,
-    ImagePath,
-    NumpyImage,
-    PILImage,
-    TorchImage,
     ImageInput,
-    Mask,
     BinaryMask,
     ProbabilityMask,
 )
@@ -64,7 +59,8 @@ import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
 import torch
-import torch_tensorrt
+
+# import torch_tensorrt
 from typing import (
     Optional,
     Dict,

@@ -82,7 +82,7 @@ import pickle
 from pathlib import Path
 from typing import List, Tuple, Dict, Any, Optional, Union, Literal, Set, cast
 from dataclasses import dataclass, field, asdict
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict
 
 import pandas as pd
 import numpy as np
@@ -837,7 +837,7 @@ class BatchNeuralTester:
                     print(f"   [Alt] annotations/validation: {alt_masks.exists()}")
                     images_dir, masks_dir = alt_images, alt_masks
                     if self.config.verbose:
-                        logger.info(f"🔍 Используется альтернативная структура: ADEChallengeData2016")
+                        logger.info("🔍 Используется альтернативная структура: ADEChallengeData2016")
 
             if not images_dir.exists():
                 alt_images = data_path / "ade20k" / "images" / "validation"
@@ -1331,7 +1331,7 @@ class BatchNeuralTester:
                                 Image.fromarray(mask_vis).save(
                                     viz_dir / f"{checkpoint.key}_{img_path.stem}_fallback.png"
                                 )
-                        except:
+                        except ValueError:
                             pass
 
                 if self.config.device == "cuda":
@@ -1479,6 +1479,8 @@ class BatchNeuralTester:
                     # Авто-режим: онлайн если есть ключ, иначе офлайн
                     mode="online" if wandb.api.api_key else "offline",
                 )
+                if run:
+                    logger.info(f"✅ W&B run URL: {run.url}")
                 self.tracker = "wandb"
                 if wandb.api.api_key:
                     logger.info("✅ Weights & Biases инициализирован (онлайн)")
@@ -1514,13 +1516,13 @@ class BatchNeuralTester:
                 for k, v in metrics.items():
                     if isinstance(v, (int, float)) and not np.isnan(v):
                         mlflow.log_metric(f"{prefix}/{model_key}/{k}", v, step=step)
-            except:
+            except ImportError:
                 pass
         elif self.tracker == "wandb":
             try:
                 import wandb
 
-                log_dict = {
+                log_dict: Dict[str, Any] = {
                     f"{prefix}/{model_key}/{k}": v
                     for k, v in metrics.items()
                     if isinstance(v, (int, float)) and not np.isnan(v)
@@ -1528,7 +1530,7 @@ class BatchNeuralTester:
                 if step is not None:
                     log_dict["step"] = step
                 wandb.log(log_dict)
-            except:
+            except ImportError:
                 pass
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1540,7 +1542,7 @@ class BatchNeuralTester:
 
                 mlflow.end_run()
                 logger.info("✅ MLflow закрыт")
-            except:
+            except ImportError:
                 pass
         elif self.tracker == "wandb":
             try:
@@ -1548,7 +1550,7 @@ class BatchNeuralTester:
 
                 wandb.finish()
                 logger.info("✅ Weights & Biases закрыт")
-            except:
+            except ImportError:
                 pass
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1639,7 +1641,7 @@ class BatchNeuralTester:
                     gc.collect()
 
                     if current_batch_size == 1:
-                        logger.error(f"❌ OOM даже при batch_size=1, пропускаем батч")
+                        logger.error("❌ OOM даже при batch_size=1, пропускаем батч")
                         break
 
                     current_batch_size = max(1, current_batch_size // 2)
@@ -1973,7 +1975,7 @@ class BatchNeuralTester:
 
             # Запасной вариант: экспорт без весов
             try:
-                logger.info(f"🔄 Retrying ONNX export with export_params=False...")
+                logger.info("🔄 Retrying ONNX export with export_params=False...")
                 torch.onnx.export(
                     model_cpu,
                     (sample_input_cpu,),
@@ -2001,7 +2003,7 @@ class BatchNeuralTester:
 
                 # Последняя попытка: смена opset
                 if opset_version != 18:
-                    logger.info(f"🔄 Retrying with opset 18...")
+                    logger.info("🔄 Retrying with opset 18...")
                     return self._export_model_to_onnx_trt(
                         model,
                         model_key,
@@ -2087,7 +2089,7 @@ class BatchNeuralTester:
         #     for k, v in vars(self.config).items(): logger.info(f"   • {k}: {v}")
 
         if self.config.verbose:
-            logger.info(f"🔧 Конфигурация запуска:")
+            logger.info("🔧 Конфигурация запуска:")
             logger.info(f"   • models_dir: {getattr(self.config, 'models_dir', './models')}")
             logger.info(f"   • random_seed: {self.config.random_seed}")
             logger.info(f"   • device: {self.config.device}")
@@ -2256,7 +2258,7 @@ class BatchNeuralTester:
                 print(f"   {row['model_key']:35} → model='{row['model']}', aug='{row['augmentation']}'")
 
         if self.config.verbose:
-            print(f"\n🔍 Структура DataFrame:")
+            print("\n🔍 Структура DataFrame:")
             print(f"   Columns: {list(df.columns)}")
             print(f"   Rows: {len(df)}")
             if "precision" in df.columns:
@@ -2265,7 +2267,7 @@ class BatchNeuralTester:
             # Проверка размеров групп для агрегации
             if all(col in df.columns for col in ["model", "augmentation", "precision"]):
                 group_sizes = df.groupby(["model", "augmentation", "precision"]).size()
-                print(f"\n🔍 Размеры групп для агрегации:")
+                print("\n🔍 Размеры групп для агрегации:")
                 print(f"   Всего групп: {len(group_sizes)}")
                 print(f"   Распределение размеров: {group_sizes.value_counts().sort_index().to_dict()}")
                 if (group_sizes == 1).any():
@@ -2287,12 +2289,12 @@ class BatchNeuralTester:
         # Средний mIoU по уровням аугментаций
         if "none" in df["augmentation"].values:
             avg_none: float = df[df["augmentation"] == "none"]["m_iou"].mean()
-            print(f"\n📊 Средний mIoU по уровням аугментаций:")
+            print("\n📊 Средний mIoU по уровням аугментаций:")
             print(f"   None:   {avg_none:.4f}")
         else:
             avg_none = 0.0
-            print(f"\n📊 Средний mIoU по уровням аугментаций:")
-            print(f"   None:   N/A")
+            print("\n📊 Средний mIoU по уровням аугментаций:")
+            print("   None:   N/A")
 
         if "basic" in df["augmentation"].values:
             avg_basic: float = df[df["augmentation"] == "basic"]["m_iou"].mean()
@@ -2300,20 +2302,20 @@ class BatchNeuralTester:
             print(f"   Basic:  {avg_basic:.4f} (прирост: {gain_basic:+.2f}%)")
         else:
             avg_basic = 0.0
-            print(f"   Basic:  N/A")
+            print("   Basic:  N/A")
 
         if "medium" in df["augmentation"].values:
             avg_medium: float = df[df["augmentation"] == "medium"]["m_iou"].mean()
             gain_medium: float = (avg_medium - avg_none) * 100 if avg_none > 0 else 0
             print(f"   Medium: {avg_medium:.4f} (прирост: {gain_medium:+.2f}%)")
         else:
-            print(f"   Medium: N/A")
+            print("   Medium: N/A")
 
         # Лучшая комбинация
         if not df.empty:
             best_idx = df["m_iou"].idxmax()
             best_row: pd.Series = df.loc[best_idx]
-            print(f"\n🏆 Лучшая комбинация:")
+            print("\n🏆 Лучшая комбинация:")
             print(f"   Модель: {best_row['model']}")
             print(f"   Аугментации: {best_row['augmentation']}")
             print(f"   mIoU: {best_row['m_iou']:.4f}")
@@ -3351,16 +3353,16 @@ def main() -> None:
         )
 
     exported: Dict[str, Path] = tester.export_results(df, aggregated, stats)
-    print(f"\n💾 Результаты сохранены:")
+    print("\n💾 Результаты сохранены:")
     for name, path in exported.items():
         print(f"   • {name}: {path}")
 
     plots: Dict[str, Path] = tester.plot_results(df, aggregated)
-    print(f"\n📊 Графики сохранены:")
+    print("\n📊 Графики сохранены:")
     for name, path in plots.items():
         print(f"   • {name}: {path}")
 
-    print(f"\n✅ Анализ завершён!")
+    print("\n✅ Анализ завершён!")
     print(f"   Всего результатов: {len(df)}")
     print(f"   Моделей: {df['model'].nunique()}")
     print(f"   Аугментаций: {df['augmentation'].nunique()}")
