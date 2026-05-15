@@ -29,6 +29,10 @@ addopts = [
     "--cov=segmenters",
     "--cov=metrics", 
     "--cov=testing",
+    "--cov=utils",
+    "--cov=dataseters",
+    "--cov=backend",
+    "--cov=routers",
     "--cov-report=xml",
     "--cov-report=html",
     "--cov-report=term-missing",
@@ -59,7 +63,7 @@ log_date_format = "%Y-%m-%d %H:%M:%S"
 
 # ===== COVERAGE: УЛУЧШЕНИЯ =====
 [tool.coverage.run]
-source = ["segmenters", "metrics", "testing", "datasets", "utils"]
+source = ["segmenters", "metrics", "testing", "dataseters", "utils", "backend", "routers"]
 branch = true
 parallel = true  # Для параллельного запуска тестов
 omit = [
@@ -84,7 +88,7 @@ exclude_lines = [
 show_missing = true
 precision = 2
 skip_covered = true  # Не показывать файлы с 100% покрытием
-# fail_under = 80      # ❗ Минимальный порог покрытия для CI
+fail_under = 10      # ❗ Минимальный порог покрытия для CI
 
 # ===== FORMATTING & LINTING (рекомендуется добавить) =====
 [tool.ruff]
@@ -94,7 +98,7 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "ARG"]
 ignore = ["E501"]  # Длина строки контролируется black
 
 [tool.ruff.isort]
-known-first-party = ["segmenters", "metrics", "testing", "utils"]
+known-first-party = ["segmenters", "metrics", "testing", "utils", "backend", "routers", "dataseters", "tests"]
 
 [tool.black]
 line-length = 120

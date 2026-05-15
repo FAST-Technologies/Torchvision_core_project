@@ -26,6 +26,8 @@ jobs:
       with:
         submodules: false
         sparse-checkout: |
+          backend
+          routers
           dataseters
           segmenters
           testing
@@ -103,7 +105,7 @@ jobs:
     - name: Check for security issues with Bandit
       run: |
         pip install bandit
-        bandit -r segmenters/ testing/ metrics/ utils/ dataseters/ -ll -f screen -s B614,B615,B113 --exit-zero
+        bandit -r segmenters/ testing/ metrics/ utils/ dataseters/ backend/ routers/ tests/ -ll -f screen -s B614,B615,B113 --exit-zero
       continue-on-error: true
 
     - name: Generate unused code report
@@ -111,7 +113,7 @@ jobs:
         pip install vulture
         # Vulture возвращает код 3, если найдено неиспользуемый код — это нормально
         set +e  # Не выходить при ошибке
-        vulture segmenters/ testing/ metrics/ utils/ --min-confidence 50 --exclude=tests/ > unused_code_report.txt 2>&1
+        vulture segmenters/ testing/ metrics/ utils/ dataseters/ backend/ routers/ tests/ --min-confidence 50 --exclude=tests/ > unused_code_report.txt 2>&1
         vulture_exit_code=$?
         set -e
         
@@ -144,7 +146,7 @@ jobs:
     - name: Type checking with mypy
       run: |
         export PYTHONPATH="${{ github.workspace }}"
-        mypy segmenters/ testing/ metrics/ utils/ dataseters/ --ignore-missing-imports --explicit-package-bases --cache-dir .mypy_cache
+        mypy segmenters/ testing/ metrics/ utils/ dataseters/ backend/ routers/ tests/ --ignore-missing-imports --explicit-package-bases --cache-dir .mypy_cache
       continue-on-error: true
 
     - name: Test with pytest (fast tests only)
@@ -224,7 +226,7 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
         
         # Проверка основных модулей с игнорированием известных исключений
-        pydocstyle segmenters/ testing/ metrics/ utils/ dataseters/ \
+        pydocstyle segmenters/ testing/ metrics/ utils/ dataseters/ backend/ routers/ tests/ \
           --convention=google \
           --add-ignore=D100,D104,D105,D107,D203,D213 \
           --match='(?!__init__).*\.py' \
@@ -233,7 +235,7 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
         
         # Считаем количество ошибок (не предупреждений)
-        errors=$(grep -cE "^segmenters\|^testing\|^metrics\|^utils\|^dataseters" pydocstyle_report.txt || echo "0")
+        errors=$(grep -cE "^segmenters\|^testing\|^metrics\|^utils\|^dataseters\|^backend\|^routers\|^tests" pydocstyle_report.txt || echo "0")
         if [ "$errors" -gt 0 ]; then
           echo "⚠️  Найдено $errors предупреждений по стилю docstring" >> $GITHUB_STEP_SUMMARY
         else
@@ -244,22 +246,71 @@ jobs:
     - name: Generate API documentation with pdoc
       run: |
         export PYTHONPATH="${{ github.workspace }}"
+
+        REPO_URL="https://github.com/FAST-Technologies/Torchvision_core_project/blob/main"
         
         # Генерация документации для основных модулей
         pdoc --output-dir ./docs \
+          --include-undocumented \
+          --include-private \
+          --show-source-code \
+          --edit-url segmenters=${REPO_URL}/segmenters \
+          --edit-url testing=${REPO_URL}/testing \
+          --edit-url metrics=${REPO_URL}/metrics \
+          --edit-url utils=${REPO_URL}/utils \
+          --edit-url dataseters=${REPO_URL}/dataseters \
+          --edit-url backend=${REPO_URL}/backend \
+          --edit-url routers=${REPO_URL}/routers \
+          --edit-url tests=${REPO_URL}/tests \
+          backend.main \
+          dataseters.ADE20KDataset \
+          dataseters.DatasetParquetLoader \
+          dataseters.LoadDatasets \
+          metrics.SegmentationMetrics \
+          routers.benchmark \
+          routers.comparator \
+          routers.validator \
+          segmenters.AutoSegmenter \
+          segmenters.BackendSegmenters \
+          segmenters.BaseSegmenter \
+          segmenters.ModelTrainer \
+          segmenters.NeuralModelFactory \
+          segmenters.NeuralSegmenter \
+          segmenters.NeuralTrainer \
           segmenters.NewTorchSegmenter \
           segmenters.TorchSegmenter \
           segmenters.SklearnSegmenter \
           segmenters.OpenCVSegmenter \
+          testing.analyze \
+          testing.BatchClassicTester \
+          testing.BatchClassicTester2 \
+          testing.BatchNeuralTester \
+          testing.CpuCudaBenchmark \
+          testing.SegmentationBenchmark \
+          testing.SegmentationComparator \
+          testing.TorchImplementationValidator \
           testing.SegmentationTester \
-          metrics.SegmentationMetrics
+          utils.backend_exporter \
+          utils.batch_exporter \
+          utils.benchmark_loader \
+          utils.config \
+          utils.palettes \
+          utils.paths \
+          utils.strategies \
+          utils.threshold_warmup \
+          utils.utils \
+          utils.warmup
         echo "✅ Docs generated in ./docs/"
         
         echo "✅ Документация сгенерирована в ./docs/"
         echo "## 📚 Generated Documentation" >> $GITHUB_STEP_SUMMARY
+        echo "- 📁 [backend](./docs/backend/)" >> $GITHUB_STEP_SUMMARY
+        echo "- 📁 [dataseters](./docs/dataseters/)" >> $GITHUB_STEP_SUMMARY
+        echo "- 📁 [metrics](./docs/metrics/)" >> $GITHUB_STEP_SUMMARY
+        echo "- 📁 [routers](./docs/routers/)" >> $GITHUB_STEP_SUMMARY
         echo "- 📁 [segmenters](./docs/segmenters/)" >> $GITHUB_STEP_SUMMARY
         echo "- 📁 [testing](./docs/testing/)" >> $GITHUB_STEP_SUMMARY
-        echo "- 📁 [metrics](./docs/metrics/)" >> $GITHUB_STEP_SUMMARY
+        echo "- 📁 [utils](./docs/utils/)" >> $GITHUB_STEP_SUMMARY
 
     - name: Debug deployment context
       run: |
@@ -295,6 +346,11 @@ jobs:
         else
           echo "❌ Token lacks permissions (HTTP $http_code)"
         fi
+
+    - name: Prepare docs for GitHub Pages
+      run: |
+        touch ./docs/.nojekyll
+        echo "📄 Created .nojekyll for GitHub Pages compatibility"
     
     - name: Deploy documentation to GitHub Pages
       uses: peaceiris/actions-gh-pages@v4
@@ -378,7 +434,7 @@ jobs:
                     pass
             return total, documented
         
-        for module in ['segmenters', 'testing', 'metrics', 'utils']:
+        for module in ['segmenters', 'testing', 'metrics', 'utils', 'dataseters', 'backend', 'routers', 'tests']:
             t, d = count_docstrings(module)
             pct = (d/t*100) if t > 0 else 100
             status = '✅' if pct >= 80 else '⚠️' if pct >= 50 else '❌'
@@ -394,21 +450,21 @@ jobs:
         echo "## 🔀 Cyclomatic Complexity Report" >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         
-        radon cc segmenters/ testing/ metrics/ -a -nb \
+        radon cc segmenters/ testing/ metrics/ utils/ dataseters/ backend/ routers/ tests/ -a -nb \
           | grep -E "^[FCM] .* [ABCDEF]" \
           | head -20 >> $GITHUB_STEP_SUMMARY
         
         echo '```' >> $GITHUB_STEP_SUMMARY
         
         # Fail если есть функции с сложностью > 15
-        radon cc segmenters/ -nc 15 --exit-code || echo "⚠️  Найдены сложные функции (>15)"
+        radon cc segmenters/ testing/ metrics/ utils/ dataseters/ backend/ routers/ tests/ -nc 15 --exit-code || echo "⚠️  Найдены сложные функции (>15)"
       continue-on-error: true
     
     - name: Pylint quality check
       run: |
         echo "## 🔎 Pylint Quality Report" >> $GITHUB_STEP_SUMMARY
         
-        pylint segmenters/ testing/ metrics/ \
+        pylint segmenters/ testing/ metrics/ utils/ dataseters/ backend/ routers/ tests/ \
           --disable=C0111,C0103,R0903,R0913,C0301,W0511 \
           --max-line-length=127 \
           --output-format=text \
