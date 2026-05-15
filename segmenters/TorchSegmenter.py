@@ -2599,27 +2599,32 @@ class TorchSegmenter(BaseSegmenter):
         gray = self._to_grayscale(tensor)
 
         start_time = time.time()
-        threshold = self.params.get("threshold", 0.1)
-        sigma = self.params.get("sigma", 1.0)
+        threshold = kwargs.get("threshold", self.params.get("threshold", 0.1))
+        sigma = kwargs.get("sigma", self.params.get("sigma", 1.0))
 
         # Предварительное сглаживание для уменьшения шума
         if sigma > 0:
             kernel_size = int(2 * round(3 * sigma) + 1)
             if kernel_size % 2 == 0:
                 kernel_size += 1
-            try:
-                gray = tv_gaussian_blur(
-                    gray.unsqueeze(0),  # (B, C, H, W) или (C, H, W)
-                    kernel_size=[kernel_size, kernel_size],
-                    sigma=[sigma, sigma],
-                ).squeeze(0)
-            except AttributeError:
-                pass  # Fallback для старых версий PyTorch
+            gray = tv_gaussian_blur(
+                gray,  # (B, C, H, W) или (C, H, W)
+                kernel_size=[kernel_size, kernel_size],
+                sigma=[sigma, sigma],
+            )
+
+        if gray.dim() == 2:  # (H, W)
+            gray = gray.unsqueeze(0).unsqueeze(0)  # → (1, 1, H, W)
+        elif gray.dim() == 3:  # (C, H, W) или (1, H, W)
+            if gray.size(0) in [1, 3]:
+                gray = gray.unsqueeze(0)  # → (1, C, H, W)
 
         # Ядро Лапласа (4-связность)
-        laplacian_kernel = torch.tensor(
-            [[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=torch.float32, device=self.device
-        ).view(1, 1, 3, 3)
+        laplacian_kernel = torch.tensor([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=gray.dtype, device=self.device).view(
+            1, 1, 3, 3
+        )
+        if laplacian_kernel.dtype != gray.dtype:
+            laplacian_kernel = laplacian_kernel.to(gray.dtype, non_blocking=True)
 
         # Или 8-связность (более чувствительное):
         # laplacian_kernel = torch.tensor([[1, 1, 1],
@@ -2632,10 +2637,15 @@ class TorchSegmenter(BaseSegmenter):
         # Абсолютное значение для обнаружения границ
         magnitude = torch.abs(laplacian)
 
-        if magnitude.max() > 0:
-            magnitude = magnitude / magnitude.max()
+        if magnitude.max() > 1e-8:
+            mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
+            magnitude = magnitude / (mag_max + 1e-8)
 
-        mask = (magnitude > threshold).float()
+        thresh_t = torch.tensor(threshold, dtype=torch.float32, device=self.device)
+        mask = (magnitude > thresh_t).float()
+
+        if mask.dim() == 4 and mask.size(0) == 1 and mask.size(1) == 1:
+            mask = mask.squeeze(0).squeeze(0)
 
         exec_time = time.time() - start_time
         self.params["execution_info"] = {

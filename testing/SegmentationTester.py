@@ -355,13 +355,15 @@ class SegmentationTester:
             original_img.save(orig_path)
 
             # Сохраняем результат сегментации
+            result_normalized: MaskArray = self._normalize_mask(result)
             result_path: str = os.path.join(output_dir, "images", f"{method_name}_result.jpg")
-            result_pil: Image.Image = Image.fromarray(result.astype(np.uint8))
+            result_pil: Image.Image = Image.fromarray(result_normalized)
             result_pil.save(result_path)
 
             # Сохраняем маску
+            mask_normalized: MaskArray = self._normalize_mask(mask)
             mask_path: str = os.path.join(output_dir, "masks", f"{method_name}_mask.png")
-            mask_pil: Image.Image = Image.fromarray(mask.astype(np.uint8))
+            mask_pil: Image.Image = Image.fromarray(mask_normalized)
             mask_pil.save(mask_path)
 
             # Сохраняем наложение (overlay)
@@ -369,14 +371,14 @@ class SegmentationTester:
                 overlay_alpha: float = 0.7  # Яркость наложения
                 original_alpha: float = 0.3  # Прозрачность оригинала
 
-                overlay: np.ndarray = (img_array * original_alpha + result * overlay_alpha).astype(np.uint8)
+                overlay: np.ndarray = (img_array * original_alpha + result_normalized * overlay_alpha).astype(np.uint8)
                 overlay = overlay.astype(np.uint8)
                 overlay_path: str = os.path.join(output_dir, "images", f"{method_name}_overlay.jpg")
                 overlay_pil: Image.Image = Image.fromarray(overlay)
                 overlay_pil.save(overlay_path)
                 result_data["overlay_path"] = overlay_path
 
-                bright_overlay = cv2.addWeighted(img_array, 0.1, result, 0.9, 0)
+                bright_overlay = cv2.addWeighted(img_array, 0.1, result_normalized, 0.9, 0)
                 bright_overlay_path: str = os.path.join(output_dir, "images", f"{method_name}_bright_overlay.jpg")
                 Image.fromarray(bright_overlay.astype(np.uint8)).save(bright_overlay_path)
             except Exception as e:
@@ -417,15 +419,10 @@ class SegmentationTester:
             if isinstance(result_img, Image.Image):
                 result_np: np.ndarray = np.array(result_img)
             else:
-                result_np = result_img
+                result_np = self._normalize_mask(result_img)
 
             if isinstance(mask, np.ndarray):
-                mask_np: np.ndarray = mask.copy()
-                if mask_np.dtype != np.uint8:
-                    if mask_np.max() <= 1.0:
-                        mask_np = (mask_np * 255).astype(np.uint8)
-                    else:
-                        mask_np = mask_np.astype(np.uint8)
+                mask_np: np.ndarray = self._normalize_mask(mask)  # ← Используем наш метод
             else:
                 return
 
@@ -581,12 +578,9 @@ class SegmentationTester:
         if result_img is not None:
             if isinstance(result_img, np.ndarray):
                 result_path: str = os.path.join(method_dir, "result.jpg")
-                if len(result_img.shape) == 2:
-                    # Grayscale
-                    Image.fromarray(result_img).save(result_path)
-                else:
-                    # RGB
-                    Image.fromarray(result_img.astype(np.uint8)).save(result_path)
+                # 🔥 ИСПРАВЛЕНИЕ: Нормализуем перед сохранением
+                result_normalized: MaskArray = self._normalize_mask(result_img)
+                Image.fromarray(result_normalized).save(result_path)
             elif isinstance(result_img, Image.Image):
                 result_path = os.path.join(method_dir, "result.jpg")
                 result_img.save(result_path)
@@ -596,13 +590,8 @@ class SegmentationTester:
         if mask is not None and isinstance(mask, np.ndarray):
             mask_path: str = os.path.join(method_dir, "mask.png")
 
-            if mask.dtype != np.uint8:
-                if mask.max() <= 1.0:
-                    mask = (mask * 255).astype(np.uint8)
-                else:
-                    mask = mask.astype(np.uint8)
-
-            Image.fromarray(mask).save(mask_path)
+            mask_normalized: MaskArray = self._normalize_mask(mask)
+            Image.fromarray(mask_normalized).save(mask_path)
 
         # Overlay, метрики, информация
         self._save_overlay_image(result_data, method_dir, method_name)
@@ -1261,6 +1250,47 @@ class SegmentationTester:
                         f.write(f"{key}: {value}\n")
 
     # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def _normalize_mask(mask: Union[torch.Tensor, np.ndarray]) -> MaskArray:
+        """Приводит маску к единому формату: (H, W), dtype uint8, значения {0, 255}.
+
+        Обрабатывает:
+        - torch.Tensor → numpy
+        - Разные размерности: (1,1,H,W), (1,H,W), (H,W,1) → (H,W)
+        - Нормализованные значения [0,1] → [0,255]
+        - Булевы массивы → uint8
+
+        Args:
+            mask: Входная маска (Tensor или ndarray).
+
+        Returns:
+            np.ndarray: Нормализованная бинарная маска.
+        """
+        # Конвертация Tensor → numpy
+        if isinstance(mask, torch.Tensor):
+            mask = mask.squeeze().detach().cpu().numpy()
+
+        # Удаление лишних измерений
+        if mask.ndim == 3:
+            if mask.shape[-1] == 1:
+                mask = mask.squeeze(-1)
+            elif mask.shape[0] == 1:
+                mask = mask.squeeze(0)
+
+        # Конвертация в uint8 с правильной шкалой
+        if mask.dtype == bool:
+            mask = mask.astype(np.uint8) * 255
+        elif mask.dtype in [np.float32, np.float64]:
+            if mask.max() <= 1.0 + 1e-6:  # Нормализованная [0,1]
+                mask = (mask * 255).astype(np.uint8)
+            else:
+                mask = mask.astype(np.uint8)
+        elif mask.dtype != np.uint8:
+            mask = mask.astype(np.uint8)
+
+        return mask  # type: ignore[return-value]
+
+    # ──────────────────────────────────────────────────────────────────────
     def benchmark_methods(
         self,
         image: ImageInput,
@@ -1408,9 +1438,11 @@ class SegmentationTester:
                     if str(self.device) == "cuda":
                         torch.cuda.synchronize()
                     times.append(time.perf_counter() - start_time)
+                    mask_normalized: MaskArray = self._normalize_mask(mask)
+                    result_normalized: MaskArray = self._normalize_mask(result)
                     if run == 0:
-                        masks_list.append(mask)
-                        results_list.append(result)
+                        masks_list.append(mask_normalized)
+                        results_list.append(result_normalized)
                 except Exception as e:
                     logger.warning(f"    ⚠️  Ошибка в {method_name} (запуск {run + 1}): {e}")
                     if run == 0 and n_runs > 1:
@@ -1448,7 +1480,7 @@ class SegmentationTester:
                             gt_resized = gt_binary
 
                         metrics_dict = SegmentationMetrics.calculate_all_metrics(
-                            pred_mask=mask,
+                            pred_mask=mask_normalized,
                             gt_mask=gt_resized,
                             threshold=0.5,
                             include_hausdorff=True,
@@ -1472,12 +1504,12 @@ class SegmentationTester:
                 try:
                     # Сохраняем результат сегментации
                     result_path: str = os.path.join(bench_dir, "images", f"{method_name}_result.jpg")
-                    result_pil: Image.Image = Image.fromarray(result_img.astype(np.uint8))
+                    result_pil: Image.Image = Image.fromarray(result_normalized)
                     result_pil.save(result_path)
 
                     # Сохраняем маску
                     mask_path: str = os.path.join(bench_dir, "masks", f"{method_name}_mask.png")
-                    mask_pil: Image.Image = Image.fromarray(mask.astype(np.uint8))
+                    mask_pil: Image.Image = Image.fromarray(mask_normalized)
                     mask_pil.save(mask_path)
 
                     # Сохраняем overlay (30% оригинал + 70% результат)
@@ -2081,12 +2113,14 @@ class SegmentationTester:
         for method_name, result in results.items():
             # Сохраняем результат
             result_path: str = os.path.join(output_dir, f"{method_name}_result.jpg")
-            result_img: Image.Image = Image.fromarray(result["result"].astype(np.uint8))
+            result_normalized: MaskArray = self._normalize_mask(result["result"])
+            result_img: Image.Image = Image.fromarray(result_normalized)
             result_img.save(result_path)
 
             # Сохраняем маску
             mask_path: str = os.path.join(output_dir, f"{method_name}_mask.png")
-            mask_img: Image.Image = Image.fromarray(result["mask"].astype(np.uint8))
+            mask_normalized: MaskArray = self._normalize_mask(result["mask"])
+            mask_img: Image.Image = Image.fromarray(mask_normalized)
             mask_img.save(mask_path)
 
             # Сохраняем статистику

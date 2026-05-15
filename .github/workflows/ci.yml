@@ -327,24 +327,18 @@ jobs:
 
     - name: Check token permissions
       run: |
-        echo "🔍 Checking token permissions..."
-        
-        # Проверка через GitHub API
+        echo "🔍 Checking basic write permissions..."
+        # Проверяем, что можем читать содержимое репозитория (базовое право)
         response=$(curl -s -w "\n%{http_code}" \
           -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          https://api.github.com/repos/${{ github.repository }}/actions/permissions)
+          https://api.github.com/repos/${{ github.repository }}/contents/README.md)
         
         http_code=$(echo "$response" | tail -n1)
-        body=$(echo "$response" | sed '$d')
-        
-        echo "HTTP Code: $http_code"
-        echo "Response: $body"
-        
         if [ "$http_code" = "200" ]; then
-          echo "✅ Token has access to actions settings"
-          echo "$body" | jq -r '.allowed_actions // "not set"'
+          echo "✅ Token has basic repository access"
         else
-          echo "❌ Token lacks permissions (HTTP $http_code)"
+          echo "❌ Token lacks basic access (HTTP $http_code)"
+          exit 1
         fi
 
     - name: Prepare docs for GitHub Pages

@@ -5023,6 +5023,8 @@ class TorchSegmenter2(BaseSegmenter):
         """
         # === ПРЕДПОДГОТОВКА ===
         gray = self._to_grayscale(tensor).squeeze()  # (H, W)
+        if gray.dim() == 3 and gray.shape[0] == 1:
+            gray = gray.squeeze(0)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
@@ -5078,7 +5080,7 @@ class TorchSegmenter2(BaseSegmenter):
         peak_idx_int: int = int(torch.argmax(hist).item())
 
         # === НАПРАВЛЕНИЕ ПОИСКА ===
-        if peak_idx_int < 128:
+        if peak_idx_int < bins // 2:
             # Пик слева - ищем в правом хвосте
             start_idx: int = peak_idx_int
             end_idx: int = bins - 1
@@ -5093,16 +5095,18 @@ class TorchSegmenter2(BaseSegmenter):
             hist_norm = hist.float() / (hist.max() + 1e-8)
 
             # Линия от пика до конца
-            peak_val = hist_norm[peak_idx]
+            peak_val = hist_norm[peak_idx_int]
             end_val = hist_norm[end_idx]
 
             # Векторизованный треугольный метод
             t_range = torch.arange(start_idx, end_idx + 1, device=self.device, dtype=dtype)
-            line_vals = peak_val + (end_val - peak_val) * (t_range - peak_idx) / (end_idx - peak_idx + 1e-10)
+            line_vals = peak_val + (end_val - peak_val) * (t_range - peak_idx_int) / (end_idx - peak_idx_int + 1e-10)
             distances = torch.abs(hist_norm[start_idx : end_idx + 1] - line_vals)
 
-            best_local = distances.argmax()
-            threshold = (start_idx + best_local) / (bins - 1)
+            best_local = int(distances.argmax().item())
+            best_threshold = start_idx + best_local
+            threshold_val: float = float(best_threshold) / float(bins - 1) if bins > 1 else 0.5
+            threshold = torch.tensor(threshold_val, dtype=dtype, device=self.device)
 
             mask = (gray > threshold).to(dtype)
 
@@ -6251,7 +6255,7 @@ class TorchSegmenter2(BaseSegmenter):
             # laplacian_kernel = self._get_laplacian_kernel_cached(self.device, dtype)
             laplacian_kernel = cast(
                 torch.Tensor,
-                self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=5),
+                self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=3),
             )
 
             # === ЛАПЛАСИАН И БИНАРИЗАЦИЯ ===
@@ -6277,7 +6281,7 @@ class TorchSegmenter2(BaseSegmenter):
         # Ядро Лапласа (4-связность)
         # laplacian_kernel = self._get_laplacian_kernel_cached(self.device, dtype)
         laplacian_kernel = cast(
-            torch.Tensor, self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=5)
+            torch.Tensor, self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=3)
         )
 
         # === ЛАПЛАСИАН И БИНАРИЗАЦИЯ ===
@@ -6368,7 +6372,7 @@ class TorchSegmenter2(BaseSegmenter):
             start_time = None  # type: ignore[assignment]
 
         # === ПАРАМЕТРЫ ===
-        thresh = threshold if threshold is not None else self.params.get("threshold", 0.1)
+        thresh = self.params.get("threshold", 0.1)
         precision_val = precision if precision is not None else "fp32"
 
         if export_mode:
@@ -6413,11 +6417,11 @@ class TorchSegmenter2(BaseSegmenter):
             # Паддинг 1×1 для сохранения размера при 2×2 ядре
             gray_pad = F.pad(gray, (0, 1, 0, 1), mode="reflect")
             roberts_x, roberts_y = self._prepare_kernel_for_conv((roberts_x, roberts_y), gray_pad.dtype)
-            gx = self._safe_conv2d(gray, roberts_x, padding=0)
-            gy = self._safe_conv2d(gray, roberts_y, padding=0)
-            magnitude = torch.sqrt(gx.square() + gy.square() + 1e-8)
+            gx = self._safe_conv2d(gray_pad, roberts_x, padding=0)
+            gy = self._safe_conv2d(gray_pad, roberts_y, padding=0)
+            magnitude = torch.sqrt(gx**2 + gy**2)
 
-            if normalize:
+            if normalize and magnitude.max() > 1e-8:
                 mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
                 magnitude = magnitude / (mag_max + 1e-8)
 
@@ -6541,7 +6545,7 @@ class TorchSegmenter2(BaseSegmenter):
         # === ЛАПЛАСИАН ===
         # laplacian_kernel = self._get_laplacian_kernel_cached(self.device, dtype)
         laplacian_kernel = cast(
-            torch.Tensor, self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=5)
+            torch.Tensor, self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=3)
         )
 
         with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):

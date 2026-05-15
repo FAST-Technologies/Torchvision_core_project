@@ -1095,33 +1095,45 @@ def _create_sklearn_methods() -> SegmenterDict:
     """
     return {
         # --- Пороговые методы (Threshold) ---
-        "global_thresholding_Sklearn": SklearnSegmenter("global_thresholding", threshold=0.5),
-        "otsu_thresholding_Sklearn": SklearnSegmenter("otsu_thresholding"),
-        "adaptive_thresholding_Sklearn": SklearnSegmenter("adaptive_thresholding", block_size=11, C=2),
-        "threshold_niblack_Sklearn": SklearnSegmenter("threshold_niblack", window_size=15, k=-0.2),
-        "threshold_sauvola_Sklearn": SklearnSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
-        "threshold_bernsen_Sklearn": SklearnSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
-        "threshold_phansalkar_Sklearn": SklearnSegmenter(
-            "threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5
+        "global_thresholding_Sklearn": SklearnSegmenter("global_thresholding", threshold=0.5, postprocess=False),
+        "otsu_thresholding_Sklearn": SklearnSegmenter("otsu_thresholding", postprocess=False),
+        "adaptive_thresholding_Sklearn": SklearnSegmenter(
+            "adaptive_thresholding", block_size=11, C=2, postprocess=False
         ),
-        "threshold_kittler_illingworth_Sklearn": SklearnSegmenter("threshold_kittler_illingworth", num_bins=256),
-        "threshold_entropy_kapur_Sklearn": SklearnSegmenter("threshold_entropy_kapur", num_bins=256),
-        "threshold_triangle_Sklearn": SklearnSegmenter("threshold_triangle", num_bins=256),
-        "threshold_multi_otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2),
-        "threshold_percentile_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90),
+        "threshold_niblack_Sklearn": SklearnSegmenter("threshold_niblack", window_size=15, k=-0.2, postprocess=False),
+        "threshold_sauvola_Sklearn": SklearnSegmenter(
+            "threshold_sauvola", window_size=15, k=0.5, r=128, postprocess=False
+        ),
+        "threshold_bernsen_Sklearn": SklearnSegmenter(
+            "threshold_bernsen", window_size=15, contrast_threshold=0.15, postprocess=False
+        ),
+        "threshold_phansalkar_Sklearn": SklearnSegmenter(
+            "threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5, postprocess=False
+        ),
+        "threshold_kittler_illingworth_Sklearn": SklearnSegmenter(
+            "threshold_kittler_illingworth", num_bins=256, postprocess=False
+        ),
+        "threshold_entropy_kapur_Sklearn": SklearnSegmenter("threshold_entropy_kapur", num_bins=256, postprocess=False),
+        "threshold_triangle_Sklearn": SklearnSegmenter("threshold_triangle", num_bins=256, postprocess=False),
+        "threshold_multi_otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2, postprocess=False),
+        "threshold_percentile_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90, postprocess=False),
         "threshold_local_contrast_Sklearn": SklearnSegmenter(
-            "threshold_local_contrast", window_size=15, contrast_factor=0.1
+            "threshold_local_contrast", window_size=15, contrast_factor=0.1, postprocess=False
         ),
         # --- Граничные методы (Edge) ---
-        "sobel_edge_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1),
-        "canny_edge_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
-        "prewitt_edge_Sklearn": SklearnSegmenter("prewitt_edge", threshold=0.1),
-        "scharr_edge_Sklearn": SklearnSegmenter("scharr_edge", threshold=0.1),
-        "roberts_cross_edge_Sklearn": SklearnSegmenter("roberts_cross_edge", threshold=0.1),
-        "log_edge_Sklearn": SklearnSegmenter("log_edge", sigma=1.0, threshold=0.01),
-        "dog_edge_Sklearn": SklearnSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
-        "marr_hildreth_edge_Sklearn": SklearnSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
-        "gradient_magnitude_direction_Sklearn": SklearnSegmenter("gradient_magnitude_direction", threshold=0.1),
+        "sobel_edge_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1, postprocess=False),
+        "canny_edge_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0, postprocess=False),
+        "prewitt_edge_Sklearn": SklearnSegmenter("prewitt_edge", threshold=0.1, postprocess=False),
+        "scharr_edge_Sklearn": SklearnSegmenter("scharr_edge", threshold=0.1, postprocess=False),
+        "roberts_cross_edge_Sklearn": SklearnSegmenter("roberts_cross_edge", threshold=0.1, postprocess=False),
+        "log_edge_Sklearn": SklearnSegmenter("log_edge", sigma=1.0, threshold=0.01, postprocess=False),
+        "dog_edge_Sklearn": SklearnSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01, postprocess=False),
+        "marr_hildreth_edge_Sklearn": SklearnSegmenter(
+            "marr_hildreth_edge", sigma=1.5, threshold=0.01, postprocess=False
+        ),
+        "gradient_magnitude_direction_Sklearn": SklearnSegmenter(
+            "gradient_magnitude_direction", threshold=0.1, postprocess=False
+        ),
         "phase_congruency_edge_Sklearn": SklearnSegmenter(
             "phase_congruency_edge",
             nscales=4,
@@ -1131,6 +1143,7 @@ def _create_sklearn_methods() -> SegmenterDict:
             sigma_onf=0.55,
             k_noise=2.0,
             threshold=0.5,
+            postprocess=False,
         ),
         # "Region_Growing_Sklearn": SklearnSegmenter("region_growing", seed=(100, 100), tolerance=0.1),
         # "Split_And_Merge_Sklearn": SklearnSegmenter("split_and_merge", min_size=50, threshold=0.1),
