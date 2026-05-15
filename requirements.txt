@@ -66,4 +66,5 @@ setuptools>=81.0.0
 pydantic>=2.12.5
 pydantic_core>=2.41.5
 pydantic-settings>=2.13.1
-# statsmodels>=0.14.6
+segmentation_models_pytorch>=0.5.0
+statsmodels>=0.14.6
