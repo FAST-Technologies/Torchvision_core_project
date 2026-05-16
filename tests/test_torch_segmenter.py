@@ -1,3 +1,5 @@
+# tests/test_torch_segmenter.py
+
 """Модульные тесты для базового PyTorch-сегментера (TorchSegmenter v1).
 
 Тестирует:

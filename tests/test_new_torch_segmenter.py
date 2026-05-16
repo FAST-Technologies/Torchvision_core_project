@@ -1,3 +1,5 @@
+# tests/test_new_torch_segmenter.py
+
 """Модульные тесты для оптимизированного PyTorch-сегментера (TorchSegmenter2).
 
 Тестирует:

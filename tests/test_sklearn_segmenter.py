@@ -1,3 +1,5 @@
+# tests/test_sklearn_segmenter.py
+
 """Модульные тесты для сегментера на базе scikit-learn/scikit-image.
 
 Тестирует:

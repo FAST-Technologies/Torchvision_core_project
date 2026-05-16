@@ -1,4 +1,4 @@
-# BatchNeuralTester.py
+# testing/BatchNeuralTester.py
 
 """Модуль для анализа влияния аугментаций на качество нейросетевых моделей сегментации на датасете ADE20K (или его подмножестве).
 
@@ -96,7 +96,6 @@ from contextlib import contextmanager, nullcontext
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import seaborn as sns
-from segmenters.NewTorchSegmenter import PrecisionManager
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 # HuggingFace для загрузки датасета
@@ -121,6 +120,12 @@ if project_root not in sys.path:
 # Локальные импорты
 from segmenters.NeuralSegmenter import NeuralSegmenter
 from metrics.SegmentationMetrics import SegmentationMetrics
+from segmenters.NewTorchSegmenter import PrecisionManager
+from utils.backend_exporter_new import (
+    export_neural_model,
+    load_trt_engine,
+    OnnxTrtFallbackSegmenter,
+)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -353,6 +358,8 @@ class TestConfig:
     class_aware_overlays: bool = False
     overlay_alpha: float = 0.5
     save_viz: bool = False
+    input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512)  # ← Новое поле
+    normalization: str = "imagenet"
 
     # ──────────────────────────────────────────────────────────────────────
     def __post_init__(self) -> None:
@@ -362,6 +369,9 @@ class TestConfig:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         if self.device not in ["cuda", "cpu"]:
             raise ValueError(f"Unsupported device: {self.device}")
+        # expected_h, expected_w = self.config.input_shape[2], self.config.input_shape[3]
+        # if expected_h < 256 or expected_w < 256:
+        #     logger.warning(f"⚠️ input_shape {self.config.input_shape} может быть слишком мал для нейросетей")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -385,6 +395,7 @@ class ModelCheckpoint:
     model_type: str
     augmentation: str
     original_type: str
+    format: Literal["pth", "trt", "onnx"] = "pth"
 
     @property
     def display_name(self) -> str:
@@ -394,6 +405,11 @@ class ModelCheckpoint:
             str: Строка вида "unet_smp_none".
         """
         return f"{self.original_type}_{self.augmentation}"
+
+    @property
+    def is_trt(self) -> bool:
+        """Проверяет, находится ли модель в TRT формате."""
+        return self.format == "trt" or self.path.suffix == ".trt"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -724,6 +740,7 @@ class BatchNeuralTester:
         self.precision_manager: PrecisionManager = PrecisionManager(
             default_precision=getattr(config, "precision", "fp32")
         )
+        self.fallback_segmenters: Dict[str, Any] = {}
 
         self.cache: Optional[PredictionCache] = None
         if getattr(config, "cache", False):
@@ -778,12 +795,27 @@ class BatchNeuralTester:
         for model_type in model_types:
             for aug_level in augmentation_levels:
                 # Шаблон: {model_type}_{aug_level}_*.pth
+                trt_pattern: str = str(models_path / f"{model_type}_{aug_level}_*.trt")
+                trt_files: List[str] = glob.glob(trt_pattern)
+
+                if trt_files:
+                    latest: str = max(trt_files, key=os.path.getctime)
+                    key: str = f"{model_type}_{aug_level}"
+                    checkpoints[key] = ModelCheckpoint(
+                        key=key,
+                        path=Path(latest),
+                        model_type=MODEL_TYPE_MAPPING.get(model_type, model_type),
+                        augmentation=aug_level,
+                        original_type=model_type,
+                        format="trt",  # ← Новый атрибут
+                    )
+                    continue
                 pattern: str = str(models_path / f"{model_type}_{aug_level}_*.pth")
                 files: List[str] = glob.glob(pattern)
 
                 if files:
-                    latest: str = max(files, key=os.path.getctime)
-                    key: str = f"{model_type}_{aug_level}"  # Ключ для агрегации
+                    latest = max(files, key=os.path.getctime)
+                    key = f"{model_type}_{aug_level}"  # Ключ для агрегации
                     checkpoints[key] = ModelCheckpoint(
                         key=key,
                         path=Path(latest),
@@ -1139,6 +1171,7 @@ class BatchNeuralTester:
             Поддерживает resume, кэширование предсказаний, autocast и fallback визуализации.
         """
         results: List[TestResult] = []
+        normalization_in_graph: bool = checkpoint.format != "pth"
 
         # === 1. Загрузка модели с учётом точности ===
         dtype: torch.dtype = self._resolve_torch_dtype(precision)
@@ -1147,17 +1180,37 @@ class BatchNeuralTester:
             dtype = torch.float32
             precision = "fp32"
 
+        if checkpoint.key in self.fallback_segmenters:
+            segmenter: Any = self.fallback_segmenters[checkpoint.key]
+            logger.info(f"♻️ Используем fallback-сегментер для {checkpoint.key}")
+
         if self.config.verbose:
             actual_precision = "fp16" if dtype == torch.float16 else "bf16" if dtype == torch.bfloat16 else "fp32"
             logger.info(f"🎯 Точность инференса: {actual_precision} (запрошено: {precision})")
 
-        segmenter = NeuralSegmenter(
-            model_type=checkpoint.model_type,
-            checkpoint_path=str(checkpoint.path),
-            device=self.config.device,
-            num_classes=self.config.num_classes,
-            palette=NeuralSegmenter.ade_palette(),
-        )
+        if checkpoint.is_trt:
+            from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
+
+            device_literal: Literal["cuda", "cpu"] = cast(Literal["cuda", "cpu"], self.config.device)
+            segmenter = TRTSegmenter(
+                model_key=checkpoint.key,
+                trt_model_or_path=str(checkpoint.path),
+                num_classes=self.config.num_classes,
+                input_shape=self.config.input_shape,
+                device=device_literal,
+                palette=NeuralSegmenter.ade_palette(),
+                is_neural=True,
+                normalization=getattr(self.config, "normalization", "imagenet"),
+                normalization_in_graph=normalization_in_graph,
+            )
+        else:
+            segmenter = NeuralSegmenter(
+                model_type=checkpoint.model_type,
+                checkpoint_path=str(checkpoint.path),
+                device=self.config.device,
+                num_classes=self.config.num_classes,
+                palette=NeuralSegmenter.ade_palette(),
+            )
         segmenter.model.eval()
 
         if dtype != torch.float32:
@@ -1359,6 +1412,29 @@ class BatchNeuralTester:
             except Exception as e:
                 logger.error(f"Ошибка при обработке {img_path.name}: {e}")
                 continue
+
+            if idx == 0 and getattr(self.config, "export_onnx", False):
+                # Валидируем экспортированные модели на первом изображении
+                validation_results = self._validate_exported_model(
+                    checkpoint=checkpoint,
+                    image=test_image,
+                    gt_mask=gt_mask,
+                    output_dir=Path(self.config.output_dir) / "exports",
+                )
+                if validation_results:
+                    # Сохраняем сводку валидации
+                    val_summary = {
+                        "model": checkpoint.key,
+                        "image": img_path.name,
+                        "results": {
+                            k: {"time_ms": v["time_s"] * 1000, "m_iou": v["m_iou"]}
+                            for k, v in validation_results.items()
+                        },
+                    }
+                    val_path = Path(self.config.output_dir) / "exports" / f"{checkpoint.key}_validation.json"
+                    with open(val_path, "w") as f:
+                        json.dump(val_summary, f, indent=2)
+                    logger.info(f"✅ Валидация сохранена: {val_path}")
 
         # Очистка памяти
         del segmenter
@@ -1893,7 +1969,7 @@ class BatchNeuralTester:
         sample_input: torch.Tensor,
         output_dir: Path,
         opset_version: int = 17,
-        trt_precision: Literal["fp32", "fp16"] = "fp16",
+        trt_precision: Literal["fp32", "fp16", "bf16"] = "fp16",
     ) -> Dict[str, Optional[Path]]:
         """Экспорт модели в ONNX и компиляция в TensorRT с fallback-механизмами.
 
@@ -1913,163 +1989,155 @@ class BatchNeuralTester:
             - Пробует `export_params=True`, при падении fallback на `False`.
             - TRT использует `ir="ts"` (TorchScript) как workaround для новых версий.
         """
-        import torch.onnx
+        from utils.backend_exporter_new import export_neural_model
 
-        output_dir.mkdir(parents=True, exist_ok=True)
-        results: Dict[str, Optional[Path]] = {"onnx": None, "trt": None}
+        assert sample_input.ndim == 4, f"Expected 4D tensor, got {sample_input.ndim}D"
 
-        onnx_path: Path = output_dir / f"{model_key}.onnx"
+        input_shape_4d: Tuple[int, int, int, int] = (
+            int(sample_input.shape[0]),
+            int(sample_input.shape[1]),
+            int(sample_input.shape[2]),
+            int(sample_input.shape[3]),
+        )
 
-        model_cpu = model.to("cpu").eval()
-        sample_input_cpu = sample_input.to("cpu", dtype=torch.float32)
+        results: Dict[str, Optional[Path]] = export_neural_model(
+            model=model,
+            model_key=model_key,
+            output_dir=output_dir,
+            input_shape=input_shape_4d,
+            opset_version=opset_version,
+            trt_precision=trt_precision,
+            device=self.config.device,
+            dynamic_axes=getattr(self.config, "dynamic_shapes", False),
+        )
 
-        # Очищаем все буферы и параметры от CUDA
-        for param in model_cpu.parameters():
-            if param.device.type != "cpu":
-                param.data = param.data.cpu()
-        for buf in model_cpu.buffers():
-            if buf.device.type != "cpu":
-                buf.data = buf.data.cpu()
+        # Логирование
+        if results["onnx"]:
+            size_mb = results["onnx"].stat().st_size / 1e6
+            logger.info(f"✅ ONNX: {results['onnx'].name} ({size_mb:.2f} MB)")
 
-        try:
-            dynamic_axes: Optional[Dict[str, Dict[int, str]]] = (
-                {
-                    "input": {0: "batch", 2: "height", 3: "width"},
-                    "output": {0: "batch", 2: "height", 3: "width"},
-                }
-                if getattr(self.config, "dynamic_shapes", False)
-                else None
+        if results["trt"]:
+            size_mb = results["trt"].stat().st_size / 1e6
+            logger.info(f"✅ TRT ({results['trt_strategy']}): {results['trt'].name} ({size_mb:.2f} MB)")
+
+        return results
+
+    def _validate_exported_model(
+        self,
+        checkpoint: ModelCheckpoint,
+        image: Image.Image,
+        gt_mask: np.ndarray,
+        output_dir: Path,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Валидация .pth/.onnx/.trt версий модели: инференс + метрики + время."""
+        from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
+
+        results = {}
+        expected_h, expected_w = self.config.input_shape[2], self.config.input_shape[3]
+
+        # === 1. PyTorch (.pth) ===
+        if checkpoint.path.suffix == ".pth":
+            seg_pth: NeuralSegmenter = NeuralSegmenter(
+                model_type=checkpoint.model_type,
+                checkpoint_path=str(checkpoint.path),
+                device=self.config.device,
+                num_classes=self.config.num_classes,
             )
+            start: float = time.perf_counter()
+            pred_pth: np.ndarray = seg_pth.predict_segmentation_map(image, verbose=False)[0]
+            time_pth: float = time.perf_counter() - start
 
-            torch.onnx.export(
-                model_cpu,
-                (sample_input_cpu,),
-                str(onnx_path),
-                export_params=True,
-                opset_version=opset_version,
-                do_constant_folding=True,
-                input_names=["input"],
-                output_names=["output"],
-                dynamic_axes=dynamic_axes,
-                verbose=False,
-            )
+            # Ресайз предсказания под GT
+            if pred_pth.shape != gt_mask.shape:
+                pred_pth = self._resize_mask(pred_pth, gt_mask.shape)
 
-            # Опциональное упрощение
+            metrics_pth: float = self._calculate_multiclass_iou(pred_pth, gt_mask, self.config.ignore_index)[0]
+            results["pth"] = {"time_s": time_pth, "m_iou": metrics_pth, "pred": pred_pth}
+            del seg_pth
+            torch.cuda.empty_cache()
+
+        # === 2. ONNX ===
+        onnx_path = output_dir / f"{checkpoint.key}.onnx"
+        if onnx_path.exists():
             try:
-                import onnx
-                from onnxsim import simplify
-
-                model_onnx = onnx.load(str(onnx_path))
-                model_simp, check = simplify(model_onnx)
-                if check:
-                    onnx.save(model_simp, str(onnx_path))
-                    logger.info(f"✅ ONNX simplified: {onnx_path}")
-            except ImportError:
-                pass
-
-            results["onnx"] = onnx_path
-            logger.info(f"✅ ONNX exported: {onnx_path}")
-
-        except Exception as e:
-            logger.error(f"❌ ONNX export failed (params=True): {type(e).__name__}: {e}")
-
-            # Запасной вариант: экспорт без весов
-            try:
-                logger.info("🔄 Retrying ONNX export with export_params=False...")
-                torch.onnx.export(
-                    model_cpu,
-                    (sample_input_cpu,),
-                    str(onnx_path),
-                    export_params=False,
-                    opset_version=opset_version,
-                    do_constant_folding=True,
-                    input_names=["input"],
-                    output_names=["output"],
-                    dynamic_axes=(
-                        {
-                            "input": {0: "batch", 2: "height", 3: "width"},
-                            "output": {0: "batch", 2: "height", 3: "width"},
-                        }
-                        if getattr(self.config, "dynamic_shapes", False)
-                        else None
-                    ),
-                    verbose=False,
+                device_literal: Literal["cuda", "cpu"] = cast(Literal["cuda", "cpu"], self.config.device)
+                seg_onnx: ONNXSegmenter = ONNXSegmenter(
+                    model_key=checkpoint.key,
+                    onnx_path=str(onnx_path),
+                    device=device_literal,
+                    num_classes=self.config.num_classes,
+                    input_shape=self.config.input_shape,
+                    is_neural=True,
                 )
-                results["onnx"] = onnx_path
-                logger.info(f"✅ ONNX exported (no params): {onnx_path}")
+                start = time.perf_counter()
+                pred_onnx = seg_onnx.segment(image)
+                time_onnx: float = time.perf_counter() - start
 
-            except Exception as e2:
-                logger.error(f"❌ ONNX export failed completely: {type(e2).__name__}: {e2}")
+                if pred_onnx.shape != gt_mask.shape:
+                    pred_onnx = self._resize_mask(pred_onnx, gt_mask.shape)
 
-                # Последняя попытка: смена opset
-                if opset_version != 18:
-                    logger.info("🔄 Retrying with opset 18...")
-                    return self._export_model_to_onnx_trt(
-                        model,
-                        model_key,
-                        sample_input,
-                        output_dir,
-                        opset_version=18,
-                        trt_precision=trt_precision,
-                    )
-
-        # TensorRT экспорт (только если ONNX успешен и на CUDA)
-        if results["onnx"] and self.config.device == "cuda" and getattr(self.config, "export_trt", False):
-            trt_path: Path = output_dir / f"{model_key}.{trt_precision}.trt"
-            try:
-                import torch_tensorrt
-
-                trt_version = tuple(map(int, torch_tensorrt.__version__.split(".")[:2]))
-                if trt_version < (1, 4):
-                    logger.warning(
-                        f"⚠️  torch-tensorrt {torch_tensorrt.__version__} может быть несовместим. Пропускаем TRT экспорт."
-                    )
-                    results["trt"] = None
-                else:
-                    model_cuda = model.to(self.config.device).eval()
-                    input_spec: List[torch_tensorrt.Input] = [
-                        torch_tensorrt.Input(
-                            sample_input.shape,
-                            dtype=(torch.float16 if trt_precision == "fp16" else torch.float32),
-                            name="input",
-                        )
-                    ]
-
-                    trt_model = torch_tensorrt.compile(
-                        model_cuda,
-                        inputs=input_spec,
-                        enabled_precisions={torch.float16 if trt_precision == "fp16" else torch.float32},
-                        ir="ts",
-                        # min_block_size=1,
-                        # fallback_to_torch=True,
-                    )
-
-                    torch.jit.save(trt_model, str(trt_path))
-                    results["trt"] = trt_path
-                    logger.info(f"✅ TensorRT engine saved: {trt_path}")
-
-            except ImportError:
-                logger.warning("⚠️  torch-tensorrt not installed. Skip TRT export.")
-                results["trt"] = None
+                metrics_onnx: float = self._calculate_multiclass_iou(pred_onnx, gt_mask, self.config.ignore_index)[0]
+                results["onnx"] = {"time_s": time_onnx, "m_iou": metrics_onnx, "pred": pred_onnx}
+                del seg_onnx
+                torch.cuda.empty_cache()
             except Exception as e:
-                logger.error(f"❌ TRT compile failed: {type(e).__name__}: {e}")
-                import traceback
+                logger.warning(f"⚠️ ONNX инференс не удался: {e}")
 
-                logger.debug(f"🔍 Full traceback:\n{traceback.format_exc()}")
+        # === 3. TensorRT ===
+        trt_path: Path = output_dir / f"{checkpoint.key}.{self.config.trt_precision}.trt"
+        if trt_path.exists() and self.config.device == "cuda":
+            try:
+                from utils.backend_exporter_new import load_trt_engine
 
-                # 🔥 Не ретраим с fp32 — ошибка не в точности, а в совместимости
-                logger.warning("⚠️  TensorRT экспорт пропущен из-за ошибки компиляции или несовместимости версий")
-                results["trt"] = None
-                # if trt_precision == "fp16":
-                #     logger.info("🔄 Retrying TRT with fp32...")
-                #     return self._export_model_to_onnx_trt(
-                #         model,
-                #         model_key,
-                #         sample_input,
-                #         output_dir,
-                #         opset_version=opset_version,
-                #         trt_precision="fp32",
-                #     )
+                trt_model: Any = load_trt_engine(str(trt_path))
+                seg_trt: TRTSegmenter = TRTSegmenter(
+                    model_key=checkpoint.key,
+                    trt_model_or_path=trt_model,
+                    num_classes=self.config.num_classes,
+                    input_shape=self.config.input_shape,
+                    device="cuda",
+                    is_neural=True,
+                )
+                start = time.perf_counter()
+                pred_trt = seg_trt.segment(image)
+                time_trt = time.perf_counter() - start
+
+                if pred_trt.shape != gt_mask.shape:
+                    pred_trt = self._resize_mask(pred_trt, gt_mask.shape)
+
+                metrics_trt: float = self._calculate_multiclass_iou(pred_trt, gt_mask, self.config.ignore_index)[0]
+                results["trt"] = {"time_s": time_trt, "m_iou": metrics_trt, "pred": pred_trt}
+                del seg_trt, trt_model
+                torch.cuda.empty_cache()
+            except Exception as e:
+                logger.warning(f"⚠️ TRT инференс не удался: {e}")
+
+        # === 4. Сравнение и логирование ===
+        if len(results) >= 2:
+            logger.info(f"🔍 Сравнение бэкендов для {checkpoint.key}:")
+            base = results.get("pth") or results.get("onnx")
+            if base:
+                for backend in ["onnx", "trt"]:
+                    if backend in results and backend != ("pth" if base is results.get("pth") else "onnx"):
+                        base_time: float = cast(float, base["time_s"])
+                        base_iou: float = cast(float, base["m_iou"])
+                        backend_time: float = cast(float, results[backend]["time_s"])
+                        backend_iou: float = cast(float, results[backend]["m_iou"])
+
+                        speedup: float = base_time / backend_time if backend_time > 0 else float("inf")
+                        iou_diff: float = backend_iou - base_iou
+                        logger.info(f"   {backend.upper()}: {speedup:.2f}x speed, IoU Δ={iou_diff:+.4f}")
+
+        # === 5. Сохранение оверлеев для валидации ===
+        if self.config.save_visualizations and "pth" in results:
+            viz_dir: Path = output_dir / "validation_overlays"
+            viz_dir.mkdir(parents=True, exist_ok=True)
+
+            for backend, data in results.items():
+                if "pred" in data:
+                    result: np.ndarray = cast(np.ndarray, data["pred"])
+                    overlay: Image.Image = self._create_simple_overlay(image, result, alpha=0.6)
+                    overlay.save(viz_dir / f"{checkpoint.key}_{backend}_overlay.png")
 
         return results
 
@@ -2216,15 +2284,41 @@ class BatchNeuralTester:
                         trt_precision=getattr(self.config, "trt_precision", "fp16"),
                     )
 
-                    if export_results["onnx"]:
-                        onnx_size: float = export_results["onnx"].stat().st_size / 1e6  # MB
+                    if export_results["onnx"] and isinstance(export_results["onnx"], Path):
+                        onnx_size: float = export_results["onnx"].stat().st_size / 1e6
                         logger.info(f"✅ ONNX: {export_results['onnx'].name} ({onnx_size:.2f} MB)")
 
-                    if export_results["trt"]:
+                    if export_results["trt"] and isinstance(export_results["trt"], Path):
                         trt_size: float = export_results["trt"].stat().st_size / 1e6
                         logger.info(f"✅ TensorRT: {export_results['trt'].name} ({trt_size:.2f} MB)")
+                    elif export_results.get("trt_fallback"):
+                        logger.info(f"✅ ONNX+CUDA fallback активен для {checkpoint.key}")
+
+                    trt_success = any(
+                        [
+                            export_results.get("trt"),
+                            export_results.get("trt_api"),
+                            export_results.get("tensorrt_api"),
+                            export_results.get("trt_fallback"),
+                        ]
+                    )
+
+                    if trt_success:
+                        # Находим путь к созданному TRT-файлу
+                        trt_path: Optional[Path] = (
+                            export_results.get("trt")
+                            or export_results.get("trt_api")
+                            or export_results.get("tensorrt_api")
+                            or export_results.get("trt_fallback")
+                        )
+                        if trt_path:
+                            size_mb: float = trt_path.stat().st_size / 1e6
+                            strategy: Literal["tensorrt_api", "torch_tensorrt"] = (
+                                "tensorrt_api" if "api" in str(trt_path).lower() else "torch_tensorrt"
+                            )
+                            logger.info(f"✅ TRT ({strategy}): {trt_path.name} ({size_mb:.2f} MB)")
                     elif getattr(self.config, "export_trt", False):
-                        logger.warning("⚠️  TensorRT экспорт пропущен (возможно, не установлен torch-tensorrt)")
+                        logger.warning("⚠️  TensorRT экспорт не удался (проверьте установку tensorrt/torch-tensorrt)")
 
                 except Exception as e:
                     logger.error(f"❌ Ошибка экспорта модели {checkpoint.key}: {e}")
@@ -3199,7 +3293,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--trt-precision",
-        choices=["fp32", "fp16"],
+        choices=["fp32", "fp16", "bf16"],
         default="fp16",
         help="Точность для TensorRT (default: fp16)",
     )

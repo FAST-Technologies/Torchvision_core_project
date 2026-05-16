@@ -1,4 +1,4 @@
-# tests/integration/test_validation_pipeline.py
+# tests/test_validation_pipeline.py
 
 """Интеграционные тесты для пайплайна валидации и бенчмаркинга.
 

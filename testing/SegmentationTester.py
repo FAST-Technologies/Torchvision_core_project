@@ -422,11 +422,10 @@ class SegmentationTester:
                 result_np = self._normalize_mask(result_img)
 
             if isinstance(mask, np.ndarray):
-                mask_np: np.ndarray = self._normalize_mask(mask)  # ← Используем наш метод
+                mask_np: np.ndarray = self._normalize_mask(mask)
             else:
                 return
 
-            # Создаем overlay
             if len(result_np.shape) == 2:
                 # Grayscale оригинал
                 overlay: np.ndarray = np.stack([result_np] * 3, axis=-1)
@@ -438,7 +437,6 @@ class SegmentationTester:
                 mask_bool: np.ndarray = mask_np > 127
                 overlay[mask_bool] = [255, 0, 0]  # Красный
 
-            # Сохраняем overlay
             overlay_path: str = os.path.join(method_dir, "overlay.jpg")
             Image.fromarray(overlay.astype(np.uint8)).save(overlay_path)
 
@@ -578,7 +576,6 @@ class SegmentationTester:
         if result_img is not None:
             if isinstance(result_img, np.ndarray):
                 result_path: str = os.path.join(method_dir, "result.jpg")
-                # 🔥 ИСПРАВЛЕНИЕ: Нормализуем перед сохранением
                 result_normalized: MaskArray = self._normalize_mask(result_img)
                 Image.fromarray(result_normalized).save(result_path)
             elif isinstance(result_img, Image.Image):
@@ -1424,13 +1421,11 @@ class SegmentationTester:
                         mask = np.zeros(image_array.shape[:2], dtype=np.uint8)
                     else:
                         result = result_opt
-                        # 🔥 FIX: Для бэкендов используем result как маску, т.к. mask_opt = None
                         if is_backend:
                             mask = result_opt
                         else:
                             mask = mask_opt if mask_opt is not None else result_opt
 
-                    # 🔥 Гарантируем, что mask — numpy array (защита от None)
                     if mask is None:
                         mask = np.zeros(image_array.shape[:2], dtype=np.uint8)
                     if result is None:
@@ -1446,10 +1441,10 @@ class SegmentationTester:
                 except Exception as e:
                     logger.warning(f"    ⚠️  Ошибка в {method_name} (запуск {run + 1}): {e}")
                     if run == 0 and n_runs > 1:
-                        # 🔥 Пробуем ещё раз при ошибке на первом запуске
+                        # Пробуем ещё раз при ошибке на первом запуске
                         continue
                     # Если все запуски неудачны — фиксируем нулевые значения
-                    times.append(0.0)  # Или np.nan для явного указания ошибки
+                    times.append(0.0)
                     if run == 0:
                         h, w = image_array.shape[:2]
                         masks_list.append(np.zeros((h, w), dtype=np.uint8))
@@ -1514,7 +1509,6 @@ class SegmentationTester:
 
                     # Сохраняем overlay (30% оригинал + 70% результат)
                     if image_array is not None:
-                        # 🔥 FIX: Приводим 2D маску к 3 каналам для сложения с RGB
                         if result_img.ndim == 2:  # (H, W)
                             result_3ch = np.stack([result_img] * 3, axis=-1)  # (H, W, 3)
                         else:

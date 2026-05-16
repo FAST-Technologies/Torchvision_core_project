@@ -550,6 +550,7 @@ def main(use_optimizations: bool = True) -> Tuple[
                             onnx_path,
                             device="cuda" if torch.cuda.is_available() else "cpu",
                             input_shape=(1, 3, real_h, real_w),
+                            is_neural=False,
                         )
                         tester.add_method(f"{method_name}_ONNX", onnx_seg)
                         print(f"✅ Загружен {method_name}_ONNX")
@@ -872,6 +873,7 @@ def _register_backend_methods_with_precision(
                     device="cuda" if torch.cuda.is_available() else "cpu",
                     input_shape=input_shape,
                     precision=precision,  # Передаём точность для корректной инициализации
+                    is_neural=False,
                 )
                 method_key = f"{method_name}_ONNX_{precision}"
                 tester.add_method(method_key, onnx_seg)
@@ -4580,6 +4582,7 @@ def _create_backend_methods(
                     onnx_path,
                     device="cuda" if torch.cuda.is_available() else "cpu",
                     input_shape=input_shape,
+                    is_neural=False,
                 )
                 print(f"  ONNX OK: {method_name}")
             except Exception as e:

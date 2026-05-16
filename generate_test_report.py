@@ -1,3 +1,5 @@
+# generate_test_report.py
+
 #!/usr/bin/env python3
 """Генерация сводного отчёта по тестам."""
 from typing import List, Dict, Literal, Any
@@ -81,6 +83,7 @@ def parse_basic_output() -> None:
 
 
 def main() -> Literal[1, 0]:
+    """Основной модуль для генерации отчётов по тестам."""
     print("🔍 Проверка окружения...")
 
     if check_json_plugin():
