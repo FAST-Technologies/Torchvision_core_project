@@ -181,9 +181,10 @@ class ONNXSegmenter(BaseSegmenter):
                         "device_id": 0,
                         "arena_extend_strategy": "kNextPowerOfTwo",
                         "cudnn_conv_algo_search": "EXHAUSTIVE",
-                        "do_copy_in_default_stream": False,  # ← Разрешить non-default stream
-                        "enable_cuda_graph": True,  # ← Опционально: CUDA Graphs для ускорения
-                        "cudnn_conv_use_max_workspace": True,
+                        # "do_copy_in_default_stream": False,  # ← Разрешить non-default stream
+                        # "enable_cuda_graph": True,  # ← Опционально: CUDA Graphs для ускорения
+                        # "cudnn_conv_use_max_workspace": True,
+                        "do_copy_in_default_stream": True,
                     },
                 ),
                 "CPUExecutionProvider",

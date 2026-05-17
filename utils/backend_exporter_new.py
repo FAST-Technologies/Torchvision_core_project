@@ -90,7 +90,7 @@ def _get_trt_ir_mode() -> Literal["dynamo", "ts"]:
         logging.info(f"Current torch_tensorrt version: {version}")
         # return "dynamo" if version >= (2, 0) else "ts"
         return "ts"
-    except:
+    except ImportError:
         return "ts"
 
 
@@ -281,7 +281,6 @@ def export_onnx_to_trt_via_trtexec(
     Returns:
         bool: True при успехе.
     """
-    import subprocess
     import shutil
 
     onnx_p: Path = Path(onnx_path)
@@ -291,14 +290,14 @@ def export_onnx_to_trt_via_trtexec(
         logger.info(f"⏭ TRT engine актуален, пропускаем сборку: {trt_p}")
         return True
 
-    # if not shutil.which(trtexec_path):
-    #     logger.warning(f"trtexec не найден в PATH: {trtexec_path}")
-    #     return False
+    if not shutil.which(trtexec_path):
+        logger.warning(f"trtexec не найден в PATH: {trtexec_path}")
+        return False
 
     b, c, h, w = input_shape
     shape_str: str = f"{b}x{c}x{h}x{w}"
-    min_shape: str = f"{b}x{c}x{h//2}x{w//2}"
-    max_shape: str = f"{b}x{c}x{h*2}x{w*2}"
+    min_shape: str = f"{b}x{c}x{h // 2}x{w // 2}"
+    max_shape: str = f"{b}x{c}x{h * 2}x{w * 2}"
 
     cmd: List[str] = [
         trtexec_path,
@@ -606,7 +605,7 @@ def export_neural_model(
     try:
         dyn_axes: Optional[Dict[str, Dict[int, str]]] = None
         if dynamic_axes:
-            dyn_axes = {
+            dyn_axes: Dict[str, Dict[int, str]] = {
                 "input": {0: "batch", 2: "height", 3: "width"},
                 "output": {0: "batch", 2: "height", 3: "width"},
             }
@@ -927,8 +926,6 @@ class TrtEngineWrapper:
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         """Инференс через TRT context."""
-        import tensorrt as trt
-
         x = x.contiguous().to(self.device).float()
         b, c, h, w = x.shape
 

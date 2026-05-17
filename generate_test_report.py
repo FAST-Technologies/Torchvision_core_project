@@ -1,6 +1,6 @@
-# generate_test_report.py
-
 #!/usr/bin/env python3
+
+# generate_test_report.py
 """Генерация сводного отчёта по тестам."""
 from typing import List, Dict, Literal, Any
 import subprocess

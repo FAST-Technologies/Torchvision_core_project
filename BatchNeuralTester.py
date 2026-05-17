@@ -124,7 +124,6 @@ from segmenters.NewTorchSegmenter import PrecisionManager
 from utils.backend_exporter_new import (
     export_neural_model,
     load_trt_engine,
-    OnnxTrtFallbackSegmenter,
 )
 
 
@@ -1189,7 +1188,8 @@ class BatchNeuralTester:
             logger.info(f"🎯 Точность инференса: {actual_precision} (запрошено: {precision})")
 
         if checkpoint.is_trt:
-            from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
+            # from segmenters.BackendSegmenters import ONNXSegmenter
+            from segmenters.BackendSegmenters import TRTSegmenter
 
             device_literal: Literal["cuda", "cpu"] = cast(Literal["cuda", "cpu"], self.config.device)
             segmenter = TRTSegmenter(
@@ -1869,7 +1869,6 @@ class BatchNeuralTester:
             mask: np.ndarray = pred == cls_id
             if mask.any():
                 color: List[int] = palette[cls_id]
-                # Конвертируем [R,G,B] в tuple для индексации массива
                 pred_color[mask] = tuple(color)  # type: ignore[assignment]
 
         # ──────────────────────────────────────────────────────────────
@@ -1884,35 +1883,27 @@ class BatchNeuralTester:
 
         # Наложение с прозрачностью
         overlay_array: np.ndarray = (img_array * (1 - alpha) + pred_color * alpha).astype(np.uint8)
-
         overlay_pil: Image.Image = Image.fromarray(overlay_array)
 
         # ──────────────────────────────────────────────────────────────
-        # 4. Добавление легенды (если запрошено)
+        # 4. Добавление легенды (если запрошено) — АДАПТИВНАЯ ВЕРСИЯ
         # ──────────────────────────────────────────────────────────────
         if show_legend and class_names and palette is not None:
             draw: ImageDraw.ImageDraw = ImageDraw.Draw(overlay_pil)
 
-            # Шрифт с безопасным fallback
-            font: ImageFont.FreeTypeFont | ImageFont.ImageFont
+            # 🔧 Адаптивные параметры под размер изображения
+            img_width, img_height = overlay_pil.size
+            legend_width: int = min(180, int(img_width * 0.25))  # Не больше 25% ширины
+            item_height: int = 16  # Высота одного элемента легенды
+            header_height: int = 20  # Заголовок + отступ
+            padding: int = 5
+
+            # Шрифт с безопасным fallback (адаптивный размер)
+            font_size: int = max(8, min(12, img_height // 50))  # 8-12px в зависимости от высоты
             try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", size=10)
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", size=font_size)
             except (OSError, IOError):
                 font = ImageFont.load_default()
-
-            # Позиция легенды
-            legend_x: int = overlay_pil.width - 180
-            legend_y: int = 10
-
-            # Фон легенды
-            draw.rectangle(
-                [legend_x - 5, legend_y - 5, legend_x + 175, legend_y + 200],
-                fill=(255, 255, 255, 200),
-                outline=(0, 0, 0),
-            )
-
-            draw.text((legend_x, legend_y), "Classes:", font=font, fill=(0, 0, 0))
-            legend_y += 18
 
             # Фильтрация классов: только те, что есть в предсказании и имеют имя
             available_classes: List[int] = []
@@ -1920,44 +1911,74 @@ class BatchNeuralTester:
                 if cls_id < len(class_names) and np.any(pred == cls_id):
                     available_classes.append(cls_id)
 
-            # Сортировка по частоте встречаемости (по убыванию)
+            # Сортировка по частоте и ограничение
             shown_classes: List[int] = sorted(available_classes, key=lambda c: int(np.sum(pred == c)), reverse=True)[
                 :max_classes_legend
             ]
 
+            # 🔧 Динамический расчёт высоты легенды
+            n_items: int = len(shown_classes)
+            legend_height: int = header_height + n_items * item_height + padding * 2
+            # Ограничиваем высоту легенды (не больше 40% изображения)
+            max_legend_height: int = int(img_height * 0.4)
+            legend_height = min(legend_height, max_legend_height)
+
+            # Позиция легенды (правый верхний угол)
+            legend_x: int = img_width - legend_width - padding
+            legend_y: int = padding
+
+            # Фон легенды (динамическая высота!)
+            draw.rectangle(
+                [
+                    legend_x - padding,
+                    legend_y - padding,
+                    legend_x + legend_width + padding,
+                    legend_y + legend_height + padding,
+                ],
+                fill=(255, 255, 255, 200),
+                outline=(0, 0, 0),
+            )
+
+            # Заголовок
+            draw.text((legend_x, legend_y), "Classes:", font=font, fill=(0, 0, 0))
+            current_y: int = legend_y + header_height
+
+            # Элементы легенды
             for cls_id in shown_classes:
                 if cls_id >= len(palette) or cls_id >= len(class_names):
                     continue
+                if current_y + item_height > legend_y + legend_height:
+                    break  # Не выходить за пределы фона
 
-                # Доступ к цвету: палитра — список, индекс = class_id
                 color_list: List[int] = palette[cls_id]
-                color_tuple: Tuple[int, int, int] = tuple(color_list)  # type: ignore[assignment]
-
+                color_tuple: Tuple[int, int, int] = tuple(color_list)
                 name: str = class_names[cls_id] if cls_id < len(class_names) else f"Class {cls_id}"
 
+                # Цветной квадратик
                 draw.rectangle(
-                    [legend_x, legend_y, legend_x + 12, legend_y + 12],
+                    [legend_x, current_y, legend_x + 12, current_y + 12],
                     fill=color_tuple,
                     outline=(0, 0, 0),
                 )
+                # Название класса
                 draw.text(
-                    (legend_x + 18, legend_y + 2),
-                    f"{name[:25]}",
+                    (legend_x + 16, current_y + 2),
+                    f"{name[:20]}",  # Обрезаем длинные названия
                     font=font,
                     fill=(0, 0, 0),
                 )
-                legend_y += 18
+                current_y += item_height
 
-                if legend_y > 190:
-                    break
-
+            # Индикатор "ещё классы", если не все влезли
             if len(shown_classes) < len(available_classes):
-                draw.text(
-                    (legend_x, legend_y + 2),
-                    f"... +{len(available_classes) - len(shown_classes)} more",
-                    font=font,
-                    fill=(100, 100, 100),
-                )
+                remaining: int = len(available_classes) - len(shown_classes)
+                if current_y + item_height <= legend_y + legend_height:
+                    draw.text(
+                        (legend_x, current_y + 2),
+                        f"... +{remaining} more",
+                        font=font,
+                        fill=(100, 100, 100),
+                    )
 
         return overlay_pil
 
@@ -1989,8 +2010,6 @@ class BatchNeuralTester:
             - Пробует `export_params=True`, при падении fallback на `False`.
             - TRT использует `ir="ts"` (TorchScript) как workaround для новых версий.
         """
-        from utils.backend_exporter_new import export_neural_model
-
         assert sample_input.ndim == 4, f"Expected 4D tensor, got {sample_input.ndim}D"
 
         input_shape_4d: Tuple[int, int, int, int] = (
@@ -2033,7 +2052,7 @@ class BatchNeuralTester:
         from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
 
         results = {}
-        expected_h, expected_w = self.config.input_shape[2], self.config.input_shape[3]
+        # expected_h, expected_w = self.config.input_shape[2], self.config.input_shape[3]
 
         # === 1. PyTorch (.pth) ===
         if checkpoint.path.suffix == ".pth":
@@ -2087,8 +2106,6 @@ class BatchNeuralTester:
         trt_path: Path = output_dir / f"{checkpoint.key}.{self.config.trt_precision}.trt"
         if trt_path.exists() and self.config.device == "cuda":
             try:
-                from utils.backend_exporter_new import load_trt_engine
-
                 trt_model: Any = load_trt_engine(str(trt_path))
                 seg_trt: TRTSegmenter = TRTSegmenter(
                     model_key=checkpoint.key,
@@ -2129,17 +2146,84 @@ class BatchNeuralTester:
                         logger.info(f"   {backend.upper()}: {speedup:.2f}x speed, IoU Δ={iou_diff:+.4f}")
 
         # === 5. Сохранение оверлеев для валидации ===
-        if self.config.save_visualizations and "pth" in results:
+        if self.config.save_visualizations and results:
             viz_dir: Path = output_dir / "validation_overlays"
             viz_dir.mkdir(parents=True, exist_ok=True)
 
             for backend, data in results.items():
-                if "pred" in data:
-                    result: np.ndarray = cast(np.ndarray, data["pred"])
-                    overlay: Image.Image = self._create_simple_overlay(image, result, alpha=0.6)
-                    overlay.save(viz_dir / f"{checkpoint.key}_{backend}_overlay.png")
+                if "pred" not in data:
+                    continue
+
+                pred: np.ndarray = cast(np.ndarray, data["pred"])
+
+                try:
+                    # === Используем ту же логику, что и в _test_single_model ===
+
+                    # 1. Пробуем class-aware overlay для многоклассовой сегментации
+                    if getattr(self.config, "class_aware_overlays", False):
+                        overlay: Image.Image = self._create_class_aware_overlay(
+                            image,
+                            pred,
+                            gt_mask,
+                            palette=NeuralSegmenter.ade_palette(),
+                            class_names=NeuralSegmenter.get_ade_class_names(),
+                            alpha=getattr(self.config, "overlay_alpha", 0.5),
+                            show_legend=True,
+                        )
+                    # 2. Fallback: простой оверлей с корректной обработкой многоклассовых масок
+                    else:
+                        # Конвертируем классовую маску в цветное изображение
+                        if pred.max() > 1:  # Многоклассовая маска
+                            pred_color: np.ndarray = self._mask_to_color(pred, palette=NeuralSegmenter.ade_palette())
+                            overlay = self._create_simple_overlay(image, pred_color, alpha=0.6)
+                        else:  # Бинарная маска
+                            overlay = self._create_simple_overlay(image, pred, alpha=0.6)
+
+                    # Сохраняем
+                    overlay_path: Path = viz_dir / f"{checkpoint.key}_{backend}_overlay.png"
+                    overlay.save(overlay_path)
+                    logger.debug(f"✅ Оверлей валидации сохранён: {overlay_path}")
+
+                except Exception as e:
+                    logger.warning(f"⚠️ Оверлей валидации для {backend} не сохранён: {e}")
+                    # Fallback: сохраняем саму маску предсказания
+                    try:
+                        mask_vis: np.ndarray = (pred * 255 / (pred.max() + 1e-8)).astype(np.uint8)
+                        if mask_vis.ndim == 2:
+                            mask_vis = np.stack([mask_vis] * 3, axis=-1)
+                        Image.fromarray(mask_vis).save(viz_dir / f"{checkpoint.key}_{backend}_fallback.png")
+                    except:
+                        pass
 
         return results
+
+    def _mask_to_color(self, mask: MaskArray, palette: Optional[List[List[int]]] = None) -> np.ndarray:
+        """Конвертирует многоклассовую маску в цветное изображение для визуализации.
+
+        Args:
+            mask: Маска формы (H, W) с классовыми индексами.
+            palette: Палитра цветов [класс] -> [R, G, B].
+
+        Returns:
+            np.ndarray: Цветное изображение формы (H, W, 3), dtype=uint8.
+        """
+        if palette is None:
+            if hasattr(NeuralSegmenter, "ade_palette"):
+                palette = NeuralSegmenter.ade_palette()
+            else:
+                # Генерация случайной палитры
+                np.random.seed(42)
+                palette = [[int(c) for c in np.random.randint(0, 255, 3)] for _ in range(256)]
+
+        h, w = mask.shape
+        colored: np.ndarray = np.zeros((h, w, 3), dtype=np.uint8)
+
+        for cls_id in range(min(len(palette), int(mask.max()) + 1)):
+            mask_cls = mask == cls_id
+            if mask_cls.any():
+                colored[mask_cls] = palette[cls_id]
+
+        return colored
 
     # ──────────────────────────────────────────────────────────────────────
     def run(self) -> pd.DataFrame:

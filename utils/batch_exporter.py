@@ -119,7 +119,7 @@ Version: 1.0.0
 # ──────────────────────────────────────────────────────────────────────
 from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Literal
 import torch
 import os
 import time
@@ -131,8 +131,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -179,6 +179,7 @@ def export_all_classical_methods(
     force_reexport: bool = False,
     export_onnx: bool = True,
     export_trt: bool = True,
+    trt_strategy: Literal["api", "trtexec", "onnx_tensorrt", "jit", "auto"] = "auto",
 ) -> Dict[str, Dict[str, Any]]:
     """Массовый экспорт классических методов сегментации.
 
@@ -190,6 +191,12 @@ def export_all_classical_methods(
         force_reexport: Пересоздавать ли существующие файлы
         export_onnx: Экспортировать ли в ONNX
         export_trt: Экспортировать ли в TensorRT (требует CUDA)
+        trt_strategy: Стратегия экспорта в TRT:
+            - "auto": пробует все стратегии по порядку (рекомендуется)
+            - "api": tensorrt Python API (наиболее надёжный)
+            - "trtexec": subprocess вызов trtexec
+            - "onnx_tensorrt": через onnx-tensorrt parser
+            - "jit": legacy torch_tensorrt JIT
 
     Returns:
         Dict с результатами: {method_name: {backend: status}}
@@ -207,10 +214,14 @@ def export_all_classical_methods(
     os.makedirs(output_base_dir, exist_ok=True)
     results: Dict[str, Dict[str, Any]] = {}
 
-    from utils.backend_exporter import (
-        export_method_to_onnx_safe,
-        export_method_to_trt_jit,
+    from utils.backend_exporter_new import (
+        export_onnx_to_trt_via_api,
+        export_onnx_to_trt_via_trtexec,
+        export_onnx_to_trt_via_onnx_tensorrt,
+        _export_via_torch_tensorrt_jit,
+        OnnxTrtFallbackSegmenter,
     )
+    from utils.backend_exporter import export_method_to_onnx_safe
 
     for method_name in methods:
         print(f"\n🔄 Экспорт метода: {method_name}")
@@ -220,19 +231,19 @@ def export_all_classical_methods(
             print(f"  ├─ Точность: {precision}")
 
             # Инициализация сегментера с параметрами для экспорта
-            segmenter = TorchSegmenter2(
+            segmenter: TorchSegmenter2 = TorchSegmenter2(
                 method=method_name,
                 device="cuda" if torch.cuda.is_available() else "cpu",
                 precision=precision,
-                use_compile=False,  # 🔥 Важно: отключаем torch.compile для экспорта
+                use_compile=False,  # Важно: отключаем torch.compile для экспорта
                 debug_mode=False,
             )
 
             # ───────── ONNX экспорт ─────────
             if export_onnx:
-                onnx_dir = os.path.join(output_base_dir, "onnx", precision)
+                onnx_dir: str = os.path.join(output_base_dir, "onnx", precision)
                 os.makedirs(onnx_dir, exist_ok=True)
-                onnx_path = os.path.join(onnx_dir, f"{method_name}.onnx")
+                onnx_path: str = os.path.join(onnx_dir, f"{method_name}.onnx")
 
                 if force_reexport and os.path.exists(onnx_path):
                     os.remove(onnx_path)
@@ -257,26 +268,28 @@ def export_all_classical_methods(
 
             # ───────── TensorRT экспорт ─────────
             if export_trt and torch.cuda.is_available():
-                trt_dir = os.path.join(output_base_dir, "tensorrt", precision)
+                trt_dir: str = os.path.join(output_base_dir, "tensorrt", precision)
                 os.makedirs(trt_dir, exist_ok=True)
-                trt_path = os.path.join(trt_dir, f"{method_name}.trt")
+                trt_path: str = os.path.join(trt_dir, f"{method_name}.trt")
 
                 if force_reexport and os.path.exists(trt_path):
                     os.remove(trt_path)
 
                 if not os.path.exists(trt_path):
                     try:
-                        export_method_to_trt_jit(
-                            segmenter=segmenter,
+                        success = _export_trt_with_strategy(
                             method_name=method_name,
-                            output_path=trt_path,
+                            onnx_path=onnx_path,
+                            trt_path=trt_path,
                             precision=precision,
                             input_shape=input_shape,
-                            min_shape=(1, 3, 256, 256),
-                            max_shape=(1, 3, 1024, 1024),
+                            strategy=trt_strategy,
                         )
-                        results[method_name][f"trt_{precision}"] = "✅ OK"
-                        print(f"  │  └─ TRT: {trt_path}")
+                        if success:
+                            results[method_name][f"trt_{precision}"] = "✅ OK"
+                            print(f"  │  └─ TRT: {trt_path}")
+                        else:
+                            results[method_name][f"trt_{precision}"] = "❌ Failed"
                     except Exception as e:
                         results[method_name][f"trt_{precision}"] = f"❌ {e}"
                         print(f"  │  └─ TRT error: {e}")
@@ -286,13 +299,74 @@ def export_all_classical_methods(
             print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
             print("   (нажмите Ctrl+C для отмены, если нужно)")
             try:
-                time.sleep(15)  # 🔥 Задержка 15 секунд
+                time.sleep(15)  # Задержка 15 секунд
             except KeyboardInterrupt:
                 print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
 
     # Сводный отчёт
     _print_export_summary(results)
     return results
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+def _export_trt_with_strategy(
+    method_name: str,
+    onnx_path: str,
+    trt_path: str,
+    precision: str,
+    input_shape: Tuple[int, int, int, int],
+    strategy: Literal["api", "trtexec", "onnx_tensorrt", "jit", "auto"] = "auto",
+) -> bool:
+    """Вспомогательная функция для экспорта ONNX → TRT с выбором стратегии."""
+
+    strategies_order: List[str]
+    if strategy == "auto":
+        strategies_order = ["api", "trtexec", "onnx_tensorrt", "jit"]
+    else:
+        strategies_order = [strategy]
+
+    for strat in strategies_order:
+        print(f"    🔹 Пробуем стратегию: {strat}")
+        try:
+            if strat == "api":
+                from utils.backend_exporter_new import export_onnx_to_trt_via_api
+
+                return export_onnx_to_trt_via_api(
+                    onnx_path=onnx_path,
+                    trt_path=trt_path,
+                    precision=precision,
+                    input_shape=input_shape,
+                )
+            elif strat == "trtexec":
+                from utils.backend_exporter_new import export_onnx_to_trt_via_trtexec
+
+                return export_onnx_to_trt_via_trtexec(
+                    onnx_path=onnx_path,
+                    trt_path=trt_path,
+                    precision=precision,
+                    input_shape=input_shape,
+                )
+            elif strat == "onnx_tensorrt":
+                from utils.backend_exporter_new import export_onnx_to_trt_via_onnx_tensorrt
+
+                return export_onnx_to_trt_via_onnx_tensorrt(
+                    onnx_path=onnx_path,
+                    trt_path=trt_path,
+                    precision=precision,
+                    input_shape=input_shape,
+                )
+            elif strat == "jit":
+                from utils.backend_exporter_new import _export_via_torch_tensorrt_jit
+
+                # Для JIT нужна сама модель, а не ONNX — пропускаем для классических методов
+                print(f"    ⚠️  JIT стратегия требует исходную модель, пропускаем")
+                continue
+        except Exception as e:
+            print(f"    ❌ {strat} failed: {e}")
+            continue
+
+    print(f"    ⚠️  Все стратегии не удались для {method_name}")
+    return False
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -303,8 +377,8 @@ def _print_export_summary(results: Dict[str, Dict[str, Any]]) -> None:
     print("=" * 70)
 
     for method, backends in results.items():
-        statuses = [v for v in backends.values()]
-        ok_count = sum(1 for s in statuses if s == "✅ OK")
+        statuses: List = [v for v in backends.values()]
+        ok_count: int = sum(1 for s in statuses if s == "✅ OK")
         print(f"{method:30s}: {ok_count}/{len(statuses)} успешных")
         for backend, status in backends.items():
             print(f"  ├─ {backend:15s}: {status}")

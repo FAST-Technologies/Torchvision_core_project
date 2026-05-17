@@ -98,6 +98,13 @@ from utils.backend_exporter import (
     export_method_to_trt_jit,
     load_trt_model,
 )
+from utils.backend_exporter_new import (
+    export_neural_model,
+    load_trt_engine,
+    OnnxTrtFallbackSegmenter,
+    export_onnx_to_trt_via_api,
+    export_onnx_to_trt_via_trtexec,
+)
 from testing.SegmentationTester import SegmentationTester
 from testing.SegmentationComparator import SegmentationComparator
 from testing.SegmentationBenchmark import SegmentationBenchmark, export_comparison_table
@@ -415,6 +422,7 @@ def main(use_optimizations: bool = True) -> Tuple[
                     "bf16",
                 ],  # Явное указание или авто-определение
                 input_shape=(1, 3, real_h, real_w),
+                trt_strategy="auto",
             )
             print(backend_registration)
 
@@ -484,7 +492,7 @@ def main(use_optimizations: bool = True) -> Tuple[
         print("🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT")
 
         # 🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT
-        target_methods_for_research = [
+        target_methods_for_research: List[str] = [
             "global_thresholding",
             "adaptive_thresholding",
             "otsu_thresholding",
@@ -820,6 +828,7 @@ def _register_backend_methods_with_precision(
     output_base_dir: str = "./exported_models",
     precisions: Optional[List[str]] = None,
     input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
+    trt_strategy: str = "auto",
 ) -> Dict[str, Any]:
     """Регистрирует методы для разных бэкендов (PyTorch/ONNX/TensorRT) и точностей (fp32/fp16/bf16) с суффиксами в названиях.
 
@@ -897,6 +906,7 @@ def _register_backend_methods_with_precision(
 
             try:
                 from utils.backend_exporter import load_trt_model
+                from utils.batch_exporter import _export_trt_with_strategy
 
                 trt_model: Any = load_trt_model(trt_path)
                 if trt_model is not None:
