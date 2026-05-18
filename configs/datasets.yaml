@@ -1,25 +1,59 @@
+# configs/datasets.yaml
 ade20k:
-  dataset_type: semantic
-  source_type: hf
-  source_url: "scene-parse/ade20k"
+  dataset_type: "semantic"
+  source_type: "zip"  # или "hf", если есть репо scene-parse/ade20k
+  source_url: "http://data.csail.mit.edu/places/ADEchallenge/ADEChallengeData2016.zip"
+  root_dir: "./data"
   num_classes: 150
+  ignore_index: 255
+  image_ext: ".jpg"
+  mask_ext: ".png"
   description: "ADE20K Scene Parsing Dataset"
+  checksum: "7ff1be44964418441f542a7cc1e1a650e7dc0fc275f5d23252bc9bbdbc977b29"
+  splits:
+    train: "training"
+    val: "validation"
+    test: "testing"
+  metadata:
+    license: "MIT"
+    citation: "Zhou et al., 2017"
+    homepage: "http://sceneparsing.csail.mit.edu/"
   expected_structure:
     images/training: ["*.jpg"]
     annotations/training: ["*.png"]
 
 coco:
-  dataset_type: instance
-  source_type: hf
-  source_url: "cocodataset/coco2017"
+  dataset_type: "instance"
+  source_type: "hf"
+  source_url: "detection-datasets/coco"
+  root_dir: "./data"
   num_classes: 80
+  image_ext: ".jpg"
+  mask_ext: ".json"  # или ".png" для segmentation masks
   description: "COCO 2017 Dataset"
+  metadata:
+    license: "CC BY 4.0"
+    homepage: "https://cocodataset.org/"
 
 chexpert:
-  dataset_type: medical
-  source_type: zip
+  dataset_type: "medical_binary"  # важно: строковое значение из MedicalConfig
+  source_type: "direct"  # или "zip", если архив
   source_url: "https://aimi.stanford.edu/files/chexpert/CheXpert-v1.0.zip"
-  num_classes: 14
-  modality: X-ray
-  anatomy: chest
-  checksum: "abc123..."  # SHA256 хеш для валидации
+  root_dir: "./data"
+  num_classes: 2  # background / lung
+  modality: "X-Ray"
+  pixel_spacing: [0.143, 0.143]
+  intensity_normalization: "histogram"
+  anatomical_regions: ["lung", "heart", "mediastinum"]
+  privacy_compliant: true
+  image_ext: ".jpg"
+  mask_ext: ".png"
+  description: "CheXpert Chest X-Ray Segmentation"
+  checksum: "abc123..."  # заменить на реальный SHA256
+  metadata:
+    license: "MIT"
+    task: "Lung field segmentation"
+    classes:
+      "0": "background"
+      "1": "lung"
+    homepage: "https://stanfordmlgroup.github.io/competitions/chexpert/"

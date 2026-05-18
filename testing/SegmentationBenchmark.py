@@ -53,7 +53,7 @@ from typing import (
     Union,
     Tuple,
 )
-from typing import Literal, cast
+from typing import Literal, cast, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -74,8 +74,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -89,10 +89,17 @@ if project_root not in sys.path:
 # ──────────────────────────────────────────────────────────────────────
 
 num_classes_custom: int = 150
+"""Общее число классов датасета, dtype=int."""
 
 # Alias для удобства
-ImageInput = Union[str, Image.Image]
-PaletteType = Optional[Union[List[List[int]], Callable[[], List[List[int]]]]]
+ImageInput: TypeAlias = Union[str, Image.Image]
+"""Входное изображение (путь, `np.ndarray` или `PIL.Image`), dtype=Union[str, np.ndarray, Image.Image]."""
+
+PaletteType: TypeAlias = Optional[Union[List[List[int]], Callable[[], List[List[int]]]]]
+"""Входной тип палитры, dtype=Optional[Union[List[List[int]], Callable[[], List[List[int]]]]]."""
+
+DeviceType = Literal["cuda", "cpu"]
+"""Тип текущего устройства, dtype=DeviceType."""
 
 
 # 🔹 TypedDict для спецификации метрики
@@ -126,7 +133,7 @@ class MetricPlotSpec(TypedDict):
 
 # 🔹 Type alias для функции трансформации
 TransformFunc = Callable[[float], float]
-"""Функция преобразования числового значения метрики.
+"""Функция преобразования числового значения метрики, dtype=Callable[[float], float].
 
 Принимает сырое значение метрики (обычно в диапазоне [0, 1]) и возвращает
 преобразованное значение для отображения (например, в процентах или с округлением).
@@ -239,7 +246,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=model_type,
             checkpoint_path=checkpoint_path,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
             **kwargs,
         )
@@ -306,7 +313,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.SEGFORMER,
             local_path=path,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
         )
         self.models["segformer"] = {
@@ -332,7 +339,7 @@ class SegmentationBenchmark:
         """
         model, processor, model_type_str = NeuralModelFactory.load_segformer_variant(
             variant=variant,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
         )
         key: str = f"segformer_{variant}"
         self.models[key] = {
@@ -349,7 +356,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.MASK2FORMER,
             model_name=name,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
         )
         self.models["mask2former"] = {
@@ -366,7 +373,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.ONEFORMER,
             model_name=name,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
         )
         self.models["oneformer"] = {
@@ -383,7 +390,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.DPT,
             model_name=model_name,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
         )
         self.models["dpt"] = {
@@ -400,7 +407,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.UPERNET,
             model_name=model_name,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
         )
         self.models["upernet"] = {
@@ -417,7 +424,7 @@ class SegmentationBenchmark:
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.SAM,
             model_name=model_name,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
         )
         model_key: str = "sam2" if "sam2" in model_name.lower() else "sam"
@@ -436,7 +443,7 @@ class SegmentationBenchmark:
         """Загрузка FPN + MiT (pretrained weights или custom checkpoint)."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.FPN_SMP,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
             encoder_name=f"mit_{variant}",
             checkpoint_path=checkpoint_path,
@@ -458,7 +465,7 @@ class SegmentationBenchmark:
         """Загрузка PSPNet + MiT."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.PSPNET_SMP,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
             encoder_name=f"mit_{variant}",
             checkpoint_path=checkpoint_path,
@@ -480,7 +487,7 @@ class SegmentationBenchmark:
         """Загрузка FCN."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.FCN_TV,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
             variant=variant,
             checkpoint_path=checkpoint_path,
@@ -502,7 +509,7 @@ class SegmentationBenchmark:
         """Загрузка SegNet."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.SEGNET,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
             encoder_name=encoder_name,
             checkpoint_path=checkpoint_path,
@@ -522,7 +529,7 @@ class SegmentationBenchmark:
         """Загрузка Mask R-CNN (Instance Segmentation)."""
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.MASKRCNN_TV,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
             variant=variant,
         )
@@ -551,7 +558,7 @@ class SegmentationBenchmark:
         """
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.UNET_SMP,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
             encoder_name=encoder_name,
             checkpoint_path=checkpoint_path,
@@ -578,7 +585,7 @@ class SegmentationBenchmark:
         """
         model, processor, model_type_str = NeuralModelFactory.create_model(
             model_type=ModelType.DEEPLAB_TV,
-            device=cast(Literal["cuda", "cpu"], self.device),
+            device=cast(DeviceType, self.device),
             num_classes=self.num_classes,
             encoder_name=None,
             checkpoint_path=checkpoint_path,

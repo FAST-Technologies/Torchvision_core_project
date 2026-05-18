@@ -48,6 +48,10 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
+from PIL import Image
+from io import BytesIO
+from torch.utils.data import Dataset
+
 try:
     import yaml
     from huggingface_hub import hf_hub_download, list_repo_files, snapshot_download
@@ -65,8 +69,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -74,13 +78,35 @@ if not logger.handlers:
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
 PathLike: TypeAlias = Union[str, Path]
+"""Тип пути до файла, исходные форматы: str/Path, dtype=Union[str, Path]."""
+
 SplitDict: TypeAlias = Dict[str, str]
+"""Словарь `{split_name: directory_name}`, dtype=Dict[str, str]."""
+
 PreprocessingDict: TypeAlias = Dict[str, Any]
+"""Параметры предобработки, dtype=Dict[str, Any]."""
+
 MetadataDict: TypeAlias = Dict[str, Any]
+"""Дополнительные метаданные (лицензия, ссылки, ...), dtype=Dict[str, Any]."""
+
 ExpectedStructureDict: TypeAlias = Dict[str, List[str]]
-ImageDict: TypeAlias = Dict[str, Any]  # Для декодирования изображений из HF
+"""Ожидаемая структура файлов для валидации, dtype=Dict[str, List[str]]."""
+
 ParquetRow: TypeAlias = Dict[str, Any]
-DownloadProgressCallback: TypeAlias = Callable[[int, int], None]
+"""Строка файла в формате parquet, dtype=Dict[str, Any]."""
+
+ExportFormat = Literal[".png", ".jpg", ".jpeg", ".bmp", ".npy", ".zip"]
+"""Форматы экспорта, dtype=Literal[".png", ".jpg", ".jpeg", ".bmp", ".npy", ".zip"]."""
+
+FileFormats: Tuple[ExportFormat, ExportFormat, ExportFormat, ExportFormat, ExportFormat, ExportFormat] = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".bmp",
+    ".npy",
+    ".zip",
+)
+"""Форматы файлов, dtype=Tuple[ExportFormat, ExportFormat, ExportFormat, ExportFormat, ExportFormat, ExportFormat]."""
 
 # ============================================================================
 # КОНФИГУРАЦИЯ И ТИПЫ ДАННЫХ
@@ -217,6 +243,13 @@ class DatasetConfig:
         """
         return Path(self.root_dir) / self.name
 
+    def __post_init__(self) -> None:
+        """Валидация после инициализации."""
+        if not self.source_url:
+            raise ValueError(f"source_url required for dataset {self.name}")
+        if self.num_classes < 1:
+            raise ValueError(f"num_classes must be >= 1, got {self.num_classes}")
+
 
 # ──────────────────────────────────────────────────────────────────────
 @dataclass
@@ -272,8 +305,8 @@ class DatasetManager:
         ```
     """
 
-    # Глобальный реестр конфигураций
     _registry: Dict[str, DatasetConfig] = {}
+    """Глобальный реестр конфигураций, dtype=Dict[str, DatasetConfig]."""
 
     def __init__(
         self,
@@ -300,14 +333,26 @@ class DatasetManager:
         конфигурации. Медицинские датасеты автоматически используют `MedicalConfig`.
         """
         config_path: Path = Path("configs/datasets.yaml")
-        if config_path.exists():
-            with open(config_path, "r", encoding="utf-8") as f:
-                configs_data: Dict[str, Dict[str, Any]] = yaml.safe_load(f)
-                for name, cfg in configs_data.items():
-                    if cfg.get("modality"):  # Медицинский датасет
-                        self._registry[name] = MedicalConfig(name=name, **cfg)
-                    else:
-                        self._registry[name] = DatasetConfig(name=name, **cfg)
+        if not config_path.exists() or not HF_AVAILABLE:
+            return
+
+        with open(config_path, "r", encoding="utf-8") as f:
+            configs_data: Dict[str, Dict[str, Any]] = yaml.safe_load(f)
+            for name, cfg in configs_data.items():
+                # Конвертация строковых значений Enum
+                cfg["dataset_type"] = DatasetType(cfg["dataset_type"])
+                cfg["source_type"] = SourceType(cfg["source_type"])
+
+                # root_dir по умолчанию
+                if "root_dir" not in cfg:
+                    cfg["root_dir"] = str(self.base_dir)
+
+                # Выбор класса конфигурации
+                if cfg.get("modality") or cfg["dataset_type"].value.startswith("medical"):
+                    self._registry[name] = MedicalConfig(name=name, **cfg)
+                else:
+                    self._registry[name] = DatasetConfig(name=name, **cfg)
+        self._log(f"✅ Загружено {len(configs_data)} конфигураций из {config_path}", "success")
 
     # ──────────────────────────────────────────────────────────────────────
     def get_config(self, dataset_name: str) -> DatasetConfig:
@@ -719,7 +764,7 @@ class DatasetManager:
 
         try:
             api_url: str = f"https://huggingface.co/api/datasets/{repo_id}"
-            response = requests.get(api_url, timeout=30)
+            response: requests.Response = requests.get(api_url, timeout=30)
             response.raise_for_status()
 
             files_info: List[Dict[str, Any]] = response.json().get("siblings", [])
@@ -848,7 +893,7 @@ class DatasetManager:
         target_dir.mkdir(parents=True, exist_ok=True)
 
         # Если ссылка на файл
-        if config.source_url.endswith((".jpg", ".png", ".npy", ".zip")):
+        if config.source_url.endswith(FileFormats):
             filename: str = config.source_url.split("/")[-1]
             filepath: Path = target_dir / filename
             self._streaming_download(config.source_url, filepath, config.checksum)
@@ -1066,9 +1111,6 @@ class DatasetManager:
         # 🔹 bytes объект
         if isinstance(data, bytes) and len(data) > 0:
             try:
-                from PIL import Image
-                from io import BytesIO
-
                 img = Image.open(BytesIO(data))
                 result = img.convert("RGB") if convert_to_rgb else img
                 return cast(Optional[Image.Image], result)
@@ -1079,9 +1121,6 @@ class DatasetManager:
         if isinstance(data, dict):
             if "bytes" in data and data["bytes"] and isinstance(data["bytes"], bytes):
                 try:
-                    from PIL import Image
-                    from io import BytesIO
-
                     img = Image.open(BytesIO(data["bytes"]))
                     result = img.convert("RGB") if convert_to_rgb else img
                     return cast(Optional[Image.Image], result)
@@ -1089,8 +1128,6 @@ class DatasetManager:
                     return None
             if "path" in data and data["path"] and os.path.exists(data["path"]):
                 try:
-                    from PIL import Image
-
                     img = Image.open(data["path"])
                     result = img.convert("RGB") if convert_to_rgb else img
                     return cast(Optional[Image.Image], result)
@@ -1101,8 +1138,6 @@ class DatasetManager:
         if isinstance(data, str) and data.startswith("data:image"):
             try:
                 import base64
-                from PIL import Image
-                from io import BytesIO
 
                 _, encoded = data.split(",", 1)
                 img = Image.open(BytesIO(base64.b64decode(encoded)))
@@ -1599,8 +1634,6 @@ class DatasetManager:
         Returns:
             torch.utils.data.Dataset: Dataset, возвращающий `(image_tensor, mask_tensor)`.
         """
-        from torch.utils.data import Dataset
-
         config: DatasetConfig = self.get_config(dataset_name)
 
         class SegmentationDataset(Dataset):
@@ -1874,3 +1907,22 @@ if __name__ == "__main__":
     logger.info("   • COCO:       coco_img.jpg")
     logger.info("   • Medical:    isic_img.jpg")
     logger.info("   • Medical:    chest_x_ray.jpg")
+
+# Examples of datasets.yaml using
+# # 1. Автоматическая загрузка из YAML при инициализации
+# manager = DatasetManager(base_dir="./data", verbose=True)
+
+# # 2. Просмотр доступных датасетов
+# print(list(manager._registry.keys()))  # ['ade20k', 'coco', 'chexpert', ...]
+
+# # 3. Загрузка конкретного датасета
+# path = manager.download("ade20k", force=False)
+
+# # 4. Работа с медицинским датасетом
+# config = manager.get_config("chexpert")
+# if isinstance(config, MedicalConfig):
+#     print(f"Modality: {config.modality}, Pixel spacing: {config.pixel_spacing}")
+
+# # 5. CLI интерфейс
+# # python LoadDatasets.py --list
+# # python LoadDatasets.py ade20k coco --base-dir /mnt/e/datasets

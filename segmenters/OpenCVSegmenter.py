@@ -91,14 +91,7 @@ from segmenters.BaseSegmenter import BaseSegmenter
 import cv2
 import numpy as np
 import numpy.typing as npt
-from typing import (
-    List,
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-    Callable,
-)
+from typing import List, Tuple, Dict, Any, Optional, Callable, TypeAlias
 import warnings
 from collections import deque
 from scipy import ndimage
@@ -113,8 +106,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -122,23 +115,23 @@ if not logger.handlers:
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
 
-ImageArray = npt.NDArray[np.uint8]
-"""Тип для входного изображения (RGB или grayscale)."""
+ImageArray: TypeAlias = npt.NDArray[np.uint8]
+"""Тип для входного изображения (RGB или grayscale), dtype=npt.NDArray[np.uint8]."""
 
-GrayImage = npt.NDArray[np.uint8]
-"""Тип для grayscale изображения."""
+GrayImage: TypeAlias = npt.NDArray[np.uint8]
+"""Тип для grayscale изображения, форма (H, W), dtype=npt.NDArray[np.uint8]."""
 
-MaskArray = npt.NDArray[np.uint8]
-"""Тип для бинарной маски сегментации (0/255)."""
+MaskArray: TypeAlias = npt.NDArray[np.uint8]
+"""Тип для бинарной маски, форма (H, W), dtype=npt.NDArray[np.uint8], значения {0, 255}."""
 
-FloatArray = npt.NDArray[np.float32]
-"""Тип для массивов с плавающей точкой."""
+FloatArray: TypeAlias = npt.NDArray[np.float32]
+"""Тип для массивов с плавающей точкой, форма (H, W) или (N, D), dtype=npt.NDArray[np.float32]."""
 
-ParamsDict = Dict[str, Any]
-"""Тип для словаря параметров метода."""
+ParamsDict: TypeAlias = Dict[str, Any]
+"""Тип для словаря параметров метода, dtype=Dict[str, Any]."""
 
-SegmentationMethod = Callable[..., MaskArray]
-"""Тип для функции сегментации."""
+SegmentationMethod: TypeAlias = Callable[..., MaskArray]
+"""Тип для функции сегментации, dtype=Callable[..., MaskArray]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -256,6 +249,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "prewitt_edge",
             "scharr_edge",
             "roberts_cross_edge",
+            "laplacian_edge",
             "log_edge",
             "dog_edge",
             "marr_hildreth_edge",
@@ -386,6 +380,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "canny_edge": self._opencv_canny_edge,
             "prewitt_edge": self._opencv_prewitt_edge,
             "scharr_edge": self._opencv_scharr_edge,
+            "laplacian_edge": self._opencv_laplacian_edge,
             "roberts_cross_edge": self._opencv_roberts_cross_edge,
             "log_edge": self._opencv_log_edge,
             "dog_edge": self._opencv_dog_edge,
@@ -419,27 +414,6 @@ class OpenCVSegmenter(BaseSegmenter):
         if self.method not in self.methods:
             available: List[str] = list(self.methods.keys())
             raise ValueError(f"Неизвестный метод: {self.method}. " f"Доступные методы: {available}")
-
-    # ──────────────────────────────────────────────────────────────────────
-    def _log_info(self, method_name: str, exec_time: float, params: ParamsDict) -> None:
-        """Вспомогательный метод для логирования информации о выполнении.
-
-        Сохраняет метаданные выполнения в атрибут `self.info` и выводит в консоль.
-
-        Args:
-            method_name: Название выполненного метода.
-            exec_time: Время выполнения в секундах.
-            params: Словарь использованных параметров.
-
-        Note:
-            Метод вызывается автоматически в конце каждого приватного метода
-            сегментации (например, `_opencv_canny_edge`).
-        """
-        self.info: ParamsDict = {
-            "method": method_name,
-            "parameters": params,
-            "execution_time": exec_time,
-        }
 
     # ──────────────────────────────────────────────────────────────────────
     def segment(self, image: ImageArray, **kwargs: Any) -> MaskArray:  # type: ignore[override]
@@ -571,14 +545,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "global_thresholding_opencv",
             exec_time,
             {"threshold": threshold, **kwargs},
         )
-
-        # print(f"Mask after OpenCV_thresholding_global: {mask}")
-        print(f"Info after OpenCV_thresholding_global: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -645,14 +617,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "adaptive_thresholding_opencv",
             exec_time,
             {"block_size": block_size, "C": C, **kwargs},
         )
-
-        # print(f"Mask after OpenCV_thresholding_adaptive: {mask}")
-        print(f"Info after OpenCV_thresholding_adaptive: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -697,14 +667,13 @@ class OpenCVSegmenter(BaseSegmenter):
         mask: MaskArray = mask_raw.astype(np.uint8)
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "otsu_thresholding_opencv",
             exec_time,
             {**kwargs},
         )
 
-        # print(f"Mask after OpenCV_thresholding_otsu: {mask}")
-        print(f"Info after OpenCV_thresholding_otsu: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -801,14 +770,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "niblack_thresholding_opencv",
             exec_time,
             {"window_size": window_size, "k": k, **kwargs},
         )
-
-        # print(f"Mask after OpenCV_thresholding_niblack: {mask}")
-        print(f"Info after OpenCV_thresholding_niblack: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -928,14 +895,12 @@ class OpenCVSegmenter(BaseSegmenter):
         exec_time: float = time.time() - start_time
 
         # Логирование метаданных выполнения
-        self._log_info(
+        info = self._log_info(
             "sauvola_thresholding_opencv",
             exec_time,
             {"window_size": window_size, "k": k, "r": r, **kwargs},
         )
-
-        # print(f"Mask after OpenCV_thresholding_sauvola: {mask}")
-        print(f"Info after OpenCV_thresholding_sauvola: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -1078,7 +1043,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "bernsen_thresholding_opencv",
             exec_time,
             {
@@ -1087,7 +1052,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1212,12 +1177,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "phansalkar_thresholding_opencv",
             exec_time,
             {"window_size": window_size, "k": k, "r": r, "m": m, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1356,12 +1321,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "kittler_illingworth_thresholding_opencv",
             exec_time,
             {"num_bins": num_bins, "optimal_threshold": best_threshold, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1478,11 +1443,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "entropy_kapur_thresholding_opencv",
             exec_time,
             {"num_bins": num_bins, "optimal_threshold": best_threshold, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -1591,11 +1557,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "triangle_thresholding_opencv",
             exec_time,
             {"num_bins": num_bins, "optimal_threshold": best_threshold, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -1737,7 +1704,7 @@ class OpenCVSegmenter(BaseSegmenter):
             # Бинаризация: самый яркий класс = объект
             mask = (gray >= best_t2).astype(np.uint8) * 255
             exec_time: float = time.time() - start_time
-            self._log_info(
+            info = self._log_info(
                 "multi_otsu_thresholding_opencv",
                 exec_time,
                 {
@@ -1746,6 +1713,7 @@ class OpenCVSegmenter(BaseSegmenter):
                     **kwargs,
                 },
             )
+            logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
             return mask
 
         # Случай 3: больше двух порогов — рекурсивный Оцу (упрощённо)
@@ -1762,11 +1730,12 @@ class OpenCVSegmenter(BaseSegmenter):
         mask = mask_raw.astype(np.uint8)
 
         exec_time = time.time() - start_time
-        self._log_info(
+        info = self._log_info(
             "multi_otsu_thresholding_opencv",
             exec_time,
             {"n_thresholds": n_thresholds, "thresholds": thresholds, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -1843,11 +1812,12 @@ class OpenCVSegmenter(BaseSegmenter):
         mask = mask_raw.astype(np.uint8)
 
         exec_time: float = time.time() - start_time
-        self._log_info(
+        info = self._log_info(
             "percentile_thresholding_opencv",
             exec_time,
             {"percentile": percentile, "threshold": threshold, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -1949,11 +1919,12 @@ class OpenCVSegmenter(BaseSegmenter):
         mask: MaskArray = (local_contrast > global_contrast_threshold).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
-        self._log_info(
+        info = self._log_info(
             "local_contrast_thresholding_opencv",
             exec_time,
             {"window_size": window_size, "contrast_factor": contrast_factor, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -2045,14 +2016,13 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "sobel_edge_opencv",
             exec_time,
             {"threshold": threshold, **kwargs},
         )
 
-        # print(f"Mask after OpenCV_sobel_edge: {mask}")
-        print(f"Info after OpenCV_sobel_edge: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask.astype(np.uint8)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2113,11 +2083,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "canny_edge_opencv",
             exec_time,
             {"low": low, "high": high, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2230,11 +2201,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "prewitt_edge_opencv",
             exec_time,
             {"threshold": threshold, "direction": direction, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -2349,11 +2321,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "scharr_edge_opencv",
             exec_time,
             {"threshold": threshold, "direction": direction, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -2452,13 +2425,160 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "roberts_cross_edge_opencv",
             exec_time,
             {"threshold": threshold, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask.astype(np.uint8)
+
+    # ──────────────────────────────────────────────────────────────────────
+    def _opencv_laplacian_edge(self, img: ImageArray, **kwargs: Any) -> MaskArray:
+        """Обнаружение границ оператором Лапласа (OpenCV).
+
+        Вычисляет вторые производные интенсивности изображения через свёртку с ядром Лапласа.
+        Границы обнаруживаются по нулевым пересечениям (zero-crossings) или по абсолютной
+        величине лапласиана с последующей пороговой обработкой.
+
+        Формула (дискретный Лапласиан, 4-связность):
+        ```
+        ∇²I = I(x+1,y) + I(x-1,y) + I(x,y+1) + I(x,y-1) - 4·I(x,y)
+        ```
+
+        Алгоритм:
+        1. Конвертация в grayscale при необходимости.
+        2. Опциональное Гауссово сглаживание для подавления шума (`sigma`).
+        3. Применение `cv2.Laplacian` с заданным `ddepth` и `ksize`.
+        4. Нормализация результата к [0, 255].
+        5. Пороговая бинаризация или zero-crossing detection.
+
+        Метод особенно эффективен для:
+        - Изображений с чёткими, резкими переходами интенсивности
+        - Задач, где важна инвариантность к направлению границ
+        - Предварительной обработки для сегментации методом водораздела
+
+        Args:
+            img: Входное изображение (grayscale предпочтительно).
+                Поддерживаются: `(H, W)` или `(H, W, 3)`, dtype=uint8.
+            **kwargs: Дополнительные параметры:
+                - `sigma` (float): Сигма Гауссова размытия [0.0, 5.0].
+                По умолчанию 0.0 (без сглаживания). Подавляет шум перед вычислением Лапласиана.
+                - `ksize` (int): Размер ядра Лапласиана (1, 3, 5, 7).
+                По умолчанию 1 (используется ядро 3×3). Большие значения → более гладкие границы.
+                - `threshold` (int): Порог для бинаризации [0, 255].
+                По умолчанию 30. Меньшие значения → больше границ, но больше шума.
+                - `use_zero_crossing` (bool): Использовать zero-crossing вместо порога.
+                По умолчанию False. True → границы по пересечению нуля (более тонкие).
+
+        Returns:
+            MaskArray: Бинарная маска границ формы `(H, W)`, dtype=uint8, {0, 255}.
+
+        Note:
+            - Лапласиан очень чувствителен к шуму; для зашумлённых изображений
+            обязательно используйте `sigma > 0` или предварительное сглаживание.
+            - Параметр `ddepth=cv2.CV_64F` обеспечивает точность вычислений с плавающей точкой.
+            - При `use_zero_crossing=True` порог `threshold` используется для отсечения
+            слабых пересечений по амплитуде лапласиана.
+            - Для получения связных границ после zero-crossing рассмотрите морфологическое
+            замыкание (`cv2.morphologyEx` с `MORPH_CLOSE`).
+
+        Example:
+            ```python
+            # Базовое обнаружение границ через порог
+            segmenter = OpenCVSegmenter("laplacian_edge", threshold=30)
+            edges = segmenter.segment(image)
+
+            # С предварительным сглаживанием для шумных изображений
+            segmenter = OpenCVSegmenter("laplacian_edge", sigma=1.0, threshold=20)
+            edges = segmenter.segment(noisy_image)
+
+            # Zero-crossing detection для тонких границ
+            segmenter = OpenCVSegmenter(
+                "laplacian_edge",
+                sigma=0.5,
+                use_zero_crossing=True,
+                threshold=10
+            )
+            edges = segmenter.segment(fine_details_image)
+            ```
+        """
+        # Конвертация в grayscale при необходимости
+        if len(img.shape) == 3:
+            gray_raw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            gray: GrayImage = gray_raw.astype(np.uint8)  # type: ignore[assignment]
+        else:
+            gray = img.copy()
+
+        start_time: float = time.time()
+
+        # Получение параметров с типизацией и значениями по умолчанию
+        sigma: float = float(self.params.get("sigma", 0.0))
+        ksize: int = int(self.params.get("ksize", 1))  # 1 → 3×3 ядро в OpenCV
+        threshold: int = int(self.params.get("threshold", 30))
+        use_zero_crossing: bool = bool(self.params.get("use_zero_crossing", False))
+
+        # Опциональное Гауссово сглаживание для подавления шума
+        if sigma > 0:
+            # ksize для GaussianBlur должен быть нечётным
+            blur_ksize = int(2 * round(3 * sigma) + 1)
+            if blur_ksize % 2 == 0:
+                blur_ksize += 1
+            gray = cv2.GaussianBlur(gray, (blur_ksize, blur_ksize), sigmaX=sigma).astype(np.uint8)
+
+        # Применение Лапласиана через OpenCV
+        # ddepth=cv2.CV_64F для точности, затем конвертация в uint8
+        laplacian_raw = cv2.Laplacian(gray, ddepth=cv2.CV_64F, ksize=ksize if ksize > 0 else 3)
+        laplacian: npt.NDArray[np.float64] = laplacian_raw.astype(np.float64)  # type: ignore[assignment]
+
+        if use_zero_crossing:
+            # Zero-crossing detection: поиск смены знака
+            sign: npt.NDArray[np.float64] = np.sign(laplacian)
+
+            # Векторизованная проверка соседей (горизонталь + вертикаль)
+            zc_h: npt.NDArray[np.bool_] = sign[:, :-1] * sign[:, 1:] < 0
+            zc_v: npt.NDArray[np.bool_] = sign[:-1, :] * sign[1:, :] < 0
+
+            zero_crossing_bool: npt.NDArray[np.bool_] = np.zeros_like(laplacian, dtype=bool)
+            zero_crossing_bool[:, :-1] |= zc_h
+            zero_crossing_bool[:-1, :] |= zc_v
+
+            # Фильтрация слабых пересечений по амплитуде
+            magnitude: npt.NDArray[np.float64] = np.abs(laplacian)
+            mask: MaskArray = (zero_crossing_bool & (magnitude > threshold)).astype(np.uint8) * 255
+        else:
+            # Пороговая обработка по абсолютной величине лапласиана
+            magnitude = np.abs(laplacian)
+            # Нормализация к [0, 255] для удобства подбора порога
+            if magnitude.max() > magnitude.min():
+                magnitude_norm: FloatArray = (
+                    255 * (magnitude - magnitude.min()) / (magnitude.max() - magnitude.min() + 1e-8)
+                ).astype(np.float32)
+            else:
+                magnitude_norm = np.zeros_like(magnitude, dtype=np.float32)
+
+            # Бинаризация
+            _, mask_raw = cv2.threshold(magnitude_norm.astype(np.float32), float(threshold), 255.0, cv2.THRESH_BINARY)
+            mask = mask_raw.astype(np.uint8)
+
+        exec_time: float = time.time() - start_time
+
+        # Логирование метаданных выполнения
+        info = self._log_info(
+            "laplacian_edge_opencv",
+            exec_time,
+            {
+                "sigma": sigma,
+                "ksize": ksize,
+                "threshold": threshold,
+                "use_zero_crossing": use_zero_crossing,
+                **kwargs,
+            },
+        )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
+
+        return mask
 
     # ──────────────────────────────────────────────────────────────────────
     def _opencv_log_edge(self, img: ImageArray, **kwargs: Any) -> MaskArray:
@@ -2572,7 +2692,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "log_edge_opencv",
             exec_time,
             {
@@ -2582,6 +2702,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return zero_crossing
 
@@ -2681,11 +2802,12 @@ class OpenCVSegmenter(BaseSegmenter):
         zero_crossing: MaskArray = (zero_crossing_bool & (magnitude > threshold)).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
-        self._log_info(
+        info = self._log_info(
             "dog_edge_opencv",
             exec_time,
             {"sigma1": sigma1, "sigma2": sigma2, "threshold": threshold, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return zero_crossing
 
@@ -2784,11 +2906,12 @@ class OpenCVSegmenter(BaseSegmenter):
         zero_crossing: MaskArray = (zero_crossing_bool & (magnitude > threshold)).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
-        self._log_info(
+        info = self._log_info(
             "marr_hildreth_edge_opencv",
             exec_time,
             {"sigma": sigma, "threshold": threshold, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return zero_crossing
 
@@ -2893,11 +3016,12 @@ class OpenCVSegmenter(BaseSegmenter):
             mask = mask & (angle_mask.astype(np.uint8) * 255)
 
         exec_time: float = time.time() - start_time
-        self._log_info(
+        info = self._log_info(
             "gradient_magnitude_direction_opencv",
             exec_time,
             {"threshold": threshold, "angle_range": angle_range, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -3079,7 +3203,7 @@ class OpenCVSegmenter(BaseSegmenter):
         print(f"📈 Unique values > threshold: {(pc_map > threshold).sum()}")
 
         exec_time: float = time.time() - start_time
-        self._log_info(
+        info = self._log_info(
             "phase_congruency_edge_opencv",
             exec_time,
             {
@@ -3093,6 +3217,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3199,12 +3324,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "region_growing_opencv",
             exec_time,
             {"seed": seed, "tolerance": tolerance, **kwargs},
         )
-        print(f"Info after OpenCV_region_growing: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -3377,12 +3502,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
             exec_time: float = time.time() - start_time
 
-            self._log_info(
+            info = self._log_info(
                 "split_and_merge_opencv",
                 exec_time,
                 {"threshold": threshold, "min_size": min_size, **kwargs},
             )
-            print(f"Info after OpenCV_split_and_merge: {self._log_info}")
+            logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
             return mask
 
@@ -3495,13 +3620,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "floodfill_opencv",
             exec_time,
             {"seed": seed, "tolerance": tolerance, **kwargs},
         )
-        print(f"Info after OpenCV_floodfill: {self._log_info}")
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask_final
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3608,12 +3732,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "kmeans_segmentation_opencv",
             exec_time,
             {"k": k, **kwargs},
         )
-        print(f"Info after OpenCV_kmeans: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -3746,12 +3870,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "dbscan_segmentation_opencv",
             exec_time,
             {"eps": eps, "min_samples": min_samples, **kwargs},
         )
-        print(f"Info after OpenCV_dbscan: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -3836,7 +3960,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "meanshift_opencv",
             exec_time,
             {
@@ -3846,7 +3970,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-        print(f"Info after OpenCV_meanshift: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -3960,12 +4084,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "active_contour_opencv",
             exec_time,
             {"iterations": iterations, **kwargs},
         )
-        print(f"Info after OpenCV_active_contour: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -4091,12 +4215,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "gvf_contour_opencv",
             exec_time,
             {"mu": mu, "iterations": iterations, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4201,12 +4325,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "morphological_snakes_opencv",
             exec_time,
             {"iterations": iterations, **kwargs},
         )
-        print(f"Info after OpenCV_morphological_snakes: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -4332,12 +4456,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "chan_vese_opencv",
             exec_time,
             {"mu": mu, "iterations": iterations, **kwargs},
         )
-        print(f"Info after OpenCV_chan_vese: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -4456,12 +4580,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "watershed_opencv",
             exec_time,
             {**kwargs},
         )
-        print(f"Info after OpenCV_watershed: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -4569,12 +4693,12 @@ class OpenCVSegmenter(BaseSegmenter):
             mask = (ws_markers == 2).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
-        self._log_info(
+        info = self._log_info(
             "random_walker_opencv",
             exec_time,
             {"beta": beta, "mode": mode, **kwargs},
         )
-        print(f"Info after OpenCV_random_walker: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -4684,7 +4808,7 @@ class OpenCVSegmenter(BaseSegmenter):
         mask: MaskArray = (segments != bg_label).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
-        self._log_info(
+        info = self._log_info(
             "quickshift_opencv",
             exec_time,
             {
@@ -4695,8 +4819,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-        print(f"Info after OpenCV_quickshift: {self._log_info}")
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4816,7 +4939,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "slic_opencv",
             exec_time,
             {
@@ -4826,8 +4949,7 @@ class OpenCVSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-        print(f"Info after OpenCV_slic: {self._log_info}")
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4929,12 +5051,12 @@ class OpenCVSegmenter(BaseSegmenter):
         mask: MaskArray = (segments != bg_label).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
-        self._log_info(
+        info = self._log_info(
             "felzenszwalb_opencv",
             exec_time,
             {"scale": scale, "sigma": sigma, "min_size": min_size, **kwargs},
         )
-        print(f"Info after OpenCV_felzenszwalb: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask
 
@@ -5053,12 +5175,12 @@ class OpenCVSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        self._log_info(
+        info = self._log_info(
             "grabcut_opencv",
             exec_time,
             {"iterations": iter_count, "rect": rect, **kwargs},
         )
-        print(f"Info after OpenCV_grabcut: {self._log_info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask_final.astype(np.uint8)
 
@@ -5066,17 +5188,46 @@ class OpenCVSegmenter(BaseSegmenter):
 # ──────────────────────────────────────────────────────────────────────
 # PUBLIC API
 # ──────────────────────────────────────────────────────────────────────
-__all__ = [
+__all__: List[str] = [
+    # 🔹 Основной класс сегментера
     "OpenCVSegmenter",
+    # 🔹 Типизация входных/выходных данных
     "ImageArray",
+    "GrayImage",
     "MaskArray",
+    "FloatArray",
+    # 🔹 Типизация параметров и методов
     "ParamsDict",
+    "SegmentationMethod",
+    # 🔹 Re-export базовых типов (для удобства)
+    "ImageInput",
+    "BinaryMask",
+    "ProbabilityMask",
 ]
-"""
-Публичный API модуля.
+"""Публичный API модуля OpenCVSegmenter.
 
 Экспортируемые символы:
-- `OpenCVSegmenter`: Основной класс сегментера.
-- `ImageArray`, `MaskArray`: Type aliases для массивов.
-- `ParamsDict`: Type alias для словаря параметров.
+- `OpenCVSegmenter`: Классический сегментер на базе OpenCV с поддержкой 50+ методов.
+  Категории: пороговые (14), граничные (10), региональные (3), кластеризация (3),
+  активные контуры (4), watershed (2), суперпиксели (3), интерактивные (1).
+
+- `ImageArray`: npt.NDArray[np.uint8] — тип для входного изображения (RGB или grayscale).
+- `GrayImage`: npt.NDArray[np.uint8] — тип для grayscale изображения формы (H, W).
+- `MaskArray`: npt.NDArray[np.uint8] — тип для бинарной маски {0, 255}, формы (H, W).
+- `FloatArray`: npt.NDArray[np.float32] — тип для массивов с плавающей точкой.
+
+- `ParamsDict`: Dict[str, Any] — словарь параметров метода для инициализации.
+- `SegmentationMethod`: Callable[..., MaskArray] — сигнатура функции сегментации.
+
+- `ImageInput`, `BinaryMask`, `ProbabilityMask`: Базовые типы из `BaseSegmenter`
+  для совместимости с общей экосистемой сегментеров.
+
+Используется статическими анализаторами (mypy, pyright), linter'ами и IDE
+для автодополнения и проверки типов:
+    from segmenters.OpenCVSegmenter import OpenCVSegmenter, MaskArray, ParamsDict
+    
+    # Корректная типизация конфигурации
+    config: ParamsDict = {"block_size": 15, "C": 2}
+    segmenter = OpenCVSegmenter("adaptive_thresholding", **config)
+    mask: MaskArray = segmenter.segment(image)
 """

@@ -71,17 +71,7 @@ import gc
 import glob
 from pathlib import Path
 from datetime import datetime
-from typing import (
-    List,
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-    Literal,
-    TypedDict,
-    NotRequired,
-    cast,
-)
+from typing import List, Tuple, Dict, Any, Optional, Literal, TypedDict, NotRequired, cast, TypeAlias
 from matplotlib.colors import Colormap
 
 import numpy as np
@@ -105,8 +95,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -114,14 +104,28 @@ if not logger.handlers:
 # TYPE ALIASES & CONSTANTS
 # ──────────────────────────────────────────────────────────────────────
 DEFAULT_ROOT_DIR: str = "./data/ade20k"
-DEFAULT_CHECKPOINT_DIR: str = "./models"
-DEFAULT_IMAGE_SIZE: Tuple[int, int] = (512, 512)
-NUM_CLASSES: int = 150
+"""Дефолтная директория нахождения датасета, dtype=str."""
 
-ModelType = Literal["unet_smp", "fpn_smp", "psp_smp", "deeplab_tv", "fcn_tv", "segnet"]
-EncoderName = Literal["resnet34", "resnet50", "resnet101", "mit_b5", "efficientnet-b0"]
-AugmentationLevel = Literal["none", "basic", "medium", "aggressive"]
+DEFAULT_CHECKPOINT_DIR: str = "./models"
+"""Дефолтная директория для сохранения чекпойнта, dtype=str."""
+
+DEFAULT_IMAGE_SIZE: Tuple[int, int] = (512, 512)
+"""Дефолтный размер изображения для обучения, dtype=Tuple[int, int]."""
+
+NUM_CLASSES: int = 150
+"""Общее число классов датасета, dtype=int."""
+
+ModelType: TypeAlias = Literal["unet_smp", "fpn_smp", "psp_smp", "deeplab_tv", "fcn_tv", "segnet"]
+"""Используемый тип модели, dtype=Literal["unet_smp", "fpn_smp", "psp_smp", "deeplab_tv", "fcn_tv", "segnet"]."""
+
+EncoderName: TypeAlias = Literal["resnet34", "resnet50", "resnet101", "mit_b5", "efficientnet-b0"]
+"""Используемый тип энкодера, dtype=Literal["resnet34", "resnet50", "resnet101", "mit_b5", "efficientnet-b0"]."""
+
+AugmentationLevel: TypeAlias = Literal["none", "basic", "medium", "aggressive"]
+"""Текущий уровень аугментаций, dtype=Literal["none", "basic", "medium", "aggressive"]."""
+
 device: str = "cuda" if torch.cuda.is_available() else "cpu"
+"""Текущее используемое устройство, dtype=str."""
 
 # ──────────────────────────────────────────────────────────────────────
 # ПРАВИЛЬНЫЕ ignore_index ПО ТИПУ МОДЕЛИ
@@ -131,7 +135,7 @@ device: str = "cuda" if torch.cuda.is_available() else "cpu"
 #   - Включение его в лосс перегружает модель предсказывать только класс 0
 # SMP-модели (U-Net, FPN, PSPNet): ignore_index=255 — стандарт ADE20K
 IGNORE_INDEX_BY_MODEL: Dict[str, int] = {
-    "deeplab_tv": 255,
+    """Словарь игнорируемых моделями индексов для обучения, dtype=Dict[str, int].""" "deeplab_tv": 255,
     "fcn_tv": 255,
     "unet_smp": 255,
     "fpn_smp": 255,

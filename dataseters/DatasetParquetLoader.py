@@ -17,7 +17,7 @@
 # ──────────────────────────────────────────────────────────────────────
 from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
 
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, TypeAlias
 from pathlib import Path
 from io import BytesIO
 
@@ -30,25 +30,37 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
-PathLike = Union[str, Path]
-ParquetRow = Dict[str, Any]
-ImageDataDict = Dict[str, bytes]
+PathLike: TypeAlias = Union[str, Path]
+"""Тип пути до файла, исходные форматы: str/Path, dtype=Union[str, Path]."""
+
+ParquetRow: TypeAlias = Dict[str, Any]
+"""Строка файла в формате parquet, dtype=Dict[str, Any]."""
+
+ImageDataDict: TypeAlias = Dict[str, bytes]
+"""Словарь данных из parquet файла, dtype=Dict[str, bytes]."""
 
 # ──────────────────────────────────────────────────────────────────────
 # КОНСТАНТЫ
 # ──────────────────────────────────────────────────────────────────────
 PARQUET_PATH: PathLike = "coco-panoptic-val2017/data/train-00001-of-00002-94aa8570497c415e.parquet"
+"""Путь до файла в формате Parquet, dtype=PathLike."""
+
 OUTPUT_DIR_PATH: PathLike = "coco-panoptic-val2017/images/test"
+"""Путь до директории с изображениями, dtype=PathLike."""
+
 MASK_DIR_PATH: PathLike = "coco-panoptic-val2017/annotations/test"
+"""Путь до директории с масками, dtype=PathLike."""
+
 BATCH_LOG_INTERVAL: int = 100
+"""Интервал логирования (каждые 100 изображений), dtype=int."""
 
 
 # ──────────────────────────────────────────────────────────────────────

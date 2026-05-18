@@ -67,7 +67,7 @@ Note:
 # ──────────────────────────────────────────────────────────────────────
 from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
 
-from typing import Tuple, Dict, Any, Optional, Union, List, Literal, cast
+from typing import Tuple, Dict, Any, Optional, Union, List, Literal, cast, TypeAlias
 from enum import Enum
 from pathlib import Path
 
@@ -120,8 +120,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -129,9 +129,16 @@ if not logger.handlers:
 # TYPE ALIASES & CONSTANTS
 # ──────────────────────────────────────────────────────────────────────
 num_classes: int = 150
-DeviceStr = Literal["cuda", "cpu"]
-ModelTuple = Tuple[nn.Module, Optional[Any], str]  # (model, processor, model_type_str)
-ProcessorLike = Optional[Union[Any, None]]  # HF processor или None для SMP/torchvision
+"""Общее число классов датасета, dtype=int."""
+
+DeviceStr: TypeAlias = Literal["cuda", "cpu"]
+"""Тип текущего используемого устройства, dtype=Literal["cuda", "cpu"]."""
+
+ModelTuple: TypeAlias = Tuple[nn.Module, Optional[Any], str]
+"""Кортеж - результат инференса для нейронной модели (model, processor, model_type_str), dtype=Tuple[nn.Module, Optional[Any], str]."""
+
+ProcessorLike: TypeAlias = Optional[Union[Any, None]]  # HF processor или None для SMP/torchvision
+"""Тип используемого прпоцессора, dtype=Tuple[int, int]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -206,8 +213,13 @@ class NeuralModelFactory:
     """
 
     _model_registry: Dict[ModelType, Dict[str, Any]] = {}
+    """Словарь для регистрации моделей сегментации, dtype=Dict[ModelType, Dict[str, Any]]."""
+
     _config_path: Path = Path("configs/neural_models.yaml")
+    """Путь до .yaml файла конфигураций, dtype=Path."""
+
     _config: Optional[Dict[str, Any]] = None
+    """Текущая конфигурация нейронной сети, dtype=Optional[Dict[str, Any]]."""
 
     @classmethod
     def load_config(cls, config_path: Optional[str] = None) -> Dict[str, Any]:
@@ -612,7 +624,7 @@ class NeuralModelFactory:
 
     # ========== MASKFORMER ==========
     @classmethod
-    def _load_maskformer(cls, model_name: Optional[str], device: str = "cuda") -> Tuple[Any, Any, str]:
+    def _load_maskformer(cls, model_name: Optional[str], device: DeviceStr = "cuda") -> ModelTuple:
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library required")
 
@@ -797,7 +809,7 @@ class NeuralModelFactory:
         encoder_name: str = "resnet34",
         num_classes: int = num_classes,
         checkpoint_path: str = "unet_smp.pth",
-        device: str = "cuda",
+        device: DeviceStr = "cuda",
     ) -> None:
         """Вывод параметров U-Net."""
         num_classes = int(num_classes)
@@ -868,7 +880,7 @@ class NeuralModelFactory:
         encoder_name: str = "mit_b5",
         num_classes: int = num_classes,
         checkpoint_path: str = "fpn_smp.pth",
-        device: str = "cuda",
+        device: DeviceStr = "cuda",
     ) -> None:
         """Вывод параметров FPN."""
         num_classes = int(num_classes)
@@ -947,7 +959,7 @@ class NeuralModelFactory:
         encoder_name: str = "mit_b5",
         num_classes: int = num_classes,
         checkpoint_path: str = "psp_smp.pth",
-        device: str = "cuda",
+        device: DeviceStr = "cuda",
     ) -> None:
         """Вывод параметров PSPNet."""
         num_classes = int(num_classes)
@@ -1018,7 +1030,7 @@ class NeuralModelFactory:
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
-    def print_fcn_params(cls, variant: str = "fcn_resnet50", device: str = "cuda") -> None:
+    def print_fcn_params(cls, variant: str = "fcn_resnet50", device: DeviceStr = "cuda") -> None:
         """Вывод параметров FCN."""
         variants = {
             "fcn_resnet50": tv_seg.fcn_resnet50,
@@ -1065,7 +1077,7 @@ class NeuralModelFactory:
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
-    def print_segnet_params(cls, encoder_name: str = "resnet34", device: str = "cuda") -> None:
+    def print_segnet_params(cls, encoder_name: str = "resnet34", device: DeviceStr = "cuda") -> None:
         """Вывод параметров SegNet."""
         try:
             model = smp.Unet(
@@ -1107,7 +1119,7 @@ class NeuralModelFactory:
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
-    def print_sam_params(cls, model_name: str = "mobile_sam.pt", device: str = "cuda") -> None:
+    def print_sam_params(cls, model_name: str = "mobile_sam.pt", device: DeviceStr = "cuda") -> None:
         """Вывод параметров SAM."""
         if os.path.exists(model_name):
             print(f"   📁 Found: {model_name} ({os.path.getsize(model_name) / 1024**2:.3f} MB)")
@@ -1137,7 +1149,7 @@ class NeuralModelFactory:
 
     # ──────────────────────────────────────────────────────────────────────
     @classmethod
-    def print_mask_rcnn_params(cls, variant: str = "maskrcnn_resnet50_fpn", device: str = "cuda") -> None:
+    def print_mask_rcnn_params(cls, variant: str = "maskrcnn_resnet50_fpn", device: DeviceStr = "cuda") -> None:
         """Вывод параметров Mask R-CNN."""
         variants = {
             "maskrcnn_resnet50_fpn": tv_det.maskrcnn_resnet50_fpn,

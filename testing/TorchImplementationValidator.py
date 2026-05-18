@@ -52,7 +52,7 @@ import inspect
 import traceback
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple, Union, Type, Set, Literal
+from typing import List, Dict, Any, Optional, Tuple, Union, Type, Set, Literal, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -74,22 +74,37 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
-MethodConfig = Tuple[str, Dict[str, Any]]
-MaskArray = np.ndarray  # Binary mask: HxW, dtype uint8/bool
-ImageArray = np.ndarray  # RGB/Grayscale: HxW or HxWxC
-ImageInput = Union[str, np.ndarray, Image.Image]
-MetricDict = Dict[str, float]
-PathLike = Union[str, Path]
-SegmenterClass = Type[Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter]]
-ValidationStatus = Literal["PASS", "WARNING", "FAIL"]
+MethodConfig: TypeAlias = Tuple[str, Dict[str, Any]]
+"""Текущая конфигурация метода сегментации, dtype=Tuple[str, Dict[str, Any]]."""
+
+MaskArray: TypeAlias = np.ndarray  # Binary mask: HxW, dtype uint8/bool
+"""Тип для бинарной маски сегментации: (H, W), dtype=uint8, значения {0, 255}."""
+
+ImageArray: TypeAlias = np.ndarray  # RGB/Grayscale: HxW or HxWxC
+"""Тип для входного изображения: (H, W) для grayscale или (H, W, 3) для RGB, dtype=uint8."""
+
+ImageInput: TypeAlias = Union[str, np.ndarray, Image.Image]
+"""Входное изображение (путь, `np.ndarray` или `PIL.Image`), dtype=Union[str, np.ndarray, Image.Image]."""
+
+MetricDict: TypeAlias = Dict[str, float]
+"""Словарь метрик качества: {имя_метрики: значение}, например {"iou": 0.85, "dice": 0.91}, dtype=Dict[str, float]."""
+
+PathLike: TypeAlias = Union[str, Path]
+"""Унифицированный тип для путей к файлам: строка или pathlib.Path, dtype=Union[str, Path]."""
+
+SegmenterClass: TypeAlias = Type[Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter]]
+"""Текущий используемый класс сегментатора, dtype=Type[Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter]]."""
+
+ValidationStatus: TypeAlias = Literal["PASS", "WARNING", "FAIL"]
+"""Статусы валидации, dtype=Literal["PASS", "WARNING", "FAIL"]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -167,6 +182,7 @@ class TorchImplementationValidator:
             ("roberts_cross_edge", {"threshold": 0.1}),
             ("log_edge", {"sigma": 1.0, "threshold": 0.01}),
             ("dog_edge", {"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01}),
+            ("laplacian_edge", {"sigma": 1.0, "threshold": 0.1, "use_zero_crossing": False}),
             ("marr_hildreth_edge", {"sigma": 1.5, "threshold": 0.01}),
             (
                 "gradient_magnitude_direction",
@@ -481,12 +497,12 @@ class TorchImplementationValidator:
                 first_params = self._filter_params(first_segmenter_class, params.copy())
                 if is_first_torch2:
                     first_params = self._prepare_torch_params(first_params, use_torch2=True)
-                if str(self.device) == "cuda":
+                if self.device.type == "cuda":
                     torch.cuda.synchronize()
                 start_method_1_time: float = time.perf_counter()
                 segmenter1 = first_segmenter_class(method=method_name, **params)
-                mask1_raw = segmenter1.segment(img_array, **params)
-                if str(self.device) == "cuda":
+                mask1_raw: MaskArray = segmenter1.segment(img_array, **params)
+                if self.device.type == "cuda":
                     torch.cuda.synchronize()
                 execution_method_1_time: float = time.perf_counter() - start_method_1_time
                 mask1: MaskArray = self._normalize_mask(mask1_raw)
@@ -496,12 +512,12 @@ class TorchImplementationValidator:
                 # ──────────────────────────────────────────────────────
                 ref_params: Dict[str, Any] = self._filter_params(second_segmenter_class, params.copy())
                 ref_params["postprocess"] = False
-                if str(self.device) == "cuda":
+                if self.device.type == "cuda":
                     torch.cuda.synchronize()
                 start_method_2_time: float = time.perf_counter()
                 segmenter2 = second_segmenter_class(method=method_name, **ref_params)
-                mask2_raw = segmenter2.segment(img_array, **ref_params)
-                if str(self.device) == "cuda":
+                mask2_raw: MaskArray = segmenter2.segment(img_array, **ref_params)
+                if self.device.type == "cuda":
                     torch.cuda.synchronize()
                 execution_method_2_time: float = time.perf_counter() - start_method_2_time
 

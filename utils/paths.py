@@ -7,13 +7,13 @@
 # ──────────────────────────────────────────────────────────────────────
 from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
 from pathlib import Path
-from typing import Union
+from typing import Union, TypeAlias
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
-PathLike = Union[str, Path]
-
+PathLike: TypeAlias = Union[str, Path]
+"""Унифицированный тип для путей к файлам: строка или pathlib.Path, dtype=Union[str, Path]."""
 
 # ──────────────────────────────────────────────────────────────────────
 # КОНСТАНТЫ ПУТЕЙ

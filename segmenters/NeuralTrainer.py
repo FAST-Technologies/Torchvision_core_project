@@ -78,12 +78,7 @@ from __future__ import annotations  # PEP 563: отложенная оценка
 import os
 import time
 import gc
-from typing import (
-    List,
-    Dict,
-    Tuple,
-    Union,
-)
+from typing import List, Dict, Tuple, Union, TypeAlias
 
 import torch
 import torch.nn as nn
@@ -96,8 +91,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -105,11 +100,22 @@ if not logger.handlers:
 # TYPE ALIASES & CONSTANTS
 # ──────────────────────────────────────────────────────────────────────
 num_classes: int = 150
-DeviceStr = Union[torch.device, str]
-LossValue = float
-MetricValue = float
-HistoryDict = Dict[str, List[float]]
-BatchDict = Dict[str, torch.Tensor]
+"""Общее число классов датасета, dtype=int."""
+
+DeviceStr: TypeAlias = Union[torch.device, str]
+"""Текущее используемое устройство, dtype=Union[torch.device, str]."""
+
+LossValue: TypeAlias = float
+"""Значение функции потерь, dtype=float."""
+
+MetricValue: TypeAlias = float
+"""Значение результата метрики, dtype=float."""
+
+HistoryDict: TypeAlias = Dict[str, List[float]]
+"""История метрик по эпохам, dtype=Dict[str, List[float]]."""
+
+BatchDict: TypeAlias = Dict[str, torch.Tensor]
+"""История метрик по батчам, dtype=Dict[str, torch.Tensor]."""
 
 
 # ──────────────────────────────────────────────────────────────────────

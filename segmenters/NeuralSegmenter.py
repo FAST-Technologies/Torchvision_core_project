@@ -89,7 +89,7 @@ from utils.palettes import (
     cityscapes_palette,
 )
 
-from typing import List, Union, Tuple, Dict, Any, Optional, Literal, cast
+from typing import List, Union, Tuple, Dict, Any, Optional, Literal, cast, TypeAlias
 import time
 import requests
 from io import BytesIO
@@ -105,8 +105,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -114,7 +114,10 @@ if not logger.handlers:
 # TYPE ALIASES & CONSTANTS
 # ──────────────────────────────────────────────────────────────────────
 TRANSFORMERS_AVAILABLE: bool = True
+"""Флаг для проверки доступности трансформеров, dtype=bool."""
+
 num_classes: int = 150
+"""Общее число классов датасета, dtype=int."""
 
 ValidModelType = Literal[
     "segformer",
@@ -140,15 +143,32 @@ ValidModelType = Literal[
     "yolov8s_seg",
     "yolov8m_seg",
 ]
+"""Валидные названия используемых нейронных сетей, dtype=Literal."""
 
 # Алиасы для типов изображений
-ImagePath = str
-NumpyImage = np.ndarray
-PILImage = Image.Image
-TorchImage = torch.Tensor
-DeviceStr = Union[torch.device, str]
-ClassNamesDict = Optional[Dict[int, str]]
-PaletteType = Optional[List[List[int]]]
+ImagePath: TypeAlias = str
+"""Путь до изображения, dtype=str."""
+
+NumpyImage: TypeAlias = np.ndarray
+"""Изображение формата ndarray, dtype=np.ndarray."""
+
+PILImage: TypeAlias = Image.Image
+"""Изображение формата PIL, dtype=Image.Image."""
+
+TorchImage: TypeAlias = torch.Tensor
+"""Изображение формата torch, dtype=torch.Tensor."""
+
+DeviceStr: TypeAlias = Union[torch.device, str]
+"""Текущее используемое устройство, dtype=Union[torch.device, str]."""
+
+ClassNamesDict: TypeAlias = Dict[int, str]
+"""Словарь имён классов, dtype=Optional[Dict[int, str]]."""
+
+PaletteType: TypeAlias = List[List[int]]
+"""Используемый тип палитры, dtype=Optional[List[List[int]]]."""
+
+DeviceType: TypeAlias = Literal["cuda", "cpu"]
+"""Тип текущего устройства, dtype=Literal["cuda", "cpu"]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -198,7 +218,7 @@ class NeuralSegmenter(BaseSegmenter):
         device: Optional[str] = None,
         local_path: Optional[str] = None,
         num_classes: int = num_classes,
-        palette: PaletteType = None,
+        palette: Optional[PaletteType] = None,
         checkpoint_path: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
@@ -239,7 +259,7 @@ class NeuralSegmenter(BaseSegmenter):
             model_tuple = NeuralModelFactory.create_model_from_config(
                 model_type=model_type,
                 variant=variant,
-                device=cast(Literal["cuda", "cpu"], self.device),
+                device=cast(DeviceType, self.device),
                 checkpoint_path=cp_path,
                 **kwargs,
             )
@@ -250,14 +270,14 @@ class NeuralSegmenter(BaseSegmenter):
                 model_name=model_name,
                 local_path=local_path,
                 checkpoint_path=cp_path,
-                device=cast(Literal["cuda", "cpu"], self.device),
+                device=cast(DeviceType, self.device),
                 num_classes=num_classes,
                 **kwargs,
             )
         self.model, self.processor, self.model_type_str = model_tuple
         load_time: float = time.perf_counter() - start_time
         print(f"Модель загружена за {load_time:.4f} секунд")
-        self.palette: Optional[List[List[int]]] = palette if palette else self._get_default_palette()
+        self.palette: Optional[PaletteType] = palette if palette else self._get_default_palette()
 
         # ──────────────────────────────────────────────────────────────
         # Логирование
@@ -280,7 +300,7 @@ class NeuralSegmenter(BaseSegmenter):
                     print(f"{class_id}: {class_name}")
 
     # ──────────────────────────────────────────────────────────────────────
-    def _get_default_palette(self) -> List[List[int]]:
+    def _get_default_palette(self) -> PaletteType:
         """Возвращает палитру ADE20K по умолчанию.
 
         Returns:
@@ -292,7 +312,7 @@ class NeuralSegmenter(BaseSegmenter):
     # СТАТИЧЕСКИЕ МЕТОДЫ: ИМЕНА КЛАССОВ И ПАЛИТРЫ
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def get_ade_class_names() -> Dict[int, str]:
+    def get_ade_class_names() -> ClassNamesDict:
         """Возвращает словарь имён классов для датасета ADE20K.
 
         Returns:
@@ -304,7 +324,7 @@ class NeuralSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def ade_palette() -> List[List[int]]:
+    def ade_palette() -> PaletteType:
         """Возвращает палитру ADE20K для визуализации.
 
         Returns:
@@ -314,7 +334,7 @@ class NeuralSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def get_coco_class_names() -> Dict[int, str]:
+    def get_coco_class_names() -> ClassNamesDict:
         """Возвращает словарь имён классов для датасета COCO.
 
         Returns:
@@ -326,7 +346,7 @@ class NeuralSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def coco_palette() -> List[List[int]]:
+    def coco_palette() -> PaletteType:
         """Возвращает палитру COCO для визуализации.
 
         Returns:
@@ -336,7 +356,7 @@ class NeuralSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def get_cityscapes_extended_class_names() -> Dict[int, str]:
+    def get_cityscapes_extended_class_names() -> ClassNamesDict:
         """Возвращает расширенный словарь имён классов для Cityscapes (34 класса).
 
         Returns:
@@ -347,7 +367,7 @@ class NeuralSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def cityscapes_extended_palette() -> List[List[int]]:
+    def cityscapes_extended_palette() -> PaletteType:
         """Возвращает расширенную палитру Cityscapes для визуализации.
 
         Returns:
@@ -357,7 +377,7 @@ class NeuralSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def get_cityscapes_class_names() -> Dict[int, str]:
+    def get_cityscapes_class_names() -> ClassNamesDict:
         """Возвращает стандартный словарь имён классов для Cityscapes (19 классов).
 
         Returns:
@@ -369,7 +389,7 @@ class NeuralSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def cityscapes_palette() -> List[List[int]]:
+    def cityscapes_palette() -> PaletteType:
         """Возвращает стандартную палитру Cityscapes для визуализации.
 
         Returns:
@@ -379,7 +399,7 @@ class NeuralSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def get_chexpert_observation_class_names() -> Dict[int, str]:
+    def get_chexpert_observation_class_names() -> ClassNamesDict:
         """Возвращает словарь имён классов для CheXpert (14 наблюдений).
 
         Returns:
@@ -387,7 +407,7 @@ class NeuralSegmenter(BaseSegmenter):
         """
         # CheXpert Observation Classes (14 labels for classification)
         # Source: https://stanfordmlgroup.github.io/competitions/chexpert/
-        chexpert_observation_names: Dict[int, str] = {
+        chexpert_observation_names: ClassNamesDict = {
             0: "No Finding",
             1: "Enlarged Cardiomediastinum",
             2: "Cardiomegaly",
@@ -405,7 +425,7 @@ class NeuralSegmenter(BaseSegmenter):
         }
 
         # Для сегментации лёгких (если есть маски):
-        chest_segmentation_class_names: Dict[int, str] = {
+        chest_segmentation_class_names: ClassNamesDict = {
             0: "background",  # Non-lung area
             1: "lung",  # Lung field (left + right)
         }
@@ -417,7 +437,7 @@ class NeuralSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def chexpert_observation_palette() -> List[List[int]]:
+    def chexpert_observation_palette() -> PaletteType:
         """Возвращает палитру для визуализации классов CheXpert.
 
         Returns:
@@ -442,7 +462,7 @@ class NeuralSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def get_isic_class_names() -> Dict[int, str]:
+    def get_isic_class_names() -> ClassNamesDict:
         """Возвращает словарь имён классов для ISIC 2018 (бинарная сегментация).
 
         Returns:
@@ -450,7 +470,7 @@ class NeuralSegmenter(BaseSegmenter):
         """
         # ISIC 2018 Class Names (Binary: skin lesion segmentation)
         # Source: https://challenge.isic-archive.com/
-        isic_class_names: Dict[int, str] = {
+        isic_class_names: ClassNamesDict = {
             0: "background",  # Healthy skin / non-lesion area
             1: "lesion",  # Skin lesion (melanoma, nevus, etc.)
         }
@@ -462,7 +482,7 @@ class NeuralSegmenter(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def binary_palette() -> List[List[int]]:
+    def binary_palette() -> PaletteType:
         """Возвращает бинарную палитру для визуализации (фон/объект).
 
         Returns:
@@ -555,7 +575,7 @@ class NeuralSegmenter(BaseSegmenter):
         self,
         input_image: ImageInput,
         verbose: bool = True,
-        class_names: ClassNamesDict = None,
+        class_names: Optional[ClassNamesDict] = None,
         gt_mask: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Предсказывает карту семантической сегментации с опциональной вербозностью и метриками.
@@ -574,7 +594,7 @@ class NeuralSegmenter(BaseSegmenter):
             - `result_info`: Словарь с метаданными (метрики, время, классы, ...).
         """
         model_type_valid = cast(ValidModelType, self.model_type_str)  # type: ignore[reportInvalidTypeForm]
-        class_names_fixed: Optional[Dict[int, str]] = (
+        class_names_fixed: Optional[ClassNamesDict] = (
             {int(k) if isinstance(k, str) and k.isdigit() else k: v for k, v in class_names.items()}  # type: ignore
             if class_names is not None
             else None
@@ -601,7 +621,7 @@ class NeuralSegmenter(BaseSegmenter):
         input_image: Union[str, Image.Image],
         alpha: float = 0.9,
         verbose: bool = True,
-        class_names: ClassNamesDict = None,
+        class_names: Optional[ClassNamesDict] = None,
         gt_mask: Optional[np.ndarray] = None,
     ) -> Tuple[Image.Image, Dict[str, Any]]:
         """Универсальная функция сегментации для любой архитектуры.
@@ -723,9 +743,23 @@ class NeuralSegmenter(BaseSegmenter):
         Returns:
             BinaryMask: Бинарная маска формы `(H, W)`, dtype `uint8`, значения {0, 255}.
         """
+        start_time: float = time.perf_counter()
         # Получаем карту сегментации через стратегию инференса
-        seg_map, _ = self.predict_segmentation_map(image, verbose=False)
+        seg_map, result_info = self.predict_segmentation_map(image, verbose=False)
+        exec_time: float = time.perf_counter() - start_time
         # Бинаризация: всё кроме фона (класс 0) = объект
+        self._log_info(
+            f"neural_{self.model_type_str}",
+            exec_time,
+            {
+                "model_name": self.model_name,
+                "device": str(self.device),
+                "num_classes": self.num_classes,
+                **kwargs,
+            },
+            metrics=result_info.get("metrics", {}),  # extra: метрики если есть
+            input_shape=image.shape if hasattr(image, "shape") else None,
+        )
         mask: np.ndarray = (seg_map > 0).astype(np.uint8) * 255
         return mask
 
@@ -905,3 +939,68 @@ class NeuralSegmenter(BaseSegmenter):
                 }
 
         return {"num_classes": self.num_classes, "id2label": {}, "label2id": {}}
+
+
+# ──────────────────────────────────────────────────────────────────────
+# PUBLIC API
+# ──────────────────────────────────────────────────────────────────────
+__all__: List[str] = [
+    # 🔹 Основной класс сегментера
+    "NeuralSegmenter",
+    # 🔹 Типизация входных данных (изображения)
+    "ImagePath",
+    "NumpyImage",
+    "PILImage",
+    "TorchImage",
+    # 🔹 Типизация устройств
+    "DeviceType",
+    "DeviceStr",
+    # 🔹 Типизация для классов и палитр
+    "ClassNamesDict",
+    "PaletteType",
+    # 🔹 Валидация типов моделей (Literal)
+    "ValidModelType",
+    # 🔹 Константы модуля
+    "TRANSFORMERS_AVAILABLE",
+    "num_classes",
+    # 🔹 Re-export базовых типов (для удобства)
+    "ImageInput",
+    "BinaryMask",
+]
+"""Публичный API модуля NeuralSegmenter.
+
+Экспортируемые символы:
+- `NeuralSegmenter`: Универсальный сегментер с поддержкой 18+ нейронных архитектур
+  (SegFormer, Mask2Former, U-Net, SAM, YOLOv8-seg и др.).
+  Поддерживает авто-загрузку весов, множественные палитры и единый интерфейс.
+
+- `ValidModelType`: Literal-тип с валидными названиями моделей для type-checking.
+  Используется в аннотациях методов и фабричных функциях.
+
+- `ImagePath`, `NumpyImage`, `PILImage`, `TorchImage`: Типы для детальной
+  типизации входных изображений в пользовательском коде.
+
+- `DeviceType`, `DeviceStr`: Типы для аннотации параметров устройства
+  (`"cuda" | "cpu"` или `torch.device`).
+
+- `ClassNamesDict`, `PaletteType`: Типы для работы с именами классов
+  и цветовыми палитрами (ADE20K, COCO, Cityscapes, CheXpert, ISIC).
+
+- `TRANSFORMERS_AVAILABLE`: Флаг доступности библиотеки `transformers`.
+  Полезен для условных импортов и проверки зависимостей.
+
+- `num_classes`: Значение по умолчанию для количества классов (150 для ADE20K).
+
+- `ImageInput`, `BinaryMask`: Базовые типы из `BaseSegmenter` для совместимости.
+
+Используется статическими анализаторами (mypy, pyright), linter'ами и IDE
+для автодополнения и проверки типов:
+    from segmenters.NeuralSegmenter import NeuralSegmenter, ValidModelType, PaletteType
+    
+    # Корректная типизация конфигурации
+    config: dict[ValidModelType, PaletteType] = {
+        "segformer": NeuralSegmenter.ade_palette(),
+        "unet_smp": NeuralSegmenter.binary_palette(),
+    }
+    segmenter = NeuralSegmenter(model_type="segformer", palette=config["segformer"])
+"""

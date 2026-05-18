@@ -58,7 +58,7 @@ Note:
 # ──────────────────────────────────────────────────────────────────────
 from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
 
-from segmenters.BaseSegmenter import BaseSegmenter
+from segmenters.BaseSegmenter import BaseSegmenter, ExecutionInfo
 from typing import List, Union, Tuple, Dict, Any, Optional, Callable, Literal, cast
 import numpy as np
 import numpy.typing as npt
@@ -149,12 +149,12 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-SKIMAGE_AVAILABLE = True
+SKIMAGE_AVAILABLE: bool = True
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
@@ -176,37 +176,54 @@ NormalizedArray = npt.NDArray[np.float32]
 """Тип для нормализованных изображений [0, 1], dtype=float32."""
 
 ImagePath: TypeAlias = str
+"""Путь до исходного изображения, dtype=str."""
+
 NumpyImage: TypeAlias = np.ndarray
+"""Изображение в формате numpy, dtype=uint8."""
+
 PILImage: TypeAlias = Image.Image
+"""Изображение в формате PIL, dtype=Image.Image."""
+
 TorchImage: TypeAlias = torch.Tensor
+"""Изображение в формате torch, dtype=torch.Tensor."""
+
 ImageInput: TypeAlias = Union[ImagePath, NumpyImage, PILImage, TorchImage]
-"""Поддерживаемые форматы входного изображения."""
+"""Поддерживаемые форматы входного изображения (ImagePath, NumpyImage, PILImage, TorchImage), dtype=Union."""
 
 # Типы для цветовых пространств
 ColorSpace = Literal["RGB", "BGR", "GRAY", "LAB"]
-"""Поддерживаемые цветовые пространства."""
+"""Поддерживаемые цветовые пространства ("RGB", "BGR", "GRAY", "LAB"), dtype=Literal["RGB", "BGR", "GRAY", "LAB"]."""
+
 ColorChannel = Literal[1, 3]
+"""Цветовой канал, dtype=Literal[1, 3]."""
+
 OverlayColor: TypeAlias = Tuple[int, int, int]
+"""Формат цвета для создания оверлея, dtype=Tuple[int, int, int]."""
 
 # Типы для масок
 Mask: TypeAlias = np.ndarray
+"""Обычная маска изображения, dtype=np.ndarray."""
+
 BinaryMask: TypeAlias = np.ndarray  # shape: (H, W), dtype: uint8, значения: 0 или 255
+"""Бинарная маска изображения, dtype=np.ndarray."""
+
 ProbabilityMask: TypeAlias = np.ndarray  # shape: (H, W), dtype: float32, значения: 0-1
+"""Вероястностная маска изображения, dtype=np.ndarray."""
 
 # Типы для метаданных
 MetricsDict = Dict[str, float]
-"""Словарь метрик сегментации."""
+"""Словарь для хранения результатов метрик, dtype=Dict[str, float]."""
 
 SegmentationInfo = Dict[str, Any]
-"""Метаданные выполнения метода сегментации."""
+"""Метаданные выполнения метода сегментации, dtype=Dict[str, Any]."""
 
 # Тип для функции сегментации
 SegmentationFunc = Callable[[ImageArray, Any], Tuple[MaskArray, SegmentationInfo]]
-"""Сигнатура функции сегментации."""
+"""Сигнатура функции сегментации, dtype=Callable[[ImageArray, Any], Tuple[MaskArray, SegmentationInfo]]."""
 
 # Generic type для кластеров
 ClusterLabels = npt.NDArray[np.int32]
-"""Метки кластеров, форма (N,) или (H, W), dtype=int32."""
+"""Метки кластеров, форма (N,) или (H, W), dtype=npt.NDArray[np.int32]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -369,6 +386,7 @@ class SklearnSegmenter(BaseSegmenter):
             "prewitt_edge": self._sklearn_prewitt_edge,
             "scharr_edge": self._sklearn_scharr_edge,
             "roberts_cross_edge": self._sklearn_roberts_cross_edge,
+            "laplacian_edge": self._sklearn_laplacian_edge,
             "log_edge": self._sklearn_log_edge,
             "dog_edge": self._sklearn_dog_edge,
             "marr_hildreth_edge": self._sklearn_marr_hildreth_edge,
@@ -456,51 +474,6 @@ class SklearnSegmenter(BaseSegmenter):
         if self.method not in self.methods:
             available: List[str] = list(self.methods.keys())
             raise ValueError(f"Неизвестный метод: {self.method}. " f"Доступные методы: {available}")
-
-    # ──────────────────────────────────────────────────────────────────────
-    def _log_info(
-        self,
-        method_name: str,
-        exec_time: float,
-        params: Dict[str, Any],
-        **extra: Any,
-    ) -> SegmentationInfo:
-        """Вспомогательный метод для логирования информации о выполнении.
-
-        Сохраняет метаданные выполнения в атрибут `self.info` и возвращает словарь.
-
-        Args:
-            method_name: Название выполненного метода (например, "global_thresholding_sklearn").
-            exec_time: Время выполнения в секундах.
-            params: Словарь использованных параметров метода.
-            **extra: Дополнительные поля для метаданных (опционально).
-
-        Returns:
-            SegmentationInfo: Словарь с полными метаданными выполнения.
-
-        Note:
-            Метод вызывается автоматически в конце каждого приватного метода
-            сегментации (например, `_sklearn_otsu_thresholding`).
-            Результат можно использовать как возвращаемый `info`.
-
-        Example:
-            ```python
-            exec_time = time.time() - start_time
-            return mask, self._log_info(
-                "otsu_sklearn",
-                exec_time,
-                {"threshold": thresh},
-                histogram_stats={"mean": mean_val}
-            )
-            ```
-        """
-        self.info = {
-            "method": method_name,
-            "parameters": params,
-            "execution_time": exec_time,
-            **extra,  # Дополнительные поля
-        }
-        return self.info
 
     # ──────────────────────────────────────────────────────────────────────
     def _get_param(self, key: str, default: Any, **kwargs: Any) -> Any:
@@ -1048,16 +1021,13 @@ class SklearnSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = self._log_info(
+        info: ExecutionInfo = self._log_info(
             "global_thresholding_sklearn",
             exec_time,
             {"threshold": threshold, **kwargs},
             threshold_applied=threshold,
         )
-
-        # print(f"Mask after Sklearn_thresholding_global: {mask}")
-        # print(f"Info after Sklearn_thresholding_global: {info}")
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1115,7 +1085,7 @@ class SklearnSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = self._log_info(
+        info: ExecutionInfo = self._log_info(
             "adaptive_thresholding_sklearn",
             exec_time,
             {"block_size": block_size, "C": C, **kwargs},
@@ -1123,10 +1093,7 @@ class SklearnSegmenter(BaseSegmenter):
                 adaptive_thresh.tolist() if hasattr(adaptive_thresh, "tolist") else float(adaptive_thresh.mean())
             ),
         )
-
-        # print(f"Mask after Sklearn_thresholding_adaptive: {mask}")
-        # print(f"Info after Sklearn_thresholding_adaptive: {info}")
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1181,11 +1148,9 @@ class SklearnSegmenter(BaseSegmenter):
 
         exec_time: float = time.time() - start_time
 
-        info: SegmentationInfo = self._log_info("otsu_thresholding_sklearn", exec_time, kwargs, threshold=thresh)
+        info: ExecutionInfo = self._log_info("otsu_thresholding_sklearn", exec_time, kwargs, threshold=thresh)
 
-        # print(f"Mask after Sklearn_thresholding_otsu: {mask}")
-        # print(f"Info after Sklearn_thresholding_otsu: {info}")
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1244,9 +1209,7 @@ class SklearnSegmenter(BaseSegmenter):
             threshold=thresh,
         )
 
-        # print(f"Mask after Sklearn_thresholding_niblack: {mask}")
-        # print(f"Info after Sklearn_thresholding_niblack: {info}")
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1308,8 +1271,7 @@ class SklearnSegmenter(BaseSegmenter):
             threshold=thresh,
         )
 
-        # print(f"Mask after Sklearn_thresholding_sauvola: {mask}")
-        # print(f"Info after Sklearn_thresholding_sauvola: {info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask, info
 
@@ -1378,6 +1340,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1443,6 +1406,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"window_size": window_size, "k": k, "r": r, "m": m, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1543,6 +1507,7 @@ class SklearnSegmenter(BaseSegmenter):
             {"num_bins": num_bins, **kwargs},
             threshold=best_threshold,
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1630,6 +1595,7 @@ class SklearnSegmenter(BaseSegmenter):
             {"num_bins": num_bins, **kwargs},
             threshold=best_threshold,
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1717,6 +1683,7 @@ class SklearnSegmenter(BaseSegmenter):
             {"num_bins": num_bins, **kwargs},
             threshold=best_threshold,
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1768,6 +1735,7 @@ class SklearnSegmenter(BaseSegmenter):
             {"n_thresholds": len(thresholds), **kwargs},
             thresholds=thresholds.tolist(),
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1812,6 +1780,7 @@ class SklearnSegmenter(BaseSegmenter):
             {"percentile": percentile, **kwargs},
             threshold=threshold,
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1865,6 +1834,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"window_size": window_size, "contrast_factor": contrast_factor, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ============ МЕТОДЫ НА ОСНОВЕ КРАЕВ ============
@@ -1923,10 +1893,7 @@ class SklearnSegmenter(BaseSegmenter):
         exec_time: float = time.time() - start_time
 
         info: SegmentationInfo = self._log_info("sobel_edge_sklearn", exec_time, {"threshold": threshold, **kwargs})
-
-        # print(f"Mask after Sklearn_sobel_edge: {mask}")
-        # print(f"Info after Sklearn_sobel_edge: {info}")
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1999,8 +1966,7 @@ class SklearnSegmenter(BaseSegmenter):
             },
             edge_count=int(np.sum(edges_bool)),
         )
-        print(f"Mask after Sklearn_canny_edge: {mask}")
-        print(f"Info after Sklearn_canny_edge: {info}")
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2047,6 +2013,7 @@ class SklearnSegmenter(BaseSegmenter):
         mask: MaskArray = ((magnitude > threshold) * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
         info: SegmentationInfo = self._log_info("prewitt_edge_sklearn", exec_time, {"threshold": threshold, **kwargs})
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2107,6 +2074,7 @@ class SklearnSegmenter(BaseSegmenter):
         mask: MaskArray = ((magnitude > threshold) * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
         info: SegmentationInfo = self._log_info("scharr_edge_sklearn", exec_time, {"threshold": threshold, **kwargs})
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2171,6 +2139,167 @@ class SklearnSegmenter(BaseSegmenter):
         info: SegmentationInfo = self._log_info(
             "roberts_cross_edge_sklearn", exec_time, {"threshold": threshold, **kwargs}
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
+        return mask, info
+
+    # ──────────────────────────────────────────────────────────────────────
+    def _sklearn_laplacian_edge(
+        self,
+        img: ImageArray,
+        **kwargs: Any,
+    ) -> Tuple[MaskArray, SegmentationInfo]:
+        """Обнаружение границ через Лапласиан (scikit-image).
+
+        Вычисляет вторые производные интенсивности изображения с использованием
+        `skimage.filters.laplace`. Границы обнаруживаются по нулевым пересечениям
+        (zero-crossings) или по абсолютной величине лапласиана с пороговой обработкой.
+
+        Формула (дискретный Лапласиан, 4-связность):
+        ```
+        ∇²I = I(x+1,y) + I(x-1,y) + I(x,y+1) + I(x,y-1) - 4·I(x,y)
+        ```
+
+        Алгоритм:
+        1. Конвертация в grayscale и нормализация к [0, 1] при необходимости.
+        2. Опциональное Гауссово сглаживание через `skimage.filters.gaussian`.
+        3. Применение `filters.laplace` для вычисления вторых производных.
+        4. Нормализация результата и пороговая бинаризация / zero-crossing.
+        5. Возврат маски и метаданных выполнения.
+
+        Метод особенно эффективен для:
+        - Изображений с чёткими, резкими переходами интенсивности
+        - Задач, где важна инвариантность к направлению границ
+        - Интеграции с pipeline на базе scikit-image / scikit-learn
+
+        Args:
+            img: Входное изображение. Поддерживаются форматы:
+                - Grayscale: `(H, W)`, dtype=uint8 или float32 [0,1]
+                - RGB: `(H, W, 3)`, dtype=uint8 (автоматически конвертируется)
+            **kwargs: Дополнительные параметры:
+                - `sigma` (float): Сигма Гауссова размытия [0.0, 5.0].
+                По умолчанию 0.0. Подавляет шум перед вычислением Лапласиана.
+                - `threshold` (float): Порог для бинаризации [0.0, 1.0] (для нормализованных).
+                По умолчанию 0.1. Меньшие значения → больше границ.
+                - `use_zero_crossing` (bool): Использовать zero-crossing detection.
+                По умолчанию False. True → более тонкие, но потенциально разрывные границы.
+
+        Returns:
+            Tuple[MaskArray, SegmentationInfo]:
+                - `mask`: Бинарная маска формы `(H, W)`, dtype=uint8, {0, 255}.
+                - `info`: Словарь с метаданными выполнения (время, параметры, статистика).
+
+        Note:
+            - Лапласиан очень чувствителен к шуму; для зашумлённых изображений
+            обязательно используйте `sigma > 0`.
+            - При `use_zero_crossing=True` порог `threshold` используется для отсечения
+            слабых пересечений по амплитуде лапласиана.
+            - Для получения связных границ после zero-crossing рассмотрите постобработку
+            через морфологические операции (`skimage.morphology`).
+            - Метод возвращает `SegmentationInfo` для совместимости с интерфейсом
+            `SklearnSegmenter` и интеграции с метриками.
+
+        Example:
+            ```python
+            # Базовое использование с пороговой обработкой
+            segmenter = SklearnSegmenter("laplacian_edge", threshold=0.1)
+            mask, info = segmenter._sklearn_laplacian_edge(image)
+
+            # С предварительным сглаживанием для шумных изображений
+            segmenter = SklearnSegmenter("laplacian_edge", sigma=1.0, threshold=0.05)
+            mask, info = segmenter.segment(image)
+
+            # Zero-crossing для тонких границ
+            segmenter = SklearnSegmenter(
+                "laplacian_edge",
+                sigma=0.5,
+                use_zero_crossing=True,
+                threshold=0.02
+            )
+            mask, info = segmenter.segment(fine_details_image)
+
+            # Доступ к метаданным выполнения
+            print(f"Время: {info['execution_time']:.3f} с")
+            print(f"Параметры: {info['parameters']}")
+            ```
+        """
+        # Конвертация в grayscale при необходимости
+        if len(img.shape) == 3:
+            if SKIMAGE_AVAILABLE:
+                gray: NormalizedArray = color.rgb2gray(img).astype(np.float32)
+            else:
+                gray = np.mean(img, axis=2).astype(np.float32) / 255.0
+        else:
+            gray = img.astype(np.float32)
+            if gray.max() > 1.0:
+                gray = gray / 255.0
+
+        start_time: float = time.time()
+
+        # Получение параметров с типизацией и значениями по умолчанию
+        sigma: float = float(self.params.get("sigma", 0.0))
+        threshold: float = float(self.params.get("threshold", 0.1))
+        use_zero_crossing: bool = bool(self.params.get("use_zero_crossing", False))
+
+        # Опциональное Гауссово сглаживание для подавления шума
+        if sigma > 0 and SKIMAGE_AVAILABLE:
+            gray = filters.gaussian(gray, sigma=sigma, preserve_range=True, channel_axis=None)
+
+        # Применение Лапласиана через scikit-image
+        laplacian: npt.NDArray[np.float64] = filters.laplace(gray)
+
+        if use_zero_crossing:
+            # Zero-crossing detection: поиск смены знака
+            sign: npt.NDArray[np.float64] = np.sign(laplacian)
+
+            # Векторизованная проверка соседей (горизонталь + вертикаль)
+            zc_h: npt.NDArray[np.bool_] = sign[:, :-1] * sign[:, 1:] < 0
+            zc_v: npt.NDArray[np.bool_] = sign[:-1, :] * sign[1:, :] < 0
+
+            zero_crossing_bool: npt.NDArray[np.bool_] = np.zeros_like(laplacian, dtype=bool)
+            zero_crossing_bool[:, :-1] |= zc_h
+            zero_crossing_bool[:-1, :] |= zc_v
+
+            # Фильтрация слабых пересечений по амплитуде
+            magnitude: npt.NDArray[np.float64] = np.abs(laplacian)
+            mask_bool: npt.NDArray[np.bool_] = zero_crossing_bool & (magnitude > threshold)
+        else:
+            # Пороговая обработка по абсолютной величине лапласиана
+            magnitude = np.abs(laplacian)
+            # Нормализация к [0, 1] для удобства подбора порога
+            if magnitude.max() > magnitude.min():
+                magnitude_norm: FloatArray = (
+                    (magnitude - magnitude.min()) / (magnitude.max() - magnitude.min() + 1e-8)
+                ).astype(np.float32)
+            else:
+                magnitude_norm = np.zeros_like(magnitude, dtype=np.float32)
+
+            mask_bool = magnitude_norm > threshold
+
+        # Конвертация в uint8 {0, 255}
+        mask: MaskArray = (mask_bool * 255).astype(np.uint8)
+
+        exec_time: float = time.time() - start_time
+
+        # Формирование метаданных выполнения
+        info: SegmentationInfo = self._log_info(
+            "laplacian_edge_sklearn",
+            exec_time,
+            {
+                "sigma": sigma,
+                "threshold": threshold,
+                "use_zero_crossing": use_zero_crossing,
+                **kwargs,
+            },
+            edge_density=float(np.mean(mask_bool)),  # Доля пикселей-границ
+            laplacian_stats={
+                "mean": float(np.mean(laplacian)),
+                "std": float(np.std(laplacian)),
+                "min": float(np.min(laplacian)),
+                "max": float(np.max(laplacian)),
+            },
+        )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
+
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2233,6 +2362,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"sigma": sigma, "threshold": threshold, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2296,6 +2426,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"sigma1": sigma1, "sigma2": sigma2, "threshold": threshold, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2388,6 +2519,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"threshold": threshold, "angle_range": angle_range, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2527,6 +2659,7 @@ class SklearnSegmenter(BaseSegmenter):
             },
             mean_pc=float(np.mean(pc_map[mask > 0])) if mask.any() else 0.0,
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ============ РЕГИОНАЛЬНЫЕ МЕТОДЫ ============
@@ -2627,6 +2760,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"seed": seed, "tolerance": tolerance, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask, info
 
@@ -2759,6 +2893,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"threshold": threshold, "min_size": min_size, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask, info
 
@@ -2864,6 +2999,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"threshold": threshold, "min_size": min_size, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2928,6 +3064,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"seed": seed, "tolerance": tolerance, **kwargs},
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ============ КЛАСТЕРИЗАЦИЯ ============
@@ -2988,6 +3125,7 @@ class SklearnSegmenter(BaseSegmenter):
             n_iter=int(kmeans.n_iter_),
             cluster_sizes=counts.tolist(),
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask, info
 
@@ -3023,7 +3161,7 @@ class SklearnSegmenter(BaseSegmenter):
             cluster_sizes=kmeans.tolist(),
             cluster_centers=kmeans.cluster_centers_,
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3074,7 +3212,7 @@ class SklearnSegmenter(BaseSegmenter):
             n_clusters=int(len(np.unique(labels[labels != -1]))),
             n_noise=int(np.sum(labels == -1)),
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3104,7 +3242,7 @@ class SklearnSegmenter(BaseSegmenter):
             n_clusters=int(len(np.unique(labels[labels != -1]))),
             n_noise=int(np.sum(labels == -1)),
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3172,6 +3310,7 @@ class SklearnSegmenter(BaseSegmenter):
             n_clusters=len(unique_labels),
             cluster_centers=ms.cluster_centers_,
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3240,6 +3379,7 @@ class SklearnSegmenter(BaseSegmenter):
             n_clusters=len(unique),
             cluster_centers=meanshift.cluster_centers_,
         )
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
         return mask, info
 
@@ -3322,7 +3462,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3386,7 +3526,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"mu": mu, "iterations": iterations, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3447,7 +3587,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3528,7 +3668,7 @@ class SklearnSegmenter(BaseSegmenter):
             },
             converged=exec_time < max_iter * 0.1,
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ============ WATERSHED И ГРАФОВЫЕ МЕТОДЫ ============
@@ -3572,7 +3712,7 @@ class SklearnSegmenter(BaseSegmenter):
         exec_time: float = time.time() - start_time
 
         info: SegmentationInfo = self._log_info("watershed_sklearn", exec_time, kwargs)
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3626,7 +3766,7 @@ class SklearnSegmenter(BaseSegmenter):
         info: SegmentationInfo = self._log_info(
             "random_walker_sklearn", exec_time, {"beta": beta, "mode": mode, **kwargs}
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ============ SUPER-PIXEL МЕТОДЫ ============
@@ -3679,7 +3819,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3732,7 +3872,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3781,7 +3921,7 @@ class SklearnSegmenter(BaseSegmenter):
             {"scale": scale, "sigma": sigma, "min_size": min_size, **kwargs},
             n_segments=len(unique_labels),
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask_np, info
 
     # ============ ИНТЕРАКТИВНЫЕ МЕТОДЫ ============
@@ -3951,7 +4091,7 @@ class SklearnSegmenter(BaseSegmenter):
             converged=gmm.converged_,
             lower_bound=gmm.lower_bound_,
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4021,7 +4161,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4087,7 +4227,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4155,7 +4295,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4206,7 +4346,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4254,7 +4394,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"n_clusters": n_clusters, "batch_size": batch_size, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ============ МЕТОДЫ КЛАССИФИКАЦИИ ДЛЯ СЕГМЕНТАЦИИ ============
@@ -4413,7 +4553,7 @@ class SklearnSegmenter(BaseSegmenter):
         exec_time: float = time.time() - start_time
 
         info: SegmentationInfo = self._log_info("random_forest_sklearn", exec_time, kwargs)
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4489,7 +4629,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"C": C, "kernel": kernel, "gamma": gamma, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4565,7 +4705,7 @@ class SklearnSegmenter(BaseSegmenter):
         exec_time: float = time.time() - start_time
 
         info: SegmentationInfo = self._log_info("logistic_regression_sklearn", exec_time, {"C": C, **kwargs})
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4639,7 +4779,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"n_neighbors": n_neighbors, "weights": weights, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ============ МЕТОДЫ ОБНАРУЖЕНИЯ АНОМАЛИЙ ============
@@ -4708,7 +4848,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"n_estimators": n_estimators, "contamination": contamination, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4762,7 +4902,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"n_neighbors": n_neighbors, "contamination": contamination, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4823,7 +4963,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"kernel": kernel, "gamma": gamma, "nu": nu, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ============ МЕТОДЫ РАЗЛОЖЕНИЯ ============
@@ -4892,7 +5032,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"n_components": n_components, "n_clusters": n_clusters, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4938,7 +5078,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"n_components": n_components, "n_clusters": n_clusters, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -4998,7 +5138,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"perplexity": perplexity, "n_clusters": n_clusters, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ============ КОМБИНИРОВАННЫЕ МЕТОДЫ ============
@@ -5063,7 +5203,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"n_clusters": n_clusters, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5123,7 +5263,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ АВТОМАТИЧЕСКОЙ НАСТРОЙКИ ============
@@ -5292,7 +5432,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"max_depth": max_depth, "min_samples_split": min_samples_split, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5335,7 +5475,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"hidden_layer_sizes": hidden_layer_sizes, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5366,7 +5506,7 @@ class SklearnSegmenter(BaseSegmenter):
         exec_time: float = time.time() - start_time
 
         info: SegmentationInfo = self._log_info("naive_bayes_sklearn", exec_time, kwargs)
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5397,7 +5537,7 @@ class SklearnSegmenter(BaseSegmenter):
         exec_time: float = time.time() - start_time
 
         info: SegmentationInfo = self._log_info("lda_sklearn", exec_time, kwargs)
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5469,7 +5609,7 @@ class SklearnSegmenter(BaseSegmenter):
         info: SegmentationInfo = self._log_info(
             "bayesian_gmm_sklearn", exec_time, {"n_components": n_components, **kwargs}
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5590,7 +5730,7 @@ class SklearnSegmenter(BaseSegmenter):
         mask: MaskArray = self._postprocess_mask(mask_raw)
         exec_time: float = time.time() - start_time
         info: SegmentationInfo = self._log_info("affinity_propagation_sklearn", exec_time, kwargs)
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5735,7 +5875,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5796,7 +5936,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5839,7 +5979,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5901,7 +6041,7 @@ class SklearnSegmenter(BaseSegmenter):
         mask = mask.astype(np.uint8) * 255
 
         info = self._log_info("random_forest_sklearn", exec_time, kwargs)
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -5976,7 +6116,7 @@ class SklearnSegmenter(BaseSegmenter):
                 **kwargs,
             },
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ──────────────────────────────────────────────────────────────────────
@@ -6019,7 +6159,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time,
             {"n_components": n_components, "n_clusters": n_clusters, **kwargs},
         )
-
+        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask, info
 
     # ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
@@ -6108,7 +6248,7 @@ class SklearnSegmenter(BaseSegmenter):
                 exec_time,
                 {"seed": seed, "tolerance": tolerance, **kwargs},
             )
-
+            logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
             return mask, info
 
         except Exception as e:
@@ -6219,7 +6359,7 @@ class SklearnSegmenter(BaseSegmenter):
                     **kwargs,
                 },
             )
-
+            logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
             return mask, info
 
         except Exception as e:
@@ -6316,7 +6456,7 @@ class SklearnSegmenter(BaseSegmenter):
                 exec_time,
                 {"mu": mu, "iterations": iterations, **kwargs},
             )
-
+            logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
             return mask, info
 
         except Exception as e:
@@ -6409,7 +6549,7 @@ class SklearnSegmenter(BaseSegmenter):
                     **kwargs,
                 },
             )
-
+            logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
             return mask, info
 
         except Exception as e:
@@ -6508,7 +6648,7 @@ class SklearnSegmenter(BaseSegmenter):
                 },
                 converged=exec_time < max_iter * 0.1,
             )
-
+            logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
             return mask, info
 
         except Exception as e:
@@ -6583,7 +6723,7 @@ class SklearnSegmenter(BaseSegmenter):
             exec_time: float = time.time() - start_time
 
             info: SegmentationInfo = self._log_info("watershed_sklearn", exec_time, kwargs)
-
+            logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
             return mask, info
 
         except Exception as e:
@@ -6670,7 +6810,7 @@ class SklearnSegmenter(BaseSegmenter):
                 exec_time,
                 {"beta": beta, "mode": mode, **kwargs},
             )
-
+            logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
             return mask, info
 
         except Exception as e:
@@ -6726,7 +6866,7 @@ class SklearnSegmenter(BaseSegmenter):
                     **kwargs,
                 },
             )
-
+            logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
             return mask, info
 
         except Exception as e:
@@ -6816,7 +6956,7 @@ class SklearnSegmenter(BaseSegmenter):
                     **kwargs,
                 },
             )
-
+            logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
             return mask, info
 
         except Exception as e:
@@ -6893,7 +7033,7 @@ class SklearnSegmenter(BaseSegmenter):
                 {"scale": scale, "sigma": sigma, "min_size": min_size, **kwargs},
                 n_segments=len(unique),
             )
-
+            logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
             return mask, info
 
         except Exception as e:
@@ -6992,7 +7132,7 @@ class SklearnSegmenter(BaseSegmenter):
                 exec_time,
                 {"rect": rect, "n_estimators": n_estimators, **kwargs},
             )
-
+            logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
             return mask, info
 
         except Exception as e:
@@ -7017,3 +7157,71 @@ class SklearnSegmenter(BaseSegmenter):
 #         ("pca_segmentation", {"n_components": 3}),
 #         ("color_spatial_clustering", {"color_weight": 0.7, "spatial_weight": 0.3}),
 #     ]
+
+
+# ──────────────────────────────────────────────────────────────────────
+# PUBLIC API
+# ──────────────────────────────────────────────────────────────────────
+__all__: List[str] = [
+    # 🔹 Основной класс сегментера
+    "SklearnSegmenter",
+    # 🔹 Типизация входных данных (изображения)
+    "ImageArray",
+    "GrayImage",
+    "NormalizedArray",
+    "ImagePath",
+    "NumpyImage",
+    "PILImage",
+    "TorchImage",
+    "ImageInput",
+    # 🔹 Типизация выходных данных (маски)
+    "MaskArray",
+    "FloatArray",
+    "BinaryMask",
+    "ProbabilityMask",
+    "Mask",
+    # 🔹 Типизация метаданных и функций
+    "MetricsDict",
+    "SegmentationInfo",
+    "SegmentationFunc",
+    "ClusterLabels",
+    # 🔹 Вспомогательные типы
+    "ColorSpace",
+    "ColorChannel",
+    "OverlayColor",
+    # 🔹 Константы модуля
+    "SKIMAGE_AVAILABLE",
+]
+"""Публичный API модуля SklearnSegmenter.
+
+Экспортируемые символы:
+- `SklearnSegmenter`: Классический сегментер на базе scikit-learn/scikit-image
+  с поддержкой 80+ методов: пороговые, граничные, кластеризация (15+),
+  активные контуры, watershed, суперпиксели, ML-классификаторы, 
+  обнаружение аномалий, разложение и многообразия.
+
+- `ImageArray`, `GrayImage`, `NormalizedArray`: Типы для входных/промежуточных
+  изображений (uint8 RGB/grayscale, float32 [0,1]).
+
+- `MaskArray`, `BinaryMask`, `ProbabilityMask`: Типы для выходных масок —
+  бинарные {0,255} и вероятностные [0,1].
+
+- `SegmentationFunc`: Сигнатура функции сегментации для фабричных обёрток.
+- `ClusterLabels`: Тип меток кластеризации (np.int32, форма (N,) или (H,W)).
+
+- `MetricsDict`, `SegmentationInfo`: Словари для метрик и метаданных выполнения.
+
+- `ColorSpace`, `OverlayColor`: Типы для работы с цветовыми пространствами
+  и визуализацией.
+
+- `SKIMAGE_AVAILABLE`: Флаг доступности scikit-image для условных импортов.
+
+Используется статическими анализаторами (mypy, pyright), linter'ами и IDE
+для автодополнения и проверки типов:
+    from segmenters.SklearnSegmenter import SklearnSegmenter, MaskArray, SegmentationFunc
+    
+    # Корректная типизация конфигурации
+    params: Dict[str, Any] = {"n_clusters": 3, "random_state": 42}
+    segmenter = SklearnSegmenter("kmeans_segmentation", **params)
+    mask: MaskArray = segmenter.segment(image)
+"""

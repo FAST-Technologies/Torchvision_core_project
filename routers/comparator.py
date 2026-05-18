@@ -103,10 +103,11 @@ import time
 import base64
 import logging
 import traceback
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TypeAlias
 
 import numpy as np
 import pandas as pd
+from PIL import Image
 from fastapi import APIRouter, HTTPException, Form, File, UploadFile
 from fastapi.responses import JSONResponse
 
@@ -117,8 +118,14 @@ from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
 from segmenters.TorchSegmenter import TorchSegmenter
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("comparator")
+# Настройка логгера
+logger: logging.Logger = logging.getLogger("comparator")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 router: APIRouter = APIRouter(
     prefix="/api/comparator",
@@ -133,8 +140,8 @@ router: APIRouter = APIRouter(
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & TASK STORAGE
 # ──────────────────────────────────────────────────────────────────────
-ComparatorTaskDict = Dict[str, Dict[str, Any]]
-"""Тип-алиас для хранилища задач компаратора.
+ComparatorTaskDict: TypeAlias = Dict[str, Dict[str, Any]]
+"""Тип-алиас для хранилища задач компаратора, dtype=Dict[str, Dict[str, Any]].
 Структура задачи:
 {
     "status": str,              # "running" | "completed" | "failed" | "cancelled"
@@ -148,7 +155,7 @@ python task: ComparatorTaskDict = { "status": "running", "progress": 45.5, "mess
 """
 
 _comparator_tasks: ComparatorTaskDict = {}
-"""Глобальное хранилище задач компаратора в памяти.
+"""Глобальное хранилище задач компаратора в памяти, dtype=Dict[str, Dict[str, Any]].
 Ключ: UUID задачи (str).
 Значение: Словарь со статусом, прогрессом и результатами.
 Warning:
@@ -158,8 +165,8 @@ Warning:
 - Очистки устаревших задач по TTL
 """
 
-_comparator_lock = asyncio.Lock()
-"""Асинхронный лок для потокобезопасного обновления _comparator_tasks.
+_comparator_lock: asyncio.Lock = asyncio.Lock()
+"""Асинхронный лок для потокобезопасного обновления _comparator_tasks, dtype=Dict[str, Dict[str, Any]].
 Используется во всех операциях чтения/записи задач для предотвращения
 состояний гонки при параллельных запросах к одному task_id.
 Example:
@@ -662,7 +669,6 @@ async def start_comparator(
         reference_config = json.loads(reference)
     except json.JSONDecodeError as e:
         raise HTTPException(422, detail=f"Invalid JSON: {e}")
-    from PIL import Image
 
     img: Image.Image = Image.open(image.file).convert("RGB")
     image_array: np.ndarray = np.array(img)

@@ -25,7 +25,7 @@ import sys
 import time
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Any, Literal, Union
+from typing import Dict, List, Tuple, Optional, Any, Literal, Union, TypeAlias
 from types import FrameType
 from collections import defaultdict
 from datetime import datetime
@@ -55,18 +55,28 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
-MethodConfig = Tuple[str, Dict[str, Any]]
-LibraryName = Literal["torch", "torch_v2", "opencv", "sklearn"]
-ValidationStatus = Literal["PASS", "WARNING", "FAIL"]
-SegmenterClass = type[Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter]]
+MethodConfig: TypeAlias = Tuple[str, Dict[str, Any]]
+"""Текущая конфигурация методов сегментации, dtype=Tuple[str, Dict[str, Any]]."""
+
+LibraryName: TypeAlias = Literal["torch", "torch_v2", "opencv", "sklearn"]
+"""Используемая библиотека для тестирования, dtype=Literal["torch", "torch_v2", "opencv", "sklearn"]."""
+
+ValidationStatus: TypeAlias = Literal["PASS", "WARNING", "FAIL"]
+"""Статус валидации, dtype=Literal["PASS", "WARNING", "FAIL"]."""
+
+SegmenterClass: TypeAlias = type[Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter]]
+"""Текущий класс-сегментер, dtype=type[Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter]]."""
+
+TorchSegmenterVersion: TypeAlias = Literal["v1", "v2"]
+"""Текущая версия Торч-сегментера, dtype=Literal["v1", "v2"]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -105,7 +115,7 @@ class BatchClassicTester:
         save_visualizations: bool = True,  # Генерировать ли визуализации разницы?
         save_results: bool = True,  # Сохранять ли результаты (маски + изображения)
         refresh_masks: bool = False,  # Пересоздавать маски даже для протестированных
-        torch_segmenter_version: Literal["v1", "v2"] = "v2",
+        torch_segmenter_version: TorchSegmenterVersion = "v2",
     ) -> None:
         """Инициализация тестера согласованности для массового сравнения реализаций.
 
@@ -336,7 +346,7 @@ class BatchClassicTester:
         self.execution_times: Dict[str, Dict[str, List[Tuple[float, float]]]] = defaultdict(lambda: defaultdict(list))
         self.errors: Dict[str, Dict[str, List[str]]] = defaultdict(lambda: defaultdict(list))
         self.validation_status: Dict[str, Dict[str, List[ValidationStatus]]] = defaultdict(lambda: defaultdict(list))
-        self.torch_segmenter_version: Literal["v1", "v2"] = torch_segmenter_version
+        self.torch_segmenter_version: TorchSegmenterVersion = torch_segmenter_version
 
         # Пути для автосохранения
         self.progress_file: Path = self.output_dir / ".progress.json"
@@ -516,7 +526,7 @@ class BatchClassicTester:
             # ──────────────────────────────────────────────────────
             seg_b_class = self._get_segmenter_class(lib_b)
             params_b: Dict[str, Any] = params.copy()
-            params_b["postprocess"] = False  # 🔧 Отключаем постобработку
+            params_b["postprocess"] = False
 
             seg_b = seg_b_class(method=method_name, **params_b)
             if str(self.device) == "cuda":

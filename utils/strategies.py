@@ -65,16 +65,7 @@ import time
 import requests
 from io import BytesIO
 from pathlib import Path
-from typing import (
-    List,
-    Union,
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-    Callable,
-    Literal,
-)
+from typing import List, Union, Tuple, Dict, Any, Optional, Callable, Literal, TypeAlias
 
 import torch
 import numpy as np
@@ -100,18 +91,24 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & CONSTANTS
 # ──────────────────────────────────────────────────────────────────────
-ImageInput = Union[str, Path, Image.Image, np.ndarray, torch.Tensor]
-MaskArray = np.ndarray  # Binary/semantic mask: H×W, dtype uint8/int
-ImageArray = np.ndarray  # RGB image: H×W×3, dtype uint8
-ModelType = Literal[
+ImageInput: TypeAlias = Union[str, Path, Image.Image, np.ndarray, torch.Tensor]
+"""Входное изображение (путь, `np.ndarray` или `PIL.Image`), dtype=Union[str, torch.Tensor, np.ndarray, Image.Image]."""
+
+MaskArray: TypeAlias = np.ndarray  # Binary/semantic mask: H×W, dtype uint8/int
+"""Тип для бинарной маски сегментации: (H, W), dtype=uint8, значения {0, 255}."""
+
+ImageArray: TypeAlias = np.ndarray  # RGB image: H×W×3, dtype uint8
+"""Тип для входного изображения: (H, W) для grayscale или (H, W, 3) для RGB, dtype=uint8."""
+
+ModelType: TypeAlias = Literal[
     "segformer",
     "maskformer",
     "mask2former",
@@ -136,13 +133,17 @@ ModelType = Literal[
     "yolov8s_seg",
     "yolov8m_seg",
 ]
-InferFunc = Callable[[Any, Any, Image.Image, str], Tuple[MaskArray, Image.Image]]
+"""Используемый тип модели, dtype=Literal."""
+
+InferFunc: TypeAlias = Callable[[Any, Any, Image.Image, str], Tuple[MaskArray, Image.Image]]
+"""Общий тип функции для инференса, dtype=Callable[[Any, Any, Image.Image, str], Tuple[MaskArray, Image.Image]]."""
 
 project_root: Path = Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 num_classes: int = 150
+"""Общее число классов датасета, dtype=int."""
 
 
 # ──────────────────────────────────────────────────────────────────────

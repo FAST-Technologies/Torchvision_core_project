@@ -38,8 +38,9 @@ import os
 import time
 import itertools
 import traceback
+import traceback
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Union, Tuple
+from typing import List, Dict, Any, Optional, Union, Tuple, TypeAlias
 from datetime import datetime
 
 import torch
@@ -54,20 +55,31 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
-ArrayLike = Union[np.ndarray, List[Any]]
-MaskArray = np.ndarray  # Binary mask: HxW, dtype uint8/bool
-ImageArray = np.ndarray  # RGB/Grayscale image: HxW or HxWxC
-MetricDict = Dict[str, float]
-SegmenterLike = Any  # Объект с методом .segment(image) -> MaskArray
-PathLike = Union[str, Path]
+ArrayLike: TypeAlias = Union[np.ndarray, List[Any]]
+"""Тип для массивов формата np.ndarray и List[Any], dtype=Union[np.ndarray, List[Any]]."""
+
+MaskArray: TypeAlias = np.ndarray  # Binary mask: HxW, dtype uint8/bool
+"""Тип для бинарной маски сегментации: (H, W), dtype=uint8, значения {0, 255}."""
+
+ImageArray: TypeAlias = np.ndarray  # RGB/Grayscale image: HxW or HxWxC
+"""Тип для входного изображения: (H, W) для grayscale или (H, W, 3) для RGB, dtype=uint8."""
+
+MetricDict: TypeAlias = Dict[str, float]
+"""Словарь метрик качества: {имя_метрики: значение}, например {"iou": 0.85, "dice": 0.91}, dtype=Dict[str, float]."""
+
+SegmenterLike: TypeAlias = Any  # Объект с методом .segment(image) -> MaskArray
+"""Унифицированный тип для различных сегментаторов, dtype=Any."""
+
+PathLike: TypeAlias = Union[str, Path]
+"""Унифицированный тип для путей к файлам: строка или pathlib.Path, dtype=Union[str, Path]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -198,21 +210,21 @@ class SegmentationComparator:
         m2_name: Optional[str] = name2 or getattr(segmenter2, "method", "Method2")
 
         # Инференс первого метода
-        if str(self.device) == "cuda":
+        if self.device.type == "cuda":
             torch.cuda.synchronize()
         start_time_1: float = time.perf_counter()
         mask1: MaskArray = segmenter1.segment(image)
-        if str(self.device) == "cuda":
+        if self.device.type == "cuda":
             torch.cuda.synchronize()
         time_1: float = time.perf_counter() - start_time_1
         info1: Dict[str, Any] = {"execution_time": time_1, "method": m1_name}
 
         # Инференс второго метода
-        if str(self.device) == "cuda":
+        if self.device.type == "cuda":
             torch.cuda.synchronize()
         start_time_2: float = time.perf_counter()
         mask2: MaskArray = segmenter2.segment(image)
-        if str(self.device) == "cuda":
+        if self.device.type == "cuda":
             torch.cuda.synchronize()
         time_2: float = time.perf_counter() - start_time_2
         info2: Dict[str, Any] = {"execution_time": time_2, "method": m2_name}
@@ -400,11 +412,11 @@ class SegmentationComparator:
             os.makedirs(output_dir, exist_ok=True)
 
         ref_name: Union[str | Any | None] = reference_name or getattr(reference_segmenter, "method", "Reference")
-        if str(self.device) == "cuda":
+        if self.device.type == "cuda":
             torch.cuda.synchronize()
         start_time_ref: float = time.perf_counter()
         ref_mask: MaskArray = reference_segmenter.segment(image)
-        if str(self.device) == "cuda":
+        if self.device.type == "cuda":
             torch.cuda.synchronize()
         ref_time: float = time.perf_counter() - start_time_ref
         ref_info: Dict[str, Any] = {"execution_time": ref_time, "method": ref_name}
@@ -418,11 +430,11 @@ class SegmentationComparator:
                 print(f"⚠️ Пропущен конфиг без сегментера: {config}")
                 continue
             try:
-                if str(self.device) == "cuda":
+                if self.device.type == "cuda":
                     torch.cuda.synchronize()
                 start_time_test: float = time.perf_counter()
                 test_mask: MaskArray = segmenter.segment(image)
-                if str(self.device) == "cuda":
+                if self.device.type == "cuda":
                     torch.cuda.synchronize()
                 test_time: float = time.perf_counter() - start_time_test
                 test_info: Dict[str, Any] = {
@@ -622,11 +634,11 @@ class SegmentationComparator:
         for name in method_names:
             segmenter = segmenters_map[name]
             try:
-                if str(self.device) == "cuda":
+                if self.device.type == "cuda":
                     torch.cuda.synchronize()
                 start_time: float = time.perf_counter()
                 mask: MaskArray = segmenter.segment(image)
-                if str(self.device) == "cuda":
+                if self.device.type == "cuda":
                     torch.cuda.synchronize()
                 exec_time: float = time.perf_counter() - start_time
 
@@ -637,8 +649,6 @@ class SegmentationComparator:
                 print(f"  ✅ {name}: {exec_time:.3f}s")
             except Exception as e:
                 print(f"  ❌ {name}: {e}")
-                import traceback
-
                 traceback.print_exc()
                 h, w = image.shape[:2] if len(image.shape) >= 2 else (256, 256)
                 masks[name] = np.zeros((h, w), dtype=np.uint8)

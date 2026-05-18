@@ -58,7 +58,7 @@ from __future__ import annotations  # PEP 563: отложенная оценка
 import os
 import sys
 from pathlib import Path
-from typing import Union
+from typing import Union, TypeAlias
 
 import logging
 
@@ -66,8 +66,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -80,7 +80,8 @@ from utils.paths import MODELS_DIR, ADE20K_DIR  # PROJECT_ROOT
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
-PathLike = Union[str, Path]
+PathLike: TypeAlias = Union[str, Path]
+"""Унифицированный тип для путей к файлам: строка или pathlib.Path, dtype=Union[str, Path]."""
 
 
 # ──────────────────────────────────────────────────────────────────────

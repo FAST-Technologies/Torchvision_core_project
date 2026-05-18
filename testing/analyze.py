@@ -62,15 +62,9 @@ import glob
 import os
 import gc
 import time
+import traceback
 from pathlib import Path
-from typing import (
-    List,
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-    Union,
-)
+from typing import List, Tuple, Dict, Any, Optional, Union, TypeAlias
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -87,8 +81,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -104,17 +98,25 @@ from metrics.SegmentationMetrics import SegmentationMetrics
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & CONSTANTS
 # ──────────────────────────────────────────────────────────────────────
-MaskArray = np.ndarray
-ImageArray = np.ndarray
-MetricValue = float
-MetricsDict = Dict[str, MetricValue]
-PathLike = Union[str, Path]
+MaskArray: TypeAlias = np.ndarray
+"""Формат маски сегментации, dtype=np.ndarray."""
 
-# Маппинг имён чекпоинтов на ModelType enum (для NeuralSegmenter)
+ImageArray: TypeAlias = np.ndarray
+"""Формат массива пикселей изображения, dtype=np.ndarray."""
+
+MetricValue: TypeAlias = float
+"""Поссчитанное значение-результат метрики, dtype=float."""
+
+MetricsDict: TypeAlias = Dict[str, MetricValue]
+"""Словарь для хранения результатов метрик, dtype=Dict[str, float]."""
+
+PathLike: TypeAlias = Union[str, Path]
+"""Тип пути до файла, исходные форматы: str/Path, dtype=Union[str, Path]."""
+
 MODEL_TYPE_MAPPING: Dict[str, str] = {
-    "unet_smp": "unet_smp",
+    """Маппинг имён чекпоинтов на ModelType enum, dtype=Dict[str, str].""" "unet_smp": "unet_smp",
     "fpn_smp": "fpn_smp",
-    "psp_smp": "pspnet_smp",  # 🔧 Исправлено: psp_smp → pspnet_smp
+    "psp_smp": "pspnet_smp",
     "deeplab_tv": "deeplab_tv",
     "fcn_tv": "fcn_tv",
     "segnet": "segnet",
@@ -311,7 +313,6 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
             print(f"      ✅ Время: {inference_time:.3f}s")
             print(f"      ✅ Сохранено: {overlay_path}")
 
-            # 🔹 ОЧИСТКА ПАМЯТИ
             del segmenter, pred_mask, pred_info
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
@@ -319,8 +320,6 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
 
         except Exception as e:
             print(f"   ❌ Ошибка {key}: {e}")
-            import traceback
-
             traceback.print_exc()
             continue
 

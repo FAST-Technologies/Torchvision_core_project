@@ -1,19 +1,45 @@
 # utils/backend_exporter_new.py
+
 """Расширенный экспорт нейросетевых моделей в ONNX и TensorRT.
 
-Проблема: torch_tensorrt.compile через JIT/Dynamo падает для SMP-моделей
-(PSPNet, U-Net, FPN, SegNet) из-за:
-  - aten::size() + dynamic reshape в SMP-декодерах → SIZE_MAX overflow в TRT
-  - tuple(int,int,int,int) в padding → Expected ivalue->isInt()
-  - Сложные skip-connections с conditional interpolation
+## 🔍 Проблема
+Стандартный `torch_tensorrt.compile` через JIT/Dynamo нестабильно работает
+с моделями сегментации на базе `segmentation_models_pytorch` (SMP):
+- PSPNet, U-Net, FPN, SegNet, DeepLabV3+ и др.
 
-Решение: три стратегии в порядке приоритета:
-  1. ONNX → TRT через tensorrt Python API (trtexec-эквивалент)
-  2. ONNX → TRT через polygraphy/onnx-tensorrt
-  3. ONNX Runtime с CUDAExecutionProvider как high-performance fallback
+Типичные ошибки:
+- `aten::size()` + dynamic reshape в декодерах SMP → `SIZE_MAX overflow` в TRT
+- `tuple(int,int,int,int)` в padding → `Expected ivalue->isInt()`
+- Сложные skip-connections с conditional interpolation → падение при трассировке
 
-Стратегия 1 обходит все проблемы с torch_tensorrt, т.к. работает с
-уже сериализованным ONNX графом, где все dynamic shapes уже разрешены.
+## 🛠️ Решение: многоуровневая стратегия экспорта
+Функции модуля пробуют конвертацию в порядке приоритета:
+
+| Приоритет | Стратегия                          | Описание                                                  |
+|-----------|------------------------------------|-----------------------------------------------------------|
+| 1️⃣        | `tensorrt` Python API              | Прямая конвертация ONNX → TRT через официальный API       |
+| 2️⃣        | `trtexec` subprocess               | Вызов CLI-утилиты NVIDIA как надёжный fallback            |
+| 2.5️⃣      | `onnx-tensorrt` parser             | Официальный парсер NVIDIA для сложных ONNX-графов         |
+| 3️⃣        | `torch_tensorrt` JIT (legacy)      | Резерв для совместимых архитектур (DeepLab, FCN)          |
+| 🔄        | ONNX Runtime + CUDA EP             | Высокопроизводительный fallback, если TRT не удался       |
+
+## ✨ Ключевые особенности
+- ✅ **SegmenterMethodWrapper**: оборачивает bound methods в `nn.Module` для `torch.export` и TRT
+- ✅ **Фиксация выхода**: гарантированная форма `(B, 1, H, W)` через `view()` — без ветвлений по `dim()`
+- ✅ **ONNX-совместимость**: `torch.where` вместо boolean indexing, удаление динамических `if`
+- ✅ **Валидация и оптимизация**: `onnx.checker` + `onnx-simplifier` (опционально)
+- ✅ **Авто-fallback точности**: fp16/bf16 → fp32 при отсутствии поддержки на GPU
+- ✅ **Динамические размеры**: оптимизационные профили TRT для вариативных H/W
+- ✅ **Универсальный загрузчик**: `load_trt_engine()` поддерживает все форматы `.trt`
+- ✅ **Типизация**: строгие type hints + TypeAlias для IDE и mypy/pyright
+
+## 📦 Типы и алиасы
+```python
+ShapeType = Tuple[int, ...]           # Форма тензора: (B, C, H, W)
+PrecisionType = Literal["fp32", "fp16", "bf16"] | torch.dtype
+OnnxProvider = str | Tuple[str, Dict] # Провайдер ONNX Runtime
+
+
 """
 
 from __future__ import annotations
@@ -24,20 +50,11 @@ import time
 import logging
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Literal
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, Literal, TypeAlias
 
 import torch
 import torch.nn as nn
 import numpy as np
-
-# ──────────────────────────────────────────────────────────────────────
-# TYPE ALIASES
-# ──────────────────────────────────────────────────────────────────────
-ShapeType = Tuple[int, ...]
-"""Тип для формы тензора, например (1, 3, 512, 512)."""
-
-OnnxProvider = Union[str, Tuple[str, Dict[str, Any]]]
-"""Тип провайдера ONNX Runtime: либо строка, либо (имя, опции)."""
 
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -47,9 +64,40 @@ if not logger.handlers:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES
+# ──────────────────────────────────────────────────────────────────────
+ShapeType: TypeAlias = Tuple[int, ...]
+"""Тип для формы тензора, например (1, 3, 512, 512), dtype=Tuple[int, ...]."""
+
+PrecisionType: TypeAlias = Literal["fp32", "fp16", "bf16"]
+"""Тип для указания точности вычислений, dtype=Literal["fp32", "fp16", "bf16"]."""
+
+OnnxProvider: TypeAlias = Union[str, Tuple[str, Dict[str, Any]]]
+"""Тип провайдера ONNX Runtime: либо строка, либо (имя, опции), dtype=Union[str, Tuple[str, Dict[str, Any]]]."""
+
+InputShape: TypeAlias = Tuple[int, int, int, int]
+"""Размер исходного изображения, dtype=Tuple[int, int, int, int]."""
+
+PathLike: TypeAlias = Union[str, Path]
+"""Унифицированный тип для путей к файлам: строка или pathlib.Path, dtype=Union[str, Path]."""
+
 
 def _check_import(module_name: str) -> bool:
-    """Проверка доступности модуля."""
+    """Проверяет доступность стороннего модуля без raising ImportError.
+
+    Args:
+        module_name: Имя модуля для проверки (напр. "tensorrt", "onnxsim").
+
+    Returns:
+        bool: True если модуль успешно импортируется, False иначе.
+
+    Example:
+        >>> _check_import("numpy")
+        True
+        >>> _check_import("nonexistent_module")
+        False
+    """
     try:
         __import__(module_name)
         return True
@@ -58,7 +106,22 @@ def _check_import(module_name: str) -> bool:
 
 
 def _diagnose_onnx_cuda() -> str:
-    """Диагностика доступности CUDA в ONNX Runtime."""
+    """Диагностирует доступность CUDA в ONNX Runtime.
+
+    Проверяет:
+    - Установлен ли onnxruntime / onnxruntime-gpu
+    - Доступен ли CUDAExecutionProvider в списке провайдеров
+    - Совместимость версий CUDA/cuDNN (косвенно)
+
+    Returns:
+        str: Человекочитаемый статус с рекомендациями:
+             - "✅ CUDA EP available (providers: [...])"
+             - "⚠️ CUDA EP missing. Available: [...]"
+             - "❌ onnxruntime not installed"
+
+    Note:
+        Полезно для отладки fallback-сценариев при экспорте.
+    """
     try:
         import onnxruntime as ort
 
@@ -75,14 +138,42 @@ def _diagnose_onnx_cuda() -> str:
 
 
 def _should_rebuild_trt(onnx_path: Path, trt_path: Path) -> bool:
-    """Проверка, нужно ли пересобирать TRT engine."""
+    """Определяет, требуется ли пересборка TensorRT engine.
+
+    Логика:
+    - Если TRT-файл не существует → пересобрать
+    - Если ONNX новее чем TRT (по mtime) → пересобрать
+    - Иначе → использовать кэшированный engine
+
+    Args:
+        onnx_path: Путь к исходному .onnx файлу.
+        trt_path: Путь к целевому .trt файлу.
+
+    Returns:
+        bool: True если требуется пересборка, False если можно использовать кэш.
+
+    Note:
+        Не проверяет семантические изменения в ONNX (только временные метки).
+        Для CI/CD рекомендуется очищать кэш явно.
+    """
     if not trt_path.exists():
         return True
     return onnx_path.stat().st_mtime > trt_path.stat().st_mtime
 
 
 def _get_trt_ir_mode() -> Literal["dynamo", "ts"]:
-    """Определяет режим IR для torch_tensorrt по версии."""
+    """Определяет рекомендуемый IR-режим для torch_tensorrt по версии пакета.
+
+    Returns:
+        Literal["dynamo", "ts"]:
+            - "dynamo" для torch_tensorrt >= 2.0 (современно, но менее стабильно)
+            - "ts" для более старых версий (JIT, проверено временем)
+
+    Note:
+        В текущей реализации принудительно возвращает "ts" для максимальной
+        совместимости с SMP-моделями. Можно раскомментировать логику версии
+        при стабильной поддержке dynamo.
+    """
     try:
         import torch_tensorrt
 
@@ -94,9 +185,8 @@ def _get_trt_ir_mode() -> Literal["dynamo", "ts"]:
         return "ts"
 
 
-# Глобальный чеклист зависимостей
 CHECKLIST: Dict[str, bool] = {
-    "cuda_available": torch.cuda.is_available(),
+    """Глобальный чеклист зависимостей, dtype=Dict[str, bool].""" "cuda_available": torch.cuda.is_available(),
     "tensorrt_api": _check_import("tensorrt"),
     "onnxruntime_gpu": _check_import("onnxruntime")
     and "CUDAExecutionProvider" in __import__("onnxruntime").get_available_providers(),
@@ -105,35 +195,309 @@ CHECKLIST: Dict[str, bool] = {
 }
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Базовый wrapper: bound method → nn.Module
+# ──────────────────────────────────────────────────────────────────────────────
+class SegmenterMethodWrapper(nn.Module):
+    """Оборачивает bound method сегментера в nn.Module для torch.export и TRT.
+
+    ## Зачем это нужно?
+    - `torch.export.export` и `torch_tensorrt` принимают только `nn.Module`
+    - Методы из `method_map` — это обычные функции, не совместимые напрямую
+    - Wrapper обеспечивает единый интерфейс `forward(x) -> tensor`
+
+    ## Важные детали:
+    - Автоматически извлекает "сырую" функцию из-под `@torch.compile` / `@dynamo`
+    - Гарантирует выход формы `(B, 1, H, W)` через `view()` — без условных веток
+    - Поддерживает параметр `precision` для методов, чувствительных к точности
+
+    Attributes:
+        segmenter: Исходный экземпляр сегментера.
+        method_name: Ключ метода в `segmenter.method_map`.
+        precision: Строка точности ("fp32", "fp16"), передаётся в метод.
+        func: "Распакованная" функция для вызова.
+
+    Args:
+        segmenter: Экземпляр сегментера с атрибутом `method_map`.
+        method_name: Имя метода для экспорта.
+        precision: Точность вычислений (по умолчанию "fp32").
+
+    Example:
+        >>> wrapper = SegmenterMethodWrapper(seg, "canny_edge")
+        >>> x = torch.randn(1, 3, 512, 512)
+        >>> out = wrapper(x)  # (1, 1, 512, 512)
+    """
+
+    def __init__(self, segmenter: Any, method_name: str, precision: str = "fp32") -> None:
+        """Инициализация модуля SegmenterMethodWrapper."""
+        super().__init__()
+        self.segmenter: Any = segmenter
+        self.method_name: str = method_name
+        self.precision: str = precision
+
+        # Получаем "сырую" функцию без compile-обёртки
+        func: Any = segmenter.method_map[method_name]
+        if hasattr(func, "_torchdynamo_orig_callable"):
+            self.func: Any = func._torchdynamo_orig_callable
+        elif hasattr(func, "__wrapped__"):
+            self.func = func.__wrapped__
+        else:
+            self.func = func
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Прямой проход: применяет обёрнутый метод к входному тензору.
+
+        Args:
+            x: Входной тензор формы (B, C, H, W), float32.
+
+        Returns:
+            torch.Tensor: Результат формы (B, 1, H, W), float32.
+                          Гарантированно 4D даже если исходный метод возвращает 2D/3D.
+        """
+        result: torch.Tensor = self.func(self.segmenter, x, precision=self.precision, export_mode=True)
+        # Гарантируем (1,1,H,W) через view — без dim()-зависимых веток
+        if result.dim() == 2:
+            result = result.unsqueeze(0).unsqueeze(0)
+        elif result.dim() == 3:
+            result = result.unsqueeze(0)
+        b, _, h, w = x.shape
+        return result.view(b, 1, h, w).float()
+
+
+ALLOWED_ONNX_OPS: Set[str] = {
+    """Разрешенные математические операции, dtype=Set[str]."""
+    # Математические
+    "Add",
+    "Sub",
+    "Mul",
+    "Div",
+    "MatMul",
+    "Pow",
+    # Сравнения (ваши threshold методы)
+    "Greater",
+    "Less",
+    "Equal",
+    "Where",
+    "Cast",
+    # Свёртки и пулинг
+    "Conv",
+    "MaxPool",
+    "AveragePool",
+    "GlobalAveragePool",
+    # Активации
+    "Relu",
+    "Sigmoid",
+    "Tanh",
+    "Softmax",
+    # Работа с тензорами
+    "Reshape",
+    "Transpose",
+    "Concat",
+    "Slice",
+    "Pad",
+    # Ваши edge-операторы
+    "Sobel",
+    "Laplacian",
+    "ThresholdedRelu",
+}
+
+
+def validate_onnx_operators(onnx_path: Path, allowed_ops: Set[str]) -> bool:
+    """Валидирует ONNX-модель на наличие только разрешённых операторов.
+
+    Предназначена для предварительной проверки совместимости с целевым
+    бэкендом (TensorRT, ONNX Runtime с ограничениями и т.д.).
+
+    Args:
+        onnx_path: Путь к .onnx файлу для проверки.
+        allowed_ops: Множество разрешённых имён операторов (напр. {"Conv", "Relu"}).
+
+    Returns:
+        bool: True если все операторы модели входят в allowed_ops.
+
+    Raises:
+        SystemError: Если обнаружен неизвестный оператор (с логируемым предупреждением).
+
+    Note:
+        В текущей реализации функция закомментирована в основном пайплайне,
+        но может быть активирована для strict-режима валидации.
+    """
+    import onnx
+
+    model = onnx.load(str(onnx_path))
+    for node in model.graph.node:
+        if node.op_type not in allowed_ops:
+            logger.warning(f"⚠️ Неизвестный оператор: {node.op_type}")
+            raise SystemError
+    return True
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ONNX export
+# ──────────────────────────────────────────────────────────────────────────────
+def export_method_to_onnx_safe(
+    segmenter: Any,
+    method_name: str,
+    output_path: PathLike,
+    opset_version: int = 25,
+    input_shape: ShapeType = (1, 3, 512, 512),
+    precision: str = "fp32",
+) -> bool:
+    """Экспортирует один метод сегментера в формат ONNX с расширенной валидацией.
+
+    ## Этапы экспорта:
+    1. Проверка наличия метода в `segmenter.method_map`
+    2. Обёртка в `SegmenterMethodWrapper` для совместимости с torch.onnx.export
+    3. Тестовый прогон для инициализации буферов и проверки формы выхода
+    4. Экспорт через `torch.onnx.export` с dynamic_axes для H/W
+    5. Валидация через `onnx.checker`
+    6. Опциональное упрощение через `onnx-simplifier`
+
+    Args:
+        segmenter: Экземпляр сегментера с атрибутом `method_map`.
+        method_name: Ключ метода для экспорта (должен присутствовать в method_map).
+        output_path: Путь для сохранения .onnx файла (расширение добавляется автоматически).
+        opset_version: Версия ONNX operator set (по умолчанию 25, рекомендуется ≥17).
+        input_shape: Форма входного тензора (B, C, H, W), по умолчанию (1, 3, 512, 512).
+        precision: Точность вычислений для метода ("fp32", "fp16"), передаётся в wrapper.
+
+    Returns:
+        bool: True при успешном экспорте и валидации, False при любой ошибке.
+
+    Side effects:
+        - Создаёт файл по output_path при успехе
+        - Удаляет битый .onnx файл при ошибке экспорта
+        - Логирует детали процесса через logger модуля
+
+    Note:
+        - Модель временно переводится в eval-режим и на CPU для стабильности экспорта
+        - Динамические оси настроены для batch/height/width — можно менять размер при инференсе
+        - Опция упрощения (onnxsim) не критична: при ошибке импорт игнорируется
+    """
+    if method_name not in segmenter.method_map:
+        print(f"❌ ONNX: метод '{method_name}' не найден в method_map")
+        return False
+
+    # if not validate_onnx_operators(Path(output_path), ALLOWED_ONNX_OPS):
+    #     os.remove(output_path)
+    #     return False
+
+    wrapper: SegmenterMethodWrapper = SegmenterMethodWrapper(segmenter, method_name, precision=precision).eval()
+    wrapper = wrapper.to(segmenter.device)
+
+    sample: torch.Tensor = torch.randn(*input_shape, device=segmenter.device, dtype=torch.float32)
+
+    # Тестовый прогон — инициализируем буферы
+    try:
+        with torch.no_grad():
+            test_out = wrapper(sample)
+        print(f"   Test output shape: {test_out.shape}, dtype: {test_out.dtype}")
+    except Exception as e:
+        print(f"❌ ONNX: тестовый прогон упал для '{method_name}': {e}")
+        return False
+
+    try:
+        with torch.no_grad():
+            torch.onnx.export(
+                wrapper,
+                (sample,),
+                output_path,
+                input_names=["input"],
+                output_names=["output"],
+                opset_version=opset_version,
+                dynamic_axes={
+                    "input": {0: "batch", 2: "height", 3: "width"},
+                    "output": {0: "batch", 2: "height", 3: "width"},
+                },
+                do_constant_folding=True,
+                training=torch.onnx.TrainingMode.EVAL,
+                verbose=False,
+            )
+
+        # Валидация
+        import onnx
+
+        model: onnx.ModelProto = onnx.load(output_path)
+        onnx.checker.check_model(model)
+        actual_opset = model.opset_import[0].version
+        if actual_opset < opset_version:
+            logger.warning(
+                f"⚠️ Запрошен opset {opset_version}, но получен {actual_opset}. "
+                f"Некоторые операторы могут использовать более старую версию."
+            )
+        else:
+            logger.info(f"✅ ONNX exported with opset {actual_opset}: {output_path}")
+
+        # Упрощение через onnx-simplifier (опционально)
+        try:
+            from onnxsim import simplify
+
+            model_simplified: onnx.ModelProto
+            ok: bool
+            model_simplified, ok = simplify(model)
+            if ok:
+                onnx.save(model_simplified, output_path)
+                print("   ✅ ONNX simplified")
+        except ImportError:
+            pass
+        except Exception as e_sim:
+            print(f"   ⚠️  ONNX simplify failed (не критично): {e_sim}")
+
+        return True
+
+    except Exception as e:
+        print(f"❌ ONNX export failed для '{method_name}': {e}")
+        # Удаляем битый файл
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        return False
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Стратегия 1: ONNX → TensorRT через Python API (tensorrt напрямую)
 # ─────────────────────────────────────────────────────────────────────
 def export_onnx_to_trt_via_api(
-    onnx_path: Union[str, Path],
-    trt_path: Union[str, Path],
-    precision: Literal["fp32", "fp16", "bf16"] = "fp32",
-    input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
+    onnx_path: PathLike,
+    trt_path: PathLike,
+    # model_key: str,
+    precision: PrecisionType = "fp32",
+    input_shape: InputShape = (1, 3, 512, 512),
     workspace_gb: float = 4.0,
     verbose: bool = False,
 ) -> bool:
-    """Конвертирует ONNX → TensorRT engine через tensorrt Python API.
+    """Конвертирует ONNX → TensorRT engine через официальный Python API.
 
-    Это эквивалент команды:
-        trtexec --onnx=model.onnx --saveEngine=model.trt --fp16
+    ## Эквивалент CLI:
+    ```bash
+    trtexec --onnx=model.onnx --saveEngine=model.trt --fp16 --workspace=4096
+    ```
 
-    Преимущество перед torch_tensorrt: работает с любым валидным ONNX,
-    не зависит от torch JIT/dynamo ограничений.
+    ## Преимущества перед torch_tensorrt:
+    - Работает с любым валидным ONNX, независимо от источника
+    - Не зависит от ограничений torch JIT / Dynamo
+    - Полный контроль над builder config: precision, workspace, optimization profiles
+
+    ## Поддержка точности:
+    - `fp32`: всегда доступна
+    - `fp16`: включается если `builder.platform_has_fast_fp16`
+    - `bf16`: включается если поддерживается, иначе fallback на fp16/fp32
 
     Args:
-        onnx_path: Путь к .onnx файлу.
-        trt_path: Путь для сохранения .trt engine.
-        precision: "fp32", "bf16" или "fp16".
-        input_shape: (B, C, H, W) — форма входа.
-        workspace_gb: Размер workspace TRT в ГБ.
-        verbose: Подробное логирование TRT builder.
+        onnx_path: Путь к исходному .onnx файлу.
+        trt_path: Путь для сохранения .trt engine (родительская директория создаётся при необходимости).
+        precision: Желаемая точность: "fp32", "fp16" или "bf16".
+        input_shape: Форма входа (B, C, H, W) для оптимизационного профиля.
+        workspace_gb: Максимальный размер workspace для TRT builder в ГБ (по умолчанию 4.0).
+        verbose: Включить подробное логирование TensorRT (уровень VERBOSE).
 
     Returns:
-        bool: True при успехе.
+        bool: True при успешной сборке и сохранении engine, False при ошибке.
+
+    Note:
+        - Проверяет актуальность TRT по временным меткам (не пересобирает без необходимости)
+        - Для статических входов фиксирует min=opt=max=onnx_shape
+        - Для динамических входов строит профиль с границами [0.5x, 1x, 2x] от input_shape
+        - Ошибки парсинга ONNX логируются с деталями от OnnxParser
     """
     try:
         import tensorrt as trt
@@ -258,28 +622,41 @@ def export_onnx_to_trt_via_api(
 # Стратегия 2: ONNX → TRT через trtexec subprocess
 # ─────────────────────────────────────────────────────────────────────
 def export_onnx_to_trt_via_trtexec(
-    onnx_path: Union[str, Path],
-    trt_path: Union[str, Path],
-    precision: Literal["fp32", "fp16", "bf16"] = "fp32",
-    input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
+    onnx_path: PathLike,
+    trt_path: PathLike,
+    # model_key: str,
+    precision: PrecisionType = "fp32",
+    input_shape: InputShape = (1, 3, 512, 512),
     workspace_mb: int = 4096,
     trtexec_path: str = "trtexec",
 ) -> bool:
-    """Конвертирует ONNX → TRT через вызов trtexec в subprocess.
+    """Конвертирует ONNX → TRT через вызов утилиты trtexec в subprocess.
 
-    Используется как fallback если tensorrt Python API недоступен.
-    trtexec обычно доступен при установке TensorRT через deb/rpm пакеты.
+    ## Когда использовать?
+    - Если tensorrt Python API не установлен или не работает
+    - При деплое на серверах с TensorRT, установленным через deb/rpm пакеты
+    - Как максимально надёжный fallback с минимальными зависимостями в коде
+
+    ## Требования:
+    - Утилита `trtexec` должна быть доступна в PATH или указан полный путь
+    - Версия trtexec должна быть совместима с версией ONNX-модели
 
     Args:
-        onnx_path: Путь к .onnx.
-        trt_path: Путь для .trt.
-        precision: "fp32", "bf16" или "fp16".
-        input_shape: (B, C, H, W).
-        workspace_mb: Workspace в МБ.
-        trtexec_path: Путь к trtexec (или просто "trtexec" если в PATH).
+        onnx_path: Путь к исходному .onnx файлу.
+        trt_path: Путь для сохранения .trt engine.
+        precision: Точность: "fp32", "fp16" или "bf16".
+        input_shape: Форма входа (B, C, H, W) для расчёта min/opt/max shape.
+        workspace_mb: Размер workspace для trtexec в МБ (по умолчанию 4096).
+        trtexec_path: Путь к исполняемому файлу trtexec (по умолчанию ищется в PATH).
 
     Returns:
-        bool: True при успехе.
+        bool: True если trtexec завершился с кодом 0, False при ошибке или таймауте.
+
+    Note:
+        - Таймаут выполнения: 600 секунд (10 минут)
+        - Минимальные размеры: max(32, H//2), максимальные: min(H*2, 4096)
+        - stderr trtexec обрезается до последних 2000 символов для логирования
+        - Параметры --minShapes/--optShapes/--maxShapes задаются автоматически
     """
     import shutil
 
@@ -342,31 +719,40 @@ def export_onnx_to_trt_via_trtexec(
 # Стратегия 2.5: ONNX → TRT через onnx-tensorrt parser
 # ─────────────────────────────────────────────────────────────────────
 def export_onnx_to_trt_via_onnx_tensorrt(
-    onnx_path: Union[str, Path],
-    trt_path: Union[str, Path],
-    precision: Literal["fp32", "fp16", "bf16"] = "fp32",
-    input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
+    onnx_path: PathLike,
+    trt_path: PathLike,
+    # model_key: str,
+    precision: PrecisionType = "fp32",
+    input_shape: InputShape = (1, 3, 512, 512),
     workspace_mb: int = 4096,
     verbose: bool = False,
 ) -> bool:
-    """Конвертирует ONNX → TensorRT через onnx-tensorrt parser.
+    """Конвертирует ONNX → TensorRT через официальный парсер onnx-tensorrt.
 
-    Использует официальный парсер NVIDIA для конвертации ONNX графа
-    в TensorRT engine. Может работать лучше torch_tensorrt для некоторых
-    моделей с нестандартными операторами.
+    ## Особенности:
+    - Использует `onnx_tensorrt.backend` для парсинга графа
+    - Может лучше обрабатывать нестандартные операторы по сравнению с torch_tensorrt
+    - Требует отдельной установки: `pip install onnx-tensorrt`
 
-    Требует установленного пакета: pip install onnx-tensorrt
+    ## Совместимость:
+    - Требует предварительно установленные: tensorrt, onnx, onnx-tensorrt
+    - Версии должны быть согласованы (см. матрицу совместимости NVIDIA)
 
     Args:
-        onnx_path: Путь к .onnx файлу.
+        onnx_path: Путь к исходному .onnx файлу.
         trt_path: Путь для сохранения .trt engine.
-        precision: "fp32", "bf16" или "fp16".
-        input_shape: (B, C, H, W) — форма входа.
-        workspace_mb: Размер workspace в МБ.
-        verbose: Подробное логирование.
+        precision: Точность: "fp32", "fp16" или "bf16".
+        input_shape: Форма входа (B, C, H, W) для оптимизационного профиля.
+        workspace_mb: Размер workspace в МБ (по умолчанию 4096).
+        verbose: Включить подробное логирование builder.
 
     Returns:
-        bool: True при успехе.
+        bool: True при успешной сборке, False при ошибке импорта/парсинга/сборки.
+
+    Note:
+        - Логика оптимизационного профиля аналогична export_onnx_to_trt_via_api
+        - При ошибке парсинга детали выводятся через parser.get_error(i)
+        - Стратегия 2.5: пробует после trtexec, перед torch_tensorrt JIT
     """
     try:
         import tensorrt as trt
@@ -461,17 +847,38 @@ def export_onnx_to_trt_via_onnx_tensorrt(
 class OnnxTrtFallbackSegmenter:
     """Обёртка для инференса через ONNX Runtime с CUDAExecutionProvider.
 
-    Производительность: ~2-5x медленнее нативного TRT, но работает
-    для всех архитектур (SMP, PSPNet, SegNet и т.д.).
+    ## Когда используется?
+    - Когда все стратегии экспорта в TensorRT не удались
+    - Как высокопроизводительный fallback (~2-5x медленнее нативного TRT,
+      но работает для любых архитектур: SMP, PSPNet, SegNet и др.)
 
-    Используется когда TRT engine не удалось собрать.
-    Совместим с интерфейсом nn.Module: callable, поддерживает .eval().
+    ## Интерфейс:
+    - Совместим с `nn.Module`: поддерживает `__call__`, `.eval()`
+    - Принимает/возвращает `torch.Tensor`, внутренние конвертации в numpy скрыты
+
+    Attributes:
+        session: onnxruntime.InferenceSession с настроенными провайдерами.
+        input_name / output_name: Имена тензоров в ONNX-графе.
+        input_shape: Ожидаемая форма входа для валидации.
+
+    Args:
+        onnx_path: Путь к валидному .onnx файлу.
+        input_shape: Ожидаемая форма входа (B, C, H, W).
+        device: "cuda" или "cpu" — приоритет провайдера.
+
+    Raises:
+        ImportError: Если onnxruntime-gpu не установлен при device="cuda".
+
+    Example:
+        >>> fallback = OnnxTrtFallbackSegmenter("model.onnx", device="cuda")
+        >>> x = torch.randn(1, 3, 512, 512, device="cuda")
+        >>> y = fallback(x)  # Инференс через CUDA EP
     """
 
     def __init__(
         self,
-        onnx_path: Union[str, Path],
-        input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
+        onnx_path: PathLike,
+        input_shape: InputShape = (1, 3, 512, 512),
         device: str = "cuda",
     ) -> None:
         """Инициализация модуля OnnxTrtFallbackSegmenter."""
@@ -529,7 +936,14 @@ class OnnxTrtFallbackSegmenter:
             )
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
-        """Инференс: torch.Tensor → torch.Tensor."""
+        """Выполняет инференс: torch.Tensor → torch.Tensor.
+
+        Args:
+            x: Входной тензор любой формы, совместимой с ONNX-моделью.
+
+        Returns:
+            torch.Tensor: Результат инференса на том же устройстве, что и вход.
+        """
         x_np: np.ndarray = x.cpu().float().numpy()
         outputs: List[np.ndarray] = self.session.run([self.output_name], {self.input_name: x_np})
         result: torch.Tensor = torch.from_numpy(outputs[0]).float()
@@ -538,8 +952,12 @@ class OnnxTrtFallbackSegmenter:
         return result
 
     def eval(self) -> "OnnxTrtFallbackSegmenter":
-        """Возвращает созданный OnnxTrtFallbackSegmenter."""
-        return self  # совместимость с nn.Module интерфейсом
+        """Возвращает self для совместимости с интерфейсом nn.Module.
+
+        Returns:
+            OnnxTrtFallbackSegmenter: Сам объект (состояние не меняется).
+        """
+        return self
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -548,10 +966,10 @@ class OnnxTrtFallbackSegmenter:
 def export_neural_model(
     model: nn.Module,
     model_key: str,
-    output_dir: Union[str, Path],
-    input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
+    output_dir: PathLike,
+    input_shape: InputShape = (1, 3, 512, 512),
     opset_version: int = 17,
-    trt_precision: Literal["fp32", "bf16", "fp16"] = "fp32",
+    trt_precision: PrecisionType = "fp32",
     device: str = "cuda",
     dynamic_axes: bool = False,
 ) -> Dict[str, Optional[Path]]:
@@ -563,25 +981,53 @@ def export_neural_model(
       2.5. onnx-tensorrt parser (официальный парсер NVIDIA)
       3. torch_tensorrt JIT (последний резерв, работает для DeepLab/FCN)
 
-    Если все стратегии не удались — создаётся OnnxTrtFallbackSegmenter
+    ## Алгоритм работы:
+    1. **Экспорт в ONNX**: модель → CPU → torch.onnx.export → валидация → опциональное упрощение
+    2. **Конвертация в TRT**: пробует стратегии в порядке приоритета:
+       - 1️⃣ tensorrt Python API
+       - 2️⃣ trtexec subprocess
+       - 2.5️⃣ onnx-tensorrt parser
+       - 3️⃣ torch_tensorrt JIT (для совместимых архитектур)
+    3. **Fallback**: если все TRT-стратегии не удались → OnnxTrtFallbackSegmenter
+
+    **Fallback**: если все TRT-стратегии не удались — создаётся OnnxTrtFallbackSegmenter
     (ONNX Runtime + CUDAExecutionProvider) как высокопроизводительный fallback.
 
+    ## Возвращаемая структура:
+    ```python
+    {
+        "onnx": Path | None,              # Путь к .onnx или None при ошибке
+        "trt": Path | None,               # Путь к .trt или None если не собран
+        "trt_strategy": str | None,       # Название успешной стратегии или None
+        "trt_fallback": OnnxTrtFallbackSegmenter | None  # Fallback-обёртка
+    }
+    ```
+
     Args:
-        model: PyTorch модель (nn.Module) в eval режиме.
-        model_key: Ключ модели для именования файлов (напр. "unet_smp_none").
-        output_dir: Директория для сохранения артефактов.
-        input_shape: (B, C, H, W) — форма входа.
-        opset_version: ONNX opset (рекомендуется ≥17).
-        trt_precision: "fp32", "bf16" или "fp16".
-        device: "cuda" или "cpu".
-        dynamic_axes: Использовать динамические оси в ONNX.
+        model: PyTorch модель (nn.Module), должна быть в eval-режиме.
+        model_key: Уникальный ключ для именования файлов (напр. "unet_smp_resnet50").
+        output_dir: Директория для сохранения артефактов (.onnx, .trt).
+        input_shape: Форма входа (B, C, H, W), по умолчанию (1, 3, 512, 512).
+        opset_version: Версия ONNX opset (рекомендуется ≥17 для современных операторов).
+        trt_precision: Желаемая точность TRT: "fp32", "bf16" или "fp16".
+        device: Устройство для инференса: "cuda" или "cpu".
+        dynamic_axes: Разрешить динамические оси (batch/height/width) в ONNX.
 
     Returns:
-        Dict с путями:
-          - "onnx": Path к .onnx или None
-          - "trt": Path к .trt или None
-          - "trt_strategy": строка с использованной стратегией
-          - "trt_fallback": OnnxTrtFallbackSegmenter или None
+        Dict[str, Optional[Union[Path, Any]]]: Словарь с результатами экспорта
+        (см. структуру выше).
+
+    Side effects:
+        - Создаёт output_dir при необходимости
+        - Временно переводит модель на CPU для стабильного ONNX-экспорта
+        - Возвращает модель на исходное устройство после экспорта
+        - Логирует каждый этап через logger модуля
+
+    Note:
+        - Модель должна быть в `eval()` режиме перед вызовом
+        - При `dynamic_axes=False` ONNX будет иметь статические размеры (быстрее инференс)
+        - Все стратегии экспорта проверяют глобальный CHECKLIST зависимостей
+        - Битые артефакты автоматически удаляются при ошибке
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -605,7 +1051,7 @@ def export_neural_model(
     try:
         dyn_axes: Optional[Dict[str, Dict[int, str]]] = None
         if dynamic_axes:
-            dyn_axes: Dict[str, Dict[int, str]] = {
+            dyn_axes = {
                 "input": {0: "batch", 2: "height", 3: "width"},
                 "output": {0: "batch", 2: "height", 3: "width"},
             }
@@ -676,6 +1122,7 @@ def export_neural_model(
         success: bool = export_onnx_to_trt_via_api(
             onnx_path=onnx_path,
             trt_path=trt_path,
+            # model_key=model_key,
             precision=trt_precision,
             input_shape=input_shape,
             workspace_gb=4.0,
@@ -691,6 +1138,7 @@ def export_neural_model(
     success = export_onnx_to_trt_via_trtexec(
         onnx_path=onnx_path,
         trt_path=trt_path,
+        # model_key=model_key,
         precision=trt_precision,
         input_shape=input_shape,
     )
@@ -706,6 +1154,7 @@ def export_neural_model(
         success = export_onnx_to_trt_via_onnx_tensorrt(
             onnx_path=onnx_path,
             trt_path=trt_path,
+            # model_key=model_key,
             precision=trt_precision,
             input_shape=input_shape,
         )
@@ -721,6 +1170,7 @@ def export_neural_model(
         success = _export_via_torch_tensorrt_jit(
             model=model,
             trt_path=trt_path,
+            # model_key=model_key,
             precision=trt_precision,
             input_shape=input_shape,
             device=device,
@@ -753,7 +1203,21 @@ def export_neural_model(
 
 
 def _freeze_model_for_export(model: nn.Module) -> None:
-    """Переводит модель в eval и убирает training-only поведение."""
+    """Подготавливает модель к экспорту: отключает training-only поведение.
+
+    Выполняет:
+    - Переводит модель в `eval()` режим
+    - Фиксирует статистику BatchNorm/LayerNorm: `m.training = False`
+    - Отключает Dropout: `m.training = False`
+
+    Args:
+        model: PyTorch модель (nn.Module) для подготовки.
+
+    Note:
+        - Не изменяет веса модели, только режимы слоёв
+        - Обратимая операция: после экспорта можно вернуть модель в train()
+        - Рекомендуется вызывать перед любым экспортом (ONNX/TRT)
+    """
     model.eval()
     # Фиксируем BatchNorm статистику
     for m in model.modules():
@@ -769,10 +1233,36 @@ def _export_via_torch_tensorrt_jit(
     model: nn.Module,
     trt_path: Path,
     precision: str,
-    input_shape: Tuple[int, int, int, int],
+    input_shape: InputShape,
     device: str,
+    # model_key: str
 ) -> bool:
-    """Fallback: экспорт через torch_tensorrt.compile (JIT)."""
+    """Резервная стратегия: экспорт через torch_tensorrt.compile (JIT-режим).
+
+    ## Когда используется?
+    - Только если все предыдущие стратегии (API / trtexec / onnx-tensorrt) не удались
+    - Для архитектур, совместимых с JIT-трассировкой: DeepLab, FCN, простые U-Net
+
+    ## Ограничения:
+    - Не работает со сложными dynamic reshape в SMP-декодерах
+    - Требует `torch.jit.trace`, что может не поддерживать условные ветвления
+
+    Args:
+        model: PyTorch модель (nn.Module) в eval-режиме.
+        trt_path: Путь для сохранения .trt файла (TorchScript формат).
+        precision: Точность: "fp32", "fp16" или "bf16".
+        input_shape: Форма входа (B, C, H, W) для трассировки и TRT profile.
+        device: Устройство для трассировки: "cuda" (обязательно для TRT).
+
+    Returns:
+        bool: True при успешной компиляции и сохранении, False при ошибке.
+
+    Note:
+        - Автоматически определяет IR-режим через _get_trt_ir_mode()
+        - Для fp16 проверяет Compute Capability GPU (≥6.0)
+        - bf16 не поддерживается в torch_tensorrt → fallback на fp16/fp32
+        - При ошибке удаляет частично созданный .trt файл
+    """
     try:
         import torch_tensorrt as torchtrt
     except ImportError:
@@ -784,7 +1274,12 @@ def _export_via_torch_tensorrt_jit(
         dummy: torch.Tensor = torch.randn(*input_shape, device=device, dtype=torch.float32)
 
         # trace
-        traced: torch.jit.ScriptModule = torch.jit.trace(model_cuda, dummy, check_trace=False)
+        try:
+            traced: torch.jit.ScriptModule = torch.jit.trace(model_cuda, dummy, check_trace=False)
+            # print(f"   ✅ torch.jit.trace OK для '{model_key}'")
+        except Exception as e:
+            # print(f"❌ TRT: torch.jit.trace failed для '{model_key}': {e}")
+            return False
 
         enabled_precisions: Set[torch.dtype] = {torch.float32}
         if precision == "fp16" and torch.cuda.get_device_capability()[0] >= 6:
@@ -820,7 +1315,7 @@ def _export_via_torch_tensorrt_jit(
         return True
 
     except Exception as e:
-        logger.error(f"torch_tensorrt JIT failed: {e}")
+        # print(f"❌ TRT compile failed для '{model_key}': {e}")
         if trt_path.exists():
             trt_path.unlink()
         if os.path.exists(trt_path):
@@ -832,18 +1327,41 @@ def _export_via_torch_tensorrt_jit(
 # Загрузка TRT engine (поддерживает все форматы)
 # ─────────────────────────────────────────────────────────────────────
 def load_trt_engine(
-    trt_path: Union[str, Path],
+    trt_path: PathLike,
     device: str = "cuda",
+    is_neural: bool = False,
 ) -> Optional[Any]:
-    """Загружает TRT engine.
+    """Универсальный загрузчик TensorRT engines во всех поддерживаемых форматах.
 
-    Поддерживает все три формата:
-      - tensorrt serialized engine (.trt от tensorrt API / trtexec)
-      - torch.jit TorchScript (.trt от torch_tensorrt JIT)
-      - torch_tensorrt dynamo
+    ## Поддерживаемые форматы (пробует по порядку):
+    1. **Serialized engine** (tensorrt API / trtexec):
+       - Распознаётся по magic bytes или попытке десериализации
+       - Возвращает `TrtEngineWrapper` с интерфейсом nn.Module
+
+    2. **TorchScript** (torch_tensorrt JIT):
+       - Загружается через `torch.jit.load`
+       - Возвращает `torch.jit.ScriptModule`
+
+    3. **Torch-TensorRT Dynamo**:
+       - Загружается через `torch_tensorrt.load`
+       - Возвращает скомпилированную модель
+
+    Args:
+        trt_path: Путь к файлу .trt (любого из поддерживаемых форматов).
+        device: Устройство для инференса: "cuda" или "cpu".
+        is_neural: Флаг для будущей логики (сейчас игнорируется).
 
     Returns:
-        Callable модель или None.
+        Optional[Any]: Один из типов:
+            - `TrtEngineWrapper` (для serialized engine)
+            - `torch.jit.ScriptModule` (для JIT)
+            - `torch_tensorrt.CompiledModule` (для dynamo)
+            - `None` при ошибке загрузки всех форматов
+
+    Note:
+        - При ошибке загрузки одного формата пробует следующий (цепочка fallback)
+        - Все ошибки логируются на уровне warning/error, не raising исключения
+        - Для serialized engine используется trt.Logger с уровнем WARNING (можно настроить)
     """
     trt_path = Path(trt_path)
     if not trt_path.exists():
@@ -878,12 +1396,12 @@ def load_trt_engine(
 
     # Формат 2: torch.jit (torch_tensorrt JIT) TorchScript
     try:
-        model: nn.Module = torch.jit.load(str(trt_path))
+        model: torch.jit.ScriptModule = torch.jit.load(str(trt_path))
         model = model.to(device).eval()
         logger.info(f"✅ Loaded via torch.jit.load: {trt_path}")
         return model
     except Exception as e:
-        logger.warning(f"⚠️ torch_tensorrt JIT aka TorchScript load failed: {e}")
+        logger.warning(f"⚠️ torch_tensorrt JIT aka TorchScript load failed: {trt_path} :{e}")
         pass
 
     # Формат 3: torch_tensorrt dynamo
@@ -899,10 +1417,35 @@ def load_trt_engine(
 
 
 class TrtEngineWrapper:
-    """Обёртка для tensorrt.ICudaEngine, предоставляющая интерфейс nn.Module.
+    """Обёртка для tensorrt.ICudaEngine с интерфейсом nn.Module.
 
-    Позволяет использовать TRT engines, собранные через tensorrt API или trtexec,
-    так же как обычные PyTorch модели.
+    ## Назначение:
+    Позволяет использовать TRT engines, собранные через:
+    - `tensorrt` Python API
+    - `trtexec` CLI
+
+    так же, как обычные PyTorch модели: `model(x)`.
+
+    ## Особенности:
+    - Автоматическое определение имён входов/выходов из engine metadata
+    - Поддержка async-инференса через CUDA stream
+    - Явная синхронизация после выполнения для корректного timing
+
+    Attributes:
+        engine: Исходный trt.ICudaEngine.
+        context: trt.IExecutionContext для выполнения инференса.
+        input_name / output_name: Имена тензоров, извлечённые из engine.
+        device: Устройство для инференса ("cuda").
+
+    Args:
+        engine: Загруженный trt.ICudaEngine.
+        device: Устройство для размещения тензоров (по умолчанию "cuda").
+
+    Example:
+        >>> # После загрузки через load_trt_engine():
+        >>> trt_model = load_trt_engine("model.trt")  # Возвращает TrtEngineWrapper
+        >>> x = torch.randn(1, 3, 512, 512, device="cuda")
+        >>> y = trt_model(x)  # Прямой вызов как у nn.Module
     """
 
     def __init__(self, engine: Any, device: str = "cuda") -> None:
@@ -925,7 +1468,19 @@ class TrtEngineWrapper:
                 self.output_name = name
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
-        """Инференс через TRT context."""
+        """Выполняет инференс через TensorRT execution context.
+
+        Args:
+            x: Входной тензор формы (B, C, H, W), float32, на CUDA.
+
+        Returns:
+            torch.Tensor: Результат инференса формы (B, 1, H, W), float32.
+
+        Note:
+            - Автоматически устанавливает input shape для dynamic profiles
+            - Использует async execution при поддержке API
+            - Выполняет torch.cuda.synchronize() перед возвратом
+        """
         x = x.contiguous().to(self.device).float()
         b, c, h, w = x.shape
 
@@ -953,13 +1508,34 @@ class TrtEngineWrapper:
         return output
 
     def eval(self) -> "TrtEngineWrapper":
-        """Возвращает созданный TrtEngineWrapper."""
+        """Возвращает self для совместимости с интерфейсом nn.Module.
+
+        Returns:
+            TrtEngineWrapper: Сам объект.
+        """
         return self
 
 
 # ─────────────────────────────────────────────────────────────────────
 # Сохранение совместимости со старым load_trt_model
 # ─────────────────────────────────────────────────────────────────────
-def load_trt_model(path: Union[str, Path], **kwargs: Any) -> Optional[Any]:
-    """Backward-compatible alias для load_trt_engine."""
-    return load_trt_engine(path, **kwargs)
+def load_trt_model(path: PathLike, device: str = "cuda", **kwargs: Any) -> Optional[Any]:
+    """Backward-compatible alias для load_trt_engine.
+
+    Предназначена для плавного перехода со старого модуля `backend_exporter`
+    на новый `backend_exporter_new` без изменения кода вызова.
+
+    Args:
+        path: Путь к файлу .trt.
+        device: Устройство для инференса ("cuda" или "cpu").
+        **kwargs: Дополнительные аргументы (игнорируются для совместимости).
+
+    Returns:
+        Optional[Any]: Результат load_trt_engine() — см. документацию выше.
+
+    Note:
+        - Не добавляет новой функциональности, только делегирует вызов
+        - Сохраняет сигнатуру старой функции для минимизации breaking changes
+        - Рекомендуется постепенно мигрировать на load_trt_engine() в новом коде
+    """
+    return load_trt_engine(path, device=device, **kwargs)

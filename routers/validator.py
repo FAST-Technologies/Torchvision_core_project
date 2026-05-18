@@ -116,7 +116,8 @@ import io
 import base64
 import logging
 import traceback
-from typing import Dict, Any, Optional, List, Tuple, Callable
+import cv2
+from typing import Dict, Any, Optional, List, Tuple, Callable, TypeAlias
 
 import numpy as np
 from PIL import Image
@@ -133,16 +134,23 @@ from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
 from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("validate")
+# logging.basicConfig(level=logging.INFO)
+# Настройка логгера
+logger: logging.Logger = logging.getLogger("validate")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 router: APIRouter = APIRouter(prefix="/api/validate", tags=["validate"])
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & TASK STORAGE
 # ──────────────────────────────────────────────────────────────────────
-ValidationTaskDict = Dict[str, Dict[str, Any]]
-"""Тип-алиас для хранилища задач валидации.
+ValidationTaskDict: TypeAlias = Dict[str, Dict[str, Any]]
+"""Тип-алиас для хранилища задач валидации, dtype=Dict[str, Dict[str, Any]].
 
 Структура задачи:
 {
@@ -163,7 +171,7 @@ python task: ValidationTaskDict = { "status": "running", "progress": 45.5, "mess
 """
 
 _validation_tasks: ValidationTaskDict = {}
-"""Глобальное хранилище задач валидации в памяти.
+"""Глобальное хранилище задач валидации в памяти, dtype=ValidationTaskDict.
 
 Ключ: UUID задачи (str).
 
@@ -177,8 +185,8 @@ Warning:
 - Распределённой блокировки вместо локального asyncio.Lock
 """
 
-_validation_lock = asyncio.Lock()
-"""Асинхронный лок для потокобезопасного обновления _validation_tasks.
+_validation_lock: asyncio.Lock = asyncio.Lock()
+"""Асинхронный лок для потокобезопасного обновления _validation_tasks, dtype=asyncio.Lock.
 
 Используется во всех операциях чтения/записи задач для предотвращения состояний гонки при параллельных запросах к одному task_id.
 
@@ -627,8 +635,6 @@ def _process_single_method(
     """
     logger.info(f"🔹 START Processing method: {method_name}")
     try:
-        import cv2
-
         t1: float = time.perf_counter()
         seg1 = primary_class(method=method_name, **params)
         mask1: np.ndarray = seg1.segment(img_array, **params)
@@ -684,8 +690,6 @@ def _process_single_method(
         return result
     except Exception as e:
         logger.error(f"❌ ERROR in {method_name}: {type(e).__name__}: {e}")
-        import traceback
-
         logger.error(f"❌ /api/validate error: {e}\n{traceback.format_exc()}")
         raise
 

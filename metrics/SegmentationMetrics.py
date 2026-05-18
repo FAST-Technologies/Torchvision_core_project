@@ -76,8 +76,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -85,9 +85,16 @@ if not logger.handlers:
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
 MaskArray = np.ndarray  # Binary or multi-class mask: H×W, dtype uint8/int/float
+"""Тип для бинарной маски, форма (H, W), dtype=np.ndarray, значения {0, 255}."""
+
 MetricValue = Union[Any]
+"""Значение метрики, dtype=Union[Any]."""
+
 MetricsDict = Dict[str, MetricValue]
+"""Словарь с сохранёнными значениями метрик, dtype=Dict[str, MetricValue]."""
+
 ClusteringMetricsDict = Dict[str, Optional[float]]
+"""Словарь с сохранёнными значениями кластеризационных метрик, dtype=Dict[str, Optional[float]]."""
 
 
 class SegmentationMetrics:

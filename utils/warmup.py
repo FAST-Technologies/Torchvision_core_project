@@ -72,15 +72,7 @@ from __future__ import annotations  # PEP 563: отложенная оценка
 import time
 import numpy as np
 import torch
-from typing import (
-    TypedDict,
-    List,
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-    Literal,
-)
+from typing import TypedDict, List, Tuple, Dict, Any, Optional, Literal, TypeAlias
 
 import logging
 
@@ -88,16 +80,19 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & TYPEDDICTS
 # ──────────────────────────────────────────────────────────────────────
-SegmenterLike = Any  # Объект с методом .segment() или .segment_with_mask()
-ImagePattern = Literal["gradient", "noise", "checkerboard", "circles"]
+SegmenterLike: TypeAlias = Any  # Объект с методом .segment() или .segment_with_mask()
+"""Тип используемого сегментатора, dtype=Any."""
+
+ImagePattern: TypeAlias = Literal["gradient", "noise", "checkerboard", "circles"]
+"""Тип паттерна изображения, dtype=Literal["gradient", "noise", "checkerboard", "circles"]."""
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -34,7 +34,7 @@ import sys
 import time
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any, Literal, TypeAlias
 from types import FrameType
 from collections import defaultdict
 
@@ -44,6 +44,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from PIL import Image
 from tqdm import tqdm
+from skimage.transform import resize
 
 project_root: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
@@ -62,10 +63,13 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+
+ImageFormat: TypeAlias = Literal[".png", ".jpg", ".jpeg", ".bmp"]
+ImageFormats: Tuple[ImageFormat, ImageFormat, ImageFormat, ImageFormat] = (".png", ".jpg", ".jpeg", ".bmp")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -316,7 +320,7 @@ class BatchClassicTester:
             raise FileNotFoundError(f"Masks directory not found: {masks_dir}")
 
         # Получаем список изображений
-        image_files: List[str] = sorted([f for f in os.listdir(images_dir) if f.endswith((".jpg", ".jpeg", ".png"))])
+        image_files: List[str] = sorted([f for f in os.listdir(images_dir) if f.endswith(ImageFormats)])
 
         if self.max_images:
             image_files = image_files[: self.max_images]
@@ -402,8 +406,6 @@ class BatchClassicTester:
 
             # Ресайз предсказания к размеру GT если нужно
             if pred_mask.shape != gt_mask.shape:
-                from skimage.transform import resize
-
                 pred_mask = resize(pred_mask, gt_mask.shape, order=0, preserve_range=True).astype(np.uint8)
 
             exec_time: float = time.time() - start_time
@@ -449,13 +451,19 @@ class BatchClassicTester:
         # === Sklearn методы ===
         methods.update(
             {
-                "Global_Threshold_Sklearn": SklearnSegmenter("global_thresholding", threshold=0.5),
-                "Otsu_Thresholding_Sklearn": SklearnSegmenter("otsu_thresholding"),
-                "Adaptive_Threshold_Sklearn": SklearnSegmenter("adaptive_thresholding", block_size=11, C=2),
-                "Niblack_Thresholding_Sklearn": SklearnSegmenter("threshold_niblack", window_size=15, k=-0.2),
-                "Sauvola_Thresholding_Sklearn": SklearnSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
-                "Sobel_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1),
-                "Canny_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
+                "Global_Threshold_Sklearn": SklearnSegmenter("global_thresholding", threshold=0.5, postprocess=False),
+                "Otsu_Thresholding_Sklearn": SklearnSegmenter("otsu_thresholding", postprocess=False),
+                "Adaptive_Threshold_Sklearn": SklearnSegmenter(
+                    "adaptive_thresholding", block_size=11, C=2, postprocess=False
+                ),
+                "Niblack_Thresholding_Sklearn": SklearnSegmenter(
+                    "threshold_niblack", window_size=15, k=-0.2, postprocess=False
+                ),
+                "Sauvola_Thresholding_Sklearn": SklearnSegmenter(
+                    "threshold_sauvola", window_size=15, k=0.5, r=128, postprocess=False
+                ),
+                "Sobel_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1, postprocess=False),
+                "Canny_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0, postprocess=False),
             }
         )
 
@@ -502,8 +510,6 @@ class BatchClassicTester:
         self._init_progress_tracking(total_images, total_methods)
 
         # Прогресс-бар с расширенными настройками
-        from tqdm import tqdm
-
         with tqdm(
             total=self._total_tests,
             desc="🧪 Тестирование",
@@ -522,9 +528,6 @@ class BatchClassicTester:
             # Основной цикл
             for img_idx, (img_name, image, gt_mask) in enumerate(test_data):
                 for method_idx, (method_name, segmenter) in enumerate(methods.items()):
-
-                    # Пропуск если уже выполнено (при resume)
-                    # test_key = f"{img_name}:{method_name}"
                     if self.resume and self._processed_count > 0:
                         # Простая эвристика: если счётчик больше — пропускаем
                         if self._processed_count >= (img_idx * total_methods + method_idx + 1):

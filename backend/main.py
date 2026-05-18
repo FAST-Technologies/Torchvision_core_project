@@ -60,6 +60,8 @@ import math
 import logging
 import time
 import base64
+import uvicorn
+import traceback
 from typing import (
     Dict,
     Any,
@@ -73,8 +75,10 @@ from typing import (
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from pathlib import Path
+from scipy import ndimage
 
 import numpy as np
+import numpy.typing as npt
 from PIL import Image
 import torch
 from fastapi import (
@@ -101,9 +105,17 @@ from segmenters.AutoSegmenter import (
 from metrics.SegmentationMetrics import SegmentationMetrics
 from routers import benchmark, comparator, validator
 from segmenters.NeuralSegmenter import NeuralSegmenter
+from utils.strategies import segment_image_unified
+from utils.palettes import ade_palette, coco_palette, cityscapes_palette
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("autoseg")
+# Настройка логгера
+logger: logging.Logger = logging.getLogger("autoseg")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & CONSTANTS
@@ -115,31 +127,31 @@ MaskArray: TypeAlias = np.ndarray
 """Тип для бинарной маски сегментации: (H, W), dtype=uint8, значения {0, 255}."""
 
 MetricsDict: TypeAlias = Dict[str, Any]
-"""Словарь метрик качества: {имя_метрики: значение}, например {"iou": 0.85, "dice": 0.91}."""
+"""Словарь метрик качества: {имя_метрики: значение}, например {"iou": 0.85, "dice": 0.91}, dtype=Dict[str, Any]."""
 
 PathLike: TypeAlias = Union[str, Path]
-"""Унифицированный тип для путей к файлам: строка или pathlib.Path."""
+"""Унифицированный тип для путей к файлам: строка или pathlib.Path, dtype=Union[str, Path]."""
 
 DeviceStr: TypeAlias = Literal["cuda", "cpu"]
-"""Строковое обозначение устройства для выполнения вычислений."""
+"""Строковое обозначение устройства для выполнения вычислений, dtype=Literal["cuda", "cpu"]."""
 
 ModelConfigDict: TypeAlias = Dict[str, Dict[str, Any]]
-"""Конфигурация модели: {имя_модели: {параметры}}."""
+"""Конфигурация модели: {имя_модели: {параметры}}, dtype=Dict[str, Dict[str, Any]]."""
 
 NeuralConfigDict: TypeAlias = Dict[str, ModelConfigDict]
-"""Словарь конфигураций нейросетей по типам задач: {task: {model_name: config}}."""
+"""Словарь конфигураций нейросетей по типам задач: {task: {model_name: config}}, dtype=Dict[str, ModelConfigDict]."""
 
 RecommendationDict: TypeAlias = Dict[str, Any]
-"""Словарь рекомендации метода: {метод: скор, время, IoU, параметры}."""
+"""Словарь рекомендации метода: {метод: скор, время, IoU, параметры}, dtype=Dict[str, Any]."""
 
 AnalysisDataDict: TypeAlias = Dict[str, Any]
-"""Результаты анализа изображения: гистограмма, плотность границ, края в base64."""
+"""Результаты анализа изображения: гистограмма, плотность границ, края в base64, dtype=Dict[str, Any]."""
 
 ChartDict: TypeAlias = Dict[str, str]
-"""Словарь графиков: {имя_файла: base64-строка изображения}."""
+"""Словарь графиков: {имя_файла: base64-строка изображения}, dtype=Dict[str, str]."""
 
 SegmentResponseDict: TypeAlias = Dict[str, Any]
-"""Структура ответа эндпоинта /api/segment с маской, оверлеем и метаданными."""
+"""Структура ответа эндпоинта /api/segment с маской, оверлеем и метаданными, dtype=Dict[str, Any]."""
 
 # ──────────────────────────────────────────────────────────────────────
 # КЕШ МОДЕЛЕЙ
@@ -162,7 +174,7 @@ Note:
 """
 
 _CACHE_MAX: int = 3
-"""Максимальное количество моделей, одновременно хранящихся в _model_cache."""
+"""Максимальное количество моделей, одновременно хранящихся в _model_cache, dtype=int."""
 
 print(f"🔍 CWD: {os.getcwd()}")
 print(f"🔍 __file__: {__file__}")
@@ -259,7 +271,7 @@ def arr_to_b64(arr: np.ndarray) -> str:
         arr = (arr * 255).astype(np.uint8) if arr.max() <= 1.0 else arr.astype(np.uint8)
     if arr.ndim == 3 and arr.shape[2] == 1:
         arr = arr.squeeze()
-    buf = io.BytesIO()
+    buf: io.BytesIO = io.BytesIO()
     Image.fromarray(arr).save(buf, format="PNG")
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
@@ -304,9 +316,9 @@ def analyze_image_data(img_array: ImageArray) -> AnalysisDataDict:
         - Порог для edge_density (30% от максимума) выбран эмпирически.
         - Визуализация краёв нормализуется к [0, 255] перед кодированием.
     """
-    from scipy import ndimage
-
     # Гистограмма интенсивностей
+    hist: npt.NDArray
+    bins: npt.NDArray
     hist, bins = np.histogram(img_array.flatten(), bins=64, range=(0, 256))
     gray: np.ndarray = (
         np.mean(img_array, axis=2).astype(np.float32) if img_array.ndim == 3 else img_array.astype(np.float32)
@@ -1250,10 +1262,6 @@ async def segment(
 
         # ─── НЕЙРОННЫЙ РЕЖИМ ───────────────────────────────────────────────
         if mode == "neural":
-            from segmenters.NeuralSegmenter import NeuralSegmenter
-            from utils.strategies import segment_image_unified
-            from utils.palettes import ade_palette, coco_palette, cityscapes_palette
-
             # 🔹 PALETTES: словарь, где значения — функции без аргументов, возвращающие палитру
             PALETTES: Dict[str, Callable[[], List[List[int]]]] = {
                 "semantic": ade_palette,  # ADE20K: 150 классов
@@ -1415,8 +1423,6 @@ async def segment(
     except HTTPException:
         raise
     except Exception as exc:
-        import traceback
-
         logger.error(f"❌ /api/segment error: {exc}\n{traceback.format_exc()}")
         raise HTTPException(500, str(exc))
 
@@ -1501,8 +1507,6 @@ if os.path.exists(_DIST):
     app.mount("/", StaticFiles(directory=_DIST, html=True), name="static")
 
 if __name__ == "__main__":
-    import uvicorn
-
     host: str = os.getenv("API_HOST", "127.0.0.1")  # ← Безопасный дефолт
     port: int = int(os.getenv("API_PORT", 8000))
     reload: bool = os.getenv("API_RELOAD", "false").lower() == "true"

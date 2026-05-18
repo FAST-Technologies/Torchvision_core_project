@@ -144,8 +144,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -1435,13 +1435,13 @@ class TorchSegmenter(BaseSegmenter):
         threshold = self.params.get("threshold", 0.5)
         mask = (gray > threshold).float()
         exec_time = time.time() - start_time
-        info = {
-            "method": "global_thresholding_torch",
-            "parameters": {"threshold": threshold, **kwargs},
-            "execution_time": exec_time,
-        }
-        # print(f"Mask after Torch_thresholding_global: {mask}")
-        print(f"Info after Torch_thresholding_global: {info}")
+        info = self._log_info(
+            "global_thresholding_torch",
+            exec_time,
+            {"threshold": threshold, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
         return cast(torch.Tensor, mask)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1471,14 +1471,13 @@ class TorchSegmenter(BaseSegmenter):
         local_mean = F.conv2d(gray, kernel, padding=block_size // 2)
         mask = (gray > (local_mean - C / 255.0)).float()
         exec_time = time.time() - start_time
-        info = {
-            "method": "adaptive_thresholding_torch",
-            "parameters": {"block_size": block_size, "C": C, **kwargs},
-            "execution_time": exec_time,
-        }
-
-        # print(f"Mask after Torch_thresholding_adaptive: {mask}")
-        print(f"Info after Torch_thresholding_adaptive: {info}")
+        info = self._log_info(
+            "adaptive_thresholding_torch",
+            exec_time,
+            {"block_size": block_size, "C": C, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
         return cast(torch.Tensor, mask)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1524,13 +1523,14 @@ class TorchSegmenter(BaseSegmenter):
 
         mask = (gray > best_threshold).float()
         exec_time = time.time() - start_time
-        info = {
-            "method": "otsu_thresholding_torch",
-            "parameters": {**kwargs},
-            "execution_time": exec_time,
-        }
-        # print(f"Mask after Torch_thresholding_otsu: {mask.unsqueeze(0).unsqueeze(0)}")
-        print(f"Info after Torch_thresholding_otsu: {info}")
+        exec_time = time.time() - start_time
+        info = self._log_info(
+            "otsu_thresholding_torch",
+            exec_time,
+            {**kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
         return mask.unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1577,13 +1577,11 @@ class TorchSegmenter(BaseSegmenter):
             # Конвертируем обратно в torch
             mask = torch.from_numpy(mask_np).to(self.device)
             exec_time = time.time() - start_time
-            info = {
-                "method": "niblack_thresholding_torch",
-                "parameters": {"window_size": window_size, "k": k, **kwargs},
-                "execution_time": exec_time,
-            }
-            # print(f"Mask after Torch_thresholding_niblack: {mask.unsqueeze(0).unsqueeze(0)}")
-            print(f"Info after Torch_thresholding_niblack: {info}")
+            info = self._log_info(
+                "niblack_thresholding_torch", exec_time, {"window_size": window_size, "k": k, **kwargs}
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
             return mask.unsqueeze(0).unsqueeze(0)
 
         except Exception as e:
@@ -1635,13 +1633,11 @@ class TorchSegmenter(BaseSegmenter):
 
             mask = torch.from_numpy(mask_np).to(self.device)
             exec_time = time.time() - start_time
-            info = {
-                "method": "sauvola_thresholding_torch",
-                "parameters": {"window_size": window_size, "k": k, "r": r, **kwargs},
-                "execution_time": exec_time,
-            }
-            # print(f"Mask after Torch_thresholding_sauvola: {mask.unsqueeze(0).unsqueeze(0)}")
-            print(f"Info after Torch_thresholding_sauvola: {info}")
+            info = self._log_info(
+                "sauvola_thresholding_torch", exec_time, {"window_size": window_size, "k": k, "r": r, **kwargs}
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
             return mask.unsqueeze(0).unsqueeze(0)
 
         except Exception as e:
@@ -1735,10 +1731,18 @@ class TorchSegmenter(BaseSegmenter):
             pass
 
         exec_time = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "bernsen_thresholding_torch",
-            "execution_time": exec_time,
-        }
+        info = self._log_info(
+            "bernsen_thresholding_torch",
+            exec_time,
+            {
+                "window_size": window_size,
+                "contrast_threshold": contrast_threshold,
+                "use_global_mean": use_global_mean,
+                **kwargs,
+            },
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
@@ -1794,10 +1798,11 @@ class TorchSegmenter(BaseSegmenter):
         mask = torch.from_numpy(mask_np).to(self.device)
 
         exec_time = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "phansalkar_thresholding_torch",
-            "execution_time": exec_time,
-        }
+        info = self._log_info(
+            "phansalkar_thresholding_torch", exec_time, {"window_size": window_size, "k": k, "r": r, "m": m, **kwargs}
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
@@ -1835,10 +1840,9 @@ class TorchSegmenter(BaseSegmenter):
         mask = (gray > threshold).float()
 
         exec_time = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "percentile_thresholding_torch",
-            "execution_time": exec_time,
-        }
+        info = self._log_info("percentile_thresholding_torch", exec_time, {"percentile": percentile, **kwargs})
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return cast(torch.Tensor, mask.unsqueeze(0).unsqueeze(0))
 
@@ -1937,12 +1941,13 @@ class TorchSegmenter(BaseSegmenter):
         mask = (gray > threshold).float()
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "kittler_illingworth_torch",
-            "parameters": {"threshold": threshold, **kwargs},
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_kittler: {info}")
+        info = self._log_info(
+            "kittler_illingworth_torch",
+            exec_time,
+            {"threshold": threshold, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
         return mask.unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2014,12 +2019,13 @@ class TorchSegmenter(BaseSegmenter):
         mask = (gray > threshold).float()
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "kapur_entropy_torch",
-            "parameters": {"threshold": threshold, **kwargs},
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_thresholding_entropy_kapur: {info}")
+        info = self._log_info(
+            "kapur_entropy_torch",
+            exec_time,
+            {"threshold": threshold, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
         return mask.unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2084,13 +2090,13 @@ class TorchSegmenter(BaseSegmenter):
         mask = (gray > threshold).float()
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "triangle_torch",
-            "parameters": {"threshold": threshold, **kwargs},
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_thresholding_triangle: {info}")
-
+        info = self._log_info(
+            "triangle_torch",
+            exec_time,
+            {"threshold": threshold, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
         return mask.unsqueeze(0).unsqueeze(0)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2161,16 +2167,17 @@ class TorchSegmenter(BaseSegmenter):
             mask = (gray > 0.5).float()
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "multi_otsu_torch",
-            "parameters": {
+        info = self._log_info(
+            "multi_otsu_torch",
+            exec_time,
+            {
                 "n_thresholds": n_thresholds,
                 "thresholds": thresholds,
                 **kwargs,
             },
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_thresholding_multi_otsu: {info}")
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return mask.unsqueeze(0).unsqueeze(0)
 
@@ -2227,16 +2234,17 @@ class TorchSegmenter(BaseSegmenter):
         mask = (local_contrast > global_contrast_threshold).float()
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "local_contrast_torch",
-            "parameters": {
+        info = self._log_info(
+            "local_contrast_torch",
+            exec_time,
+            {
                 "window_size": window_size,
                 "contrast_factor": contrast_factor,
                 **kwargs,
             },
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_thresholding_local_contrast: {info}")
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return mask.unsqueeze(0).unsqueeze(0)
 
@@ -2279,13 +2287,13 @@ class TorchSegmenter(BaseSegmenter):
         mask = (magnitude > threshold).float()
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "sobel_edge_torch",
-            "parameters": {"threshold": threshold, **kwargs},
-            "execution_time": exec_time,
-        }
-        # print(f"Mask after Torch_sobel_edge: {mask}")
-        print(f"Info after Torch_sobel_edge: {info}")
+        info = self._log_info(
+            "sobel_edge_torch",
+            exec_time,
+            {"threshold": threshold, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return cast(torch.Tensor, mask)
 
@@ -2467,13 +2475,13 @@ class TorchSegmenter(BaseSegmenter):
 
         exec_time = time.time() - start_time
 
-        info = {
-            "method": "canny_edge_torch",
-            "parameters": {"low": low, "high": high, "sigma": sigma},
-            "execution_time": exec_time,
-        }
-        # print(f"Mask after Torch_canny_edge: {final_mask.unsqueeze(0)}")
-        print(f"Info after Torch_canny_edge: {info}")
+        info = self._log_info(
+            "canny_edge_torch",
+            exec_time,
+            {"low": low, "high": high, "sigma": sigma, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         if final_mask.dim() == 2:
             final_mask = final_mask.unsqueeze(0).unsqueeze(0)
@@ -2530,6 +2538,14 @@ class TorchSegmenter(BaseSegmenter):
             "execution_time": exec_time,
         }
 
+        info = self._log_info(
+            "prewitt_edge_torch",
+            exec_time,
+            {"threshold": threshold, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
+
         return cast(torch.Tensor, mask)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2574,10 +2590,13 @@ class TorchSegmenter(BaseSegmenter):
         mask = (magnitude > threshold).float()
 
         exec_time = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "scharr_edge_torch",
-            "execution_time": exec_time,
-        }
+        info = self._log_info(
+            "scharr_edge_torch",
+            exec_time,
+            {"threshold": threshold, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return cast(torch.Tensor, mask)
 
@@ -2648,10 +2667,13 @@ class TorchSegmenter(BaseSegmenter):
             mask = mask.squeeze(0).squeeze(0)
 
         exec_time = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "laplacian_edge_torch",
-            "execution_time": exec_time,
-        }
+        info = self._log_info(
+            "laplacian_edge_torch",
+            exec_time,
+            {"threshold": threshold, "sigma": sigma, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return cast(torch.Tensor, mask)
 
@@ -2690,10 +2712,13 @@ class TorchSegmenter(BaseSegmenter):
         mask = (magnitude > threshold).float()
 
         exec_time = time.time() - start_time
-        self.params["execution_info"] = {
-            "method": "roberts_edge_torch",
-            "execution_time": exec_time,
-        }
+        info = self._log_info(
+            "roberts_edge_torch",
+            exec_time,
+            {"threshold": threshold, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return cast(torch.Tensor, mask)
 
@@ -2759,12 +2784,13 @@ class TorchSegmenter(BaseSegmenter):
         mask = (zero_crossing & (magnitude > threshold)).float()
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "log_edge_torch",
-            "parameters": {"sigma": sigma, "threshold": threshold, **kwargs},
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_log_edge: {info}")
+        info = self._log_info(
+            "log_edge_torch",
+            exec_time,
+            {"sigma": sigma, "threshold": threshold, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return cast(torch.Tensor, mask)
 
@@ -2828,17 +2854,18 @@ class TorchSegmenter(BaseSegmenter):
         mask = (zero_crossing & (magnitude > threshold)).float()
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "dog_edge_torch",
-            "parameters": {
+        info = self._log_info(
+            "dog_edge_torch",
+            exec_time,
+            {
                 "sigma1": sigma1,
                 "sigma2": sigma2,
                 "threshold": threshold,
                 **kwargs,
             },
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_dog_edge: {info}")
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return cast(torch.Tensor, mask)
 
@@ -2915,12 +2942,13 @@ class TorchSegmenter(BaseSegmenter):
         mask = zero_crossing.float()
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "marr_hildreth_torch",
-            "parameters": {"sigma": sigma, "threshold": threshold, **kwargs},
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_marr_hildreth_edge: {info}")
+        info = self._log_info(
+            "marr_hildreth_torch",
+            exec_time,
+            {"sigma": sigma, "threshold": threshold, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return mask
 
@@ -2963,16 +2991,16 @@ class TorchSegmenter(BaseSegmenter):
 
         # Пороговая обработка
         mask = (suppressed > threshold).float()
-
         exec_time = time.time() - start_time
-        info = {
-            "method": "gradient_magnitude_direction_torch",
-            "parameters": {"threshold": threshold, **kwargs},
-            "magnitude": magnitude,
-            "direction": direction,
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_gradient_magnitude_direction: {info}")
+        info = self._log_info(
+            "gradient_magnitude_direction_torch",
+            exec_time,
+            {"threshold": threshold, **kwargs},
+            magnitude=magnitude,
+            direction=direction,
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return cast(torch.Tensor, mask)
 
@@ -3144,9 +3172,10 @@ class TorchSegmenter(BaseSegmenter):
             mask = (pc_map > threshold).float()
 
             exec_time = time.time() - start_time
-            info = {
-                "method": "phase_congruency_torch",
-                "parameters": {
+            info = self._log_info(
+                "phase_congruency_torch",
+                exec_time,
+                {
                     "nscales": nscales,
                     "norientations": norientations,
                     "min_wavelength": min_wavelength,
@@ -3156,9 +3185,9 @@ class TorchSegmenter(BaseSegmenter):
                     "threshold": threshold,
                     **kwargs,
                 },
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_phase_congruency_edge: {info}")
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
             return cast(torch.Tensor, mask.unsqueeze(0).unsqueeze(0))  # (1, 1, H, W)
 
@@ -3220,12 +3249,13 @@ class TorchSegmenter(BaseSegmenter):
                         queue.append((ny, nx))
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "region_growing_torch",
-            "parameters": {"seed": seed, "tolerance": tolerance, **kwargs},
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_region_growing: {info}")
+        info = self._log_info(
+            "region_growing_torch",
+            exec_time,
+            {"seed": seed, "tolerance": tolerance, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return mask.float().unsqueeze(0).unsqueeze(0)
 
@@ -3306,12 +3336,13 @@ class TorchSegmenter(BaseSegmenter):
             mask = torch.from_numpy(mask_np).to(self.device)
 
             exec_time = time.time() - start_time
-            info = {
-                "method": "split_and_merge_torch",
-                "parameters": {"min_size": min_size, "threshold": threshold, **kwargs},
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_split_and_merge: {info}")
+            info = self._log_info(
+                "split_and_merge_torch",
+                exec_time,
+                {"min_size": min_size, "threshold": threshold, **kwargs},
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
             return mask.unsqueeze(0).unsqueeze(0)
 
         except Exception as e:
@@ -3356,12 +3387,13 @@ class TorchSegmenter(BaseSegmenter):
             mask = (segmentation > 0).float()
 
             exec_time = time.time() - start_time
-            info = {
-                "method": "floodfill_torch",
-                "parameters": {"points": points, "tolerance": tolerance, **kwargs},
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_floodfill: {info}")
+            info = self._log_info(
+                "floodfill_torch",
+                exec_time,
+                {"points": points, "tolerance": tolerance, **kwargs},
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
             return mask.to(self.device)
 
@@ -3401,12 +3433,13 @@ class TorchSegmenter(BaseSegmenter):
             mask_tensor = torch.from_numpy(mask).to(self.device)
 
             exec_time = time.time() - start_time
-            info = {
-                "method": "floodfill_visualisation_torch",
-                "parameters": {"points": points, "tolerance": tolerance, **kwargs},
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_floodfill_visual: {info}")
+            info = self._log_info(
+                "floodfill_visualisation_torch",
+                exec_time,
+                {"points": points, "tolerance": tolerance, **kwargs},
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
             return result_np, mask_tensor
 
@@ -3462,12 +3495,13 @@ class TorchSegmenter(BaseSegmenter):
                         queue.append((nx, ny))
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "floodfill_single_torch",
-            "parameters": {"tolerance": tolerance, **kwargs},
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_floodfill_single: {info}")
+        info = self._log_info(
+            "floodfill_single_torch",
+            exec_time,
+            {"tolerance": tolerance, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return mask
 
@@ -3553,12 +3587,13 @@ class TorchSegmenter(BaseSegmenter):
         mask = (labels != bg_label).view(h, w)
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "kmeans_torch",
-            "parameters": {"k": k, **kwargs},
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_kmeans: {info}")
+        info = self._log_info(
+            "kmeans_torch",
+            exec_time,
+            {"k": k, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return cast(torch.Tensor, mask.float())
 
@@ -3613,12 +3648,13 @@ class TorchSegmenter(BaseSegmenter):
             mask = torch.from_numpy(mask_np).to(self.device)
 
             exec_time = time.time() - start_time
-            info = {
-                "method": "dbscan_torch",
-                "parameters": {"eps": eps, "min_samples": min_samples, **kwargs},
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_dbscan: {info}")
+            info = self._log_info(
+                "dbscan_torch",
+                exec_time,
+                {"eps": eps, "min_samples": min_samples, **kwargs},
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
             return mask.unsqueeze(0).unsqueeze(0)
 
@@ -3688,17 +3724,18 @@ class TorchSegmenter(BaseSegmenter):
             mask = torch.from_numpy(mask_np).to(self.device)
 
             exec_time = time.time() - start_time
-            info = {
-                "method": "meanshift_torch",
-                "parameters": {
+            info = self._log_info(
+                "meanshift_torch",
+                exec_time,
+                {
                     "bandwidth": bandwidth,
                     "spatial_radius": spatial_radius,
                     "color_radius": color_radius,
                     **kwargs,
                 },
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_meanshift: {info}")
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
             return mask
 
@@ -3763,17 +3800,18 @@ class TorchSegmenter(BaseSegmenter):
             mask = torch.from_numpy(mask_np).to(self.device)
 
             exec_time = time.time() - start_time
-            info = {
-                "method": "meanshift_visualisation_torch",
-                "parameters": {
+            info = self._log_info(
+                "meanshift_visualisation_torch",
+                exec_time,
+                {
                     "bandwidth": bandwidth,
                     "spatial_radius": spatial_radius,
                     "color_radius": color_radius,
                     **kwargs,
                 },
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_meanshift_visual: {info}")
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
             return result_np, mask
 
@@ -3937,9 +3975,10 @@ class TorchSegmenter(BaseSegmenter):
         mask = torch.from_numpy(mask_np_fix).to(self.device)
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "active_contour_torch",
-            "parameters": {
+        info = self._log_info(
+            "active_contour_torch",
+            exec_time,
+            {
                 "alpha": alpha,
                 "beta": beta,
                 "gamma": gamma,
@@ -3948,9 +3987,9 @@ class TorchSegmenter(BaseSegmenter):
                 "n_points": n_points,
                 **kwargs,
             },
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_active_contour: {info}")
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return mask
 
@@ -3999,12 +4038,15 @@ class TorchSegmenter(BaseSegmenter):
         mask = (mag > 0.1).float()
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "gvf_torch",
-            "parameters": {**kwargs},
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_gvf_contour: {info}")
+        info = self._log_info(
+            "gvf_torch",
+            exec_time,
+            {
+                **kwargs,
+            },
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
@@ -4074,17 +4116,19 @@ class TorchSegmenter(BaseSegmenter):
 
             mask = torch.from_numpy(mask_np).to(self.device)
             exec_time = time.time() - start_time
-            info = {
-                "method": "morphological_snakes_torch",
-                "parameters": {
+            info = self._log_info(
+                "morphological_snakes_torch",
+                exec_time,
+                {
                     "iterations": iterations,
                     "smoothing": smoothing,
                     "threshold": threshold,
                     **kwargs,
                 },
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_morphological_snakes: {info}")
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
+
             return mask.unsqueeze(0).unsqueeze(0)
 
         except Exception as e:
@@ -4153,11 +4197,11 @@ class TorchSegmenter(BaseSegmenter):
 
             # === БИНАРИЗАЦИЯ ===
             mask = (phi > 0).float()
-
             exec_time = time.time() - start_time
-            info = {
-                "method": "chan_vese_torch",
-                "parameters": {
+            info = self._log_info(
+                "chan_vese_torch",
+                exec_time,
+                {
                     "mu": mu,
                     "lambda1": lambda1,
                     "lambda2": lambda2,
@@ -4168,9 +4212,9 @@ class TorchSegmenter(BaseSegmenter):
                     "init_level_set": init_type,
                     **kwargs,
                 },
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_chan_vese: {info}")
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
             return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
         except Exception as e:
@@ -4322,12 +4366,14 @@ class TorchSegmenter(BaseSegmenter):
         mask = (result_labels > 0).float()
 
         exec_time = time.time() - start_time
-        info = {
-            "method": "watershed_torch",
-            "parameters": {"markers": markers, **kwargs},
-            "execution_time": exec_time,
-        }
-        print(f"Info after Torch_watershed: {info}")
+
+        info = self._log_info(
+            "watershed_torch",
+            exec_time,
+            {"markers": markers, **kwargs},
+        )
+        if self._debug_mode:
+            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
         return gradient_magnitude.squeeze(), mask
 
@@ -4366,12 +4412,13 @@ class TorchSegmenter(BaseSegmenter):
             # Возвращаем результат и маску
             mask_tensor = mask.to(self.device)  # Уже в нужном формате
             exec_time = time.time() - start_time
-            info = {
-                "method": "watershed_visualisation_torch",
-                "parameters": {**kwargs},
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_watershed_visual: {info}")
+            info = self._log_info(
+                "watershed_visualisation_torch",
+                exec_time,
+                {**kwargs},
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
             return result, mask_tensor
 
         except Exception as e:
@@ -4461,9 +4508,11 @@ class TorchSegmenter(BaseSegmenter):
             mask = (result == target_label).float()
 
             exec_time = time.time() - start_time
-            info = {
-                "method": "random_walker_torch",
-                "parameters": {
+
+            info = self._log_info(
+                "random_walker_torch",
+                exec_time,
+                {
                     "beta": beta,
                     "mode": mode,
                     "tol": tol,
@@ -4471,9 +4520,9 @@ class TorchSegmenter(BaseSegmenter):
                     "target_label": target_label,
                     **kwargs,
                 },
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_random_walker: {info}")
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
             return cast(torch.Tensor, mask.unsqueeze(0).unsqueeze(0))  # (1, 1, H, W)
 
@@ -4573,9 +4622,11 @@ class TorchSegmenter(BaseSegmenter):
             mask = torch.from_numpy(mask_np).to(self.device)
 
             exec_time = time.time() - start_time
-            info = {
-                "method": "quickshift_torch",
-                "parameters": {
+
+            info = self._log_info(
+                "quickshift_torch",
+                exec_time,
+                {
                     "kernel_size": kernel_size,
                     "max_dist": max_dist,
                     "ratio": ratio,
@@ -4583,9 +4634,9 @@ class TorchSegmenter(BaseSegmenter):
                     "convert2lab": convert2lab,
                     **kwargs,
                 },
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_quickshift: {info}")
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
             return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
@@ -4727,9 +4778,11 @@ class TorchSegmenter(BaseSegmenter):
             mask = torch.from_numpy(mask_np).to(self.device)
 
             exec_time = time.time() - start_time
-            info = {
-                "method": "slic_torch",
-                "parameters": {
+
+            info = self._log_info(
+                "slic_torch",
+                exec_time,
+                {
                     "n_segments": n_segments,
                     "compactness": compactness,
                     "max_iter": max_iter,
@@ -4739,9 +4792,10 @@ class TorchSegmenter(BaseSegmenter):
                     "max_size_factor": max_size_factor,
                     **kwargs,
                 },
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_slic: {info}")
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
+
             return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
         except Exception as e:
@@ -4880,17 +4934,19 @@ class TorchSegmenter(BaseSegmenter):
             mask = torch.from_numpy(mask_np).to(self.device)
 
             exec_time = time.time() - start_time
-            info = {
-                "method": "felzenszwalb_torch",
-                "parameters": {
+
+            info = self._log_info(
+                "felzenszwalb_torch",
+                exec_time,
+                {
                     "scale": scale,
                     "sigma": sigma,
                     "min_size": min_size,
                     **kwargs,
                 },
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_felzenszwalb: {info}")
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
             return mask.unsqueeze(0).unsqueeze(0)
 
         except Exception as e:
@@ -4975,16 +5031,18 @@ class TorchSegmenter(BaseSegmenter):
             final_mask = (fg_probs > bg_probs).float().reshape(h, w)
 
             exec_time = time.time() - start_time
-            info = {
-                "method": "grabcut_torch",
-                "parameters": {
+
+            info = self._log_info(
+                "grabcut_torch",
+                exec_time,
+                {
                     "rect": rect,
                     "num_iterations": num_iterations,
                     **kwargs,
                 },
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_grabcut: {info}")
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
             return cast(torch.Tensor, final_mask)
 
@@ -5021,12 +5079,13 @@ class TorchSegmenter(BaseSegmenter):
             mask_tensor = torch.from_numpy(mask_np).float().to(self.device)
 
             exec_time = time.time() - start_time
-            info = {
-                "method": "grabcut_visualisation_torch",
-                "parameters": {**kwargs},
-                "execution_time": exec_time,
-            }
-            print(f"Info after Torch_grabcut_visualization: {info}")
+            info = self._log_info(
+                "grabcut_visualisation_torch",
+                exec_time,
+                {**kwargs},
+            )
+            if self._debug_mode:
+                logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
             return result, mask_tensor
 
@@ -5035,3 +5094,29 @@ class TorchSegmenter(BaseSegmenter):
             mask = self._grabcut(tensor)
             img_np = self._tensor_to_numpy(tensor)
             return img_np, mask
+
+
+# ──────────────────────────────────────────────────────────────────────
+# PUBLIC API
+# ──────────────────────────────────────────────────────────────────────
+__all__: List[str] = [
+    # 🔹 Основные классы
+    "TorchSegmenter",
+    # 🔹 Re-export базовых типов (для удобства)
+    "BaseSegmenter",
+    "ImageInput",
+    "BinaryMask",
+    "ProbabilityMask",
+]
+"""Публичный API модуля TorchSegmenter.
+
+Экспортируемые символы:
+- `TorchSegmenter`: Высокопроизводительный сегментер на чистом PyTorch (50+ методов). 
+  Смешанная PyTorch/NumPy реализация.
+
+- `BaseSegmenter`, `ImageInput`, `BinaryMask`, `ProbabilityMask`: Базовые типы
+  и протоколы из `BaseSegmenter` для удобного импорта в одном месте.
+
+Используется статическими анализаторами (mypy, pyright), linter'ами и IDE
+для автодополнения и проверки типов.
+"""

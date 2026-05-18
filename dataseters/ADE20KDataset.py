@@ -59,8 +59,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -68,10 +68,19 @@ if not logger.handlers:
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
 ImageSize: TypeAlias = Tuple[int, int]
+"""Тип для размера изображения, dtype=Tuple[int, int]."""
+
 AugmentationLevel: TypeAlias = Literal["none", "basic", "medium", "aggressive"]
+"""Тип для различных уровней аугментации, dtype=Literal["none", "basic", "medium", "aggressive"]."""
+
 ScaleRange: TypeAlias = Tuple[float, float]
+"""Тип для изменения масштаба изображения при аугментациях, dtype=Tuple[float, float]."""
+
 BatchDict: TypeAlias = Dict[str, Any]
-PathLike = Union[str, Path]
+"""Тип возвращаемого значения из датасета (image, mask, image_id), dtype=Dict[str, Any]."""
+
+PathLike: TypeAlias = Union[str, Path]
+"""Тип пути до файла, исходные форматы: str/Path, dtype=Union[str, Path]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -483,7 +492,16 @@ class ADE20KDatasetWithTransforms(Dataset):
         subset_fraction: Optional[float] = None,
         ignore_index: int = 255,
     ) -> None:
-        """Инициализация модуля ADE20KDatasetWithTransforms."""
+        """Инициализация датасета ADE20KDatasetWithTransforms.
+
+        Args:
+            root_dir: Корневая директория датасета.
+            split: Название сплита ("training", "validation", "testing").
+            image_size: Целевой размер изображений (ширина, высота).
+            augment: Применять ли аугментации.
+            subset_fraction: Доля данных для использования (для быстрых тестов).
+            ignore_index: Индекс пикселей для игнорирования в лоссе.
+        """
         self.image_size: ImageSize = image_size
         self.augment: bool = augment
         self.ignore_index: int = ignore_index

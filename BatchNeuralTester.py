@@ -80,12 +80,13 @@ import time
 from hashlib import sha256
 import pickle
 from pathlib import Path
-from typing import List, Tuple, Dict, Any, Optional, Union, Literal, Set, cast, Generator
+from typing import List, Tuple, Dict, Any, Optional, Union, Literal, Set, cast, Generator, TypeAlias
 from dataclasses import dataclass, field, asdict
 from collections import OrderedDict
 
 import pandas as pd
 import numpy as np
+import numpy.typing as npt
 import torch
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
@@ -107,8 +108,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -126,19 +127,35 @@ from utils.backend_exporter_new import (
     load_trt_engine,
 )
 
-
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & CONSTANTS
 # ──────────────────────────────────────────────────────────────────────
-MaskArray = np.ndarray
-ImageArray = np.ndarray
-MetricValue = float
-MetricsDict = Dict[str, MetricValue]
-PathLike = Union[str, Path]
+MaskArray: TypeAlias = np.ndarray
+"""Тип для бинарной маски: (H, W), dtype=uint8, значения {0, 255}."""
 
-# Маппинг имён чекпоинтов на ModelType enum (для NeuralSegmenter)
+ImageArray: TypeAlias = npt.NDArray[np.uint8]
+"""Тип для входного изображения: (H, W) или (H, W, 3), dtype=uint8."""
+
+MetricValue: TypeAlias = float
+"""Значение подсчитанной метрики, dtype=float."""
+
+MetricsDict: TypeAlias = Dict[str, MetricValue]
+"""СЛоварь для сохранения значения метрки, dtype=Dict[str, MetricValue]."""
+
+PathLike: TypeAlias = Union[str, Path]
+"""Путь до файла в фолрмате str/Path, dtype=Union[str, Path]."""
+
+DeviceType: TypeAlias = Literal["cuda", "cpu"]
+"""Тип текущего устройства, dtype=Literal["cuda", "cpu"]."""
+
+ModelFormat: TypeAlias = Literal["pth", "trt", "onnx"]
+"""Формат исследуемой нейросетевой модели, dtype=Literal["pth", "trt", "onnx"]."""
+
+AugmentationTypes: List[str] = ["none", "basic", "medium"]
+"""Текущий уровень тестируемых аугментаций, dtype=List[str]."""
+
 MODEL_TYPE_MAPPING: Dict[str, str] = {
-    "unet_smp": "unet_smp",
+    """Маппинг имён чекпоинтов на ModelType enum (для NeuralSegmenter), dtype=Dict[str, str].""" "unet_smp": "unet_smp",
     "fpn_smp": "fpn_smp",
     "psp_smp": "pspnet_smp",
     "deeplab_tv": "deeplab_tv",
@@ -146,9 +163,8 @@ MODEL_TYPE_MAPPING: Dict[str, str] = {
     "segnet": "segnet",
 }
 
-# Стандартные метрики для агрегации
 DEFAULT_METRICS: List[str] = [
-    "iou",
+    """Стандартные метрики для агрегации, dtype=List[str].""" "iou",
     "dice",
     "f1_score",
     "precision",
@@ -163,14 +179,16 @@ DEFAULT_METRICS: List[str] = [
 # CONSTANTS для парсинга
 # ──────────────────────────────────────────────────────────────────────
 KNOWN_MODEL_PREFIXES: List[str] = [
-    "unet_smp",
+    """Известные префиксы нейронных моделей, dtype=List[str].""" "unet_smp",
     "fpn_smp",
     "psp_smp",
     "deeplab_tv",
     "fcn_tv",
     "segnet",
 ]
+
 KNOWN_AUG_LEVELS: Set[str] = {"none", "basic", "medium"}
+"""Известные уровни аугментаций ("none", "basic", "medium"), dtype=Set[str]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -223,10 +241,9 @@ class PredictionCache:
         Returns:
             Optional[np.ndarray]: Массив предсказания или None, если кэш отсутствует/повреждён.
         """
-        cache_file: Path = self.cache_dir / f"{key}.npy"  # ← меняем расширение
+        cache_file: Path = self.cache_dir / f"{key}.npy"
         if cache_file.exists():
             try:
-                # np.load безопасен для файлов, созданных np.save
                 result = np.load(cache_file, allow_pickle=False)
                 if isinstance(result, np.ndarray):
                     return result
@@ -313,6 +330,9 @@ class TestConfig:
         use_wandb: Логировать в Weights & Biases.
         class_aware_overlays: Рисовать цветные легенды классов на оверлеях.
         overlay_alpha: Прозрачность наложения маски [0.0, 1.0].
+        save_viz: Флаг для сохранения визуализаций.
+        input_shape: Размер входного изображения (фиксирован по умолчанию и равен (1, 3, 512, 512)).
+        normalization: Параметр нормализации (по умолчанию "imagenet").
 
     Note:
         При `device='cpu'` точность fp16/bf16 автоматически откатывается до fp32.
@@ -357,7 +377,7 @@ class TestConfig:
     class_aware_overlays: bool = False
     overlay_alpha: float = 0.5
     save_viz: bool = False
-    input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512)  # ← Новое поле
+    input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512)
     normalization: str = "imagenet"
 
     # ──────────────────────────────────────────────────────────────────────
@@ -368,9 +388,9 @@ class TestConfig:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         if self.device not in ["cuda", "cpu"]:
             raise ValueError(f"Unsupported device: {self.device}")
-        # expected_h, expected_w = self.config.input_shape[2], self.config.input_shape[3]
-        # if expected_h < 256 or expected_w < 256:
-        #     logger.warning(f"⚠️ input_shape {self.config.input_shape} может быть слишком мал для нейросетей")
+        expected_h, expected_w = self.input_shape[2], self.input_shape[3]
+        if expected_h < 256 or expected_w < 256:
+            logger.warning(f"⚠️ input_shape {self.input_shape} может быть слишком мал для нейросетей")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -394,7 +414,7 @@ class ModelCheckpoint:
     model_type: str
     augmentation: str
     original_type: str
-    format: Literal["pth", "trt", "onnx"] = "pth"
+    format: ModelFormat = "pth"
 
     @property
     def display_name(self) -> str:
@@ -594,7 +614,7 @@ def save_augmentation_comparison_grid(
     fig, axes = plt.subplots(n_models, 3, figsize=(15, 5 * n_models), squeeze=False)
 
     for row, model in enumerate(models):
-        for col, aug in enumerate(["none", "basic", "medium"]):
+        for col, aug in enumerate(AugmentationTypes):
             # Ищем ключи, содержащие модель и аугментацию (любое изображение)
             matching_keys: List[str] = [k for k in overlay_images.keys() if k.startswith(f"{model}_{aug}_")]
             ax = axes[row, col]
@@ -669,12 +689,12 @@ def save_model_augmentation_comparisons(
         fig, axes = plt.subplots(1, 3, figsize=(18, 6))
         fig.suptitle(f"{model}: сравнение аугментаций", fontsize=14, fontweight="bold")
 
-        for idx, aug in enumerate(["none", "basic", "medium"]):
+        for idx, aug in enumerate(AugmentationTypes):
             matching_keys: List[str] = [k for k in overlay_images.keys() if k.startswith(f"{model}_{aug}_")]
             ax = axes[idx]
 
             if matching_keys:
-                key: str = matching_keys[0]  # Берём первый найденный
+                key: str = matching_keys[0]
                 if overlay_images.get(key) is not None:
                     ax.imshow(overlay_images[key])
                     ax.set_title(f"{aug.upper()}", fontsize=11)
@@ -786,7 +806,7 @@ class BatchNeuralTester:
                 "segnet",
             ]
         if augmentation_levels is None:
-            augmentation_levels = ["none", "basic", "medium"]
+            augmentation_levels = AugmentationTypes
 
         checkpoints: Dict[str, ModelCheckpoint] = {}
         models_path: Path = Path(models_dir)
@@ -806,7 +826,7 @@ class BatchNeuralTester:
                         model_type=MODEL_TYPE_MAPPING.get(model_type, model_type),
                         augmentation=aug_level,
                         original_type=model_type,
-                        format="trt",  # ← Новый атрибут
+                        format="trt",
                     )
                     continue
                 pattern: str = str(models_path / f"{model_type}_{aug_level}_*.pth")
@@ -814,7 +834,7 @@ class BatchNeuralTester:
 
                 if files:
                     latest = max(files, key=os.path.getctime)
-                    key = f"{model_type}_{aug_level}"  # Ключ для агрегации
+                    key = f"{model_type}_{aug_level}"
                     checkpoints[key] = ModelCheckpoint(
                         key=key,
                         path=Path(latest),
@@ -1038,6 +1058,8 @@ class BatchNeuralTester:
         # ──────────────────────────────────────────────────────────────
         # 1. mIoU и per-class IoU
         # ──────────────────────────────────────────────────────────────
+        m_iou: float
+        iou_per_class: Dict[int, float]
         m_iou, iou_per_class = self._calculate_multiclass_iou(pred, gt, ignore_index)
         results["m_iou"] = m_iou
         for cls, iou in iou_per_class.items():
@@ -1067,8 +1089,8 @@ class BatchNeuralTester:
             for cls in range(min(20, num_classes)):  # Ограничим первыми 10 классами для экономии
                 if cls == ignore_index:
                     continue
-                pred_c = (pred == cls).astype(np.uint8)
-                gt_c = (gt == cls).astype(np.uint8)
+                pred_c: np.ndarray = (pred == cls).astype(np.uint8)
+                gt_c: np.ndarray = (gt == cls).astype(np.uint8)
                 tp = np.logical_and(pred_c, gt_c).sum()
                 fp = np.logical_and(pred_c, ~gt_c).sum()
                 fn = np.logical_and(~pred_c, gt_c).sum()
@@ -1090,8 +1112,8 @@ class BatchNeuralTester:
                 gt_mask_c: np.ndarray = gt == cls
 
                 # Границы = dilation XOR erosion
-                pred_boundary = binary_dilation(pred_mask_c) ^ binary_erosion(pred_mask_c)
-                gt_boundary = binary_dilation(gt_mask_c) ^ binary_erosion(gt_mask_c)
+                pred_boundary: np.ndarray = binary_dilation(pred_mask_c) ^ binary_erosion(pred_mask_c)
+                gt_boundary: np.ndarray = binary_dilation(gt_mask_c) ^ binary_erosion(gt_mask_c)
 
                 tp_b = np.logical_and(pred_boundary, gt_boundary).sum()
                 fp_b = np.logical_and(pred_boundary, ~gt_boundary).sum()
@@ -1191,7 +1213,7 @@ class BatchNeuralTester:
             # from segmenters.BackendSegmenters import ONNXSegmenter
             from segmenters.BackendSegmenters import TRTSegmenter
 
-            device_literal: Literal["cuda", "cpu"] = cast(Literal["cuda", "cpu"], self.config.device)
+            device_literal: DeviceType = cast(DeviceType, self.config.device)
             segmenter = TRTSegmenter(
                 model_key=checkpoint.key,
                 trt_model_or_path=str(checkpoint.path),
@@ -2051,8 +2073,7 @@ class BatchNeuralTester:
         """Валидация .pth/.onnx/.trt версий модели: инференс + метрики + время."""
         from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
 
-        results = {}
-        # expected_h, expected_w = self.config.input_shape[2], self.config.input_shape[3]
+        results: Dict[str, Dict[str, Any]] = {}
 
         # === 1. PyTorch (.pth) ===
         if checkpoint.path.suffix == ".pth":
@@ -2079,7 +2100,7 @@ class BatchNeuralTester:
         onnx_path = output_dir / f"{checkpoint.key}.onnx"
         if onnx_path.exists():
             try:
-                device_literal: Literal["cuda", "cpu"] = cast(Literal["cuda", "cpu"], self.config.device)
+                device_literal: DeviceType = cast(DeviceType, self.config.device)
                 seg_onnx: ONNXSegmenter = ONNXSegmenter(
                     model_key=checkpoint.key,
                     onnx_path=str(onnx_path),
@@ -2157,8 +2178,6 @@ class BatchNeuralTester:
                 pred: np.ndarray = cast(np.ndarray, data["pred"])
 
                 try:
-                    # === Используем ту же логику, что и в _test_single_model ===
-
                     # 1. Пробуем class-aware overlay для многоклассовой сегментации
                     if getattr(self.config, "class_aware_overlays", False):
                         overlay: Image.Image = self._create_class_aware_overlay(
@@ -2179,7 +2198,6 @@ class BatchNeuralTester:
                         else:  # Бинарная маска
                             overlay = self._create_simple_overlay(image, pred, alpha=0.6)
 
-                    # Сохраняем
                     overlay_path: Path = viz_dir / f"{checkpoint.key}_{backend}_overlay.png"
                     overlay.save(overlay_path)
                     logger.debug(f"✅ Оверлей валидации сохранён: {overlay_path}")
@@ -2211,7 +2229,6 @@ class BatchNeuralTester:
             if hasattr(NeuralSegmenter, "ade_palette"):
                 palette = NeuralSegmenter.ade_palette()
             else:
-                # Генерация случайной палитры
                 np.random.seed(42)
                 palette = [[int(c) for c in np.random.randint(0, 255, 3)] for _ in range(256)]
 
@@ -2594,7 +2611,7 @@ class BatchNeuralTester:
         # 1. Сводная статистика по уровням аугментаций
         # ──────────────────────────────────────────────────────────────
         summary: Dict[str, Any] = {}
-        for aug in ["none", "basic", "medium"]:
+        for aug in AugmentationTypes:
             aug_data: pd.DataFrame = df[df["augmentation"] == aug]
             if not aug_data.empty:
                 summary[aug] = {

@@ -50,7 +50,7 @@ from __future__ import annotations  # PEP 563: отложенная оценка
 import torch
 import numpy as np
 import pandas as pd
-from typing import Optional, Dict, Any, Union, List, Tuple
+from typing import Optional, Dict, Any, Union, List, Tuple, TypeAlias
 from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 
 import logging
@@ -59,17 +59,22 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
-MaskArray = np.ndarray  # Semantic mask: H×W, dtype int/uint8
-LogitsTensor = Union[torch.Tensor, Dict[str, torch.Tensor], Tuple[torch.Tensor, ...]]
-ClassNamesDict = Optional[Dict[Union[int, str], str]]
+MaskArray: TypeAlias = np.ndarray  # Semantic mask: H×W, dtype int/uint8
+"""Тип для бинарной маски сегментации: (H, W), dtype=uint8, значения {0, 255}."""
+
+LogitsTensor: TypeAlias = Union[torch.Tensor, Dict[str, torch.Tensor], Tuple[torch.Tensor, ...]]
+"""Выходные данные модели (Tensor, Dict, Tuple или специфичная структура), dtype=Union[torch.Tensor, Dict[str, torch.Tensor], Tuple[torch.Tensor, ...]]."""
+
+ClassNamesDict: TypeAlias = Optional[Dict[Union[int, str], str]]
+"""Словарь `{класс: имя}` для отображения человекочитаемых названий, dtype=Optional[Dict[Union[int, str], str]]."""
 
 
 # ──────────────────────────────────────────────────────────────────────

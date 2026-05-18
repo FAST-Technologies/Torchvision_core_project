@@ -106,7 +106,7 @@ for method, backends in results.items():
 - Экспорт может занимать значительное время при большом количестве методов и точностей.
 
 See Also:
-- `utils.backend_exporter`: Низкоуровневые функции экспорта в ONNX/TRT
+- `utils.backend_exporter_new`: Низкоуровневые функции экспорта в ONNX/TRT
 - `segmenters.NewTorchSegmenter.TorchSegmenter2`: Исходный класс сегментеров
 - `segmenters.BackendSegmenters`: Классы-обёртки для загрузки ONNX/TRT моделей
 
@@ -119,7 +119,7 @@ Version: 1.0.0
 # ──────────────────────────────────────────────────────────────────────
 from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
 
-from typing import List, Dict, Any, Optional, Tuple, Literal
+from typing import List, Dict, Any, Optional, Tuple, Literal, TypeAlias
 import torch
 import os
 import time
@@ -136,10 +136,19 @@ if not logger.handlers:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES
+# ──────────────────────────────────────────────────────────────────────
+TRTStrategyType: TypeAlias = Literal["api", "trtexec", "onnx_tensorrt", "jit", "auto"]
+"""Стратегия экспорта для классического метода сегментации в формат TRT, dtype=Literal["api", "trtexec", "onnx_tensorrt", "jit", "auto"]."""
+
+PrecisionType: TypeAlias = Literal["fp32", "fp16", "bf16"]
+"""Возможные точности, dtype=Literal["fp32", "fp16", "bf16"]."""
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Списки методов для экспорта
 THRESHOLD_METHODS: List[str] = [
-    "global_thresholding",
+    """Список пороговых методов сегментации, dtype=List[str].""" "global_thresholding",
     "otsu_thresholding",
     "adaptive_thresholding",
     "threshold_niblack",
@@ -156,7 +165,7 @@ THRESHOLD_METHODS: List[str] = [
 
 # ──────────────────────────────────────────────────────────────────────────────
 EDGE_METHODS: List[str] = [
-    "sobel_edge",
+    """Список граничных методов сегментации, dtype=List[str].""" "sobel_edge",
     "canny_edge",
     "prewitt_edge",
     "scharr_edge",
@@ -173,13 +182,13 @@ EDGE_METHODS: List[str] = [
 # ──────────────────────────────────────────────────────────────────────────────
 def export_all_classical_methods(
     output_base_dir: str = "./exported_models",
-    precisions: Optional[List[str]] = None,
+    precisions: Optional[List[PrecisionType]] = None,
     methods: Optional[List[str]] = None,
     input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
     force_reexport: bool = False,
     export_onnx: bool = True,
     export_trt: bool = True,
-    trt_strategy: Literal["api", "trtexec", "onnx_tensorrt", "jit", "auto"] = "auto",
+    trt_strategy: TRTStrategyType = "auto",
 ) -> Dict[str, Dict[str, Any]]:
     """Массовый экспорт классических методов сегментации.
 
@@ -215,13 +224,13 @@ def export_all_classical_methods(
     results: Dict[str, Dict[str, Any]] = {}
 
     from utils.backend_exporter_new import (
+        export_method_to_onnx_safe,
         export_onnx_to_trt_via_api,
         export_onnx_to_trt_via_trtexec,
         export_onnx_to_trt_via_onnx_tensorrt,
         _export_via_torch_tensorrt_jit,
         OnnxTrtFallbackSegmenter,
     )
-    from utils.backend_exporter import export_method_to_onnx_safe
 
     for method_name in methods:
         print(f"\n🔄 Экспорт метода: {method_name}")
@@ -229,6 +238,13 @@ def export_all_classical_methods(
 
         for precision in precisions:
             print(f"  ├─ Точность: {precision}")
+
+            if precision == "bf16":
+                cap = torch.cuda.get_device_capability(0)
+                if cap[0] < 8:  # Ampere+
+                    print(f"    ⚠️  bf16 требует GPU Ampere+, пропускаем для {method_name}")
+                    results[method_name][f"trt_{precision}"] = "⚠️ BF16 unsupported"
+                    continue
 
             # Инициализация сегментера с параметрами для экспорта
             segmenter: TorchSegmenter2 = TorchSegmenter2(
@@ -249,8 +265,9 @@ def export_all_classical_methods(
                     os.remove(onnx_path)
 
                 if not os.path.exists(onnx_path):
+                    os.makedirs(os.path.dirname(onnx_path), exist_ok=True)
                     try:
-                        export_method_to_onnx_safe(
+                        result: bool = export_method_to_onnx_safe(
                             segmenter=segmenter,
                             method_name=method_name,
                             output_path=onnx_path,
@@ -258,13 +275,44 @@ def export_all_classical_methods(
                             precision=precision,
                             input_shape=input_shape,
                         )
-                        results[method_name][f"onnx_{precision}"] = "✅ OK"
-                        print(f"  │  └─ ONNX: {onnx_path}")
+                        if result is True and os.path.exists(onnx_path) and os.path.getsize(onnx_path) > 0:
+                            results[method_name][f"onnx_{precision}"] = "✅ OK"
+                            print(f"  │  └─ ONNX: {onnx_path}")
+                        else:
+                            msg = "❌ Export failed" if result is False else f"❌ File not created (result={result})"
+                            results[method_name][f"onnx_{precision}"] = msg
+                            print(f"  │  └─ ONNX: {msg}")
+                            print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+                            print("   (нажмите Ctrl+C для отмены, если нужно)")
+                            try:
+                                time.sleep(15)  # 🔥 Задержка 15 секунд
+                            except KeyboardInterrupt:
+                                print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
                     except Exception as e:
-                        results[method_name][f"onnx_{precision}"] = f"❌ {e}"
+                        import traceback
+
+                        results[method_name][f"onnx_{precision}"] = f"❌ {type(e).__name__}: {e}"
                         print(f"  │  └─ ONNX error: {e}")
+                        print(f"  │  └─ Traceback:\n{traceback.format_exc()}")
+                        print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+                        print("   (нажмите Ctrl+C для отмены, если нужно)")
+                        try:
+                            time.sleep(15)  # 🔥 Задержка 15 секунд
+                        except KeyboardInterrupt:
+                            print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
                 else:
                     results[method_name][f"onnx_{precision}"] = "⏭️ Exists"
+
+            if not os.path.exists(onnx_path):
+                results[method_name][f"trt_{precision}"] = "⚠️ ONNX missing"
+                print(f"  │  └─ TRT skipped: ONNX not found")
+                print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+                print("   (нажмите Ctrl+C для отмены, если нужно)")
+                try:
+                    time.sleep(15)  # 🔥 Задержка 15 секунд
+                except KeyboardInterrupt:
+                    print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+                continue
 
             # ───────── TensorRT экспорт ─────────
             if export_trt and torch.cuda.is_available():
@@ -277,7 +325,7 @@ def export_all_classical_methods(
 
                 if not os.path.exists(trt_path):
                     try:
-                        success = _export_trt_with_strategy(
+                        success: bool = _export_trt_with_strategy(
                             method_name=method_name,
                             onnx_path=onnx_path,
                             trt_path=trt_path,
@@ -290,9 +338,38 @@ def export_all_classical_methods(
                             print(f"  │  └─ TRT: {trt_path}")
                         else:
                             results[method_name][f"trt_{precision}"] = "❌ Failed"
+                            print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+                            print("   (нажмите Ctrl+C для отмены, если нужно)")
+                            try:
+                                time.sleep(15)  # 🔥 Задержка 15 секунд
+                            except KeyboardInterrupt:
+                                print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
                     except Exception as e:
                         results[method_name][f"trt_{precision}"] = f"❌ {e}"
                         print(f"  │  └─ TRT error: {e}")
+                        try:
+                            fallback = OnnxTrtFallbackSegmenter(
+                                onnx_path=onnx_path,
+                                input_shape=input_shape,
+                                device="cuda" if torch.cuda.is_available() else "cpu",
+                            )
+                            if fallback:
+                                results[method_name][f"onnxrt_{precision}"] = "✅ Fallback ready"
+                                print(f"  │  └─ ONNX Runtime fallback готов")
+                            print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+                            print("   (нажмите Ctrl+C для отмены, если нужно)")
+                            try:
+                                time.sleep(15)  # 🔥 Задержка 15 секунд
+                            except KeyboardInterrupt:
+                                print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+                        except Exception as e:
+                            results[method_name][f"onnxrt_{precision}"] = f"❌ Fallback: {e}"
+                            print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+                            print("   (нажмите Ctrl+C для отмены, если нужно)")
+                            try:
+                                time.sleep(15)  # 🔥 Задержка 15 секунд
+                            except KeyboardInterrupt:
+                                print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
                 else:
                     results[method_name][f"trt_{precision}"] = "⏭️ Exists"
 
@@ -313,12 +390,11 @@ def _export_trt_with_strategy(
     method_name: str,
     onnx_path: str,
     trt_path: str,
-    precision: str,
+    precision: PrecisionType,
     input_shape: Tuple[int, int, int, int],
-    strategy: Literal["api", "trtexec", "onnx_tensorrt", "jit", "auto"] = "auto",
+    strategy: TRTStrategyType = "auto",
 ) -> bool:
     """Вспомогательная функция для экспорта ONNX → TRT с выбором стратегии."""
-
     strategies_order: List[str]
     if strategy == "auto":
         strategies_order = ["api", "trtexec", "onnx_tensorrt", "jit"]
@@ -362,7 +438,8 @@ def _export_trt_with_strategy(
                 print(f"    ⚠️  JIT стратегия требует исходную модель, пропускаем")
                 continue
         except Exception as e:
-            print(f"    ❌ {strat} failed: {e}")
+            print(f"    ❌ Все {len(strategies_order)} стратегии не удались для {method_name}/{precision}")
+            print("    💡 Рассмотрите: 1) упростить метод, 2) использовать ONNX Runtime fallback")
             continue
 
     print(f"    ⚠️  Все стратегии не удались для {method_name}")

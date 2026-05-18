@@ -66,6 +66,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 from PIL import Image
 from typing import (
+    List,
     Union,
     Tuple,
     Dict,
@@ -86,8 +87,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -96,23 +97,46 @@ if not logger.handlers:
 # ──────────────────────────────────────────────────────────────────────
 # Определение типов для изображений
 ImagePath: TypeAlias = str
+"""Путь до исходного изображения, dtype=str."""
+
 NumpyImage: TypeAlias = np.ndarray
+"""Изображение в формате numpy, dtype=uint8."""
+
 PILImage: TypeAlias = Image.Image
+"""Изображение в формате PIL, dtype=Image.Image."""
+
 TorchImage: TypeAlias = torch.Tensor
+"""Изображение в формате torch, dtype=torch.Tensor."""
+
 ImageInput: TypeAlias = Union[ImagePath, NumpyImage, PILImage, TorchImage]
+"""Поддерживаемые форматы входного изображения (ImagePath, NumpyImage, PILImage, TorchImage), dtype=Union."""
 
 # Типы для цветовых пространств
-ColorSpace = Literal["RGB", "BGR", "GRAY", "L"]
-ColorChannel = Literal[1, 3]
+ColorSpace: TypeAlias = Literal["RGB", "BGR", "GRAY", "L"]
+"""Поддерживаемые цветовые пространства ("RGB", "BGR", "GRAY", "LAB"), dtype=Literal["RGB", "BGR", "GRAY", "L"]."""
+
+ColorChannel: TypeAlias = Literal[1, 3]
+"""Цветовой канал, dtype=Literal[1, 3]."""
+
 OverlayColor: TypeAlias = Tuple[int, int, int]
+"""Формат цвета для создания оверлея, dtype=Tuple[int, int, int]."""
 
 # Типы для масок
 Mask: TypeAlias = np.ndarray
+"""Обычная маска изображения, dtype=np.ndarray."""
+
 BinaryMask: TypeAlias = np.ndarray  # shape: (H, W), dtype: uint8, значения: 0 или 255
+"""Бинарная маска изображения, dtype=np.ndarray."""
+
 ProbabilityMask: TypeAlias = np.ndarray  # shape: (H, W), dtype: float32, значения: 0-1
+"""Вероястностная маска изображения, dtype=np.ndarray."""
 
 # Тип для метрик
 MetricsDict: TypeAlias = Dict[str, float]
+"""Словарь для хранения результатов метрик, dtype=Dict[str, float]."""
+
+ExecutionInfo: TypeAlias = Dict[str, Any]
+"""Метаданные выполнения метода сегментации, dtype=Dict[str, Any]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -178,6 +202,50 @@ class BaseSegmenter(ABC):
         """Инициализация базового сегментатора."""
         self.name: str = self.__class__.__name__
         self.metrics_calculator: SegmentationMetricsProtocol = SegmentationMetrics
+        self._execution_info: ExecutionInfo = {}
+
+    # ──────────────────────────────────────────────────────────────────────
+    # УНИВЕРСАЛЬНЫЙ МЕТОД ЛОГИРОВАНИЯ
+    # ──────────────────────────────────────────────────────────────────────
+    def _log_info(
+        self,
+        method_name: str,
+        exec_time: float,
+        params: Dict[str, Any],
+        **extra: Any,
+    ) -> ExecutionInfo:
+        """Универсальный метод логирования информации о выполнении.
+
+        Сохраняет метаданные в `self._execution_info` и возвращает словарь.
+        Все наследники должны вызывать этот метод в конце своих приватных методов.
+
+        Args:
+            method_name: Название выполненного метода (например, "otsu_thresholding").
+            exec_time: Время выполнения в секундах.
+            params: Словарь использованных параметров метода.
+            **extra: Дополнительные поля для метаданных (опционально).
+
+        Returns:
+            ExecutionInfo: Словарь с полными метаданными выполнения.
+
+        Example:
+            ```python
+            exec_time = time.time() - start_time
+            return mask, self._log_info(
+                "otsu",
+                exec_time,
+                {"threshold": thresh},
+                histogram_stats={"mean": mean_val}
+            )
+            ```
+        """
+        self._execution_info = {
+            "method": method_name,
+            "parameters": params,
+            "execution_time": exec_time,
+            **extra,  # Дополнительные поля
+        }
+        return self._execution_info
 
     # ──────────────────────────────────────────────────────────────────────
     @abstractmethod
@@ -197,6 +265,33 @@ class BaseSegmenter(ABC):
             TypeError: Если передан неподдерживаемый тип изображения.
         """
         pass
+
+    # @overload
+    # def segment(self, image: ImageInput, return_info: Literal[False] = False, **kwargs) -> BinaryMask: ...
+
+    # @overload
+    # def segment(self, image: ImageInput, return_info: Literal[True], **kwargs) -> Tuple[BinaryMask, ExecutionInfo]: ...
+
+    # def segment(self, image: ImageInput, return_info: bool = False, **kwargs) -> Union[BinaryMask, Tuple[BinaryMask, ExecutionInfo]]:
+    #     mask = self._segment_impl(image, **kwargs)  # абстрактная реализация
+    #     if return_info:
+    #         return mask, self.execution_info
+    #     return mask
+
+    # ──────────────────────────────────────────────────────────────────────
+    @property
+    def execution_info(self) -> ExecutionInfo:
+        """Возвращает информацию о последнем выполнении метода.
+
+        Returns:
+            ExecutionInfo: Словарь с метаданными или пустой словарь.
+        """
+        return getattr(self, "_execution_info", {})
+
+    @execution_info.setter
+    def execution_info(self, value: ExecutionInfo) -> None:
+        """Устанавливает информацию о выполнении (для тестов/моков)."""
+        self._execution_info = value
 
     # ──────────────────────────────────────────────────────────────────────
     @abstractmethod
@@ -482,3 +577,65 @@ class BaseSegmenter(ABC):
             "class": self.__class__.__name__,
             "module": self.__class__.__module__,
         }
+
+
+# ──────────────────────────────────────────────────────────────────────
+# PUBLIC API
+# ──────────────────────────────────────────────────────────────────────
+__all__: List[str] = [
+    # 🔹 Основной абстрактный класс
+    "BaseSegmenter",
+    # 🔹 Протоколы для типизации
+    "SegmentationMetricsProtocol",
+    # 🔹 Типизация входных данных
+    "ImageInput",
+    "ImagePath",
+    "NumpyImage",
+    "PILImage",
+    "TorchImage",
+    # 🔹 Типизация выходных данных (маски)
+    "BinaryMask",
+    "ProbabilityMask",
+    "Mask",
+    # 🔹 Метаданные и метрики
+    "MetricsDict",
+    "ExecutionInfo",
+    # 🔹 Вспомогательные типы
+    "ColorSpace",
+    "ColorChannel",
+    "OverlayColor",
+]
+"""Публичный API модуля BaseSegmenter.
+
+Экспортируемые символы:
+- `BaseSegmenter`: Абстрактный базовый класс для всех сегментеров.
+  Требует реализации `segment()` и `segment_with_mask()`.
+  Предоставляет утилиты: `preprocess_image()`, `visualize()`, `evaluate_metrics()`.
+
+- `SegmentationMetricsProtocol`: Протокол для класса метрик (гарантирует
+  наличие `calculate_all_metrics()`).
+
+- `ImageInput`: Union[str, np.ndarray, PIL.Image, torch.Tensor] —
+  унифицированный тип для входных изображений.
+
+- `BinaryMask`: np.ndarray формы (H, W), dtype uint8, значения {0, 255} —
+  стандартный формат выходной маски.
+
+- `ProbabilityMask`: np.ndarray формы (H, W), dtype float32, значения [0, 1] —
+  формат для вероятностных/логит-масок.
+
+- `MetricsDict`: Dict[str, float] — словарь результатов оценки (IoU, Dice, F1...).
+
+- `ExecutionInfo`: Dict[str, Any] — метаданные выполнения метода.
+
+- `ColorSpace`, `ColorChannel`, `OverlayColor`: Вспомогательные типы для
+  работы с цветовыми пространствами и визуализацией.
+
+Используется статическими анализаторами (mypy, pyright), linter'ами и IDE
+для автодополнения и проверки типов при наследовании и использовании:
+    from segmenters.BaseSegmenter import BaseSegmenter, BinaryMask, ImageInput
+    
+    class MySegmenter(BaseSegmenter):
+        def segment(self, image: ImageInput, **kwargs) -> BinaryMask:
+            ...
+"""

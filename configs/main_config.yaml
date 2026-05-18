@@ -1,16 +1,267 @@
-test_settings:
-  test_neural_logic: false
-  test_classic_logic: true
-  max_images: 50
-  image_size: [512, 512]
+# configs/session.yaml
+# Конфигурация сессии фреймворка сегментации
 
-datasets:
-  ade20k:
-    repo_id: "hf-internal-testing/fixtures_ade20k"
-    split: "validation"
-    num_classes: 150
+# ──────────────────────────────────────────────────────────────
+# Метаданные сессии
+# ──────────────────────────────────────────────────────────────
+session:
+  name: "classic_benchmark_v1"
+  # description: "Тестирование классических методов с оптимизациями"
+  description: "Тест пороговых и граничных методов с экспортом в ONNX/TensorRT"
+  random_seed: 42
+  dry_run: false  # Если true — пропуск тяжёлых этапов (экспорт, обучение)
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  timestamp_output: true  # Добавлять timestamp к именам выходных файлов
 
+# ──────────────────────────────────────────────────────────────
+# Управление потоком выполнения
+# ──────────────────────────────────────────────────────────────
+flow:
+  load_data: true
+  register_classic: true
+  run_warmup: true
+  run_export: true
+  run_benchmark: true
+  run_profiling: true
+  run_neural: false
+  run_validation: true
+  run_gt_evaluation: false
+  save_reports: true
+
+# ──────────────────────────────────────────────────────────────
+# Настройки вывода
+# ──────────────────────────────────────────────────────────────
 output:
   base_dir: "./data"
+  subdirs:
+    results: "segmentation_tester_results"
+    reports: "reports"
+    visualizations: "visualizations"
+    exported_models: "exported_models"
+    profiling: "profiling"
+  save_visualizations: true
+  export_formats: ["csv", "json", "html", "md"]
+  compression: false  # Сжимать ли CSV/GZIP
+
+# ──────────────────────────────────────────────────────────────
+# Настройки тестирования
+# ──────────────────────────────────────────────────────────────
+test_settings:
+  # Какие логики тестировать
+  test_classic_logic: true
+  test_neural_logic: false
+  
+  # Версии PyTorch-сегментеров
+  use_torch_v1: true
+  use_torch_v2: true
+  
+  # Профилирование и бенчмарки
+  enable_profiling: true
+  enable_benchmark_precision: true
+  enable_cold_hot_comparison: true
+
+  # Устройство и точность
+  device: "auto"  # "cpu", "cuda", "auto"
+  precision: "auto"  # "fp32", "fp16", "bf16", "auto"
+  
+  # torch.compile настройки
+  torch_compile:
+    enabled: true
+    mode: "reduce-overhead"  # "default", "reduce-overhead", "max-autotune"
+    fullgraph: true
+    dynamic: false
+
+  # Квантование (только для CPU)
+  quantization:
+    enabled: true
+    scheme: "int8"  # "int8", "fp16"
+    per_channel: false
+
+# ──────────────────────────────────────────────────────────────
+# Настройки прогрева (warmup)
+# ──────────────────────────────────────────────────────────────
+warmup:
+  enabled: true
+  n_warmup_runs: 5
+  threshold_methods: true
+  edge_methods: true
+  image_sizes: [[128, 128], [256, 256], [512, 512]]  # Размеры для прогрева
+
+# ──────────────────────────────────────────────────────────────
+# Настройки датасетов
+# ──────────────────────────────────────────────────────────────
+datasets:
+  load_with_gt: false
+  repo_id: "hf-internal-testing/fixtures_ade20k"
+  max_images: 50
+  image_size: [512, 512]
+  synthetic_mask: true
+  cache_dir: "./data/cache"
+  download_if_missing: true
+
+# ──────────────────────────────────────────────────────────────
+# Конфигурация методов сегментации
+# ──────────────────────────────────────────────────────────────
+methods:
+  opencv:
+    enabled: true
+    postprocess: false
+    # Параметры по умолчанию для методов (переопределяются в runtime)
+    defaults:
+      threshold: 0.5
+      block_size: 11
+      C: 2
+  sklearn:
+    enabled: true
+    postprocess: false
+    defaults:
+      postprocess: false
+      min_area: 100
+  torch:
+    enabled: true
+    use_v1: true
+    use_v2: true
+    precision: "auto"
+    quantize_cpu: true
+    defaults:
+      use_external_libs: true
+      debug_mode: false
+
+# ──────────────────────────────────────────────────────────────
+# Исследовательские модули
+# ──────────────────────────────────────────────────────────────
+research:
+  # Сравнение бэкендов: PyTorch / ONNX / TensorRT
+  backend_comparison:
+    enabled: true
+    target_methods:
+      - "global_thresholding"
+      - "otsu_thresholding"
+      - "adaptive_thresholding"
+      - "threshold_niblack"
+      - "threshold_sauvola"
+      - "sobel_edge"
+      - "canny_edge"
+      - "prewitt_edge"
+      - "scharr_edge"
+      - "laplacian_edge"
+      - "log_edge"
+      - "dog_edge"
+      - "gradient_magnitude_direction"
+      - "phase_congruency_edge"
+    precisions: ["fp32", "fp16", "bf16"]
+    backends: ["Torch", "ONNX", "TRT"]
+    export_dir: "./exported_models1"
+    input_shape: [1, 3, 512, 512]  # [B, C, H, W]
+    trt_strategy: "auto"  # "auto", "fp16", "int8"
+    trt_workspace_size: 1 << 30  # 1 GB
+    pause_seconds: 15  # Пауза перед бенчмарком для ручной отмены
+    n_runs: 10
+    force_warmup: true
+
+  # Бенчмарк точностей: fp32 vs fp16 vs bf16
+  precision_benchmark:
+    enabled: true
+    methods_suffix: "_v2"  # Фильтр методов для теста
+    warmup_runs: 3
+    n_runs: 10
+    compute_metrics: true  # Сравнивать IoU относительно fp32
+    output_path: "./data/reports/precision/precision_benchmark.csv"
+
+  # Профилирование с детекцией трансферов
+  profiling_demo:
+    enabled: true
+    n_runs: 10
+    detect_transfers: true
+    output_dir: "./profiling/tests"
+    trace_format: "chrome"  # "chrome", "tensorboard"
+
+  # CPU vs CUDA бенчмарк
+  cpu_cuda_benchmark:
+    enabled: true
+    n_runs: 10
+    warmup_runs: 5
+    filter_neural: true  # Исключать нейросетевые методы
+    output_path: "./data/reports/cpu_cuda_comparison.csv"
+    
+  # Валидация согласованности реализаций
+  validation:
+    enabled: true
+    image_name: "countryside"  # Имя изображения из test_images
+    output_dir: "./data/validation"
+    reference_method: "Otsu_Thresholding_Sklearn"
+    metrics_threshold: 0.8  # Порог для PASS/WARNING/FAIL
+    
+  # Сравнение с Ground Truth
+  gt_evaluation:
+    enabled: false
+    threshold: 0.5
+    include_hausdorff: true
+    output_dir: "./data/gt_evaluation"
+
+# ──────────────────────────────────────────────────────────────
+# Массовое тестирование (Batch Testing)
+# ──────────────────────────────────────────────────────────────
+batch_testing:
+  enabled: true
+  ade20k_root: "./data/ade20k/ADEChallengeData2016"
+  split: "validation"  # "train", "validation", "test"
+  max_images: 50
+  image_size: [512, 512]
+  mask_sample_rate: 0.2  # Доля изображений для сохранения масок
+  max_mask_samples_per_method: 10
   save_masks: true
   save_visualizations: true
+  resume: true  # Продолжать с места остановки
+  output_dir: "./data/batch_classic_test"
+
+# ──────────────────────────────────────────────────────────────
+# Настройки нейросетевых моделей (если test_neural_logic=true)
+# ──────────────────────────────────────────────────────────────
+neural_models:
+  pretrained:
+    - name: "SegFormer_B5"
+      type: "segformer"
+      model_name: "nvidia/segformer-b5-finetuned-ade-640-640"
+      local_path: "/home/yamshchikov/models/segformer-b5-ready"
+      enabled: true
+    - name: "Mask2Former"
+      type: "mask2former"
+      model_name: "facebook/mask2former-swin-base-ade-semantic"
+      enabled: true
+  trained:
+    - name: "DeepLabV3+_Trained"
+      type: "deeplab_tv"
+      checkpoint_path: "./models/deeplab_ade20k_best_200_epochs.pth"
+      enabled: true
+    - name: "U-Net_Trained"
+      type: "unet_smp"
+      checkpoint_path: "./models/unet_ade20k_best_200_epochs.pth"
+      enabled: true
+  benchmark:
+    num_classes: 150
+    output_dir: "./data/neural_benchmark"
+    repo_id: "hf-internal-testing/fixtures_ade20k"
+    alpha: 0.6  # Прозрачность наложения для визуализации
+
+# ──────────────────────────────────────────────────────────────
+# Обучение с аугментациями (если test_neural_logic=true)
+# ──────────────────────────────────────────────────────────────
+training:
+  root_dir: "./data/ade20k"
+  checkpoint_dir: "./models"
+  device: "cuda"
+  augmentation_configs:
+    - level: "basic"
+      epochs: 200
+      lr: 1.0e-5
+      subset_fraction: 0.05
+    - level: "medium"
+      epochs: 200
+      lr: 1.0e-5
+      subset_fraction: 0.05
+  model_types:
+    - "deeplab_tv"
+    - "unet_smp"
+    - "fpn_smp"
+  output_dir: "./data/augmentation_study"

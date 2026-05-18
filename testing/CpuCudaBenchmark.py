@@ -47,14 +47,20 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
 project_root: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
+
+# ──────────────────────────────────────────────────────────────────────
+# TYPE ALIASES
+# ──────────────────────────────────────────────────────────────────────
+PrecisionList: List[str] = ["fp32", "fp16", "bf16"]
+"""Список используемых размерностей, dtype=List[str]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -109,7 +115,7 @@ class CpuCudaBenchmark:
         """Парсит имя метода вида 'otsu_thresholding_ONNX_fp32' в компоненты."""
         parts: List[str] = method_name.split("_")
         precision: str = parts[-1].lower()
-        if precision in ["fp32", "fp16", "bf16"] and len(parts) >= 3:
+        if precision in PrecisionList and len(parts) >= 3:
             backend_raw: str = parts[-2]
             base_method: str = "_".join(parts[:-2])
         else:

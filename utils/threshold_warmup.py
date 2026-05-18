@@ -68,13 +68,7 @@ Note:
 from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
 import time
 import numpy as np
-from typing import (
-    TypedDict,
-    List,
-    Dict,
-    Any,
-    Tuple,
-)
+from typing import TypedDict, List, Dict, Any, Tuple, TypeAlias
 
 import logging
 
@@ -82,15 +76,19 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & TYPEDDICTS
 # ──────────────────────────────────────────────────────────────────────
-SegmenterLike = Any  # Объект с методом .segment(image) -> np.ndarray
+SegmenterLike: TypeAlias = Any  # Объект с методом .segment(image) -> np.ndarray
+"""Тип используемого сегментатора, dtype=Any."""
+
+EdgePatterns: List[str] = ["horizontal", "vertical", "diagonal", "noise"]
+"""Тип граничного паттерна, dtype=List[str]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -162,6 +160,7 @@ class ThresholdWarmUp:
         segmenters_dict: Dict[str, SegmenterLike],
         image_sizes: List[Tuple[int, int]] = [(128, 128), (256, 256), (512, 512)],
         n_runs_per_size: int = 2,
+        use_return_info: bool = False,
     ) -> Dict[str, SizeResults]:
         """Прогрев пороговых методов на изображениях разного размера.
 
@@ -192,12 +191,33 @@ class ThresholdWarmUp:
             - Методы фильтруются по наличию ключевых слов в имени (регистронезависимо).
             - При ошибке в прогоне время записывается как `inf`, но цикл продолжается.
         """
-        threshold_methods: List[str] = [
+        threshold_keywords: List[str] = [
+            "global_thresholding",
             "global_threshold",
+            "otsu_thresholding",
             "otsu",
+            "adaptive_thresholding",
             "adaptive_threshold",
+            "threshold_niblack",
             "niblack",
+            "threshold_sauvola",
             "sauvola",
+            "threshold_bernsen",
+            "bernsen",
+            "threshold_phansalkar",
+            "phansalkar",
+            "threshold_percentile",
+            "percentile",
+            "threshold_kittler",
+            "kittler",
+            "threshold_entropy",
+            "kapur",
+            "threshold_triangle",
+            "triangle",
+            "threshold_multi_otsu",
+            "multi_otsu",
+            "threshold_local_contrast",
+            "local_contrast",
         ]
 
         results: Dict[str, SizeResults] = {}
@@ -206,7 +226,11 @@ class ThresholdWarmUp:
         print("=" * 60)
 
         for name, segmenter in segmenters_dict.items():
-            is_threshold: bool = any(tm in name.lower() for tm in threshold_methods)
+            name_lower = name.lower()
+            is_threshold: bool = any(kw in name_lower for kw in threshold_keywords)
+            # exclude_keywords = ["kmeans", "dbscan", "meanshift", "neural", "segformer"]
+            # if any(excl in name_lower for excl in exclude_keywords):
+            #     is_threshold = False
             if not is_threshold:
                 continue
             method_results: SizeResults = {"sizes": {}}
@@ -218,13 +242,27 @@ class ThresholdWarmUp:
                 for _ in range(n_runs_per_size):
                     start: float = time.perf_counter()
                     try:
-                        if hasattr(segmenter, "segment"):
+                        if use_return_info and hasattr(segmenter, "segment"):
+                            _, info = segmenter.segment(img, return_info=True)
+                        elif hasattr(segmenter, "segment"):
                             segmenter.segment(img)
+                            info = segmenter.params.get("execution_info", {})
                         times.append(time.perf_counter() - start)
                     except Exception:
                         times.append(float("inf"))
 
-                print(segmenter.params["execution_info"])
+                exec_info = segmenter.params.get("execution_info")
+                if exec_info:
+                    print(
+                        f"   📊 {name}: {exec_info.get('method', 'N/A')} — {exec_info.get('execution_time', 0)*1000:.2f}ms"
+                    )
+                else:
+                    # Пытаемся получить из атрибута .info (для OpenCV/Sklearn)
+                    exec_info = getattr(segmenter, "info", None)
+                    if exec_info:
+                        print(
+                            f"   📊 {name}: {exec_info.get('method', 'N/A')} — {exec_info.get('execution_time', 0)*1000:.2f}ms"
+                        )
 
                 method_results["sizes"][str(size)] = WarmupMetrics(
                     mean_ms=float(np.mean(times) * 1000),
@@ -239,8 +277,9 @@ class ThresholdWarmUp:
     @staticmethod
     def warmup_edge_methods(
         segmenters_dict: Dict[str, SegmenterLike],
-        edge_patterns: List[str] = ["horizontal", "vertical", "diagonal", "noise"],
+        edge_patterns: List[str] = EdgePatterns,
         n_runs_per_pattern: int = 3,
+        use_return_info: bool = False,
     ) -> Dict[str, PatternResults]:
         """Прогрев граничных методов на различных тестовых паттернах.
 
@@ -271,14 +310,41 @@ class ThresholdWarmUp:
             - Паттерны генерируются через `_create_edge_pattern()`.
             - Для паттерна "noise" создаётся цветное изображение (H×W×3), остальные — градации серого (H×W).
         """
-        edge_methods: List[str] = ["sobel", "canny", "laplacian", "prewitt"]
+        edge_keywords: List[str] = [
+            "sobel_edge",
+            "sobel",
+            "canny_edge",
+            "canny",
+            "prewitt_edge",
+            "prewitt",
+            "scharr_edge",
+            "scharr",
+            "roberts_cross_edge",
+            "roberts",
+            "laplacian_edge",
+            "laplacian",
+            "log_edge",
+            "log",
+            "dog_edge",
+            "dog",
+            "marr_hildreth_edge",
+            "marr_hildreth",
+            "gradient_magnitude",
+            "gradient",
+            "phase_congruency_edge",
+            "phase_congruency",
+        ]
         results: Dict[str, PatternResults] = {}
 
         print("\n🔥 WARM-UP ГРАНИЧНЫХ МЕТОДОВ")
         print("=" * 60)
 
         for name, segmenter in segmenters_dict.items():
-            is_edge: bool = any(em in name.lower() for em in edge_methods)
+            name_lower = name.lower()
+            is_edge: bool = any(em in name_lower for em in edge_keywords)
+            # exclude_keywords = ["kmeans", "dbscan", "meanshift", "neural", "segformer"]
+            # if any(excl in name_lower for excl in exclude_keywords):
+            #     is_edge = False
             if not is_edge:
                 continue
 
@@ -291,8 +357,11 @@ class ThresholdWarmUp:
                 for _ in range(n_runs_per_pattern):
                     start: float = time.perf_counter()
                     try:
-                        if hasattr(segmenter, "segment"):
+                        if use_return_info and hasattr(segmenter, "segment"):
+                            _, info = segmenter.segment(img, return_info=True)
+                        elif hasattr(segmenter, "segment"):
                             segmenter.segment(img)
+                            info = segmenter.params.get("execution_info", {})
                         times.append(time.perf_counter() - start)
                     except Exception:
                         times.append(float("inf"))
@@ -304,7 +373,18 @@ class ThresholdWarmUp:
                 )
 
             # Доступ к метаданным выполнения
-            print(segmenter.params["execution_info"])
+            exec_info = segmenter.params.get("execution_info")
+            if exec_info:
+                print(
+                    f"   📊 {name}: {exec_info.get('method', 'N/A')} — {exec_info.get('execution_time', 0)*1000:.2f}ms"
+                )
+            else:
+                # Пытаемся получить из атрибута .info (для OpenCV/Sklearn)
+                exec_info = getattr(segmenter, "info", None)
+                if exec_info:
+                    print(
+                        f"   📊 {name}: {exec_info.get('method', 'N/A')} — {exec_info.get('execution_time', 0)*1000:.2f}ms"
+                    )
             results[name] = method_results
             print(f"✅ {name}: {method_results['patterns']}")
 

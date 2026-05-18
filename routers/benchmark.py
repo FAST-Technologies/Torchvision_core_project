@@ -88,17 +88,8 @@ import time
 import gc
 import base64
 import logging
-from typing import (
-    Dict,
-    Any,
-    Optional,
-    Union,
-    List,
-    Callable,
-    TypedDict,
-    Tuple,
-    cast,
-)
+import traceback
+from typing import Dict, Any, Optional, Union, List, Callable, TypedDict, Tuple, cast, TypeAlias
 from pathlib import Path
 from pydantic import BaseModel
 
@@ -107,12 +98,24 @@ import torch
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Form, File, UploadFile, Depends
 from fastapi.responses import JSONResponse
 
+import numpy as np
+from PIL import Image
+from huggingface_hub import hf_hub_download
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.config import settings
 from utils.paths import ensure_dirs, ADE20K_DIR, MODELS_DIR, PROJECT_ROOT, DATA_DIR
+from testing.SegmentationBenchmark import SegmentationBenchmark
+from utils.palettes import ade_palette, coco_palette, cityscapes_palette
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("benchmark")
+# Настройка логгера
+logger: logging.Logger = logging.getLogger("benchmark")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 router: APIRouter = APIRouter(
     prefix="/api/benchmark",
@@ -126,8 +129,8 @@ router: APIRouter = APIRouter(
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & TASK STORAGE
 # ──────────────────────────────────────────────────────────────────────
-PathLike = Union[str, Path]
-"""Тип-алиас для путей: строка или объект pathlib.Path."""
+PathLike: TypeAlias = Union[str, Path]
+"""Тип-алиас для путей: строка или объект pathlib.Path, dtype=Union[str, Path]."""
 
 
 # 🔹 TypedDict для структуры задачи бенчмарка
@@ -196,12 +199,12 @@ class BenchmarkConfig(TypedDict, total=False):
 
 
 # 🔹 Type alias для хранилища задач
-BenchmarkTaskDict = Dict[str, BenchmarkTask]
-"""Тип-алиас для хранилища задач: {task_id: BenchmarkTask}."""
+BenchmarkTaskDict: TypeAlias = Dict[str, BenchmarkTask]
+"""Тип-алиас для хранилища задач: {task_id: BenchmarkTask}, dtype=Dict[str, BenchmarkTask]."""
 
-ModelLoadStep = Tuple[str, Callable[..., Any], Dict[str, Any]]
+ModelLoadStep: TypeAlias = Tuple[str, Callable[..., Any], Dict[str, Any]]
 """
-Тип-алиас для шага загрузки модели.
+Тип-алиас для шага загрузки модели, dtype=Tuple[str, Callable[..., Any], Dict[str, Any]].
 
 Tuple содержит:
     0. str: Уникальный ключ модели (например, "segformer_b5").
@@ -218,8 +221,8 @@ Example:
     ```
 """
 
-# Простое хранилище задач (в продакшене замените на Redis/Celery)
 benchmark_tasks: BenchmarkTaskDict = {}
+"""Простое хранилище задач (в продакшене замените на Redis/Celery), dtype=BenchmarkTaskDict."""
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -520,10 +523,6 @@ async def run_benchmark(
         if vram_gb < 20:  # менее 20 ГБ
             logger.warning(f"⚠️ Low VRAM: {vram_gb:.1f} GB. Benchmark may fail.")
     try:
-        from testing.SegmentationBenchmark import SegmentationBenchmark
-        import numpy as np
-        from PIL import Image
-
         ensure_dirs(ADE20K_DIR)
 
         logger.info(f"🔍 PROJECT_ROOT: {PROJECT_ROOT}")
@@ -552,8 +551,6 @@ async def run_benchmark(
         # show_gt: bool = bool(viz_params.get("show_gt", True))
         palette_name: str = str(viz_params.get("color_palette", "ade"))
 
-        from utils.palettes import ade_palette, coco_palette, cityscapes_palette
-
         PALETTES: Dict[str, Callable[[], List[List[int]]]] = {
             "ade": ade_palette,
             "coco": coco_palette,
@@ -574,8 +571,6 @@ async def run_benchmark(
         elif req.image_path and os.path.exists(req.image_path):
             image_input = Image.open(req.image_path).convert("RGB")
         else:
-            from huggingface_hub import hf_hub_download
-
             repo_id: str = "hf-internal-testing/fixtures_ade20k"
             image_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset")
             image_input = Image.open(image_path).convert("RGB")
@@ -747,8 +742,6 @@ async def run_benchmark(
         )
 
     except Exception as e:
-        import traceback
-
         benchmark_tasks[task_id].update(
             {
                 "status": "failed",

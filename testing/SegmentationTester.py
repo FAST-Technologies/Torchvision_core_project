@@ -46,14 +46,7 @@ import json
 import time
 from pathlib import Path
 from datetime import datetime
-from typing import (
-    List,
-    Union,
-    Tuple,
-    Dict,
-    Any,
-    Optional,
-)
+from typing import List, Union, Tuple, Dict, Any, Optional, TypeAlias, Literal
 
 import torch
 import numpy as np
@@ -68,8 +61,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -86,13 +79,32 @@ if project_root not in sys.path:
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
-ArrayLike = Union[np.ndarray, List[Any]]
-ImageInput = Union[str, np.ndarray, Image.Image]
-MaskArray = np.ndarray  # Binary mask: HxW, dtype uint8/bool
-ImageArray = np.ndarray  # RGB/Grayscale: HxW or HxWxC
-MetricDict = Dict[str, float]
-PathLike = Union[str, Path]
-StatsList = List[Dict[str, Any]]
+ArrayLike: TypeAlias = Union[np.ndarray, List[Any]]
+"""Тип для массивов формата np.ndarray и List[Any], dtype=Union[np.ndarray, List[Any]]."""
+
+ImageInput: TypeAlias = Union[str, np.ndarray, Image.Image]
+"""Входное изображение (путь, `np.ndarray` или `PIL.Image`), dtype=Union[str, np.ndarray, Image.Image]."""
+
+MaskArray: TypeAlias = np.ndarray  # Binary mask: HxW, dtype uint8/bool
+"""Тип для бинарной маски сегментации: (H, W), dtype=uint8, значения {0, 255}."""
+
+ImageArray: TypeAlias = np.ndarray  # RGB/Grayscale: HxW or HxWxC
+"""Тип для входного изображения: (H, W) для grayscale или (H, W, 3) для RGB, dtype=uint8."""
+
+MetricDict: TypeAlias = Dict[str, float]
+"""Словарь метрик качества: {имя_метрики: значение}, например {"iou": 0.85, "dice": 0.91}, dtype=Dict[str, float]."""
+
+PathLike: TypeAlias = Union[str, Path]
+"""Унифицированный тип для путей к файлам: строка или pathlib.Path, dtype=Union[str, Path]."""
+
+StatsList: TypeAlias = List[Dict[str, Any]]
+"""Список словарей со статистикой по методам, dtype=List[Dict[str, Any]]."""
+
+ImageFormat = Literal[".png", ".jpg", ".jpeg", ".bmp"]
+"""Перечисление форматов изображений, dtype=Literal."""
+
+ImageFormats: Tuple[ImageFormat, ImageFormat, ImageFormat, ImageFormat] = (".png", ".jpg", ".jpeg", ".bmp")
+"""Форматы изображений, dtype=Tuple[ImageFormat, ImageFormat, ImageFormat, ImageFormat]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -174,7 +186,7 @@ class SegmentationTester:
         """
         try:
             gt_path_str: str = str(gt_path)
-            if gt_path_str.endswith((".png", ".jpg", ".jpeg", ".bmp")):
+            if gt_path_str.endswith(ImageFormats):
                 self.ground_truth_mask = cv2.imread(gt_path_str, cv2.IMREAD_GRAYSCALE)
             elif gt_path_str.endswith(".npy"):
                 self.ground_truth_mask = np.load(gt_path_str)

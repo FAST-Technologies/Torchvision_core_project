@@ -83,7 +83,6 @@ from huggingface_hub import hf_hub_download
 from tabulate import tabulate
 
 # Локальные импорты
-# from segmenters.BaseSegmenter import BaseSegmenter
 from segmenters.NeuralSegmenter import NeuralSegmenter
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
@@ -92,18 +91,10 @@ from segmenters.NewTorchSegmenter import TorchSegmenter2
 from segmenters.ModelTrainer import ModelTrainer, TrainingConfig, TrainingResult
 from segmenters.NeuralModelFactory import NeuralModelFactory
 from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
-from utils.backend_exporter import (
-    # export_method_to_trt_dynamo,
-    export_method_to_onnx_safe,
-    export_method_to_trt_jit,
-    load_trt_model,
-)
 from utils.backend_exporter_new import (
     export_neural_model,
     load_trt_engine,
     OnnxTrtFallbackSegmenter,
-    export_onnx_to_trt_via_api,
-    export_onnx_to_trt_via_trtexec,
 )
 from testing.SegmentationTester import SegmentationTester
 from testing.SegmentationComparator import SegmentationComparator
@@ -123,8 +114,8 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -396,9 +387,7 @@ def main(use_optimizations: bool = True) -> Tuple[
             print(f"📐 Размер изображения: {real_w}x{real_h}")
 
         if first_img_pil is not None:
-            # run_optimization_benchmarks(
-            #     "test_images/animals.jpg", target_methods_for_research
-            # )
+            # run_optimization_benchmarks("test_images/animals.jpg", target_methods_for_research)
 
             # img_large = img.resize((1920, 1080), Image.Resampling.LANCZOS)  # Full HD
             # img_xlarge = img.resize((3840, 2160), Image.Resampling.LANCZOS)  # 4K
@@ -567,12 +556,10 @@ def main(use_optimizations: bool = True) -> Tuple[
 
                 # TensorRT
                 if torch.cuda.is_available():
-                    from utils.backend_exporter import load_trt_model
-
                     trt_path = f"./exported_models1/tensorrt/fp32/{method_name}.trt"
                     if os.path.exists(trt_path):
                         try:
-                            trt_model = load_trt_model(trt_path)
+                            trt_model = load_trt_engine(trt_path, device="cuda", is_neural=False)
                             if trt_model is not None:
                                 trt_seg = TRTSegmenter(method_name, trt_model, device="cuda")
                                 tester.add_method(f"{method_name}_TRT", trt_seg)
@@ -905,17 +892,9 @@ def _register_backend_methods_with_precision(
                 continue
 
             try:
-                from utils.backend_exporter import load_trt_model
-                from utils.batch_exporter import _export_trt_with_strategy
-
-                trt_model: Any = load_trt_model(trt_path)
+                trt_model: Any = load_trt_engine(trt_path, device="cuda")
                 if trt_model is not None:
-                    trt_seg = TRTSegmenter(
-                        method_name,
-                        trt_model,
-                        device="cuda",
-                        precision=precision,
-                    )
+                    trt_seg = TRTSegmenter(method_name, trt_model, device="cuda", precision=precision, is_neural=False)
                     method_key = f"{method_name}_TRT_{precision}"
                     tester.add_method(method_key, trt_seg)
                     registered["success"].append(method_key)
@@ -952,70 +931,6 @@ def _register_backend_methods_with_precision(
 # ──────────────────────────────────────────────────────────────────────
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ main()
 # ──────────────────────────────────────────────────────────────────────
-def _extract_method_name_from_key(method_key: str) -> str:
-    """Извлекает внутреннее имя метода из ключа словаря.
-
-    Примеры:
-        "Sobel_Torch_v2" -> "sobel_edge"
-        "Global_Threshold_Torch_v1" -> "global_thresholding"
-        "Otsu_Thresholding_Torch" -> "otsu_thresholding"
-    """
-    # Убираем суффиксы _v1, _v2
-    name: str = method_key
-    if name.endswith("_v1") or name.endswith("_v2"):
-        name = name.rsplit("_", 1)[0]
-
-    # Убираем суффикс _Torch
-    if name.endswith("_Torch"):
-        name = name[:-6]
-
-    # Конвертируем из PascalCase/CamelCase в snake_case
-    snake_case: str = re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
-
-    # Добавляем суффикс _edge или _thresholding если нужно
-    # Это эвристика - лучше хранить маппинг явно
-    edge_methods: Set[str] = {
-        "sobel",
-        "canny",
-        "prewitt",
-        "scharr",
-        "laplacian",
-        "roberts_cross",
-        "log",
-        "dog",
-        "marr_hildreth",
-        "gradient_magnitude_direction",
-        "phase_congruency",
-    }
-    threshold_methods: Set[str] = {
-        "global_threshold",
-        "adaptive_threshold",
-        "otsu_threshold",
-        "threshold_niblack",
-        "threshold_sauvola",
-        "threshold_bernsen",
-        "threshold_phansalkar",
-        "threshold_percentile",
-        "threshold_kittler_illingworth",
-        "threshold_entropy_kapur",
-        "threshold_triangle",
-        "threshold_multi_otsu",
-        "threshold_local_contrast",
-    }
-
-    if snake_case in edge_methods or snake_case.endswith("_edge"):
-        if not snake_case.endswith("_edge"):
-            snake_case = (
-                snake_case.replace("_threshold", "_edge") if "_threshold" in snake_case else snake_case + "_edge"
-            )
-    elif snake_case in threshold_methods or "threshold" in snake_case:
-        pass  # Уже содержит threshold
-    elif snake_case == "global_threshold":
-        snake_case = "global_thresholding"
-
-    return snake_case
-
-
 def _log_environment_info() -> None:
     """Логирует информацию об окружении: пути, CUDA, память."""
     print(f"📍 CWD: {os.getcwd()}")
@@ -1065,6 +980,9 @@ def _create_cv2_methods() -> SegmenterDict:
         "prewitt_edge_CV2": OpenCVSegmenter("prewitt_edge", threshold=0.1),
         "scharr_edge_CV2": OpenCVSegmenter("scharr_edge", threshold=0.1),
         "roberts_cross_edge_CV2": OpenCVSegmenter("roberts_cross_edge", threshold=0.1),
+        "laplacian_edge_CV2": OpenCVSegmenter(
+            "laplacian_edge", sigma=1.0, ksize=1, threshold=0.1, use_zero_crossing=False
+        ),
         "log_edge_CV2": OpenCVSegmenter("log_edge", sigma=1.0, threshold=0.01),
         "dog_edge_CV2": OpenCVSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
         "marr_hildreth_edge_CV2": OpenCVSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
@@ -1138,6 +1056,9 @@ def _create_sklearn_methods() -> SegmenterDict:
         "prewitt_edge_Sklearn": SklearnSegmenter("prewitt_edge", threshold=0.1, postprocess=False),
         "scharr_edge_Sklearn": SklearnSegmenter("scharr_edge", threshold=0.1, postprocess=False),
         "roberts_cross_edge_Sklearn": SklearnSegmenter("roberts_cross_edge", threshold=0.1, postprocess=False),
+        "laplacian_edge_Sklearn": SklearnSegmenter(
+            "laplacian_edge", sigma=1.0, threshold=0.1, use_zero_crossing=False, postprocess=False
+        ),
         "log_edge_Sklearn": SklearnSegmenter("log_edge", sigma=1.0, threshold=0.01, postprocess=False),
         "dog_edge_Sklearn": SklearnSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01, postprocess=False),
         "marr_hildreth_edge_Sklearn": SklearnSegmenter(
@@ -1327,6 +1248,7 @@ def _create_torch_methods() -> SegmenterDict:
         "Roberts_Cross_Torch": TorchSegmenter("roberts_cross_edge", threshold=0.1),
         "LoG_Torch": TorchSegmenter("log_edge", sigma=1.0, threshold=0.01),
         "DoG_Torch": TorchSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
+        "Laplacian_Torch": TorchSegmenter("laplacian_edge", sigma=1.0, threshold=0.1),
         "Marr_Hildreth_Torch": TorchSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
         "Gradient_Mag_Dir_Torch": TorchSegmenter("gradient_magnitude_direction", threshold=0.1),
         "Phase_Congruency_Torch": TorchSegmenter(
@@ -1538,7 +1460,7 @@ def _run_precision_benchmark_demo(
         print(f"\n🔹 {method_name}:")
 
         try:
-            # 🔥 Бенчмарк точностей
+            # Бенчмарк точностей
             precision_results = segmenter.benchmark_histc_types(
                 gray=segmenter._to_grayscale(segmenter.preprocess_image(img_array)).squeeze(),
                 device=segmenter.device,
@@ -4547,88 +4469,6 @@ def _filter_classical_methods(all_methods: SegmenterDict) -> SegmenterDict:
     ]
 
     return {name: seg for name, seg in all_methods.items() if not any(kw in name.lower() for kw in neural_keywords)}
-
-
-# ──────────────────────────────────────────────────────────────────────
-def _create_backend_methods(
-    base_segmenter,
-    methods_list: list,
-    output_dir: str = "./data/backends",
-    precision: str = "fp32",
-    force_reexport: bool = False,
-    input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
-) -> dict:
-    """Создаёт методы для PyTorch / ONNX / TensorRT."""
-    import os
-
-    os.makedirs(output_dir, exist_ok=True)
-    methods: Dict[str, Any] = {}
-
-    for method_name in methods_list:
-        print(f"\n--- Backend export: {method_name} ---")
-
-        # 1. PyTorch
-        methods[f"{method_name}_Torch"] = base_segmenter
-
-        # 2. ONNX
-        onnx_path: str = os.path.join(output_dir, f"{method_name}.onnx")
-        if force_reexport and os.path.exists(onnx_path):
-            os.remove(onnx_path)
-        if not os.path.exists(onnx_path):
-            export_method_to_onnx_safe(
-                base_segmenter,
-                method_name,
-                onnx_path,
-                opset_version=25,
-                input_shape=input_shape,
-                precision=precision,
-            )
-        if os.path.exists(onnx_path):
-            try:
-                from segmenters.BackendSegmenters import ONNXSegmenter
-
-                methods[f"{method_name}_ONNX"] = ONNXSegmenter(
-                    method_name,
-                    onnx_path,
-                    device="cuda" if torch.cuda.is_available() else "cpu",
-                    input_shape=input_shape,
-                    is_neural=False,
-                )
-                print(f"  ONNX OK: {method_name}")
-            except Exception as e:
-                print(f"  ONNX init failed {method_name}: {e}")
-
-        # 3. TensorRT
-        if not torch.cuda.is_available():
-            continue
-        trt_path: str = os.path.join(output_dir, f"{method_name}_{precision}.trt")
-        if force_reexport and os.path.exists(trt_path):
-            os.remove(trt_path)
-        if not os.path.exists(trt_path):
-            # export_method_to_trt_dynamo(
-            #     base_segmenter, method_name, trt_path, precision=precision,
-            # )
-            export_method_to_trt_jit(
-                base_segmenter,
-                method_name,
-                trt_path,
-                precision=precision,
-                input_shape=input_shape,  # opt_shape
-                min_shape=(1, 3, 256, 256),
-                max_shape=(1, 3, 1024, 1024),
-            )
-        if os.path.exists(trt_path):
-            try:
-                from segmenters.BackendSegmenters import TRTSegmenter
-
-                trt_model: Any = load_trt_model(trt_path)
-                if trt_model is not None:
-                    methods[f"{method_name}_TRT"] = TRTSegmenter(method_name, trt_model, device="cuda")
-                    print(f"  TRT OK: {method_name}")
-            except Exception as e:
-                print(f"  TRT init failed {method_name}: {e}")
-
-    return methods
 
 
 # ──────────────────────────────────────────────────────────────────────

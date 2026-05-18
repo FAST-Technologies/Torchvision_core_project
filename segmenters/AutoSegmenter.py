@@ -47,7 +47,7 @@ Example:
 from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
 
 import os
-from typing import Callable, TypeVar, ParamSpec
+from typing import Callable, TypeVar, ParamSpec, TypeAlias
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -84,21 +84,34 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler: logging.StreamHandler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
-ImageArray = np.ndarray
-MaskArray = np.ndarray
-MethodParams = Dict[str, Union[int, float, bool, str]]
-MethodSchema = Dict[str, Dict[str, Union[str, int, float]]]
-BenchmarkData = Dict[str, "MethodProfile"]
-RecommendationDict = Dict[str, Any]
-ScoreWeights = Dict[str, float]
+ImageArray: TypeAlias = np.ndarray
+"""Тип для входного изображения: (H, W) для grayscale или (H, W, 3) для RGB, dtype=uint8."""
+
+MaskArray: TypeAlias = np.ndarray
+"""Тип для бинарной маски сегментации: (H, W), dtype=uint8, значения {0, 255}."""
+
+MethodParams: TypeAlias = Dict[str, Union[int, float, bool, str]]
+"""Словарь с текущими параметрами метода, dtype=Dict[str, Union[int, float, bool, str]]."""
+
+MethodSchema: TypeAlias = Dict[str, Dict[str, Union[str, int, float]]]
+"""Текущая схема для методов сегментации, dtype=Dict[str, Dict[str, Union[str, int, float]]]."""
+
+BenchmarkData: TypeAlias = Dict[str, "MethodProfile"]
+"""Данные для профиля метода сегментации, dtype=Dict[str, "MethodProfile"]."""
+
+RecommendationDict: TypeAlias = Dict[str, Any]
+"""Словарь рекомендованных методов сегментации, dtype=Dict[str, Any]."""
+
+ScoreWeights: TypeAlias = Dict[str, float]
+"""Весовые коэффициенты в зависимости от цели, dtype=Dict[str, float]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -211,7 +224,7 @@ class MethodProfile:
     schema: Dict[str, Any] = field(default_factory=dict)
 
 
-MethodConfig = Tuple[str, Dict[str, Any]]
+MethodConfig: TypeAlias = Tuple[str, Dict[str, Any]]
 """Кортеж (имя_метода, параметры)."""
 
 # ──────────────────────────────────────────────────────────────────────
@@ -3852,11 +3865,11 @@ METHODS_BY_LIBRARY: Dict[str, Dict[str, MethodProfile]] = {
 }
 
 # ──────────────────────────────────────────────────────────────────────
-# Flat dict для быстрого доступа (как было)
+# Flat dict
 ALL_METHODS: Dict[str, MethodProfile] = {
     name: profile for lib_methods in METHODS_BY_LIBRARY.values() for name, profile in lib_methods.items()
 }
-"""Плоский словарь всех методов для быстрого поиска по имени."""
+"""Плоский словарь всех методов для быстрого поиска по имени, dtype=Dict[str, MethodProfile]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -5649,7 +5662,7 @@ class AutoSegmenter:
             confidence = 1.0
 
         # Определение библиотеки (можно расширить логику)
-        segmenter_class = self._get_segmenter_class(selected_method, selected_lib)
+        segmenter_class: type[BaseSegmenter] = self._get_segmenter_class(selected_method, selected_lib)
 
         # Создание сегментера
         segmenter = segmenter_class(**params)
@@ -5668,7 +5681,7 @@ class AutoSegmenter:
             mask = np.zeros((h, w), dtype=np.uint8)
 
         if return_metadata:
-            characteristics = self.analyze_image(image)
+            characteristics: ImageCharacteristics = self.analyze_image(image)
             metadata: Dict[str, Any] = {
                 "method": selected_method,
                 "library": selected_lib,
@@ -5783,21 +5796,44 @@ class AutoSegmenter:
 # ──────────────────────────────────────────────────────────────────────
 # PUBLIC API
 # ──────────────────────────────────────────────────────────────────────
-__all__ = [
+__all__: List[str] = [
+    # 🔹 Основные компоненты
     "AutoSegmenter",
     "SegmentationGoal",
     "ImageType",
+    # 🔹 Структуры данных и профили
     "ImageCharacteristics",
     "MethodProfile",
+    # 🔹 Глобальные реестры методов
     "METHODS_BY_LIBRARY",
     "ALL_METHODS",
+    # 🔹 Типизация для аннотаций (Type Aliases)
+    "ImageArray",
+    "MaskArray",
+    "RecommendationDict",
+    "MethodSchema",
+    "ScoreWeights",
+    "MethodParams",
+    "MethodConfig",
+    "BenchmarkData",
 ]
-"""
-Публичный API модуля.
+"""Публичный API модуля.
+Управляет видимостью при `from segmenters.AutoSegmenter import *`.
+Используется статическими анализаторами, linter'ами и IDE для подсказок.
 
 Экспортируемые символы:
 - `AutoSegmenter`: Основной класс селектора.
-- `SegmentationGoal`, `ImageType`: Перечисления для конфигурации.
-- `ImageCharacteristics`, `MethodProfile`: Структуры данных.
-- `METHODS_BY_LIBRARY`, `ALL_METHODS`: Глобальные словари методов.
+- `SegmentationGoal`: Перечисление целей сегментации для настройки приоритетов выбора метода (Attributes: SPEED/ACCURACY/BALANCED/MEMORY).
+- `ImageType`: Перечисление типов изображений для эвристической классификации (Attributes: MEDICAL/NATURAL/DOCUMENT/SATELLITE/INDUSTRIAL/MICROSCOPY/UNKNOWN).
+- `ImageCharacteristics`: Структура характеристик изображения, извлечённых для анализа.
+- `MethodProfile`: Профиль метода сегментации на основе бенчмарков.
+- `METHODS_BY_LIBRARY`, `ALL_METHODS`: Dict[str, Dict[str, MethodProfile]] - Глобальные словари методов.
+- `ImageArray`: np.ndarray - Тип для входного изображения: (H, W) для grayscale или (H, W, 3) для RGB, dtype=uint8.
+- `MaskArray`: np.ndarray - Тип для бинарной маски сегментации: (H, W), dtype=uint8, значения {0, 255}.
+- `MethodParams`: Dict[str, Union[int, float, bool, str]] - Словарь с текущими параметрами метода, dtype=Dict[str, Union[int, float, bool, str]].
+- `MethodSchema`: Dict[str, Dict[str, Union[str, int, float]]] - Текущая схема для методов сегментации, dtype=Dict[str, Dict[str, Union[str, int, float]]].
+- `BenchmarkData`: Dict[str, "MethodProfile"] - Данные для профиля метода сегментации, dtype=Dict[str, "MethodProfile"].
+- `RecommendationDict`: Dict[str, Any] - Словарь рекомендованных методов сегментации, dtype=Dict[str, Any].
+- `ScoreWeights`: Dict[str, float] - Весовые коэффициенты в зависимости от цели, dtype=Dict[str, float].
+- `MethodConfig`: Tuple[str, Dict[str, Any]] - Кортеж (имя_метода, параметры).
 """
