@@ -759,8 +759,6 @@ async def run_benchmark(
 # ──────────────────────────────────────────────────────────────────────
 # ROUTES
 # ──────────────────────────────────────────────────────────────────────
-
-
 @router.post("/start")
 async def start_benchmark(
     image: Optional[UploadFile] = File(None),
@@ -768,7 +766,7 @@ async def start_benchmark(
     use_default_image: bool = Form(True),
     image_path: Optional[str] = Form(None),
     config: Optional[str] = Form(None),
-    bg: BackgroundTasks = Depends(),
+    bg: BackgroundTasks = None,
 ) -> Dict[str, str]:
     """Запускает асинхронный бенчмарк сегментации.
 

@@ -80,9 +80,11 @@ ClassNamesDict: TypeAlias = Optional[Dict[Union[int, str], str]]
 # ──────────────────────────────────────────────────────────────────────
 def compute_metrics(
     pred_mask: np.ndarray,
-    gt_mask: np.ndarray,
-    num_classes: int,
+    gt_mask: Optional[np.ndarray] = None,  # ← сделать опциональным
+    num_classes: int = 150,
     ignore_index: int = 255,
+    threshold: float = 0.5,
+    include_hausdorff: bool = False,
 ) -> Dict[str, Any]:
     """Вычисляет основные метрики семантической сегментации.
 
@@ -125,6 +127,16 @@ def compute_metrics(
         ```
     """
     # Маска валидных пикселей (исключаем ignore_index)
+    if gt_mask is None:
+        return {
+            "mIoU": np.nan,
+            "pixel_acc": np.nan,
+            "f1_weighted": np.nan,
+            "per_class_iou": [np.nan] * num_classes,
+            "confusion_matrix": None,
+            "unique_pred_classes": len(np.unique(pred_mask)),
+            "valid_pixels": 0,
+        }
     valid: bool = gt_mask != ignore_index
     if not np.any(valid):
         return {

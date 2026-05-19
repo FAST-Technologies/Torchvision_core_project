@@ -27,6 +27,8 @@ flow:
   run_validation: true
   run_gt_evaluation: false
   save_reports: true
+  run_optimization_benchmarks: true
+  run_neural_variants: true
 
 # ──────────────────────────────────────────────────────────────
 # Настройки вывода
@@ -154,7 +156,7 @@ research:
     export_dir: "./exported_models1"
     input_shape: [1, 3, 512, 512]  # [B, C, H, W]
     trt_strategy: "auto"  # "auto", "fp16", "int8"
-    trt_workspace_size: 1 << 30  # 1 GB
+    trt_workspace_size: 1073741824  # 1 GB (1 << 30)
     pause_seconds: 15  # Пауза перед бенчмарком для ручной отмены
     n_runs: 10
     force_warmup: true
@@ -162,11 +164,34 @@ research:
   # Бенчмарк точностей: fp32 vs fp16 vs bf16
   precision_benchmark:
     enabled: true
-    methods_suffix: "_v2"  # Фильтр методов для теста
-    warmup_runs: 3
+    output_path: "./data/reports/precision/precision_benchmark.csv"
+    n_warmup: 3
     n_runs: 10
     compute_metrics: true  # Сравнивать IoU относительно fp32
-    output_path: "./data/reports/precision/precision_benchmark.csv"
+    precisions: ["fp32", "fp16", "bf16"]
+    # Фильтр методов (опционально, для выборочного тестирования)
+    methods_suffix: "_v2"  # Например, тестировать только оптимизированные v2
+    target_methods: []  # Если пустой — тестировать все доступные
+
+  # ─── БЕНЧМАРКИ ПРОИЗВОДИТЕЛЬНОСТИ ──────────────────────────
+  performance_benchmark:
+    # Cold/Hot сравнение с прогревом
+    enabled: true
+    output_dir: "./data/performance_benchmark"
+    n_runs: 10
+    warmup_runs: 10
+    force_warmup: false
+    image_sizes_for_warmup: [[128, 128], [256, 256]]
+    save_individual_csv: true  # Сохранять отдельный файл на изображение
+
+  cpu_cuda_benchmark:
+    # Сравнение CPU vs CUDA для классических методов
+    enabled: true
+    n_runs: 10  # Унифицировано с другими бенчмарками
+    warmup_runs: 5
+    output_dir: "./data/cpu_cuda_benchmark"
+    output_path: "./data/reports/cpu_cuda_comparison.csv"  # Для совместимости
+    filter_neural: true  # Исключать нейросетевые методы
 
   # Профилирование с детекцией трансферов
   profiling_demo:
@@ -175,29 +200,68 @@ research:
     detect_transfers: true
     output_dir: "./profiling/tests"
     trace_format: "chrome"  # "chrome", "tensorboard"
-
-  # CPU vs CUDA бенчмарк
-  cpu_cuda_benchmark:
-    enabled: true
-    n_runs: 10
-    warmup_runs: 5
-    filter_neural: true  # Исключать нейросетевые методы
-    output_path: "./data/reports/cpu_cuda_comparison.csv"
     
-  # Валидация согласованности реализаций
+  # ─── ВАЛИДАЦИЯ И СРАВНЕНИЕ РЕАЛИЗАЦИЙ ─────────────────────
   validation:
+    # Согласованность Torch vs OpenCV/Sklearn
     enabled: true
     image_name: "countryside"  # Имя изображения из test_images
     output_dir: "./data/validation"
     reference_method: "Otsu_Thresholding_Sklearn"
     metrics_threshold: 0.8  # Порог для PASS/WARNING/FAIL
-    
-  # Сравнение с Ground Truth
+    use_torch2: true  # Использовать TorchSegmenter2 для сравнения
+    torch2_precision: "bf16"  # Точность для Torch v2
+    generate_benchmark_report: true  # Создавать дополнительный бенчмарк-отчёт
+
+  matrix_comparison:
+    # Матричное и пакетное сравнение методов
+    enabled: true
+    output_dir: "./data/matrix_comparison"
+    reference_method: "Otsu_Thresholding_Sklearn"
+    comparison_types: ["all_vs_all", "batch_vs_reference", "pairwise"]
+    save_results: true
+    # Опционально: ограничить количество пар для all_vs_all
+    max_pairs: 100  # Если >100 методов, пропустить all_vs_all
+
   gt_evaluation:
-    enabled: false
+    # Оценка против Ground Truth (если доступен)
+    enabled: false  # По умолчанию выключено, т.к. требует GT-масок
     threshold: 0.5
     include_hausdorff: true
     output_dir: "./data/gt_evaluation"
+    # Автоматическая бинаризация многоклассовых масок
+    auto_binary_gt: true
+    fallback_class_strategy: "second_most_frequent"  # Если объектов <1%
+
+  # ─── НЕЙРОСЕТЕВЫЕ ИССЛЕДОВАНИЯ ────────────────────────────
+  neural_variants:
+    # Тестирование вариантов нейросетевой сегментации
+    enabled: true
+    test_image_url: "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg"
+    model_path: "/home/yamshchikov/models/segformer-b5-ready"
+    alphas: [0.3, 0.5, 0.7, 1.0]
+    output_dir: "./data/neural_variants_test"
+    # Дополнительные опции
+    save_detailed_analysis: true  # Сохранять JSON с распределением классов
+    generate_plots: true  # Строить графики alpha-вариаций
+
+  # ─── ОПТИМИЗАЦИОННЫЕ БЕНЧМАРКИ (новый блок) ───────────────
+  optimization_benchmark:
+    # Сравнение конфигураций: fp32/compile/bf16/quantization
+    enabled: true
+    image_path: "test_images/countryside.jpg"
+    methods: ["global_thresholding", "otsu_thresholding", "sobel_edge", "canny_edge"]
+    n_runs: 100
+    warmup: 20
+    output_csv: "./data/reports/optimization_benchmark.csv"
+    # Матрица тестовых конфигураций
+    test_matrix:
+      fp32_eager: { device: "cuda", precision: "fp32", use_compile: false }
+      fp32_compile: { device: "cuda", precision: "fp32", use_compile: true, compile_mode: "reduce-overhead" }
+      fp32_max_autotune: { device: "cuda", precision: "fp32", use_compile: true, compile_mode: "max-autotune" }
+      bf16_native: { device: "cuda", precision: "bf16", use_compile: false }
+      bf16_compile: { device: "cuda", precision: "bf16", use_compile: true, compile_mode: "reduce-overhead" }
+      cpu_int8: { device: "cpu", precision: "fp32", use_quantization: true, use_compile: false }
 
 # ──────────────────────────────────────────────────────────────
 # Массовое тестирование (Batch Testing)
@@ -265,3 +329,71 @@ training:
     - "unet_smp"
     - "fpn_smp"
   output_dir: "./data/augmentation_study"
+
+optimization_benchmark:
+  enabled: true
+  image_path: "test_images/countryside.jpg"
+  methods: ["global_thresholding", "otsu_thresholding", "sobel_edge", "canny_edge"]
+  n_runs: 100
+  warmup: 20
+  output_csv: "./data/reports/optimization_benchmark.csv"
+  test_matrix:
+    fp32_eager: { device: "cuda", precision: "fp32", use_compile: false }
+    fp32_compile: { device: "cuda", precision: "fp32", use_compile: true, compile_mode: "reduce-overhead" }
+    bf16_compile: { device: "cuda", precision: "bf16", use_compile: true, compile_mode: "reduce-overhead" }
+    cpu_int8: { device: "cpu", precision: "fp32", use_quantization: true, use_compile: false }
+
+neural_variants:
+  enabled: true
+  test_image_url: "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg"
+  model_path: "/home/yamshchikov/models/segformer-b5-ready"
+  alphas: [0.3, 0.5, 0.7, 1.0]
+  output_dir: "./data/neural_variants_test"
+
+
+# ──────────────────────────────────────────────────────────────
+# Модели для нейросетевого бенчмарка
+# ──────────────────────────────────────────────────────────────
+benchmark_models:
+  pretrained:
+    - { name: "SegFormer_B5", method: "load_segformer", args: ["/home/yamshchikov/models/segformer-b5-ready"] }
+    - { name: "Mask2Former", method: "load_mask2former", args: ["facebook/mask2former-swin-base-ade-semantic"] }
+    - { name: "OneFormer", method: "load_oneformer", args: ["shi-labs/oneformer_ade20k_swin_large"] }
+  trained:
+    - { name: "U-Net_Trained", method: "load_unet_trained", kwargs: { checkpoint_path: "models/unet_ade20k_best_200_epochs.pth" } }
+    - { name: "DeepLabV3+_Trained", method: "load_deeplab_trained", kwargs: { checkpoint_path: "models/deeplab_ade20k_best_200_epochs.pth" } }
+  variants:
+    - { name: "SegFormer_B2", method: "load_segformer_variant", args: ["b2"] }
+  torchvision:
+    - { name: "MaskRCNN", method: "load_mask_rcnn_pretrained", kwargs: { variant: "maskrcnn_resnet50_fpn" } }
+    - { name: "FPN_MiT", method: "load_fpn_mit_pretrained", kwargs: { variant: "b5", checkpoint_path: "models/fpn_mit_b5_ade20k_best_200_epochs.pth" } }
+    - { name: "PSPNet_MiT", method: "load_psp_mit_pretrained", kwargs: { variant: "b5", checkpoint_path: "models/psp_mit_b5_ade20k_best_200_epochs.pth" } }
+    - { name: "FCN_ResNet50", method: "load_fcn_resnet50_pretrained", kwargs: { variant: "fcn_resnet50", checkpoint_path: "models/fcn_resnet50_ade20k_best_200_epochs.pth" } }
+    - { name: "SegNet", method: "load_segnet_pretrained", kwargs: { encoder_name: "resnet34", checkpoint_path: "models/segnet_ade20k_best_200_epochs.pth" } }
+  other:
+    - { name: "MobileSAM", method: "load_sam", args: ["models/mobile_sam.pt"] }
+    - { name: "SAM2", method: "load_sam", args: ["models/sam2_t.pt"] }
+    - { name: "DPT-Large", method: "load_dpt", args: ["Intel/dpt-large-ade"] }
+    - { name: "UPerNet", method: "load_upernet", args: ["openmmlab/upernet-convnext-small"] }
+
+# ──────────────────────────────────────────────────────────────
+# Тестовые изображения без GT
+# ──────────────────────────────────────────────────────────────
+test_images_no_gt:
+  sources:
+    countryside: "https://i.pinimg.com/736x/17/e7/fc/1D7oZ9cqSef531ErnBAai8ZivwSPyqMCcs.jpg"
+    nature: "https://i.pinimg.com/736x/f7/5a/f2/f75af26820b50c24600f50f3998eb02f.jpg"
+    architecture: "https://i.pinimg.com/736x/86/f6/07/86f60748d5d9ae4cb9092018d1321648.jpg"
+    trucks: "https://www.shutterstock.com/shutterstock/videos/1106252821/thumb/1.jpg?ip=x480"
+    traffic: "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg"
+    mountain: "https://i.pinimg.com/736x/17/66/c4/1D7oZ9cqSef531ErnBAai8ZivwSPyqMCcs.jpg"
+  local_paths:
+    war_frame_1: "test_images/2340_frame.jpg"
+    war_frame_2: "test_images/3330_frame.jpg"
+    war_frame_3: "test_images/4130_frame.jpg"
+    war_frame_4: "test_images/4480_frame.jpg"
+    building: "test_images/test_gt_image.jpg"
+    animals: "test_images/animals.jpg"
+  synthetic_mask:
+    enabled: true
+    pattern: "bottom_half"  # "bottom_half", "center_circle", "random"

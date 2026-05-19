@@ -81,6 +81,7 @@ Anaconda3-2025.12-2-Linux-x86_64.sh
 *.tar
 exported_models/
 exported_models1/
+exported_models5/
 additional_files/
 *.db
 *.sql
@@ -98,3 +99,4 @@ final_test*/
 profiling/
 onnx-tensorrt/
 
+*.pt

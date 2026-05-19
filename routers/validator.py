@@ -130,6 +130,7 @@ from testing.TorchImplementationValidator import (
     MethodConfig,
 )
 from segmenters.TorchSegmenter import TorchSegmenter
+from segmenters.NewTorchSegmenter import TorchSegmenter2
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
 from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict
@@ -423,6 +424,7 @@ async def _run_validation_task(
             "torch": TorchSegmenter,
             "opencv": OpenCVSegmenter,
             "sklearn": SklearnSegmenter,
+            "torch_v2": TorchSegmenter2,
         }
         primary_class = CLASS_MAP.get(primary_library, TorchSegmenter)
         reference_class = CLASS_MAP.get(reference_library, OpenCVSegmenter)

@@ -226,6 +226,32 @@ ClusterLabels = npt.NDArray[np.int32]
 """Метки кластеров, форма (N,) или (H, W), dtype=npt.NDArray[np.int32]."""
 
 
+def _remove_small_components(
+    binary: npt.NDArray[np.bool_],
+    min_area: int,
+    remove_objects: bool = True,
+) -> npt.NDArray[np.bool_]:
+    """Универсальная обёртка для remove_small_objects/holes с поддержкой всех версий skimage."""
+    try:
+        from skimage import __version__ as skimage_version
+        from packaging import version
+
+        use_new_api = version.parse(skimage_version) >= version.parse("0.26.0")
+    except (ImportError, ValueError):
+        use_new_api = True  # По умолчанию предполагаем новую версию
+
+    if remove_objects:
+        if use_new_api:
+            return remove_small_objects(binary, max_size=min_area)
+        else:
+            return remove_small_objects(binary, min_size=min_area)
+    else:
+        if use_new_api:
+            return remove_small_holes(binary, max_size=min_area)
+        else:
+            return remove_small_holes(binary, area_threshold=min_area)
+
+
 # ──────────────────────────────────────────────────────────────────────
 class SklearnSegmenter(BaseSegmenter):
     """Класс для сегментации изображений с использованием scikit-learn и scikit-image.
@@ -755,7 +781,6 @@ class SklearnSegmenter(BaseSegmenter):
             ```
         """
         image = self.preprocess_image(image)
-        # print(f"Image after sklearn preprocessing with mask: {image}")
         mask: MaskArray = self.segment(image, **kwargs)
 
         # Создаем визуализацию
@@ -771,8 +796,6 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Смешивание
         result = (alpha * overlay + (1 - alpha) * original_rgb).astype(np.uint8)
-        # print(f"Mask after sklearn segment_with_mask: {mask}")
-        # print(f"Result after sklearn segment_with_mask: {result}")
         return result, mask
 
     # ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
@@ -929,11 +952,12 @@ class SklearnSegmenter(BaseSegmenter):
 
         # Морфологические операции
         if SKIMAGE_AVAILABLE:
+            min_area: int = self.params.get("min_area", 100)
             # Удаление мелких объектов
-            binary = remove_small_objects(binary, min_size=self.params.get("min_area", 100))
+            binary = _remove_small_components(binary, min_area, remove_objects=True)
 
             # Заполнение дыр
-            binary = remove_small_holes(binary, area_threshold=self.params.get("min_area", 100))
+            binary = _remove_small_components(binary, min_area, remove_objects=False)
 
             # Морфологические операции
             selem = disk(2)

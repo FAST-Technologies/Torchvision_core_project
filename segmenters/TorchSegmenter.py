@@ -1239,9 +1239,7 @@ class TorchSegmenter(BaseSegmenter):
         """
         try:
             tensor: torch.Tensor = self.preprocess_image(image)
-            # print(f"Image after Torch preprocessing (tensor): {tensor}")
             mask_tensor: torch.Tensor = self._segment_func(tensor)
-            # print(f"Image after Torch preprocessing (mask_tensor): {mask_tensor}")
 
             # Преобразуем маску в numpy
             if mask_tensor.dim() == 4:
@@ -1294,10 +1292,7 @@ class TorchSegmenter(BaseSegmenter):
         """
         try:
             tensor = self.preprocess_image(image)
-            # print(f"Image after Torch preprocessing with mask (tensor): {tensor}")
             result_vis, mask_tensor = self._segment_with_visualization(tensor, **kwargs)
-            print(f"Image after Torch preprocessing with mask (result_vis): {result_vis}")
-            print(f"Image after Torch preprocessing with mask (mask_tensor): {mask_tensor}")
 
             # Преобразуем маску в numpy
             if mask_tensor.dim() == 4:
@@ -1320,8 +1315,6 @@ class TorchSegmenter(BaseSegmenter):
                 result_np = self._tensor_to_numpy(result_vis, denormalize=True)
             else:
                 result_np = result_vis
-            #  print(f"Mask after Torch segment_with_mask: {mask_np}")
-            # print(f"Result after Torch segment_with_mask: {result_np}")
             return result_np, mask_np
 
         except Exception as e:
@@ -5104,9 +5097,6 @@ __all__: List[str] = [
     "TorchSegmenter",
     # 🔹 Re-export базовых типов (для удобства)
     "BaseSegmenter",
-    "ImageInput",
-    "BinaryMask",
-    "ProbabilityMask",
 ]
 """Публичный API модуля TorchSegmenter.
 

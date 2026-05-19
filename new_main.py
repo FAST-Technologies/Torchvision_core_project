@@ -35,8 +35,8 @@ Example:
         # Запуск с оптимизациями
         tester, results, _ = main(use_optimizations=True)
         if results is not None:
-            print(f"Обработано {len(results)} методов")
-            print(results.sort_values("IoU", ascending=False).head(10))
+            logger.info(f"Обработано {len(results)} методов")
+            logger.info(results.sort_values("IoU", ascending=False).head(10))
     ```
 """
 
@@ -69,7 +69,8 @@ from typing import (
 )
 from matplotlib import colormaps
 from tqdm import tqdm
-import re
+
+# import re
 
 import numpy as np
 import numpy.typing as npt
@@ -92,9 +93,9 @@ from segmenters.ModelTrainer import ModelTrainer, TrainingConfig, TrainingResult
 from segmenters.NeuralModelFactory import NeuralModelFactory
 from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
 from utils.backend_exporter_new import (
-    export_neural_model,
+    # export_neural_model,
     load_trt_engine,
-    OnnxTrtFallbackSegmenter,
+    # OnnxTrtFallbackSegmenter,
 )
 from testing.SegmentationTester import SegmentationTester
 from testing.SegmentationComparator import SegmentationComparator
@@ -139,26 +140,57 @@ SegmenterDict = Dict[
         NeuralSegmenter,
     ],
 ]
-"""Словарь сегментеров: {имя_метода: экземпляр_сегментера}."""
+"""Словарь сегментеров: {имя_метода: экземпляр_сегментера}, dtype=Dict."""
 
 TestImageEntry = Tuple[str, Image.Image, Optional[MaskArray]]
-"""Элемент тестового изображения: (путь, PIL.Image, GT-маска или None)."""
+"""Элемент тестового изображения: (путь, PIL.Image, GT-маска или None), dtype=Tuple[str, Image.Image, Optional[MaskArray]]."""
 
 TestImagesDict = Dict[str, TestImageEntry]
-"""Словарь тестовых изображений: {имя: (путь, PIL.Image, GT-маска)}."""
+"""Словарь тестовых изображений: {имя: (путь, PIL.Image, GT-маска)}, dtype=Dict[str, TestImageEntry]."""
 
 type BenchmarkResult = pd.DataFrame
-"""Результат бенчмарка: DataFrame с метриками и временем выполнения."""
+"""Результат бенчмарка: DataFrame с метриками и временем выполнения, dtype=pd.DataFrame."""
 
 # Константы конфигурации
 ADE20K_REPO_ID: str = "hf-internal-testing/fixtures_ade20k"
-"""ID репозитория с тестовыми данными ADE20K на HuggingFace."""
+"""ID репозитория с тестовыми данными ADE20K на HuggingFace, dtype=str."""
 
 NUM_CLASSES_ADE20K: int = 150
-"""Количество классов в датасете ADE20K."""
+"""Количество классов в датасете ADE20K, dtype=int."""
 
 DEFAULT_IMAGE_SIZE: Tuple[int, int] = (512, 512)
-"""Размер по умолчанию для ресайза изображений."""
+"""Размер по умолчанию для ресайза изображений, dtype=Tuple[int, int]."""
+
+TARGET_METHODS_FOR_RESEARCH: List[str] = [
+    "global_thresholding",
+    "adaptive_thresholding",
+    "otsu_thresholding",
+    "threshold_niblack",
+    "threshold_sauvola",
+    "threshold_bernsen",
+    "threshold_phansalkar",
+    "threshold_percentile",
+    "threshold_kittler_illingworth",
+    "threshold_entropy_kapur",
+    "threshold_triangle",
+    "threshold_multi_otsu",
+    "threshold_local_contrast",
+    "sobel_edge",
+    "canny_edge",
+    "prewitt_edge",
+    "scharr_edge",
+    "laplacian_edge",
+    "roberts_cross_edge",
+    "log_edge",
+    "dog_edge",
+    "marr_hildreth_edge",
+    "gradient_magnitude_direction",
+    "phase_congruency_edge",
+]
+"""Методы для исследования, dtype=List[str]."""
+
+PrecisionType: List[str] = ["fp32", "fp16", "bf16"]
+"""Возможные точности, dtype=List[str]."""
 
 # Глобальные настройки окружения
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -169,8 +201,42 @@ warnings.filterwarnings("ignore")
 num_classes: int = 150
 
 
+# ──────────────────────────────────────────────────────────────────────
 def _load_config(config_path: str = "configs/main_config.yaml") -> Dict[str, Any]:
-    """Загружает конфигурацию из YAML-файла."""
+    """Загружает конфигурацию фреймворка из YAML-файла.
+
+    Выполняет:
+    1. **Чтение файла**: Открытие конфигурационного файла в кодировке UTF-8.
+    2. **Парсинг**: Десериализация YAML в словарь через `yaml.safe_load()`.
+    3. **Валидация**: Возврат словаря с настройками тестов и окружения.
+
+    Алгоритм:
+    ```
+    1. Открыть config_path в режиме чтения с encoding='utf-8'.
+    2. Вызвать yaml.safe_load(f) → Dict[str, Any].
+    3. Вернуть результат.
+    ```
+
+    Args:
+        config_path: Путь к YAML-файлу конфигурации (по умолчанию `"configs/main_config.yaml"`).
+
+    Returns:
+        Dict[str, Any]: Словарь с параметрами:
+                        - `test_settings`: флаги `test_classic_logic`, `test_neural_logic`.
+                        - `paths`, `devices`, `optimization` и другие секции.
+
+    Note:
+        - Используется `safe_load` для защиты от выполнения произвольного кода.
+        - Файл должен существовать и быть валидным YAML, иначе возникнет исключение.
+        - Все значения сохраняются в исходных типах (bool, int, str, list, dict).
+
+    Example:
+        ```python
+        config = _load_config("configs/main_config.yaml")
+        if config["test_settings"]["test_classic_logic"]:
+            print("Классические методы будут протестированы")
+        ```
+    """
     with open(config_path, "r", encoding="utf-8") as f:
         result: Dict[str, Any] = yaml.safe_load(f)
         return result
@@ -180,10 +246,42 @@ def _load_config(config_path: str = "configs/main_config.yaml") -> Dict[str, Any
 # УТИЛИТЫ ДЛЯ ОПРЕДЕЛЕНИЯ ОПТИМАЛЬНЫХ ПАРАМЕТРОВ
 # ──────────────────────────────────────────────────────────────────────
 def get_optimal_precision(device: torch.device) -> str:
-    """Автоматический выбор оптимальной точности для устройства.
+    """Автоматический выбор оптимальной точности вычислений для устройства.
+
+    Выполняет:
+    1. **Проверка CUDA**: Если устройство не CUDA → возвращается `fp32`.
+    2. **Определение архитектуры**: Чтение `compute capability` GPU.
+    3. **Выбор точности**:
+       - Ampere+ (≥8.0) → `bf16` (лучший баланс скорости/стабильности).
+       - Pascal+ (≥6.0) → `fp16` (хорошая скорость, возможна нестабильность).
+       - Старые GPU / CPU → `fp32` (максимальная совместимость).
+
+    Алгоритм:
+    ```
+    1. Если device.type != "cuda" → вернуть "fp32".
+    2. Получить props = torch.cuda.get_device_properties(device.index).
+    3. Если props.major >= 8 → вернуть "bf16".
+    4. Elif props.major >= 6 → вернуть "fp16".
+    5. Else → вернуть "fp32".
+    ```
+
+    Args:
+        device: Экземпляр `torch.device` для анализа возможностей.
 
     Returns:
-        str: 'bf16' для Ampere+, 'fp16' для Pascal+, 'fp32' для остальных.
+        str: Оптимальная точность: `"bf16"`, `"fp16"` или `"fp32"`.
+
+    Note:
+        - `bf16` требует GPU архитектуры Ampere (RTX 30xx, A100) или новее.
+        - `fp16` может приводить к числовой нестабильности в некоторых алгоритмах.
+        - На CPU всегда используется `fp32` (или `int8` при квантовании).
+
+    Example:
+        ```python
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        precision = get_optimal_precision(device)
+        print(f"Используемая точность: {precision}")  # bf16 / fp16 / fp32
+        ```
     """
     if device.type != "cuda":
         precision: str = "fp32"
@@ -201,8 +299,47 @@ def get_optimal_precision(device: torch.device) -> str:
     return precision
 
 
+# ──────────────────────────────────────────────────────────────────────
 def get_compile_config(method_name: str, device: torch.device) -> Dict[str, Any]:
-    """Возвращает конфигурацию torch.compile для метода."""
+    """Возвращает конфигурацию `torch.compile` для указанного метода.
+
+    Выполняет:
+    1. **Классификация метода**: Проверка, входит ли метод в список "хорошо компилируемых".
+    2. **Подбор режима**: Выбор `compile_mode` в зависимости от устройства.
+    3. **Формирование конфига**: Возврат словаря с флагами для `TorchSegmenter2`.
+
+    Алгоритм:
+    ```
+    1. Определить well_compiled = {глобальные пороги, основные edge-детекторы}.
+    2. Если method_name in well_compiled и device.type == "cuda":
+       → вернуть {use_compile: True, mode: "reduce-overhead", fullgraph: True, dynamic: False}
+    3. Elif method_name in well_compiled (CPU):
+       → вернуть {use_compile: True, mode: "default", fullgraph: False, dynamic: True}
+    4. Else → вернуть {use_compile: False}.
+    ```
+
+    Args:
+        method_name: Имя метода сегментации (например, `"otsu_thresholding"`).
+        device: Устройство выполнения (`cuda`/`cpu`).
+
+    Returns:
+        Dict[str, Any]: Конфигурация компиляции:
+                        - `use_compile`: включать ли `torch.compile`.
+                        - `compile_mode`: `"reduce-overhead"`, `"max-autotune"` или `"default"`.
+                        - `compile_fullgraph`, `compile_dynamic`: флаги графа.
+
+    Note:
+        - Методы с динамическим контролем потока плохо компилируются в `fullgraph` режиме.
+        - На CPU `dynamic=True` помогает избежать рекомпиляции при разных размерах входа.
+        - Для неизвестных методов компиляция отключается во избежание ошибок.
+
+    Example:
+        ```python
+        cfg = get_compile_config("sobel_edge", torch.device("cuda"))
+        print(cfg)
+        # {'use_compile': True, 'compile_mode': 'reduce-overhead', ...}
+        ```
+    """
     # Методы, которые хорошо компилируются
     well_compiled = {
         "global_thresholding",
@@ -241,35 +378,61 @@ def main(use_optimizations: bool = True) -> Tuple[
     """Основная точка входа фреймворка сегментации.
 
     Выполняет последовательное тестирование классических и нейросетевых методов:
-    1. Инициализация окружения и проверка доступности CUDA.
-    2. Загрузка тестовых изображений (с/без ground truth).
-    3. Регистрация методов сегментации (OpenCV, Sklearn, Torch, Neural).
-    4. Опциональный запуск бенчмарков:
-       - Производительность (cold/hot запуски)
-       - Валидация согласованности реализаций
-       - Сравнение с ground truth
-       - Массовое тестирование на датасете
-    5. Генерация отчётов: таблицы, графики, HTML.
+    1. Инициализация окружения и автоматический подбор точности/компиляции.
+    2. Загрузка тестовых изображений (с/без Ground Truth).
+    3. Регистрация методов сегментации (OpenCV, scikit-learn, PyTorch v1/v2).
+    4. Опциональный запуск исследовательских блоков:
+       - Мульти-бэкенд бенчмарк с точностями (PyTorch/ONNX/TRT × fp32/fp16/bf16)
+       - Экспорт и сравнение бэкендов (классические методы)
+       - Профилирование с детекцией CPU↔GPU трансферов
+       - Бенчмарк точностей (fp32 vs fp16 vs bf16)
+       - Массовое тестирование на ADE20K
+       - CPU vs CUDA сравнение
+    5. Генерация отчётов: таблицы, графики, CSV, HTML.
+
+    Алгоритм:
+    ```
+    1. Загрузить конфигурацию из YAML и определить устройство/точность.
+    2. Загрузить тестовые изображения и извлечь первое для бенчмарков.
+    3. Инициализировать SegmentationTester и зарегистрировать методы (CV2, Sklearn, Torch v1/v2).
+    4. Если test_classic_logic:
+       - Запустить _run_multi_backend_precision_benchmark()
+       - Запустить _run_backend_export_and_comparison()
+       - Запустить профилирование и бенчмарк точностей
+       - Запустить CPU/CUDA бенчмарк
+    5. Если test_neural_logic:
+       - Загрузить и протестировать нейросетевые модели
+       - Запустить нейросетевой бенчмарк на ADE20K
+       - Запустить обучение с аугментациями
+    6. Запустить массовое тестирование классических методов (_run_batch_classic_testing_optimized).
+    7. Вернуть (tester, results_df, None).
+    ```
+
+    Args:
+        use_optimizations: Если `True`, включает `torch.compile`, AMP и квантование.
+                           Если `False`, запускает legacy-пайплайн без оптимизаций.
 
     Returns:
         Tuple[Optional[SegmentationTester], Optional[BenchmarkResult], Optional[SegmentationComparator]]:
-            - `tester`: Экземпляр тестера с зарегистрированными методами (или None).
-            - `results`: DataFrame с результатами бенчмарка (или None).
-            - `comparator`: Экземпляр компаратора для матричных сравнений (или None).
+            - `tester`: Экземпляр тестера с зарегистрированными методами.
+            - `results`: DataFrame с результатами массового тестирования.
+            - `comparator`: Экземпляр компаратора для матричных сравнений (зарезервировано, возвращается None).
 
     Note:
-        - Функция управляется флагами `test_neural_logic` и `test_classic_logic`.
+        - Управляющее поведение задаётся в `configs/main_config.yaml` (флаги `test_classic_logic`, `test_neural_logic`).
         - При ошибках в отдельных методах выполнение продолжается (graceful degradation).
+        - Для прерывания длительных бенчмарков используется `Ctrl+C` (обработка `KeyboardInterrupt`).
         - Все результаты сохраняются в директорию `./data/` с автоматической структурой.
+        - Функция поддерживает как оптимизированный (v2, compile, AMP), так и legacy-режимы.
 
     Example:
         ```python
         if __name__ == "__main__":
-            tester, results, comparator = main()
-
+            # Запуск с оптимизациями
+            tester, results, _ = main(use_optimizations=True)
             if results is not None:
-                print(f"Обработано {len(results)} методов")
-                print(results.sort_values("IoU", ascending=False).head(10))
+                logger.info(f"Обработано {len(results)} методов")
+                logger.info(results.sort_values("IoU", ascending=False).head(10))
         ```
     """
     # ──────────────────────────────────────────────────────────────
@@ -286,36 +449,36 @@ def main(use_optimizations: bool = True) -> Tuple[
     _log_environment_info()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     optimal_precision = get_optimal_precision(device)
-    print(f"🚀 Используемое устройство: {device}")
-    print(f"⚡ Точность: {optimal_precision}")
+    logger.info(f"🚀 Используемое устройство: {device}")
+    logger.info(f"⚡ Точность: {optimal_precision}")
     if use_optimizations:
-        print(f"⚡ Оптимизации включены: Точность={optimal_precision}, Compile=ON")
+        logger.info(f"⚡ Оптимизации включены: Точность={optimal_precision}, Compile=ON")
     else:
-        print("⚠️  [LEGACY] Оптимизации отключены (fp32, eager mode)")
+        logger.warning("⚠️  [LEGACY] Оптимизации отключены (fp32, eager mode)")
 
-    print("=" * 60)
-    print("ОБЪЕДИНЁННЫЙ ФРЕЙМВОРК СЕГМЕНТАЦИИ")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("ОБЪЕДИНЁННЫЙ ФРЕЙМВОРК СЕГМЕНТАЦИИ")
+    logger.info("=" * 60)
 
     # ──────────────────────────────────────────────────────────────
     # 2. ЗАГРУЗКА ТЕСТОВЫХ ДАННЫХ
     # ──────────────────────────────────────────────────────────────
-    print("\n1. Загрузка тестовых изображений...")
+    logger.info("\n1. Загрузка тестовых изображений...")
     test_images: TestImagesDict = load_test_images(use_image_with_mask=False)
-    print(f"✅ Загружено изображений: {len(test_images)}")
+    logger.info(f"✅ Загружено изображений: {len(test_images)}")
 
     first_img_pil: Optional[Image.Image] = None
     first_img_name: Optional[str] = None
     if test_images:
         first_img_name, (_, first_img_pil, _) = next(iter(test_images.items()))
-        print(f"📌 Первое изображение для бенчмарков: {first_img_name} ({first_img_pil.size})")
+        logger.info(f"📌 Первое изображение для бенчмарков: {first_img_name} ({first_img_pil.size})")
 
     # ──────────────────────────────────────────────────────────────
     # 3. РЕГИСТРАЦИЯ МЕТОДОВ СЕГМЕНТАЦИИ
     # ──────────────────────────────────────────────────────────────
-    print("\n" + "=" * 60)
-    print("ИНИЦИАЛИЗАЦИЯ МЕТОДОВ СЕГМЕНТАЦИИ")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("ИНИЦИАЛИЗАЦИЯ МЕТОДОВ СЕГМЕНТАЦИИ")
+    logger.info("=" * 60)
 
     tester: SegmentationTester = SegmentationTester(
         base_output_dir="./data/segmentation_tester_results",
@@ -323,13 +486,13 @@ def main(use_optimizations: bool = True) -> Tuple[
         n_warmup_runs=5,
     )
 
-    print("\n1. Загрузка методов OpenCV...")
+    logger.info("\n1. Загрузка методов OpenCV...")
     cv2_methods: SegmenterDict = _create_cv2_methods()
 
-    print("\n2. Загрузка методов SKlearn...")
+    logger.info("\n2. Загрузка методов SKlearn...")
     sklearn_methods: SegmenterDict = _create_sklearn_methods()
 
-    print("\n3. Загрузка методов PyTorch...")
+    logger.info("\n3. Загрузка методов PyTorch...")
     if use_optimizations:
         torch_methods: SegmenterDict = _create_torch_methods_factory(
             use_v1=use_torch_v1,
@@ -341,7 +504,7 @@ def main(use_optimizations: bool = True) -> Tuple[
     else:
         # 🔥 Fallback на старую реализацию
         torch_methods = _create_torch_methods()
-    print(f"   📦 Загружено методов Torch: {len(torch_methods)}")
+    logger.info(f"   📦 Загружено методов Torch: {len(torch_methods)}")
 
     if test_classic_logic:
         _register_classic_methods(tester, cv2_methods, sklearn_methods, torch_methods)
@@ -354,244 +517,28 @@ def main(use_optimizations: bool = True) -> Tuple[
     # ──────────────────────────────────────────────────────────────
 
     if test_classic_logic:
-        print("🔬 ИССЛЕДОВАНИЕ: Мульти-бэкенд бенчмарк (PyTorch / ONNX / TensorRT)")
-        target_methods_for_research = [
-            "global_thresholding",
-            "adaptive_thresholding",
-            "otsu_thresholding",
-            "threshold_niblack",
-            "threshold_sauvola",
-            "threshold_bernsen",
-            "threshold_phansalkar",
-            "threshold_percentile",
-            "threshold_kittler_illingworth",
-            "threshold_entropy_kapur",
-            "threshold_triangle",
-            "threshold_multi_otsu",
-            "threshold_local_contrast",
-            "sobel_edge",
-            "canny_edge",
-            "prewitt_edge",
-            "scharr_edge",
-            "laplacian_edge",
-            "roberts_cross_edge",
-            "log_edge",
-            "dog_edge",
-            "marr_hildreth_edge",
-            "gradient_magnitude_direction",
-            "phase_congruency_edge",
-        ]
+        logger.info("🔬 ИССЛЕДОВАНИЕ: Мульти-бэкенд бенчмарк (PyTorch / ONNX / TensorRT)")
+        precision_benchmark_result: Optional[BenchmarkResult] = _run_multi_backend_precision_benchmark(
+            tester, first_img_pil
+        )
+        if precision_benchmark_result is not None:
+            logger.info(precision_benchmark_result)
 
-        if first_img_pil is not None:
-            real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]
-            print(f"📐 Размер изображения: {real_w}x{real_h}")
-
-        if first_img_pil is not None:
-            # run_optimization_benchmarks("test_images/animals.jpg", target_methods_for_research)
-
-            # img_large = img.resize((1920, 1080), Image.Resampling.LANCZOS)  # Full HD
-            # img_xlarge = img.resize((3840, 2160), Image.Resampling.LANCZOS)  # 4K
-
-            print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-            print("   (нажмите Ctrl+C для отмены, если нужно)")
-            try:
-                time.sleep(15)  # 🔥 Задержка 15 секунд
-            except KeyboardInterrupt:
-                print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
-                return tester, None, None
-
-            # 🔥 Регистрация с поддержкой множественных точностей
-            backend_registration = _register_backend_methods_with_precision(
-                tester=tester,
-                target_methods=target_methods_for_research,
-                output_base_dir="./exported_models1",
-                precisions=[
-                    "fp32",
-                    "fp16",
-                    "bf16",
-                ],  # Явное указание или авто-определение
-                input_shape=(1, 3, real_h, real_w),
-                trt_strategy="auto",
-            )
-            print(backend_registration)
-
-            print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-            print("   (нажмите Ctrl+C для отмены, если нужно)")
-            try:
-                time.sleep(15)  # 🔥 Задержка 15 секунд
-            except KeyboardInterrupt:
-                print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
-                return tester, None, None
-
-            # Запуск бенчмарка
-            backend_results = tester.benchmark_methods(
-                image=np.array(first_img_pil),
-                n_runs=10,
-                force_warmup=True,
-                test_name="backend_precision_comparison",
-            )
-
-            if backend_results is not None and not backend_results.empty:
-                # Парсим имена методов надёжным способом
-                parsed = backend_results["Method"].apply(parse_method_name)
-                backend_results["BaseMethod"] = parsed.apply(lambda x: x["BaseMethod"])
-                backend_results["Backend"] = parsed.apply(lambda x: x["Backend"])
-                backend_results["Precision"] = parsed.apply(lambda x: x["Precision"])
-
-                # Сводная таблица
-                summary = backend_results.pivot_table(
-                    index=["BaseMethod", "Backend"],
-                    columns="Precision",
-                    values="Mean_Time_s",
-                    aggfunc="mean",
-                )
-
-                print("\n⚡ Сравнение времени выполнения (мс) по точностям:")
-                print(summary.round(4).to_string())
-
-                # Speedup относительно fp32
-                if "fp32" in summary.columns:
-                    for backend in ["ONNX", "TRT"]:
-                        if backend in summary.index.get_level_values("Backend"):
-                            print(f"\n🚀 Speedup {backend} относительно PyTorch/fp32:")
-                            for precision in ["fp16", "bf16"]:
-                                if precision in summary.columns:
-                                    subset = summary.xs(backend, level="Backend", drop_level=False)
-                                    if precision in subset.columns and "fp32" in subset.columns:
-                                        speedup = subset["fp32"] / subset[precision]
-                                        # Фильтруем inf/nan для корректного среднего
-                                        # valid = speedup[speedup.notna() & speedup.notinf()]
-                                        # if not valid.empty:
-                                        #     print(f"   {precision}: {valid.mean():.2f}x (среднее)")
-                                        print(f"   {precision}: {speedup.mean():.2f}x (среднее)")
-
-            print("✅ Сравнение бэкендов завершено. Результаты сохранены.")
-        else:
-            print("⚠️ Пропуск сравнения бэкендов: нет тестового изображения")
-
-    print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-    print("   (нажмите Ctrl+C для отмены, если нужно)")
+    logger.info("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    logger.info("   (нажмите Ctrl+C для отмены, если нужно)")
     try:
-        time.sleep(15)  # 🔥 Задержка 15 секунд
+        time.sleep(15)
     except KeyboardInterrupt:
-        print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+        logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
         return tester, None, None
 
     if test_classic_logic:
-        print("🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT")
-
-        # 🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT
-        target_methods_for_research: List[str] = [
-            "global_thresholding",
-            "adaptive_thresholding",
-            "otsu_thresholding",
-            "threshold_niblack",
-            "threshold_sauvola",
-            "threshold_bernsen",
-            "threshold_phansalkar",
-            "threshold_percentile",
-            "threshold_kittler_illingworth",
-            "threshold_entropy_kapur",
-            "threshold_triangle",
-            "threshold_multi_otsu",
-            "threshold_local_contrast",
-            "sobel_edge",
-            "canny_edge",
-            "prewitt_edge",
-            "scharr_edge",
-            "laplacian_edge",
-            "roberts_cross_edge",
-            "log_edge",
-            "dog_edge",
-            "marr_hildreth_edge",
-            "gradient_magnitude_direction",
-            "phase_congruency_edge",
-        ]
-
-        print("\n🔬 Запуск сравнения бэкендов (PyTorch / ONNX / TensorRT)...")
-
-        if first_img_pil is not None:
-            real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]  # PIL: (W, H)
-            print(f"📐 Реальный размер изображения: {real_w}x{real_h}")
-
-        if first_img_pil is not None:
-
-            exported_methods = export_all_classical_methods(
-                output_base_dir="./exported_models1",
-                precisions=["bf16", "fp16", "fp32"],
-                methods=target_methods_for_research,
-                input_shape=(1, 3, real_h, real_w),
-                force_reexport=True,
-                export_onnx=True,
-                export_trt=torch.cuda.is_available(),
-            )
-            print(exported_methods)
-
-            # Регистрируем все бэкенды в тестер
-            for method_name in target_methods_for_research:
-                # PyTorch (оригинал)
-                pt_seg = TorchSegmenter2(
-                    method=method_name,
-                    device="cuda",
-                    precision="fp32",
-                    use_compile=False,
-                )
-                tester.add_method(f"{method_name}_Torch", pt_seg)
-
-                # ONNX
-                onnx_path = f"./exported_models1/onnx/fp32/{method_name}.onnx"
-                if os.path.exists(onnx_path):
-                    try:
-                        onnx_seg = ONNXSegmenter(
-                            method_name,
-                            onnx_path,
-                            device="cuda" if torch.cuda.is_available() else "cpu",
-                            input_shape=(1, 3, real_h, real_w),
-                            is_neural=False,
-                        )
-                        tester.add_method(f"{method_name}_ONNX", onnx_seg)
-                        print(f"✅ Загружен {method_name}_ONNX")
-                    except Exception as e:
-                        print(f"⚠️ Не загружен {method_name}_ONNX: {e}")
-
-                # TensorRT
-                if torch.cuda.is_available():
-                    trt_path = f"./exported_models1/tensorrt/fp32/{method_name}.trt"
-                    if os.path.exists(trt_path):
-                        try:
-                            trt_model = load_trt_engine(trt_path, device="cuda", is_neural=False)
-                            if trt_model is not None:
-                                trt_seg = TRTSegmenter(method_name, trt_model, device="cuda")
-                                tester.add_method(f"{method_name}_TRT", trt_seg)
-                                print(f"✅ Загружен {method_name}_TRT")
-                        except Exception as e:
-                            print(f"⚠️ Не загружен {method_name}_TRT: {e}")
-
-                print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-                print("   (нажмите Ctrl+C для отмены, если нужно)")
-                try:
-                    time.sleep(15)  # 🔥 Задержка 15 секунд
-                except KeyboardInterrupt:
-                    print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
-
-            print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-            print("   (нажмите Ctrl+C для отмены, если нужно)")
-            try:
-                time.sleep(15)  # 🔥 Задержка 15 секунд
-            except KeyboardInterrupt:
-                print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
-                return tester, None, None
-            # Запускаем стандартный бенчмарк
-            backend_results = tester.benchmark_methods(
-                image=np.array(first_img_pil),
-                n_runs=10,
-                force_warmup=True,
-                test_name="backend_comparison",
-            )
-            print(backend_results)
-            print("✅ Сравнение бэкендов завершено. Результаты сохранены.")
-        else:
-            print("⚠️  Пропуск сравнения бэкендов: нет тестового изображения")
+        logger.info("🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT")
+        backend_export_compare_result: Optional[BenchmarkResult] = _run_backend_export_and_comparison(
+            tester, first_img_pil
+        )
+        if backend_export_compare_result is not None:
+            logger.info(backend_export_compare_result)
 
     # 4.1 Профилирование выбранных методов
     if enable_profiling and test_classic_logic and use_torch_v2:
@@ -601,9 +548,9 @@ def main(use_optimizations: bool = True) -> Tuple[
     if enable_benchmark_precision and test_classic_logic and use_torch_v2:
         _run_precision_benchmark_demo(tester, test_images)
 
-        print("\n" + "=" * 60)
-        print("⚡ БЕНЧМАРК ТОЧНОСТЕЙ: fp32 / fp16 / bf16")
-        print("=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info("⚡ БЕНЧМАРК ТОЧНОСТЕЙ: fp32 / fp16 / bf16")
+        logger.info("=" * 60)
 
         # Берём первое тестовое изображение в формате numpy
         _, (_, first_img_pil, _) = next(iter(test_images.items()))
@@ -619,8 +566,8 @@ def main(use_optimizations: bool = True) -> Tuple[
                     # Fallback на случай, если атрибута method нет
                     target_methods.append(name.replace("_Torch_v2", "").lower())
 
-        print(f"🧪 Выбрано методов для бенчмарка: {len(target_methods)}")
-        print(f"📋 Список методов: {target_methods}")
+        logger.info(f"🧪 Выбрано методов для бенчмарка: {len(target_methods)}")
+        logger.info(f"📋 Список методов: {target_methods}")
 
         if target_methods:
             try:
@@ -633,12 +580,14 @@ def main(use_optimizations: bool = True) -> Tuple[
                     n_runs=10,
                     compute_metrics=True,  # Сравнивает IoU относительно fp32
                 )
-                print("✅ Бенчмарк точностей завершён. CSV-отчёт: ./data/reports/precision/precision_benchmark.csv")
+                logger.info(
+                    "✅ Бенчмарк точностей завершён. CSV-отчёт: ./data/reports/precision/precision_benchmark.csv"
+                )
             except Exception as e:
-                print(f"⚠️ Ошибка при запуске бенчмарка точностей: {e}")
+                logger.warning(f"⚠️ Ошибка при запуске бенчмарка точностей: {e}")
                 traceback.print_exc()
         else:
-            print("⚠️ Методы Torch v2 не найдены. Пропускаем бенчмарк точностей.")
+            logger.warning("⚠️ Методы Torch v2 не найдены. Пропускаем бенчмарк точностей.")
 
     # 4.3 Бенчмарк производительности (cold/hot)
     # if test_classic_logic:
@@ -648,7 +597,7 @@ def main(use_optimizations: bool = True) -> Tuple[
     #         n_runs=10,
     #         warmup_runs=10,
     #     )
-    #     print(perf_results)
+    #     logger.info(perf_results)
 
     # 4.4 Запускает тестирование нейросетевых методов сегментации.
     if test_neural_logic:
@@ -660,7 +609,7 @@ def main(use_optimizations: bool = True) -> Tuple[
             device=device,
             num_classes=NUM_CLASSES_ADE20K,
         )
-        print(neural_results)
+        logger.info(neural_results)
 
     #  4.6 Валидация реализаций
     # if test_classic_logic:
@@ -669,7 +618,7 @@ def main(use_optimizations: bool = True) -> Tuple[
     #         output_dir="./data/validation",
     #         image_name="countryside",
     #     )
-    #     print(validation_results)
+    #     logger.info(validation_results)
 
     # # 4.7 Матричное сравнение
     # if test_classic_logic:
@@ -680,7 +629,7 @@ def main(use_optimizations: bool = True) -> Tuple[
     #         torch_methods=torch_methods,
     #         reference_method="Otsu_Thresholding_Sklearn",
     #     )
-    #     print(matrix_results)
+    #     logger.info(matrix_results)
 
     # # 4.8 Оценка против GT (опционально)
     # if test_classic_logic:
@@ -690,7 +639,7 @@ def main(use_optimizations: bool = True) -> Tuple[
     #         sklearn_methods=sklearn_methods,
     #         torch_methods=torch_methods,
     #     )
-    #     print(gt_results)
+    #     logger.info(gt_results)
 
     # 4.9 Обучение с аугментациями
     if test_neural_logic:
@@ -699,13 +648,13 @@ def main(use_optimizations: bool = True) -> Tuple[
             checkpoint_dir="./models",
             device="cuda",
         )
-        print(aug_results)
+        logger.info(aug_results)
 
     # 4.10 Тестирование CPU/CUDA бенчмарка
     if test_classic_logic:
-        print("\n" + "=" * 80)
-        print("🧪 ЗАПУСК MULTI-BACKEND CPU/CUDA БЕНЧМАРКА")
-        print("=" * 80)
+        logger.info("\n" + "=" * 80)
+        logger.info("🧪 ЗАПУСК MULTI-BACKEND CPU/CUDA БЕНЧМАРКА")
+        logger.info("=" * 80)
 
         # 1. Собираем все методы в один словарь
         all_benchmark_methods: SegmenterDict = {}
@@ -723,7 +672,7 @@ def main(use_optimizations: bool = True) -> Tuple[
         test_image = None
         for img_name, (_, img_pil, _) in tqdm(test_images.items(), desc="CUDA/CPU benchmark (Выбор изображения)"):
             test_image = np.array(img_pil)
-            print(f"✅ Используем изображение: {img_name} ({test_image.shape})")
+            logger.info(f"✅ Используем изображение: {img_name} ({test_image.shape})")
             break
 
         if test_image is not None:
@@ -733,18 +682,18 @@ def main(use_optimizations: bool = True) -> Tuple[
                 n_runs=10,  # Увеличил прогонов для стабильности
                 warmup_runs=5,
             )
-            print(cpu_cuda_results.sort_values("mean_time"))
+            logger.info(cpu_cuda_results.sort_values("mean_time"))
 
             # Сортировка и вывод топ-10 по времени
             top10: BenchmarkResult = (
                 cpu_cuda_results[cpu_cuda_results["error"].isna()].sort_values("mean_time").head(10)
             )
-            print(top10[["method", "device", "mean_time", "backend", "precision"]])
+            logger.info(top10[["method", "device", "mean_time", "backend", "precision"]])
 
     # ──────────────────────────────────────────────────────────────
     # 5. МАССОВОЕ ТЕСТИРОВАНИЕ КЛАССИЧЕСКИХ МЕТОДОВ
     # ──────────────────────────────────────────────────────────────
-    print(f"Current precision: {optimal_precision}")
+    logger.info(f"Current precision: {optimal_precision}")
     results_df: Optional[BenchmarkResult] = None
     if test_classic_logic:
         results_df = _run_batch_classic_testing_optimized(
@@ -753,12 +702,12 @@ def main(use_optimizations: bool = True) -> Tuple[
             precision=optimal_precision,
         )
 
-    print("\n" + "=" * 60)
-    print("ТЕСТИРОВАНИЕ ЗАВЕРШЕНО")
-    print("=" * 60)
-    print(f"✓ Методов протестировано: {len(tester.methods)}")
-    print(f"✓ Изображений обработано: {len(test_images)}")
-    print("✓ Результаты в: ./data/")
+    logger.info("\n" + "=" * 60)
+    logger.info("ТЕСТИРОВАНИЕ ЗАВЕРШЕНО")
+    logger.info("=" * 60)
+    logger.info(f"✓ Методов протестировано: {len(tester.methods)}")
+    logger.info(f"✓ Изображений обработано: {len(test_images)}")
+    logger.info("✓ Результаты в: ./data/")
 
     return tester, results_df, None
 
@@ -766,10 +715,43 @@ def main(use_optimizations: bool = True) -> Tuple[
 def parse_method_name(method_name: str) -> Dict[str, str]:
     """Надёжно парсит имя метода вида 'base_method_Backend_precision'.
 
-    Поддерживает:
-    - Базовые имена с подчёркиваниями (gradient_magnitude_direction)
-    - Известные бэкенды: Torch, ONNX, TRT, CV2, Sklearn
-    - Известные точности: fp32, fp16, bf16, v1, v2
+    Выполняет:
+    1. **Разбиение**: Сегментация строки по символу подчёркивания.
+    2. **Поиск с конца**: Итеративный поиск известных бэкендов и точностей.
+    3. **Извлечение базы**: Формирование базового имени до первого найденного бэкенда.
+    4. **Валидация**: Фоллбэк на удаление суффиксов, если бэкенд не найден явно.
+
+    Алгоритм:
+    ```
+    1. Разбить `method_name` на части по "_".
+    2. Итерировать с конца списка частей:
+       - Если часть в BACKENDS → запомнить Backend, проверить следующую на Precision.
+       - Если часть в PRECISIONS и Backend ещё не найден → запомнить Precision.
+    3. Если Backend найден → BaseMethod = части до индекса Backend.
+    4. Иначе → удалить все известные суффиксы с конца → остаток = BaseMethod.
+    5. Вернуть Dict{"BaseMethod": str, "Backend": str, "Precision": str}.
+    ```
+
+    Args:
+        method_name: Строка с именем метода, например `gradient_magnitude_direction_TRT_fp16`.
+
+    Returns:
+        Dict[str, str]: Словарь с полями:
+                        - `BaseMethod`: Оригинальное имя алгоритма.
+                        - `Backend`: PyTorch/ONNX/TRT/CV2/Sklearn/Unknown.
+                        - `Precision`: fp32/fp16/bf16/v1/v2.
+
+    Note:
+        - Оптимизирован для имён с множественными подчёркиваниями.
+        - Использует `Set` для быстрого поиска (`O(1)`).
+        - Автоматически обрабатывает отсутствующие суффиксы, подставляя дефолтные значения.
+
+    Example:
+        ```python
+        result = parse_method_name("otsu_thresholding_ONNX_fp16")
+        logger.info(result)
+        # {'BaseMethod': 'otsu_thresholding', 'Backend': 'ONNX', 'Precision': 'fp16'}
+        ```
     """
     # 🔥 Известные значения — ключ к надёжному парсингу
     BACKENDS: Set[str] = {"Torch", "ONNX", "TRT", "CV2", "Sklearn"}
@@ -806,6 +788,258 @@ def parse_method_name(method_name: str) -> Dict[str, str]:
     return {"BaseMethod": base_method, "Backend": backend, "Precision": precision}
 
 
+def _run_multi_backend_precision_benchmark(
+    tester: SegmentationTester,
+    first_img_pil: Optional[Image.Image],
+) -> Optional[BenchmarkResult]:
+    """Мульти-бэкенд бенчмарк с поддержкой множественных точностей (fp32/fp16/bf16).
+
+    Выполняет экспорт, регистрацию и сравнение методов сегментации across разных бэкендов и точностей.
+    1. **Подготовка**: Определение размера изображения и ожидание подтверждения пользователя.
+    2. **Регистрация**: Вызов `_register_backend_methods_with_precision` для создания PyTorch/ONNX/TRT версий с суффиксами точности.
+    3. **Бенчмарк**: Запуск `tester.benchmark_methods()` для замера времени выполнения.
+    4. **Анализ**: Парсинг имён методов, построение сводной таблицы (pivot), расчёт speedup относительно fp32.
+
+    Алгоритм:
+    ```
+    1. Проверить наличие `first_img_pil`. Если нет — вернуть None.
+    2. Определить real_h, real_w из изображения.
+    3. Ожидание 15 сек (с обработкой Ctrl+C).
+    4. Вызвать _register_backend_methods_with_precision(...) для генерации моделей.
+    5. Ожидание 15 сек (с обработкой Ctrl+C).
+    6. Запустить tester.benchmark_methods(test_name="backend_precision_comparison").
+    7. Если результаты есть:
+       - Применить parse_method_name для разделения BaseMethod, Backend, Precision.
+       - Построить pivot_table: index=[BaseMethod, Backend], columns=Precision, values=Mean_Time_s.
+       - Вывести сравнение времени.
+       - Рассчитать speedup = fp32_time / [fp16|bf16]_time для ONNX и TRT.
+    8. Вернуть DataFrame с результатами.
+    ```
+
+    Args:
+        tester: Экземпляр `SegmentationTester` для регистрации и запуска методов.
+        first_img_pil: PIL.Image для определения входного разрешения и проведения бенчмарка.
+
+    Returns:
+        Optional[BenchmarkResult]: DataFrame с результатами бенчмарка или `None` при отмене/ошибке.
+
+    Note:
+        - Использует жёсткую задержку 15 секунд перед критическими этапами для ручного контроля.
+        - Автоматически пропускает блок, если `first_img_pil` отсутствует.
+        - Speedup рассчитывается как среднее по всем методам, где присутствуют обе точности.
+        - Требует наличия экспортированных моделей в `./exported_models1/`.
+
+    Example:
+        ```python
+        result = _run_multi_backend_precision_benchmark(tester, first_img_pil)
+        if result is not None:
+            logger.info(result.pivot_table(index="Backend", columns="Precision", values="Mean_Time_s"))
+        ```
+    """
+    if first_img_pil is None:
+        logger.warning("⚠️ Пропуск сравнения бэкендов: нет тестового изображения")
+        return None
+
+    real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]
+    logger.info(f"📐 Размер изображения: {real_w}x{real_h}")
+
+    # Пауза перед экспортом/регистрацией
+    logger.info("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    logger.info("   (нажмите Ctrl+C для отмены, если нужно)")
+    try:
+        time.sleep(15)
+    except KeyboardInterrupt:
+        logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+        return None
+
+    # 🔥 Регистрация с поддержкой множественных точностей
+    backend_registration = _register_backend_methods_with_precision(
+        tester=tester,
+        target_methods=TARGET_METHODS_FOR_RESEARCH,
+        output_base_dir="./exported_models1",
+        precisions=["fp32", "fp16", "bf16"],
+        input_shape=(1, 3, real_h, real_w),
+        trt_strategy="auto",
+    )
+    logger.info(backend_registration)
+
+    # Пауза перед запуском бенчмарка
+    logger.info("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    logger.info("   (нажмите Ctrl+C для отмены, если нужно)")
+    try:
+        time.sleep(15)
+    except KeyboardInterrupt:
+        logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+        return None
+
+    # Запуск бенчмарка
+    backend_results = tester.benchmark_methods(
+        image=np.array(first_img_pil),
+        n_runs=10,
+        force_warmup=True,
+        test_name="backend_precision_comparison",
+    )
+
+    if backend_results is not None and not backend_results.empty:
+        parsed = backend_results["Method"].apply(parse_method_name)
+        backend_results["BaseMethod"] = parsed.apply(lambda x: x["BaseMethod"])
+        backend_results["Backend"] = parsed.apply(lambda x: x["Backend"])
+        backend_results["Precision"] = parsed.apply(lambda x: x["Precision"])
+
+        summary = backend_results.pivot_table(
+            index=["BaseMethod", "Backend"],
+            columns="Precision",
+            values="Mean_Time_s",
+            aggfunc="mean",
+        )
+
+        logger.info("\n⚡ Сравнение времени выполнения (мс) по точностям:")
+        logger.info(summary.round(4).to_string())
+
+        if "fp32" in summary.columns:
+            for backend in ["ONNX", "TRT"]:
+                if backend in summary.index.get_level_values("Backend"):
+                    logger.info(f"\n🚀 Speedup {backend} относительно PyTorch/fp32:")
+                    for precision in ["fp16", "bf16"]:
+                        if precision in summary.columns:
+                            subset = summary.xs(backend, level="Backend", drop_level=False)
+                            if precision in subset.columns and "fp32" in subset.columns:
+                                speedup = subset["fp32"] / subset[precision]
+                                logger.info(f"   {precision}: {speedup.mean():.2f}x (среднее)")
+
+    logger.info("✅ Сравнение бэкендов завершено. Результаты сохранены.")
+    return backend_results
+
+
+def _run_backend_export_and_comparison(
+    tester: SegmentationTester,
+    first_img_pil: Optional[Image.Image],
+) -> Optional[BenchmarkResult]:
+    """Экспорт классических методов в ONNX/TensorRT и сравнение бэкендов.
+
+    Выполняет полный цикл экспорта, ручной регистрации и бенчмарка производительности.
+    1. **Экспорт**: Вызов `export_all_classical_methods` для генерации ONNX/TensorRT файлов.
+    2. **Регистрация**: Последовательное добавление в тестер PyTorch (оригинал), ONNX и TensorRT сегментеров.
+    3. **Бенчмарк**: Замер времени выполнения на одном изображении с прогревом.
+
+    Алгоритм:
+    ```
+    1. Проверить наличие `first_img_pil`. Если нет — вернуть None.
+    2. Вызвать export_all_classical_methods(...) с force_reexport=True.
+    3. Для каждого метода из TARGET_METHODS_FOR_RESEARCH:
+       - Создать и добавить TorchSegmenter2 (fp32, без compile).
+       - Проверить наличие .onnx файла, создать и добавить ONNXSegmenter.
+       - Проверить наличие .trt файла (если CUDA доступен), создать и добавить TRTSegmenter.
+       - Пауза 15 сек после каждого метода (с обработкой Ctrl+C).
+    4. Финальная пауза 15 сек.
+    5. Запустить tester.benchmark_methods(test_name="backend_comparison").
+    6. Вывести результаты и вернуть DataFrame.
+    ```
+
+    Args:
+        tester: Экземпляр `SegmentationTester` для динамической регистрации методов.
+        first_img_pil: PIL.Image, используемое для бенчмарка и определения input_shape.
+
+    Returns:
+        Optional[BenchmarkResult]: DataFrame с результатами сравнения бэкендов или `None`.
+
+    Note:
+        - Экспорт происходит в `./exported_models1/` с разделением по папкам `onnx/fp32/` и `tensorrt/fp32/`.
+        - Паузы после каждого метода предназначены для мониторинга ресурсов или ручной отладки.
+        - При отсутствии CUDA TensorRT методы автоматически пропускаются.
+        - Использует `TARGET_METHODS_FOR_RESEARCH` как список методов для экспорта.
+
+    Example:
+        ```python
+        comparison_df = _run_backend_export_and_comparison(tester, first_img_pil)
+        if comparison_df is not None:
+            logger.info(comparison_df.sort_values("Mean_Time_s").head(10))
+        ```
+    """
+    if first_img_pil is None:
+        logger.info("⚠️  Пропуск сравнения бэкендов: нет тестового изображения")
+        return None
+
+    real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]  # PIL: (W, H)
+    logger.info(f"📐 Реальный размер изображения: {real_w}x{real_h}")
+
+    exported_methods = export_all_classical_methods(
+        output_base_dir="./exported_models1",
+        precisions=PrecisionType,
+        methods=TARGET_METHODS_FOR_RESEARCH,
+        input_shape=(1, 3, real_h, real_w),
+        force_reexport=True,
+        export_onnx=True,
+        export_trt=torch.cuda.is_available(),
+    )
+    logger.info(exported_methods)
+
+    for method_name in TARGET_METHODS_FOR_RESEARCH:
+        # PyTorch (оригинал)
+        pt_seg = TorchSegmenter2(
+            method=method_name,
+            device="cuda",
+            precision="fp32",
+            use_compile=False,
+        )
+        tester.add_method(f"{method_name}_Torch", pt_seg)
+
+        # ONNX
+        onnx_path = f"./exported_models1/onnx/fp32/{method_name}.onnx"
+        if os.path.exists(onnx_path):
+            try:
+                onnx_seg = ONNXSegmenter(
+                    method_name,
+                    onnx_path,
+                    device="cuda" if torch.cuda.is_available() else "cpu",
+                    input_shape=(1, 3, real_h, real_w),
+                    is_neural=False,
+                )
+                tester.add_method(f"{method_name}_ONNX", onnx_seg)
+                logger.info(f"✅ Загружен {method_name}_ONNX")
+            except Exception as e:
+                logger.warning(f"⚠️ Не загружен {method_name}_ONNX: {e}")
+
+        # TensorRT
+        if torch.cuda.is_available():
+            trt_path = f"./exported_models1/tensorrt/fp32/{method_name}.trt"
+            if os.path.exists(trt_path):
+                try:
+                    trt_model = load_trt_engine(trt_path, device="cuda", is_neural=False)
+                    if trt_model is not None:
+                        trt_seg = TRTSegmenter(method_name, trt_model, device="cuda")
+                        tester.add_method(f"{method_name}_TRT", trt_seg)
+                        logger.info(f"✅ Загружен {method_name}_TRT")
+                except Exception as e:
+                    logger.warning(f"⚠️ Не загружен {method_name}_TRT: {e}")
+
+        logger.info("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+        logger.info("   (нажмите Ctrl+C для отмены, если нужно)")
+        try:
+            time.sleep(15)
+        except KeyboardInterrupt:
+            logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+            return None
+
+    logger.info("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    logger.info("   (нажмите Ctrl+C для отмены, если нужно)")
+    try:
+        time.sleep(15)
+    except KeyboardInterrupt:
+        logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+        return None
+
+    backend_results = tester.benchmark_methods(
+        image=np.array(first_img_pil),
+        n_runs=10,
+        force_warmup=True,
+        test_name="backend_comparison",
+    )
+    logger.info(backend_results)
+    logger.info("✅ Сравнение бэкендов завершено. Результаты сохранены.")
+    return backend_results
+
+
 # ──────────────────────────────────────────────────────────────────────
 # РЕГИСТРАЦИЯ БЭКЕНДОВ С ПОДДЕРЖКОЙ МНОЖЕСТВЕННЫХ ТОЧНОСТЕЙ
 # ──────────────────────────────────────────────────────────────────────
@@ -817,10 +1051,60 @@ def _register_backend_methods_with_precision(
     input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
     trt_strategy: str = "auto",
 ) -> Dict[str, Any]:
-    """Регистрирует методы для разных бэкендов (PyTorch/ONNX/TensorRT) и точностей (fp32/fp16/bf16) с суффиксами в названиях.
+    """Регистрирует методы для разных бэкендов и точностей с суффиксами в названиях.
 
-    Формат имени метода: {method_name}_{backend}_{precision}
-    Пример: otsu_thresholding_TRT_bf16, sobel_edge_ONNX_fp16
+    Автоматически создаёт и регистрирует в тестере сегментеры для PyTorch, ONNX и TensorRT,
+    поддерживая множественные форматы данных (fp32, fp16, bf16).
+    1. **PyTorch**: Базовая реализация в eager-режиме (fp32) как референс.
+    2. **ONNX**: Загрузка экспортированных моделей для каждой доступной точности.
+    3. **TensorRT**: Загрузка оптимизированных движков (только при наличии CUDA).
+    4. **Сводка**: Формирование отчёта об успешных, пропущенных и упавших методах.
+
+    Алгоритм:
+    ```
+    1. Если precisions не указан, автоматически определить доступные на основе torch.cuda.is_available() и device capability.
+    2. Для каждого метода из target_methods:
+       a. Создать TorchSegmenter2 (fp32, use_compile=False) → добавить как {method}_Torch_fp32.
+       b. Для каждой точности:
+          - Проверить путь к .onnx файлу.
+          - Если существует → создать ONNXSegmenter → добавить как {method}_ONNX_{precision}.
+          - Проверить путь к .trt файлу (если CUDA).
+          - Если существует → загрузить load_trt_engine → создать TRTSegmenter → добавить как {method}_TRT_{precision}.
+       c. Логировать успехи/ошибки/пропуски.
+    3. Пауза 15 секунд перед завершением.
+    4. Вывести сводку и вернуть словарь с результатами регистрации.
+    ```
+
+    Args:
+        tester: Экземпляр `SegmentationTester` для добавления методов.
+        target_methods: Список имён методов для регистрации (например, `TARGET_METHODS_FOR_RESEARCH`).
+        output_base_dir: Базовая директория экспортированных моделей (по умолчанию `"./exported_models"`).
+        precisions: Список точностей для регистрации (по умолчанию авто-определение `["fp32", "fp16", "bf16"]`).
+        input_shape: Форма входного тензора для ONNX/TRT (по умолчанию `(1, 3, 512, 512)`).
+        trt_strategy: Стратегия построения TensorRT (по умолчанию `"auto"`).
+
+    Returns:
+        Dict[str, Any]: Словарь с ключами:
+                        - `success`: список успешно зарегистрированных имён методов.
+                        - `failed`: список методов с ошибками.
+                        - `skipped`: список пропущенных методов (файлы не найдены).
+
+    Note:
+        - Имена методов формируются по шаблону `{base}_{Backend}_{precision}` для удобного парсинга.
+        - ONNX/TensorRT модели должны быть заранее экспортированы в соответствующие подпапки.
+        - При отсутствии CUDA TensorRT регистрация полностью пропускается.
+        - Функция содержит встроенную 15-секундную задержку перед финальным возвратом.
+
+    Example:
+        ```python
+        reg_status = _register_backend_methods_with_precision(
+            tester=tester,
+            target_methods=["otsu_thresholding", "sobel_edge"],
+            precisions=["fp32", "fp16"],
+            input_shape=(1, 3, 512, 512)
+        )
+        logger.info(f"Успешно: {len(reg_status['success'])}, Ошибки: {len(reg_status['failed'])}")
+        ```
     """
     if precisions is None:
         # Авто-определение доступных точностей
@@ -833,7 +1117,7 @@ def _register_backend_methods_with_precision(
     registered: Dict[str, Any] = {"success": [], "failed": [], "skipped": []}
 
     for method_name in target_methods:
-        print(f"\n🔹 Регистрация бэкендов: {method_name}")
+        logger.info(f"\n🔹 Регистрация бэкендов: {method_name}")
 
         # ──────────────────────────────────────────────────
         # 1. PyTorch (оригинал) — только fp32 как референс
@@ -848,10 +1132,10 @@ def _register_backend_methods_with_precision(
             method_key: str = f"{method_name}_Torch_fp32"
             tester.add_method(method_key, pt_seg)
             registered["success"].append(method_key)
-            print(f"   ✅ {method_key}")
+            logger.info(f"   ✅ {method_key}")
         except Exception as e:
             registered["failed"].append(f"{method_name}_Torch_fp32: {e}")
-            print(f"   ❌ {method_name}_Torch_fp32: {e}")
+            logger.error(f"   ❌ {method_name}_Torch_fp32: {e}")
 
         # ──────────────────────────────────────────────────
         # 2. ONNX для каждой доступной точности
@@ -874,10 +1158,10 @@ def _register_backend_methods_with_precision(
                 method_key = f"{method_name}_ONNX_{precision}"
                 tester.add_method(method_key, onnx_seg)
                 registered["success"].append(method_key)
-                print(f"   ✅ {method_key}")
+                logger.info(f"   ✅ {method_key}")
             except Exception as e:
                 registered["failed"].append(f"{method_name}_ONNX_{precision}: {e}")
-                print(f"   ❌ {method_name}_ONNX_{precision}: {e}")
+                logger.error(f"   ❌ {method_name}_ONNX_{precision}: {e}")
 
         # ──────────────────────────────────────────────────
         # 3. TensorRT для каждой доступной точности (только CUDA)
@@ -898,32 +1182,32 @@ def _register_backend_methods_with_precision(
                     method_key = f"{method_name}_TRT_{precision}"
                     tester.add_method(method_key, trt_seg)
                     registered["success"].append(method_key)
-                    print(f"   ✅ {method_key}")
+                    logger.info(f"   ✅ {method_key}")
                 else:
                     registered["failed"].append(f"{method_name}_TRT_{precision} (модель=None)")
             except Exception as e:
                 registered["failed"].append(f"{method_name}_TRT_{precision}: {e}")
-                print(f"   ❌ {method_name}_TRT_{precision}: {e}")
+                logger.error(f"   ❌ {method_name}_TRT_{precision}: {e}")
 
-        print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-        print("   (нажмите Ctrl+C для отмены, если нужно)")
+        logger.info("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+        logger.info("   (нажмите Ctrl+C для отмены, если нужно)")
         try:
             time.sleep(15)  # 🔥 Задержка 15 секунд
         except KeyboardInterrupt:
-            print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+            logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
 
     # ──────────────────────────────────────────────────
     # Сводка регистрации
     # ──────────────────────────────────────────────────
-    print("\n📊 Сводка регистрации бэкендов:")
-    print(f"   ✅ Успешно: {len(registered['success'])}")
-    print(f"   ❌ Ошибки: {len(registered['failed'])}")
-    print(f"   ⚠️  Пропущено: {len(registered['skipped'])}")
+    logger.info("\n📊 Сводка регистрации бэкендов:")
+    logger.info(f"   ✅ Успешно: {len(registered['success'])}")
+    logger.info(f"   ❌ Ошибки: {len(registered['failed'])}")
+    logger.info(f"   ⚠️  Пропущено: {len(registered['skipped'])}")
 
     if registered["failed"]:
-        print("\n⚠️  Ошибки:")
+        logger.error("\n⚠️  Ошибки:")
         for err in registered["failed"][:5]:  # Показываем первые 5
-            print(f"   • {err}")
+            logger.error(f"   • {err}")
 
     return registered
 
@@ -933,21 +1217,21 @@ def _register_backend_methods_with_precision(
 # ──────────────────────────────────────────────────────────────────────
 def _log_environment_info() -> None:
     """Логирует информацию об окружении: пути, CUDA, память."""
-    print(f"📍 CWD: {os.getcwd()}")
-    print(f"📍 __file__: {__file__}")
-    print(f"📍 sys.path: {sys.path[:3]}...")
+    logger.info(f"📍 CWD: {os.getcwd()}")
+    logger.info(f"📍 __file__: {__file__}")
+    logger.info(f"📍 sys.path: {sys.path[:3]}...")
 
-    print(f"🚀 CUDA available: {torch.cuda.is_available()}")
+    logger.info(f"🚀 CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         props: Any = torch.cuda.get_device_properties(0)
-        print("🔥 CUDA available:")
-        print(f"   Device: {torch.cuda.get_device_name(0)}")
+        logger.info("🔥 CUDA available:")
+        logger.info(f"   Device: {torch.cuda.get_device_name(0)}")
         vram_gb: float = props.total_memory / 1024**3
-        print(f"   VRAM: {vram_gb:.1f} GB")
-        print(f"   GPU Memory: {props.total_memory / 1e9:.2f} GB")
-        print(f"Full props: {props}")
+        logger.info(f"   VRAM: {vram_gb:.1f} GB")
+        logger.info(f"   GPU Memory: {props.total_memory / 1e9:.2f} GB")
+        logger.info(f"Full props: {props}")
     else:
-        print("💻 CUDA not available, using CPU")
+        logger.info("💻 CUDA not available, using CPU")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1107,7 +1391,53 @@ def _create_torch_methods_factory(
 ) -> SegmenterDict:
     """🏭 Единая фабрика для создания методов TorchSegmenter v1 и v2.
 
-    Добавляет суффиксы `_v1` и `_v2` к именам методов для сравнения.
+    Выполняет:
+    1. **Определение списков**: Формирование конфигураций для пороговых и граничных методов.
+    2. **Создание v1**: Инициализация `TorchSegmenter` (legacy, без оптимизаций).
+    3. **Создание v2**: Инициализация `TorchSegmenter2` с поддержкой:
+       - Выбора точности (`fp32`/`fp16`/`bf16`)
+       - Квантования на CPU
+       - `torch.compile` с авто-конфигом
+    4. **Формирование имён**: Добавление суффиксов `_v1`/`_v2` для сравнения.
+
+    Алгоритм:
+    ```
+    1. Определить threshold_methods и edge_methods как список (name, method_name, params).
+    2. Объединить в all_methods.
+    3. Если use_v1:
+       → для каждого: methods[f"{name}_v1"] = TorchSegmenter(method_name, **params)
+    4. Если use_v2:
+       → получить compile_cfg = get_compile_config(...) если enable_compile.
+       → methods[f"{name}_v2"] = TorchSegmenter2(
+           method_name, device=device.type, precision=precision,
+           use_quantization=(device.type=="cpu"), **params, **compile_cfg)
+    5. Вернуть methods.
+    ```
+
+    Args:
+        use_v1: Создавать ли экземпляры `TorchSegmenter` (по умолчанию `True`).
+        use_v2: Создавать ли экземпляры `TorchSegmenter2` (по умолчанию `True`).
+        device: Устройство для инициализации сегментеров.
+        precision: Точность вычислений для v2 (`"fp32"`, `"fp16"`, `"bf16"`).
+        enable_compile: Включать ли авто-конфигурацию `torch.compile`.
+
+    Returns:
+        SegmenterDict: Словарь `{имя_метода: сегментер}` с суффиксами `_v1`/`_v2`.
+
+    Note:
+        - Суффиксы позволяют одновременно тестировать обе реализации.
+        - `use_quantization` автоматически включается на CPU для ускорения.
+        - Компиляция применяется только к методам из `well_compiled` списка.
+
+    Example:
+        ```python
+        methods = _create_torch_methods_factory(
+            use_v1=False, use_v2=True,
+            device=torch.device("cuda"), precision="bf16", enable_compile=True
+        )
+        print(list(methods.keys())[:3])
+        # ['global_thresholding_Torch_v2', 'otsu_thresholding_Torch_v2', ...]
+        ```
     """
     methods: SegmenterDict = {}
 
@@ -1209,7 +1539,7 @@ def _create_torch_methods_factory(
             compile_cfg: Dict[str, Any] = get_compile_config(method_name, device) if enable_compile else {}
             methods[key] = TorchSegmenter2(
                 method=method_name,
-                device=str(device),
+                device=device.type,
                 precision=precision,
                 use_quantization=(device.type == "cpu"),
                 **params,
@@ -1219,6 +1549,7 @@ def _create_torch_methods_factory(
     return methods
 
 
+# ──────────────────────────────────────────────────────────────────────
 def _create_torch_methods() -> SegmenterDict:
     """Создаёт словарь методов сегментации на основе PyTorch.
 
@@ -1280,79 +1611,6 @@ def _create_torch_methods() -> SegmenterDict:
     }
 
 
-# def _create_torch_methods_optimized(
-#     device: torch.device,
-#     precision: str,
-#     enable_compile: bool = True,
-# ) -> SegmenterDict:
-#     """
-#     Создаёт словарь методов PyTorch с автоматическими оптимизациями.
-#     """
-#     methods: SegmenterDict = {}
-
-#     # ──────────────────────────────────────────────────────────────
-#     # ПОРОГОВЫЕ МЕТОДЫ (Threshold)
-#     # ──────────────────────────────────────────────────────────────
-#     threshold_methods = [
-#         ("Global_Threshold_Torch", "global_thresholding", {"threshold": 0.5}),
-#         ("Otsu_Thresholding_Torch", "otsu_thresholding", {}),
-#         ("Adaptive_Threshold_Torch", "adaptive_thresholding", {"block_size": 11, "C": 2}),
-#         ("Niblack_Thresholding_Torch", "threshold_niblack", {"window_size": 15, "k": -0.2}),
-#         ("Sauvola_Thresholding_Torch", "threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128}),
-#         ("Bernsen_Thresholding_Torch", "threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
-#         ("Phansalkar_Thresholding_Torch", "threshold_phansalkar", {"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5}),
-#         ("Kittler_Illingworth_Torch", "threshold_kittler_illingworth", {"num_bins": 256}),
-#         ("Kapur_Entropy_Torch", "threshold_entropy_kapur", {"num_bins": 256}),
-#         ("Triangle_Threshold_Torch", "threshold_triangle", {"num_bins": 256}),
-#         ("Multi_Otsu_Torch", "threshold_multi_otsu", {"n_thresholds": 2}),
-#         ("Percentile_Threshold_Torch", "threshold_percentile", {"percentile": 90}),
-#         ("Local_Contrast_Torch", "threshold_local_contrast", {"window_size": 15, "contrast_factor": 0.1}),
-#     ]
-
-#     for name, method_name, params in threshold_methods:
-#         compile_cfg = get_compile_config(method_name, device) if enable_compile else {}
-#         methods[name] = TorchSegmenter2(
-#             method=method_name,
-#             device=str(device),
-#             precision=precision,
-#             use_quantization=(device.type == "cpu"),  # 🔥 Квантование только для CPU
-#             **params,
-#             **compile_cfg,
-#         )
-
-#     # ──────────────────────────────────────────────────────────────
-#     # ГРАНИЧНЫЕ МЕТОДЫ (Edge)
-#     # ──────────────────────────────────────────────────────────────
-#     edge_methods = [
-#         ("Sobel_Torch", "sobel_edge", {"threshold": 0.1}),
-#         ("Canny_Torch", "canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
-#         ("Prewitt_Torch", "prewitt_edge", {"threshold": 0.1}),
-#         ("Scharr_Torch", "scharr_edge", {"threshold": 0.1}),
-#         ("Roberts_Cross_Torch", "roberts_cross_edge", {"threshold": 0.1}),
-#         ("LoG_Torch", "log_edge", {"sigma": 1.0, "threshold": 0.01}),
-#         ("DoG_Torch", "dog_edge", {"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01}),
-#         ("Marr_Hildreth_Torch", "marr_hildreth_edge", {"sigma": 1.5, "threshold": 0.01}),
-#         ("Gradient_Mag_Dir_Torch", "gradient_magnitude_direction", {"threshold": 0.1}),
-#         ("Phase_Congruency_Torch", "phase_congruency_edge", {
-#             "nscales": 4, "norientations": 4, "min_wavelength": 3,
-#             "mult": 2.0, "sigma_onf": 0.55, "k_noise": 2.0, "threshold": 0.5,
-#         }),
-#     ]
-
-#     for name, method_name, params in edge_methods:
-#         compile_cfg = get_compile_config(method_name, device) if enable_compile else {}
-#         methods[name] = TorchSegmenter2(
-#             method=method_name,
-#             device=str(device),
-#             precision=precision,
-#             use_quantization=(device.type == "cpu"),
-#             **params,
-#             **compile_cfg,
-#         )
-
-#     return methods
-
-
 # ──────────────────────────────────────────────────────────────────────
 # ПРОФИЛИРОВАНИЕ И БЕНЧМАРКИ
 # ──────────────────────────────────────────────────────────────────────
@@ -1361,13 +1619,53 @@ def _run_profiling_demo(
     test_images: TestImagesDict,
     device: torch.device,
 ) -> None:
-    """Демонстрация профилирования с детекцией трансферов."""
-    print("\n" + "=" * 60)
-    print("🔍 ДЕМО ПРОФИЛИРОВАНИЯ")
-    print("=" * 60)
+    """Демонстрация профилирования с детекцией CPU↔GPU трансферов.
+
+    Выполняет:
+    1. **Фильтрация**: Выбор только методов `_v2` (TorchSegmenter2).
+    2. **Профилирование**: Запуск `profile_with_transfer_detection` с замером времени и памяти.
+    3. **Анализ трансферов**: Вывод предупреждений о неоптимальных перемещениях данных.
+    4. **Трассировка**: Генерация детальных трейсов через `profile_with_tracing`.
+
+    Алгоритм:
+    ```
+    1. Извлечь первое изображение из test_images.
+    2. Для каждого метода, оканчивающегося на "_v2":
+       a. Проверить тип → только TorchSegmenter2.
+       b. Вызвать profile_with_transfer_detection(n_runs=10).
+       c. Вывести avg_time_ms, memory_mb, profiler_table.
+       d. Если есть transfer_warnings → вывести первые 3.
+       e. Вызвать profile_with_tracing(...) → сохранить в ./profiling/tests.
+    3. Логировать ошибки без прерывания выполнения.
+    ```
+
+    Args:
+        tester: Экземпляр `SegmentationTester` с зарегистрированными методами.
+        test_images: Словарь тестовых изображений для профилирования.
+        device: Устройство выполнения (используется для контекста).
+
+    Returns:
+        None. Выводит результаты в stdout и сохраняет трейсы на диск.
+
+    Note:
+        - Пропускает методы, не являющиеся `TorchSegmenter2`.
+        - Трансфер-детекция помогает найти скрытые `.cpu()`/`.cuda()` вызовы.
+        - Трассировка может занимать дополнительную память; результаты сохраняются построчно.
+
+    Example:
+        ```python
+        _run_profiling_demo(tester, test_images, device)
+        # В консоли: 📊 Профилирование: sobel_edge_Torch_v2
+        # ⏱️  Среднее время выполнения: 1.24 мс
+        # ✅ Трансферов не обнаружено. Память и GPU используются оптимально.
+        ```
+    """
+    logger.info("\n" + "=" * 60)
+    logger.info("🔍 ДЕМО ПРОФИЛИРОВАНИЯ")
+    logger.info("=" * 60)
 
     # Берём первое изображение для демо
-    img_name, (img_path, img_pil, _) = next(iter(test_images.items()))
+    _, (_, img_pil, _) = next(iter(test_images.items()))
     img_array = np.array(img_pil)
 
     # Тестируем несколько методов
@@ -1381,8 +1679,8 @@ def _run_profiling_demo(
         if not isinstance(segmenter, TorchSegmenter2):
             continue
 
-        print(f"\n📊 Профилирование: {method_name}")
-        print("-" * 40)
+        logger.info(f"\n📊 Профилирование: {method_name}")
+        logger.info("-" * 40)
 
         try:
             # Профилирование с детекцией трансферов
@@ -1392,56 +1690,92 @@ def _run_profiling_demo(
                 detect_transfers=True,
             )
 
-            print(f"   ⏱️  Среднее время выполнения: {profile['avg_time_ms']:.2f} мс")
-            print(f"   💾 Память: {profile['memory_mb']:.1f} МБ")
+            logger.info(f"   ⏱️  Среднее время выполнения: {profile['avg_time_ms']:.2f} мс")
+            logger.info(f"   💾 Память: {profile['memory_mb']:.1f} МБ")
 
-            print(profile["profiler_table"])
+            logger.info(profile["profiler_table"])
             if profile["transfer_warnings"]:
-                print("\n⚠️  Предупреждения о трансферах:")
+                logger.info("\n⚠️  Предупреждения о трансферах:")
                 for w in profile["transfer_warnings"]:
-                    print(f"  {w}")
+                    logger.info(f"  {w}")
             else:
-                print("✅ Трансферов не обнаружено. Память и GPU используются оптимально.")
+                logger.info("✅ Трансферов не обнаружено. Память и GPU используются оптимально.")
 
             # Предупреждения о трансферах
             if profile.get("transfer_warnings"):
-                print(f"   ⚠️  Трансферы ({len(profile['transfer_warnings'])}):")
+                logger.info(f"   ⚠️  Трансферы ({len(profile['transfer_warnings'])}):")
                 for w in profile["transfer_warnings"][:3]:  # Показываем первые 3
-                    print(f"      • {w}")
+                    logger.info(f"      • {w}")
             else:
-                print("   ✅ Лишних трансферов не обнаружено")
+                logger.info("   ✅ Лишних трансферов не обнаружено")
 
             # Доступ к метаданным выполнения
             if "execution_info" in segmenter.params:
                 exec_info = segmenter.params["execution_info"]
-                print(f"   📋 Метод: {exec_info.get('method', 'N/A')}")
-                print(f"   ⚡ Время: {exec_info.get('execution_time', 0) * 1000:.2f} мс")
+                logger.info(f"   📋 Метод: {exec_info.get('method', 'N/A')}")
+                logger.info(f"   ⚡ Время: {exec_info.get('execution_time', 0) * 1000:.2f} мс")
                 # Доступ к метаданным выполнения
-                print(segmenter.params["execution_info"])
+                logger.info(segmenter.params["execution_info"])
 
             segmenter.profile_with_tracing(segmenter, img_array, output_dir="./profiling/tests")
 
         except Exception as e:
-            print(f"   ❌ Ошибка профилирования: {e}")
+            logger.error(f"   ❌ Ошибка профилирования: {e}")
 
 
 def _run_precision_benchmark_demo(
     tester: SegmentationTester,
     test_images: TestImagesDict,
 ) -> None:
-    """Демонстрация бенчмарка точностей (только для TorchSegmenter).
+    """Демонстрация бенчмарка точностей (только для TorchSegmenter2).
 
-    ⚠️  Медленно: запускает каждый метод с разными точностями.
+    Выполняет:
+    1. **Проверка окружения**: Выход при отсутствии CUDA.
+    2. **Подготовка данных**: Конвертация изображения в градации серого.
+    3. **Замер по точностям**: Вызов `benchmark_histc_types` для fp32/fp16/bf16.
+    4. **Агрегация**: Формирование сводной таблицы и вывод в консоль.
+
+    Алгоритм:
+    ```
+    1. Проверить torch.cuda.is_available(). Если False → пропустить.
+    2. Взять первое изображение, конвертировать в grayscale.
+    3. Для каждого метода "_v2":
+       a. Вызвать benchmark_histc_types(gray, device).
+       b. Сохранить time_ms для каждой точности.
+    4. Собрать результаты в DataFrame.
+    5. Вывести pivot_table: index=method, columns=precision, values=time_ms.
+    ```
+
+    Args:
+        tester: Экземпляр `SegmentationTester` с методами.
+        test_images: Словарь изображений (используется первое).
+
+    Returns:
+        None. Выводит таблицу сравнения времени выполнения.
+
+    Note:
+        - ⚠️ Медленно: последовательный запуск каждой точности.
+        - Использует внутренний метод `_to_grayscale` сегментера.
+        - Результаты выводятся в stdout, но не сохраняются автоматически.
+
+    Example:
+        ```python
+        _run_precision_benchmark_demo(tester, test_images)
+        # 🔹 otsu_thresholding_Torch_v2:
+        #    fp32: 2.15 мс/вызов
+        #    fp16: 1.42 мс/вызов
+        #    bf16: 1.38 мс/вызов
+        ```
     """
     if not torch.cuda.is_available():
-        print("\n⚠️  Бенчмарк точностей требует CUDA. Пропускаем.")
+        logger.warning("\n⚠️  Бенчмарк точностей требует CUDA. Пропускаем.")
         return
 
-    print("\n" + "=" * 60)
-    print("⚡ БЕНЧМАРК ТОЧНОСТЕЙ (fp32/fp16/bf16)")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("⚡ БЕНЧМАРК ТОЧНОСТЕЙ (fp32/fp16/bf16)")
+    logger.info("=" * 60)
 
-    img_name, (img_path, img_pil, _) = next(iter(test_images.items()))
+    _, (_, img_pil, _) = next(iter(test_images.items()))
     img_array = np.array(img_pil)
 
     # Тестируем только быстрые методы
@@ -1457,7 +1791,7 @@ def _run_precision_benchmark_demo(
         if not isinstance(segmenter, TorchSegmenter2):
             continue
 
-        print(f"\n🔹 {method_name}:")
+        logger.info(f"\n🔹 {method_name}:")
 
         try:
             # Бенчмарк точностей
@@ -1467,7 +1801,7 @@ def _run_precision_benchmark_demo(
             )
 
             for prec, time_ms in precision_results.items():
-                print(f"   {prec}: {time_ms:.2f} мс/вызов")
+                logger.info(f"   {prec}: {time_ms:.2f} мс/вызов")
                 results.append(
                     {
                         "method": method_name,
@@ -1475,16 +1809,16 @@ def _run_precision_benchmark_demo(
                         "time_ms": time_ms,
                     }
                 )
-            print(segmenter.params["execution_info"])
+            logger.info(segmenter.params["execution_info"])
 
         except Exception as e:
-            print(f"   ❌ Ошибка: {e}")
+            logger.error(f"   ❌ Ошибка: {e}")
 
     # Сводная таблица
     if results:
         df = pd.DataFrame(results)
-        print("\n📊 Сводка по точностям:")
-        print(
+        logger.info("\n📊 Сводка по точностям:")
+        logger.info(
             df.pivot(index="method", columns="precision", values="time_ms").to_string(float_format=lambda x: f"{x:.2f}")
         )
 
@@ -1498,26 +1832,56 @@ def _register_classic_methods(
 ) -> None:
     """Регистрирует классические методы в тестере с обработкой ошибок.
 
+    Выполняет:
+    1. **Объединение**: Слияние словарей CV2, Sklearn и Torch.
+    2. **Итеративная регистрация**: Попытка добавления каждого метода в `tester`.
+    3. **Логирование**: Вывод статуса ✅/⚠️ для каждого сегментера.
+    4. **Graceful degradation**: Продолжение работы при падении отдельного метода.
+
+    Алгоритм:
+    ```
+    1. all_methods = {**cv2_methods, **sklearn_methods, **torch_methods}
+    2. Для каждого (name, segmenter) в all_methods:
+       a. try: tester.add_method(name, segmenter) → print("✅")
+       b. except Exception: logger.warning("⚠️ Не удалось добавить")
+    ```
+
     Args:
-        tester: Экземпляр SegmentationTester для регистрации.
+        tester: Экземпляр `SegmentationTester` для регистрации.
         cv2_methods: Словарь методов OpenCV.
         sklearn_methods: Словарь методов scikit-learn.
         torch_methods: Словарь методов PyTorch.
+
+    Returns:
+        None. Модифицирует `tester` in-place.
+
+    Note:
+        - Порядок регистрации: CV2 → Sklearn → Torch.
+        - Ошибки не прерывают выполнение, что позволяет тестировать частично рабочие сборки.
+        - Дубликаты ключей перезаписываются в пользу последних в цепочке слияния.
+
+    Example:
+        ```python
+        _register_classic_methods(tester, cv2_dict, sklearn_dict, torch_dict)
+        # ✅ global_thresholding_CV2
+        # ✅ otsu_thresholding_Sklearn
+        # ⚠️ Не удалось добавить custom_method_Torch: Missing dependency
+        ```
     """
     all_methods: SegmenterDict = {**cv2_methods, **sklearn_methods, **torch_methods}
 
     for name, segmenter in all_methods.items():
         try:
             tester.add_method(name, segmenter)
-            print(f"   ✅ {name}")
+            logger.info(f"   ✅ {name}")
         except Exception as e:
-            print(f"   ⚠️ Не удалось добавить {name}: {e}")
+            logger.warning(f"   ⚠️ Не удалось добавить {name}: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────
 def _clear_gpu_memory() -> None:
     """Очищает память GPU и вызывает сборщик мусора."""
-    print("🧹 Очистка памяти CUDA перед загрузкой тяжелой модели...")
+    logger.info("🧹 Очистка памяти CUDA перед загрузкой тяжелой модели...")
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
@@ -1578,7 +1942,7 @@ def _run_neural_segmentation_tests(tester: SegmentationTester, device: torch.dev
         },
     ]
 
-    print("\n4. Загрузка нейросетевых методов...")
+    logger.info("\n4. Загрузка нейросетевых методов...")
     for config in neural_models_config:
         _load_single_neural_model(tester, config, device)
 
@@ -1596,9 +1960,10 @@ def _load_single_neural_model(
         config: Конфигурация модели.
         device: Устройство для выполнения.
     """
+    logger.info(f"Current device: {device.type}")
     try:
         if "checkpoint_path" in config and not os.path.exists(config["checkpoint_path"]):
-            print(f"   ⚠️ {config['name']} - чекпоинт не найден: {config['checkpoint_path']}")
+            logger.warning(f"   ⚠️ {config['name']} - чекпоинт не найден: {config['checkpoint_path']}")
             return
 
         model_name = config.get("model_name")
@@ -1618,21 +1983,21 @@ def _load_single_neural_model(
             },
         )
         tester.add_method(config["name"], segmenter)
-        print(f"   ✅ {config['name']}")
-        print(segmenter.params["execution_info"])
+        logger.info(f"   ✅ {config['name']}")
+        logger.info(segmenter.params["execution_info"])
         segmenter.get_class_info()
 
     except Exception as e:
-        print(f"  ⚠️ Нейросетевая сегментация недоступна: {e}")
-        print(f"   ❌ {config['name']}: {e}")
-        print(traceback.format_exc())
+        logger.error(f"  ⚠️ Нейросетевая сегментация недоступна: {e}")
+        logger.error(f"   ❌ {config['name']}: {e}")
+        logger.error(traceback.format_exc())
         if os.getenv("DEBUG", "0") == "1":
             traceback.print_exc()
 
-    print(f"\nВсего методов загружено: {len(tester.methods)}")
+    logger.info(f"\nВсего методов загружено: {len(tester.methods)}")
 
     # # ========== ВАРИАНТ 2: Через YAML конфиг ==========
-    print("\n=== ВАРИАНТ 2: Через YAML конфиг ===")
+    logger.info("\n=== ВАРИАНТ 2: Через YAML конфиг ===")
     _ = NeuralSegmenter(
         model_type="segformer",
         variant="b5",  # ← Берётся из configs/neural_models.yaml
@@ -1640,13 +2005,13 @@ def _load_single_neural_model(
     )
 
     # # ========== ВАРИАНТ 3: Factory + конфиг ==========
-    print("\n=== ВАРИАНТ 3: Factory метод ===")
-    _, _, model_type = NeuralModelFactory.create_model_from_config(
+    logger.info("\n=== ВАРИАНТ 3: Factory метод ===")
+    _, _, _ = NeuralModelFactory.create_model_from_config(
         model_type="segformer", variant="b2", device="cuda"  # ← Берётся из конфига
     )
 
     # # ========== ВАРИАНТ 4: Обученная модель с чекпоинтом ==========
-    print("\n=== ВАРИАНТ 4: Обученная модель ===")
+    logger.info("\n=== ВАРИАНТ 4: Обученная модель ===")
     _ = NeuralSegmenter(
         model_type="unet_smp",
         encoder_name="resnet34",  # ← Можно из конфига
@@ -1655,20 +2020,20 @@ def _load_single_neural_model(
     )
 
     # # ========== ВАРИАНТ 5: Конфиг обучения ==========
-    print("\n=== ВАРИАНТ 5: Конфиг обучения ===")
+    logger.info("\n=== ВАРИАНТ 5: Конфиг обучения ===")
     training_config: Dict[str, Any] = NeuralModelFactory.get_training_config("ade20k")
-    print(f"Batch size: {training_config['batch_size']}")
-    print(f"Epochs: {training_config['epochs']}")
-    print(f"LR: {training_config['lr']}")
+    logger.info(f"Batch size: {training_config['batch_size']}")
+    logger.info(f"Epochs: {training_config['epochs']}")
+    logger.info(f"LR: {training_config['lr']}")
 
     # # ========== ВАРИАНТ 6: Конфиг метрик ==========
-    print("\n=== ВАРИАНТ 6: Конфиг метрик ===")
+    logger.info("\n=== ВАРИАНТ 6: Конфиг метрик ===")
     metrics_config: Dict[str, Any] = NeuralModelFactory.get_metrics_config()
-    print(f"Threshold: {metrics_config['threshold']}")
-    print(f"Include Hausdorff: {metrics_config['include_hausdorff']}")
+    logger.info(f"Threshold: {metrics_config['threshold']}")
+    logger.info(f"Include Hausdorff: {metrics_config['include_hausdorff']}")
 
     # # ========== ВАРИАНТ 7: Массовая загрузка из конфига ==========
-    print("\n=== ВАРИАНТ 7: Массовая загрузка ===")
+    logger.info("\n=== ВАРИАНТ 7: Массовая загрузка ===")
     neural_models_config: List[Dict[str, str]] = [
         {"name": "SegFormer_B5", "type": "segformer", "variant": "b5"},
         {"name": "SegFormer_B2", "type": "segformer", "variant": "b2"},
@@ -1707,9 +2072,9 @@ def _load_single_neural_model(
                     num_classes=num_classes,
                 )
 
-            print(f"   ✅ {config['name']}")
+            logger.info(f"   ✅ {config['name']}")
         except Exception as e:
-            print(f"   ❌ {config['name']} - {e}")
+            logger.error(f"   ❌ {config['name']} - {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1721,10 +2086,10 @@ def _run_batch_classic_testing_optimized(
     precision: str,
 ) -> Optional[BenchmarkResult]:
     """Запускает массовое тестирование с учётом оптимизаций."""
-    print("\n" + "=" * 80)
-    print("🚀 МАССОВОЕ ТЕСТИРОВАНИЕ С ОПТИМИЗАЦИЯМИ")
-    print(f"   Устройство: {device}, Точность: {precision}")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("🚀 МАССОВОЕ ТЕСТИРОВАНИЕ С ОПТИМИЗАЦИЯМИ")
+    logger.info(f"   Устройство: {device}, Точность: {precision}")
+    logger.info("=" * 80)
 
     try:
         # Конфигурация теста
@@ -1741,7 +2106,7 @@ def _run_batch_classic_testing_optimized(
             resume=True,
         )
 
-        print("⏳ Запуск тестирования...")
+        logger.info("⏳ Запуск тестирования...")
         results_df: BenchmarkResult = batch_tester.run_batch_test()
 
         # Сохранение и визуализация
@@ -1749,11 +2114,11 @@ def _run_batch_classic_testing_optimized(
         batch_tester.plot_results(results_df)
         batch_tester.print_summary(results_df)
 
-        print(f"\n💾 Результаты: {batch_tester.output_dir}")
+        logger.info(f"\n💾 Результаты: {batch_tester.output_dir}")
         return results_df
 
     except Exception as e:
-        print(f"❌ Ошибка: {e}")
+        logger.error(f"❌ Ошибка: {e}")
         traceback.print_exc()
         return None
 
@@ -1765,28 +2130,28 @@ def _print_batch_test_summary(results_df: BenchmarkResult) -> None:
     Args:
         results_df: DataFrame с результатами бенчмарка.
     """
-    print("\n" + "=" * 80)
-    print("📊 СВОДКА ПО МАССОВОМУ ТЕСТИРОВАНИЮ")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("📊 СВОДКА ПО МАССОВОМУ ТЕСТИРОВАНИЮ")
+    logger.info("=" * 80)
 
-    print("\n🏆 Топ-5 методов по IoU:")
+    logger.info("\n🏆 Топ-5 методов по IoU:")
     for i, row in results_df.head(5).iterrows():
-        print(f"   {i + 1}. {row['Method']}: IoU={row['iou_mean']:.4f} ± {row['iou_std']:.4f}")
+        logger.info(f"   {i + 1}. {row['Method']}: IoU={row['iou_mean']:.4f} ± {row['iou_std']:.4f}")
 
-    print("\n⚡ Топ-5 самых быстрых методов:")
+    logger.info("\n⚡ Топ-5 самых быстрых методов:")
     fast_df: BenchmarkResult = results_df.dropna(subset=["time_mean_s"]).sort_values("time_mean_s").head(5)
     for i, row in fast_df.iterrows():
-        print(f"   {i + 1}. {row['Method']}: {row['time_mean_s'] * 1000:.1f} мс")
+        logger.info(f"   {i + 1}. {row['Method']}: {row['time_mean_s'] * 1000:.1f} мс")
 
-    print("\n❌ Методы с наибольшим числом ошибок:")
+    logger.info("\n❌ Методы с наибольшим числом ошибок:")
     error_df: BenchmarkResult = (
         results_df[results_df["error_count"] > 0].sort_values("error_count", ascending=False).head(5)
     )
     if not error_df.empty:
         for i, row in error_df.iterrows():
-            print(f"   {row['Method']}: {row['error_count']} ошибок ({row['error_rate'] * 100:.1f}%)")
+            logger.info(f"   {row['Method']}: {row['error_count']} ошибок ({row['error_rate'] * 100:.1f}%)")
     else:
-        print("   Нет ошибок!")
+        logger.info("   Нет ошибок!")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1821,8 +2186,8 @@ def prepare_mask_for_overlay(mask_input: Union[Image.Image, npt.NDArray]) -> Mas
         # RGB маска → 2D binary
         rgb_mask = Image.open("mask_rgb.png")
         binary = prepare_mask_for_overlay(rgb_mask)
-        print(binary.shape)  # (512, 512)
-        print(np.unique(binary))  # [0, 255]
+        logger.info(binary.shape)  # (512, 512)
+        logger.info(np.unique(binary))  # [0, 255]
         ```
     """
     # Конвертация PIL → numpy
@@ -1833,7 +2198,7 @@ def prepare_mask_for_overlay(mask_input: Union[Image.Image, npt.NDArray]) -> Mas
         if mask.shape[2] == 1:
             mask = mask.squeeze(2)
         elif mask.shape[2] == 3:
-            print("⚠️  Обнаружена RGB маска, используется первый канал")
+            logger.warning("⚠️  Обнаружена RGB маска, используется первый канал")
             mask = mask[:, :, 0]
         else:
             raise ValueError(f"Неподдерживаемая форма маски: {mask.shape}")
@@ -1902,29 +2267,29 @@ def run_performance_benchmark(
             warmup_runs=10
         )
         if df is not None:
-            print(f"Средний speedup: {df['speedup'].mean():.2f}x")
+            logger.info(f"Средний speedup: {df['speedup'].mean():.2f}x")
             # Топ-5 ускоренных методов
-            print(df.nlargest(5, 'speedup')[['method', 'speedup']])
+            logger.info(df.nlargest(5, 'speedup')[['method', 'speedup']])
         ```
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    print("\n3. Бенчмарк производительности и оценка качества перед warm up...")
+    logger.info("\n3. Бенчмарк производительности и оценка качества перед warm up...")
 
     first_img_array: Optional[ImageArray] = None
     all_comparisons: List[pd.DataFrame] = []
     cold_dfs: Dict[str, pd.DataFrame] = {}
 
-    print("\n" + "=" * 60)
-    print("БЕНЧМАРК ПРОИЗВОДИТЕЛЬНОСТИ: COLD vs HOT")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("БЕНЧМАРК ПРОИЗВОДИТЕЛЬНОСТИ: COLD vs HOT")
+    logger.info("=" * 60)
 
     # ──────────────────────────────────────────────────────
     # ЭТАП 1: Cold benchmark (без прогрева)
     # ──────────────────────────────────────────────────────
-    print("\n🔹 Этап 1: Cold benchmark...")
+    logger.info("\n🔹 Этап 1: Cold benchmark...")
     for img_name, (img_path, img_pil, gt_mask) in tqdm(test_images.items(), desc="Cold benchmark"):
-        print(f"\n--- Обработка: {img_name} ---")
+        logger.info(f"\n--- Обработка: {img_name} ---")
         img_array: ImageArray = np.array(img_pil)
 
         if first_img_array is None:
@@ -1939,14 +2304,14 @@ def run_performance_benchmark(
             ground_truth=gt_mask,
         )
         cold_dfs[img_name] = df_cold.copy()
-        print(f"   ✅ Cold: {len(df_cold)} методов")
-        print(f"   ✅ Бенчмарк для {img_name} завершён")
+        logger.info(f"   ✅ Cold: {len(df_cold)} методов")
+        logger.info(f"   ✅ Бенчмарк для {img_name} завершён")
 
     # ──────────────────────────────────────────────────────
     # ЭТАП 2: Warm-up сегментеров
     # ──────────────────────────────────────────────────────
     if first_img_array is not None:
-        print("\n🔹 Этап 2: Warm-up сегментеров...")
+        logger.info("\n🔹 Этап 2: Warm-up сегментеров...")
 
         warmup_utility: SegmentationWarmUp = SegmentationWarmUp(n_warmup_runs=warmup_runs)
 
@@ -1956,21 +2321,21 @@ def run_performance_benchmark(
             image=first_img_array,
             verbose=True,
         )
-        print(f"   ✅ Warmup all: {len(warmup_results)} методов")
-        print(warmup_results)
+        logger.info(f"   ✅ Warmup all: {len(warmup_results)} методов")
+        logger.info(warmup_results)
 
         # Прогрев пороговых методов
         threshold_warmup: Dict[str, Any] = ThresholdWarmUp.warmup_threshold_methods(
             segmenters_dict=tester.methods,
             image_sizes=[(128, 128), (256, 256)],
         )
-        print(f"   ✅ Threshold warmup: {len(threshold_warmup)} методов")
+        logger.info(f"   ✅ Threshold warmup: {len(threshold_warmup)} методов")
 
         # Прогрев граничных методов
         edge_warmup: Dict[str, Any] = ThresholdWarmUp.warmup_edge_methods(
             segmenters_dict=tester.methods,
         )
-        print(f"   ✅ Edge warmup: {len(edge_warmup)} методов")
+        logger.info(f"   ✅ Edge warmup: {len(edge_warmup)} методов")
 
         # Сохранение отчёта о прогреве
         report_path: Path = Path(output_dir) / "warmup_report.txt"
@@ -1982,7 +2347,7 @@ def run_performance_benchmark(
             f.write(str(threshold_warmup))
             f.write("\n\nГраничные методы:\n")
             f.write(str(edge_warmup))
-        print(f"   💾 Отчёт: {report_path}")
+        logger.info(f"   💾 Отчёт: {report_path}")
 
         # Синхронизация CUDA
         if torch.cuda.is_available():
@@ -1991,11 +2356,11 @@ def run_performance_benchmark(
     # ──────────────────────────────────────────────────────
     # ЭТАП 3: Hot benchmark (после прогрева) + анализ
     # ──────────────────────────────────────────────────────
-    print("\n🔹 Этап 3: Hot benchmark + анализ...")
-    print("\n3.1. Бенчмарк производительности после warm up...")
+    logger.info("\n🔹 Этап 3: Hot benchmark + анализ...")
+    logger.info("\n3.1. Бенчмарк производительности после warm up...")
 
-    for img_name, (img_path, img_pil, gt_mask) in tqdm(test_images.items(), desc="Hot benchmark"):
-        print(f"\n--- Обработка: {img_name} ---")
+    for img_name, (_, img_pil, gt_mask) in tqdm(test_images.items(), desc="Hot benchmark"):
+        logger.info(f"\n--- Обработка: {img_name} ---")
         img_array = np.array(img_pil)
 
         df_hot: BenchmarkResult = tester.benchmark_methods(
@@ -2007,25 +2372,6 @@ def run_performance_benchmark(
             ground_truth=gt_mask,
         )
 
-        # OLD LOGIC
-
-        # comparison: pd.DataFrame = pd.DataFrame(
-        #     {
-        #         "method": df_cold["Method"],
-        #         "image": img_name,
-        #         "cold_mean_ms": df_cold["Mean_Time_s"] * 1000,
-        #         "hot_mean_ms": df_hot["Mean_Time_s"] * 1000,
-        #     }
-        # )
-        # comparison["speedup"] = comparison.apply(
-        #     lambda row: (
-        #         row["cold_mean_ms"] / row["hot_mean_ms"]
-        #         if row["hot_mean_ms"] > 0
-        #         else float("inf")
-        #     ),
-        #     axis=1,
-        # )
-
         df_cold_loaded: Optional[pd.DataFrame] = cold_dfs.get(img_name)
 
         # Fallback: загрузка из файла, если нет в памяти
@@ -2035,12 +2381,12 @@ def run_performance_benchmark(
                 cold_csv = Path(cold_dir) / "benchmark_results.csv"
                 if cold_csv.exists():
                     df_cold_loaded = pd.read_csv(cold_csv)
-                    print(f"   ✅ Загружен cold-файл из диска: {cold_csv}")
+                    logger.info(f"   ✅ Загружен cold-файл из диска: {cold_csv}")
             else:
-                print(f"   ⚠️  CSV не найден в {cold_csv}")
+                logger.warning(f"   ⚠️  CSV не найден в {cold_csv}")
 
         if df_cold_loaded is None:
-            print(f"   ❌ Пропускаем сравнение для {img_name}: нет cold-данных")
+            logger.error(f"   ❌ Пропускаем сравнение для {img_name}: нет cold-данных")
             continue
 
         # Сравнение cold vs hot
@@ -2053,21 +2399,21 @@ def run_performance_benchmark(
         # Сохранение сравнения
         comp_path: Path = Path(output_dir) / f"cold_hot_comparison_{img_name}.csv"
         comparison.to_csv(comp_path, index=False)
-        print("\n" + "=" * 70)
-        print(f"🔥 COLD vs HOT BENCHMARK COMPARISON ({img_name})")
-        print("=" * 70)
-        print(
+        logger.info("\n" + "=" * 70)
+        logger.info(f"🔥 COLD vs HOT BENCHMARK COMPARISON ({img_name})")
+        logger.info("=" * 70)
+        logger.info(
             comparison.sort_values("speedup", ascending=False).to_string(
                 float_format=lambda x: f"{x:.2f}" if not np.isinf(x) else "∞"
             )
         )
 
         # Вывод топ-5 по speedup
-        print(f"\n   🔥 Топ-5 по ускорению ({img_name}):")
+        logger.info(f"\n   🔥 Топ-5 по ускорению ({img_name}):")
         top5: pd.DataFrame = comparison.nlargest(5, "speedup")
         for _, row in top5.iterrows():
             speedup_str: str = f"{row['speedup']:.2f}x" if not np.isinf(row["speedup"]) else "∞"
-            print(f"      • {row['method']}: {speedup_str}")
+            logger.info(f"      • {row['method']}: {speedup_str}")
 
         all_comparisons.append(comparison)
 
@@ -2079,19 +2425,19 @@ def run_performance_benchmark(
         summary_path: Path = Path(output_dir) / "cold_hot_comparison_summary.csv"
         summary.to_csv(summary_path, index=False)
 
-        print("\n" + "=" * 70)
-        print("📊 СВОДНЫЙ ОТЧЁТ: COLD vs HOT BENCHMARK")
-        print("=" * 70)
+        logger.info("\n" + "=" * 70)
+        logger.info("📊 СВОДНЫЙ ОТЧЁТ: COLD vs HOT BENCHMARK")
+        logger.info("=" * 70)
 
         # Группировка по методам
         avg_speedup: pd.Series = summary.groupby("method")["speedup"].mean().sort_values(ascending=False)
 
-        print("\n🏆 Топ-10 методов по среднему speedup:")
+        logger.info("\n🏆 Топ-10 методов по среднему speedup:")
         for i, (method, speedup) in enumerate(avg_speedup.head(10).items(), 1):
             speedup_str = f"{speedup:.2f}x" if not np.isinf(speedup) else "∞"
-            print(f"   {i}. {method}: {speedup_str}")
+            logger.info(f"   {i}. {method}: {speedup_str}")
 
-        print(avg_speedup)
+        logger.info(avg_speedup)
 
         return summary
 
@@ -2142,10 +2488,11 @@ def run_neural_segmentation_benchmark(
     """Запуск бенчмарка нейросетевых моделей сегментации на датасете ADE20K.
 
     Выполняет:
-    1. Загрузку тестового изображения и ground truth из HuggingFace.
-    2. Инициализацию `SegmentationBenchmark` с 11+ предобученными моделями.
-    3. Запуск сравнения моделей через `benchmark.compare()`.
-    4. Генерацию визуализаций, метрик и отчётов (CSV, JSON, Markdown, LaTeX).
+    1. **Загрузка данных**: Скачивание изображения и GT из HuggingFace.
+    2. **Подготовка**: Конвертация многоклассовой GT в бинарную маску.
+    3. **Инициализация**: Создание `SegmentationBenchmark` с 11+ архитектурами.
+    4. **Сравнение**: Последовательный запуск моделей с очисткой VRAM.
+    5. **Отчётность**: Генерация визуализаций, метрик и отчётов (CSV, JSON, Markdown, LaTeX).
 
     Поддерживаемые модели:
     - **Transformers**: SegFormer (B2/B5), Mask2Former, OneFormer, MaskFormer
@@ -2153,6 +2500,17 @@ def run_neural_segmentation_benchmark(
     - **TorchVision**: FCN, Mask R-CNN, SegNet
     - **SAM**: MobileSAM, SAM2
     - **Другие**: DPT-Large, UPerNet
+
+    Алгоритм:
+    ```
+    1. Скачать ADE_val_00000001.jpg/png → конвертировать GT в 2D бинарную маску.
+    2. Инициализировать SegmentationBenchmark(device, num_classes, gt_mask).
+    3. Загрузить MaskFormer вручную → сохранить результаты → очистить память.
+    4. Загрузить остальные модели через _load_benchmark_models().
+    5. benchmark.compare(image_input=original_img).
+    6. Сохранить оверлеи, метрики, графики, LaTeX-таблицу.
+    7. Вернуть Dict{summary, results_map, benchmark, latex_table}.
+    ```
 
     Args:
         device: Устройство для выполнения (`cuda`/`cpu`).
@@ -2169,7 +2527,8 @@ def run_neural_segmentation_benchmark(
 
     Note:
         - Требуется ~15–20 ГБ VRAM для одновременной загрузки всех моделей.
-        - Для экономии памяти модели загружаются последовательно с `torch.cuda.empty_cache()`.
+        - Автоматически освобождает память через `torch.cuda.empty_cache()` после каждой модели.
+        - Генерирует до 18 графиков сравнения и полную таблицу для статей (LaTeX).
         - Ground truth конвертируется в бинарную маску через `_convert_multiclass_to_binary()`.
 
     Example:
@@ -2180,7 +2539,7 @@ def run_neural_segmentation_benchmark(
             output_dir="./results/neural"
         )
         if results:
-            print(f"Лучшая модель по mIoU: {results['summary'].nlargest(1, 'mIoU')['model'].iloc[0]}")
+            logger.info(f"Лучшая модель по mIoU: {results['summary'].nlargest(1, 'mIoU')['model'].iloc[0]}")
             # Сохранение визуализаций
             for name, overlay in results['results_map'].items():
                 if overlay:
@@ -2191,14 +2550,14 @@ def run_neural_segmentation_benchmark(
 
     os.makedirs(output_dir, exist_ok=True)
 
-    print("\n" + "=" * 60)
-    print("НЕЙРОСЕТЕВОЙ БЕНЧМАРК: ADE20K")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("НЕЙРОСЕТЕВОЙ БЕНЧМАРК: ADE20K")
+    logger.info("=" * 60)
 
     # ──────────────────────────────────────────────────────
     # 1. ЗАГРУЗКА ТЕСТОВЫХ ДАННЫХ
     # ──────────────────────────────────────────────────────
-    print("\n🔹 Загрузка данных ADE20K...")
+    logger.info("\n🔹 Загрузка данных ADE20K...")
 
     image_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset")
     original_img: Image.Image = Image.open(image_path)
@@ -2209,19 +2568,19 @@ def run_neural_segmentation_benchmark(
 
     # Конвертация GT в бинарную маску
     mask_array: npt.NDArray = np.array(segmentation_map)
-    print(f"Mask shape: {mask_array.shape}")
-    print(f"Mask dtype: {mask_array.dtype}")
-    print(f"Unique values: {np.unique(mask_array)[:20]}")
+    logger.info(f"Mask shape: {mask_array.shape}")
+    logger.info(f"Mask dtype: {mask_array.dtype}")
+    logger.info(f"Unique values: {np.unique(mask_array)[:20]}")
 
     gt_mask_2d: MaskArray = prepare_mask_for_overlay(segmentation_map)
     segmentation_map.save(Path(output_dir) / "ground_truth.png")
 
-    print(f"✅ Изображение: {original_img.size}, GT: {gt_mask_2d.shape}")
+    logger.info(f"✅ Изображение: {original_img.size}, GT: {gt_mask_2d.shape}")
 
     # ──────────────────────────────────────────────────────
     # 2. ИНИЦИАЛИЗАЦИЯ БЕНЧМАРКА
     # ──────────────────────────────────────────────────────
-    print("\n🔹 Инициализация моделей...")
+    logger.info("\n🔹 Инициализация моделей...")
 
     infer_res_ade: Image.Image = _create_overlay_standalone(
         original_img,
@@ -2230,7 +2589,7 @@ def run_neural_segmentation_benchmark(
         palette=NeuralSegmenter.ade_palette(),
     )
 
-    print("🔹 Запуск MaskFormer (Изолированный режим)...")
+    logger.info("🔹 Запуск MaskFormer (Изолированный режим)...")
 
     model_name_maskformer: str = "facebook/maskformer-resnet50-ade20k-full"
     processor_maskformer = MaskFormerImageProcessor.from_pretrained(model_name_maskformer)
@@ -2267,7 +2626,7 @@ def run_neural_segmentation_benchmark(
     torch.cuda.synchronize()
     gc.collect()
 
-    print(f"✅ MaskFormer готов. VRAM освобождена: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
+    logger.info(f"✅ MaskFormer готов. VRAM освобождена: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
     class_names_dict: Dict[int, str] = NeuralSegmenter.get_ade_class_names()
     class_names: Optional[List[str]] = [class_names_dict.get(i, f"Class {i}") for i in range(num_classes)]
     benchmark: SegmentationBenchmark = SegmentationBenchmark(
@@ -2284,8 +2643,8 @@ def run_neural_segmentation_benchmark(
     # ──────────────────────────────────────────────────────
     # 3. ЗАПУСК СРАВНЕНИЯ
     # ──────────────────────────────────────────────────────
-    print("\n🔹 Запуск сравнения моделей...")
-    print("\n🚀 Running benchmark (this may take 10-15 minutes)...")
+    logger.info("\n🔹 Запуск сравнения моделей...")
+    logger.info("\n🚀 Running benchmark (this may take 10-15 minutes)...")
 
     benchmark.compare(image_input=original_img, alpha=0.6)
     benchmark.results["maskformer"] = maskformer_manual_ade_result
@@ -2293,7 +2652,7 @@ def run_neural_segmentation_benchmark(
     # ──────────────────────────────────────────────────────
     # 4. СОХРАНЕНИЕ РЕЗУЛЬТАТОВ
     # ──────────────────────────────────────────────────────
-    print("\n🔹 Сохранение результатов...")
+    logger.info("\n🔹 Сохранение результатов...")
 
     # Карта результатов для визуализации
     results_map: Dict[str, Optional[Image.Image]] = {
@@ -2307,57 +2666,57 @@ def run_neural_segmentation_benchmark(
         if overlay is not None:
             overlay_path: Path = Path(output_dir) / f"segmented_{model_key}.jpg"
             overlay.save(overlay_path)
-            print(f"✅ Сохранено: {model_key}: {overlay_path}")
+            logger.info(f"✅ Сохранено: {model_key}: {overlay_path}")
 
     # Метрики и сводка
-    print("\n🔍 Checking metrics...")
+    logger.info("\n🔍 Checking metrics...")
     summary_ade: Dict[str, Dict[str, Any]] = benchmark.get_summary()
     for metric in ["mIoU", "pixel_acc", "time_ms"]:
         values: List = [summary_ade[m].get(metric, np.nan) for m in summary_ade]
         valid: int = sum(1 for v in values if not np.isnan(v))
-        print(f"   {metric}: {valid} models")
+        logger.info(f"   {metric}: {valid} models")
     summary: pd.DataFrame = pd.DataFrame(summary_ade).T.sort_values("mIoU", ascending=False)
 
     for model_name, res in benchmark.results.items():
-        print(f"\n{model_name}:")
-        print(f"  mIoU: {res['metrics'].get('mIoU', 'N/A'):.4f}")
-        print(f"  Time: {res['inference_time_ms']:.1f} ms")
-        print(f"  Classes: {res['unique_classes']}")
+        logger.info(f"\n{model_name}:")
+        logger.info(f"  mIoU: {res['metrics'].get('mIoU', 'N/A'):.4f}")
+        logger.info(f"  Time: {res['inference_time_ms']:.1f} ms")
+        logger.info(f"  Classes: {res['unique_classes']}")
 
     # Сохранение отчётов
-    print("\n💾 Saving results...")
+    logger.info("\n💾 Saving results...")
     benchmark.save_results(str(Path(output_dir) / "ade_benchmark"))
 
     # Генерация визуализаций
     _generate_neural_benchmark_plots(benchmark, output_dir)
 
     # LaTeX таблица для публикации
-    print("\n" + "=" * 70)
-    print("LATEX TABLE FOR PAPER")
-    print("=" * 70)
+    logger.info("\n" + "=" * 70)
+    logger.info("LATEX TABLE FOR PAPER")
+    logger.info("=" * 70)
     latex_table: str = benchmark.export_latex_table(caption="Comprehensive Semantic Segmentation Benchmark on ADE20K")
     with open(Path(output_dir) / "benchmark_table.tex", "w") as f:
         f.write(latex_table)
-    print(latex_table)
+    logger.info(latex_table)
 
     if "segformer" in summary.index and "segformer_b2" in summary.index:
-        print("\n" + "=" * 70)
-        print("SEGFORMER SPEED-ACCURACY TRADEOFF")
-        print("=" * 70)
+        logger.info("\n" + "=" * 70)
+        logger.info("SEGFORMER SPEED-ACCURACY TRADEOFF")
+        logger.info("=" * 70)
         sf: pd.DataFrame = summary.loc[["segformer", "segformer_b2"], ["mIoU", "time_ms"]]
         sf["mIoU"] = sf["mIoU"] * 100
-        print(sf.to_string(float_format="%.2f"))
-        print(
+        logger.info(sf.to_string(float_format="%.2f"))
+        logger.info(
             f"\n💡 B2 is {summary.loc['segformer', 'time_ms'] / summary.loc['segformer_b2', 'time_ms']:.1f}x faster with {summary.loc['segformer', 'mIoU'] - summary.loc['segformer_b2', 'mIoU']:.1f} pp mIoU drop"
         )
 
-    print("\n" + "=" * 70)
-    print("✅ BENCHMARK COMPLETE — Results saved to 'ade20k_11models_comprehensive/'")
-    print("=" * 70)
+    logger.info("\n" + "=" * 70)
+    logger.info("✅ BENCHMARK COMPLETE — Results saved to 'ade20k_11models_comprehensive/'")
+    logger.info("=" * 70)
 
     # Сводная таблица результатов
     table: pd.DataFrame = export_comparison_table(benchmark, str(Path(output_dir) / "model_comparison.md"))
-    print(table)
+    logger.info(table)
 
     plt.figure(figsize=(20, 10))
     titles: List[str] = [
@@ -2423,7 +2782,7 @@ def run_neural_segmentation_benchmark(
     )
     plt.show()
 
-    print(f"\n✅ Результаты сохранены в: {output_dir}")
+    logger.info(f"\n✅ Результаты сохранены в: {output_dir}")
 
     return {
         "summary": summary,
@@ -2435,11 +2794,44 @@ def run_neural_segmentation_benchmark(
 
 # ──────────────────────────────────────────────────────────────────────
 def _load_benchmark_models(benchmark: SegmentationBenchmark, output_dir: str) -> None:
-    """Загружает модели в бенчмарк с обработкой ошибок.
+    """Загружает предобученные модели в бенчмарк с обработкой ошибок и очисткой VRAM.
+
+    Выполняет:
+    1. **Диагностика CUDA**: Вывод статистики памяти и настроек cuDNN.
+    2. **Очистка памяти**: `empty_cache()`, `synchronize()`, `gc.collect()`.
+    3. **Последовательная загрузка**: Итерация по списку моделей с `getattr`-вызовом.
+    4. **Обработка ошибок**: Логирование сбоев без прерывания загрузки остальных.
+    5. **Пост-очистка**: Освобождение VRAM после каждой модели.
+
+    Алгоритм:
+    ```
+    1. Вывести VRAM Allocated/Reserved/Max и флаги deterministic/cuDNN.
+    2. Очистить память: torch.cuda.empty_cache(), synchronize(), gc.collect().
+    3. Для каждой модели в models_to_load:
+       a. Получить method = getattr(benchmark, config["method"]).
+       b. Вызвать method(*args) или method(**kwargs).
+       c. При успехе → print("✅"), при ошибке → print("⚠️") + traceback при DEBUG.
+       d. Очистить VRAM после итерации.
+    ```
 
     Args:
-        benchmark: Экземпляр `SegmentationBenchmark`.
-        output_dir: Директория для логирования.
+        benchmark: Экземпляр `SegmentationBenchmark` для регистрации моделей.
+        output_dir: Директория для логирования (используется для отладки).
+
+    Returns:
+        None. Модифицирует `benchmark` in-place.
+
+    Note:
+        - Модели загружаются последовательно для минимизации пикового потребления VRAM.
+        - Поддерживаются как предобученные (HuggingFace), так и локальные чекпоинты.
+        - При `DEBUG=1` выводится полный traceback для упавших загрузок.
+
+    Example:
+        ```python
+        benchmark = SegmentationBenchmark(device="cuda", num_classes=150, gt_mask=gt)
+        _load_benchmark_models(benchmark, output_dir="./logs")
+        print(f"Загружено моделей: {len(benchmark.models)}")
+        ```
     """
     models_to_load: List[Dict[str, Any]] = [
         {
@@ -2498,21 +2890,21 @@ def _load_benchmark_models(benchmark: SegmentationBenchmark, output_dir: str) ->
         },
     ]
 
-    print("=" * 50)
-    print("CUDA DIAGNOSTICS")
-    print("=" * 50)
-    print(f"VRAM Allocated: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
-    print(f"VRAM Reserved:  {torch.cuda.memory_reserved() / 1024**2:.1f} MB")
-    print(f"VRAM Max:       {torch.cuda.max_memory_allocated() / 1024**2:.1f} MB")
-    print(f"Deterministic:  {torch.are_deterministic_algorithms_enabled()}")
-    print(f"cuDNN Benchmark: {torch.backends.cudnn.benchmark}")
-    print("=" * 50)
+    logger.info("=" * 50)
+    logger.info("CUDA DIAGNOSTICS")
+    logger.info("=" * 50)
+    logger.info(f"VRAM Allocated: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
+    logger.info(f"VRAM Reserved:  {torch.cuda.memory_reserved() / 1024**2:.1f} MB")
+    logger.info(f"VRAM Max:       {torch.cuda.max_memory_allocated() / 1024**2:.1f} MB")
+    logger.info(f"Deterministic:  {torch.are_deterministic_algorithms_enabled()}")
+    logger.info(f"cuDNN Benchmark: {torch.backends.cudnn.benchmark}")
+    logger.info("=" * 50)
 
     torch.cuda.empty_cache()
     torch.cuda.synchronize()
     gc.collect()
 
-    print(f"VRAM After Clean: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
+    logger.info(f"VRAM After Clean: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
 
     for model_config in models_to_load:
         try:
@@ -2526,10 +2918,10 @@ def _load_benchmark_models(benchmark: SegmentationBenchmark, output_dir: str) ->
             else:
                 method()
 
-            print(f"   ✅ {method_name}")
+            logger.info(f"   ✅ {method_name}")
 
         except Exception as e:
-            print(f"   ⚠️  {model_config.get('method', 'unknown')}: {e}")
+            logger.warning(f"   ⚠️  {model_config.get('method', 'unknown')}: {e}")
             if os.getenv("DEBUG", "0") == "1":
                 traceback.print_exc()
 
@@ -2543,15 +2935,50 @@ def _load_benchmark_models(benchmark: SegmentationBenchmark, output_dir: str) ->
 def _generate_neural_benchmark_plots(benchmark: SegmentationBenchmark, output_dir: str) -> None:
     """Генерирует визуализации для нейросетевого бенчмарка.
 
+    Выполняет:
+    1. **Подготовка директории**: Создание `plots/` внутри output_dir.
+    2. **Генерация графиков**:
+       - All metrics (сводный бар-чарт)
+       - mIoU comparison (ранжирование по точности)
+       - Time comparison (ранжирование по скорости)
+       - Per-class IoU (топ-20 классов)
+       - Confusion matrix (для лучшей модели)
+       - Summary (мульти-метрика)
+    3. **Сохранение**: Экспорт в PNG с DPI=150 и `bbox_inches="tight"`.
+
+    Алгоритм:
+    ```
+    1. Создать plots_dir = Path(output_dir) / "plots".
+    2. Для каждого типа графика:
+       a. Вызвать соответствующий метод benchmark.plot_*.
+       b. Сохранить через plt.savefig(..., dpi=150, bbox_inches="tight").
+       c. Закрыть фигуру через plt.close().
+    3. Вывести путь к сохранённым графикам.
+    ```
+
     Args:
-        benchmark: Экземпляр `SegmentationBenchmark`.
-        output_dir: Директория для сохранения графиков.
+        benchmark: Экземпляр `SegmentationBenchmark` с результатами.
+        output_dir: Базовая директория для сохранения визуализаций.
+
+    Returns:
+        None. Графики сохраняются в `{output_dir}/plots/`.
+
+    Note:
+        - Все графики закрываются после сохранения для освобождения памяти.
+        - `bbox_inches="tight"` обрезает лишние поля для компактности.
+        - Конфьюжн-матрица строится для модели с максимальным mIoU.
+
+    Example:
+        ```python
+        _generate_neural_benchmark_plots(benchmark, output_dir="./results/neural")
+        # Сохранит: all_metrics.png, miou_comparison.png, time_comparison.png, ...
+        ```
     """
     plots_dir: Path = Path(output_dir) / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Все метрики
-    print("\n📊 Generating visualizations...")
+    logger.info("\n📊 Generating visualizations...")
     benchmark.plot_all_metrics(figsize=(15, 5))
     plt.savefig(plots_dir / "all_metrics.png", dpi=150, bbox_inches="tight")
     plt.close()
@@ -2582,7 +3009,7 @@ def _generate_neural_benchmark_plots(benchmark: SegmentationBenchmark, output_di
     plt.savefig(plots_dir / "summary.png", dpi=150, bbox_inches="tight")
     plt.close()
 
-    print(f"📊 Графики сохранены в: {plots_dir}")
+    logger.info(f"📊 Графики сохранены в: {plots_dir}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -2591,13 +3018,24 @@ def run_implementation_validation(
     output_dir: str = "./data/validation",
     image_name: str = "mountain",
 ) -> Optional[Dict[str, Any]]:
-    """Валидация согласованности реализаций методов через TorchImplementationValidator.
+    """Валидация согласованности реализаций методов через TorchImplementationValidator (Torch vs OpenCV/Sklearn).
 
     Выполняет:
-    1. Инициализацию валидатора с указанной директорией вывода.
-    2. Запуск `validate_all_methods()` на выбранном изображении.
-    3. Генерацию отчёта валидации (статусы, метрики, визуализации).
-    4. (Опционально) Создание бенчмарк-отчёта на основе результатов валидации.
+    1. **Инициализация**: Создание `TorchImplementationValidator`.
+    2. **Валидация**: Запуск `validate_all_methods()` на выбранном изображении.
+    3. **Отчётность**: Генерация Markdown-отчёта со статусами PASS/WARNING/FAIL.
+    4. **Бенчмарк-сводка**: Опциональное создание отчёта на основе результатов валидации.
+
+    Алгоритм:
+    ```
+    1. Проверить наличие image_name в test_images.
+    2. Инициализировать TorchImplementationValidator(output_dir).
+    3. Вызвать validate_all_methods(image_path, use_torch2=True).
+    4. Сгенерировать validation_report.md.
+    5. Опционально: generate_benchmark_report_from_validation().
+    6. Вывести статистику по статусам и топ-5 по IoU.
+    7. Вернуть Dict{all_results, benchmark_df, validator}.
+    ```
 
     Аргументы валидации:
     - Сравниваются реализации одного метода в Torch vs OpenCV/Sklearn.
@@ -2617,7 +3055,9 @@ def run_implementation_validation(
                                   или `None` при ошибке.
 
     Note:
-        - Валидация выполняется только для классических методов (не нейросетевых).
+        - Сравнивает Torch-реализации с CPU-бэкендами по IoU, Dice, Precision, Recall, F1.
+        - Статусы: ✅ PASS (≥80%), ⚠️ WARNING (50–80%), ❌ FAIL (<50%).
+        - Ошибки логируются, но не прерывают валидацию остальных методов.
         - Результаты включают:
           - `{output_dir}/validation_report.md` — Markdown-отчёт
           - `{output_dir}/charts/` — Графики сравнения метрик
@@ -2631,29 +3071,29 @@ def run_implementation_validation(
             image_name="mountain"
         )
         if results:
-            print(f"Валидировано методов: {len(results['all_results'])}")
+            logger.info(f"Валидировано методов: {len(results['all_results'])}")
             # Статистика по статусам
             statuses = [r.get('status') for r in results['all_results'].values()]
             from collections import Counter
-            print(f"Статусы: {Counter(statuses)}")
+            logger.info(f"Статусы: {Counter(statuses)}")
         ```
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    print("\n" + "=" * 60)
-    print("ВАЛИДАЦИЯ РЕАЛИЗАЦИЙ: Torch vs OpenCV/Sklearn")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("ВАЛИДАЦИЯ РЕАЛИЗАЦИЙ: Torch vs OpenCV/Sklearn")
+    logger.info("=" * 60)
 
     # Проверка наличия изображения
     if image_name not in test_images:
-        print(f"❌ Изображение '{image_name}' не найдено в test_images")
-        print(f"   Доступные: {list(test_images.keys())}")
+        logger.error(f"❌ Изображение '{image_name}' не найдено в test_images")
+        logger.info(f"   Доступные: {list(test_images.keys())}")
         return None
 
-    img_path, img_pil, gt_mask = test_images[image_name]
+    _, img_pil, _ = test_images[image_name]
     img_array: ImageArray = np.array(img_pil)
 
-    print(f"\n🔹 Валидация на изображении: {image_name} ({img_array.shape})")
+    logger.info(f"\n🔹 Валидация на изображении: {image_name} ({img_array.shape})")
 
     # ──────────────────────────────────────────────────────
     # 1. ИНИЦИАЛИЗАЦИЯ ВАЛИДАТОРА
@@ -2663,7 +3103,7 @@ def run_implementation_validation(
     # ──────────────────────────────────────────────────────
     # 2. ЗАПУСК ВАЛИДАЦИИ
     # ──────────────────────────────────────────────────────
-    print("\n🔹 Запуск валидации методов...")
+    logger.info("\n🔹 Запуск валидации методов...")
 
     try:
         # test_images['ade20k_sample'][0]
@@ -2672,23 +3112,23 @@ def run_implementation_validation(
         all_results: Dict[str, Any] = validator.validate_all_methods(
             image_path=img_array, use_torch2=True, torch2_precision="bf16"
         )
-        print(f"   ✅ Валидировано: {len(all_results)} методов")
+        logger.info(f"   ✅ Валидировано: {len(all_results)} методов")
     except Exception as e:
-        print(f"❌ Ошибка валидации: {e}")
+        logger.error(f"❌ Ошибка валидации: {e}")
         traceback.print_exc()
         return None
 
     # ──────────────────────────────────────────────────────
     # 3. ГЕНЕРАЦИЯ ОТЧЁТА
     # ──────────────────────────────────────────────────────
-    print("\n🔹 Генерация отчёта...")
+    logger.info("\n🔹 Генерация отчёта...")
 
     try:
         validator.generate_validation_report(all_results)
-        print(f"   ✅ Отчёт: {validator.output_dir}/validation_report.md")
-        print(f"\n✅ Все результаты сохранены в: {validator.output_dir}")
+        logger.info(f"   ✅ Отчёт: {validator.output_dir}/validation_report.md")
+        logger.info(f"\n✅ Все результаты сохранены в: {validator.output_dir}")
     except Exception as e:
-        print(f"⚠️  Ошибка генерации отчёта: {e}")
+        logger.error(f"⚠️  Ошибка генерации отчёта: {e}")
 
     # ──────────────────────────────────────────────────────
     # 4. БЕНЧМАРК-ОТЧЁТ (опционально)
@@ -2697,16 +3137,16 @@ def run_implementation_validation(
     try:
         benchmark_dir: str = os.path.join(output_dir, "benchmark")
         benchmark_df = validator.generate_benchmark_report_from_validation(all_results, output_dir=benchmark_dir)
-        print(f"   ✅ Бенчмарк-отчёт: {benchmark_dir}")
+        logger.info(f"   ✅ Бенчмарк-отчёт: {benchmark_dir}")
     except Exception as e:
-        print(f"⚠️  Ошибка генерации бенчмарка: {e}")
+        logger.error(f"⚠️  Ошибка генерации бенчмарка: {e}")
 
     # ──────────────────────────────────────────────────────
     # 5. СВОДКА
     # ──────────────────────────────────────────────────────
-    print("\n" + "=" * 70)
-    print("📊 СВОДКА ПО ВАЛИДАЦИИ")
-    print("=" * 70)
+    logger.info("\n" + "=" * 70)
+    logger.info("📊 СВОДКА ПО ВАЛИДАЦИИ")
+    logger.info("=" * 70)
 
     if all_results:
         # Статистика по статусам
@@ -2715,13 +3155,13 @@ def run_implementation_validation(
 
         status_counts: Counter = Counter(statuses)
 
-        print("\n📈 Распределение статусов:")
+        logger.info("\n📈 Распределение статусов:")
         for status, count in status_counts.most_common():
             emoji = {"PASS": "✅", "WARNING": "⚠️", "FAIL": "❌"}.get(status, "❓")
-            print(f"   {emoji} {status}: {count} методов ({count / len(statuses) * 100:.1f}%)")
+            logger.info(f"   {emoji} {status}: {count} методов ({count / len(statuses) * 100:.1f}%)")
 
         # Топ-5 по согласованности (IoU)
-        print("\n🏆 Топ-5 по IoU (согласованность):")
+        logger.info("\n🏆 Топ-5 по IoU (согласованность):")
         sorted_results: List[Tuple[str, Any]] = sorted(
             all_results.items(),
             key=lambda x: x[1].get("metrics", {}).get("iou", 0),
@@ -2729,9 +3169,9 @@ def run_implementation_validation(
         )
         for i, (method, result) in enumerate(sorted_results[:5], 1):
             iou: float = result.get("metrics", {}).get("iou", 0)
-            print(f"   {i}. {method}: IoU = {iou:.4f}")
+            logger.info(f"   {i}. {method}: IoU = {iou:.4f}")
 
-    print(f"\n💾✅ Все результаты сохранены в: {output_dir}")
+    logger.info(f"\n💾✅ Все результаты сохранены в: {output_dir}")
 
     return {
         "all_results": all_results,
@@ -2751,15 +3191,28 @@ def run_matrix_comparison(
 ) -> Optional[Dict[str, Any]]:
     """Матричное и пакетное сравнение методов сегментации.
 
-    Выполняет три типа сравнений для каждого изображения:
-    1. **All-vs-All**: Матрица попарных сравнений всех методов.
-    2. **Batch comparison**: Сравнение всех методов относительно референсного.
-    3. **Pairwise comparison**: Детальное сравнение двух конкретных реализаций.
+    Выполняет:
+    1. **All-vs-All**: Полная матрица попарных сравнений всех методов.
+    2. **Batch vs Reference**: Сравнение всех методов относительно одного референса.
+    3. **Pairwise**: Детальное сравнение двух конкретных реализаций (CV2 vs Sklearn).
+    4. **Агрегация**: Сбор результатов по изображениям и вывод сводки.
 
     Поддерживаемые типы сравнений:
     - `all_vs_all`: Полная матрица (метод × метод) с метриками согласованности.
     - `batch_vs_reference`: Все методы против одного референсного (по умолчанию Otsu Sklearn).
     - `pairwise`: Сравнение двух конкретных реализаций (например, CV2 vs Sklearn Otsu).
+
+    Алгоритм:
+    ```
+    1. Объединить методы в all_segmenters.
+    2. Инициализировать SegmentationComparator.
+    3. Для каждого изображения:
+       a. matrix_comparison(type="all_vs_all") → сохранить пары.
+       b. batch_comparison(reference=ref_segmenter) → сохранить DF.
+       c. compare_methods(segmenter1, segmenter2) → сохранить метрики.
+    4. Агрегировать batch_results, посчитать mean similarity.
+    5. Вернуть Dict{all_vs_all_results, batch_results, pairwise_results}.
+    ```
 
     Args:
         test_images: Словарь тестовых изображений `{имя: (путь, PIL.Image, GT)}`.
@@ -2778,6 +3231,7 @@ def run_matrix_comparison(
 
     Note:
         - Референсный метод должен присутствовать в объединённом словаре методов.
+        - All-vs-All ресурсоёмок для >20 методов (O(n²) сравнений).
         - Результаты сохраняются в:
           - `{output_dir}/matrix_comparison_{img}/` — All-vs-All
           - `{output_dir}/batch_comparison/` — Batch vs Reference
@@ -2796,14 +3250,14 @@ def run_matrix_comparison(
         if results and results['batch_results'] is not None:
             # Топ-3 метода относительно референса
             top3 = results['batch_results'].nlargest(3, 'similarity_score')
-            print(top3[['method', 'similarity_score']])
+            logger.info(top3[['method', 'similarity_score']])
         ```
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    print("\n" + "=" * 60)
-    print("МАТРИЧНОЕ СРАВНЕНИЕ МЕТОДОВ")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("МАТРИЧНОЕ СРАВНЕНИЕ МЕТОДОВ")
+    logger.info("=" * 60)
 
     # Объединение методов
     all_segmenters: SegmenterDict = {**cv2_methods, **sklearn_methods, **torch_methods}
@@ -2820,8 +3274,8 @@ def run_matrix_comparison(
 
     # Референсный сегментер
     if reference_method not in all_segmenters:
-        print(f"❌ Референсный метод '{reference_method}' не найден")
-        print(f"   Доступные: {list(all_segmenters.keys())[:10]}...")
+        logger.error(f"❌ Референсный метод '{reference_method}' не найден")
+        logger.info(f"   Доступные: {list(all_segmenters.keys())[:10]}...")
         return None
 
     ref_segmenter = all_segmenters[reference_method]
@@ -2829,7 +3283,7 @@ def run_matrix_comparison(
     # Для pairwise: сравнение двух реализаций Оцу
     original_segmenter = cv2_methods.get("Otsu_Thresholding_CV2")
     if original_segmenter is None:
-        print("⚠️  Не найден Otsu_CV2 для pairwise сравнения")
+        logger.warning("⚠️  Не найден Otsu_CV2 для pairwise сравнения")
         original_segmenter = ref_segmenter  # fallback
 
     # ──────────────────────────────────────────────────────
@@ -2844,8 +3298,8 @@ def run_matrix_comparison(
     # ──────────────────────────────────────────────────────
     # ЦИКЛ ПО ИЗОБРАЖЕНИЯМ
     # ──────────────────────────────────────────────────────
-    for img_name, (img_path, img_pil, gt_mask) in tqdm(test_images.items(), desc="Matrix Comparison benchmark"):
-        print(f"\n🔹 Обработка: {img_name}")
+    for img_name, (_, img_pil, _) in tqdm(test_images.items(), desc="Matrix Comparison benchmark"):
+        logger.info(f"\n🔹 Обработка: {img_name}")
         img_array: ImageArray = np.array(img_pil)
 
         img_output_dir: Path = Path(output_dir) / f"matrix_comparison_{img_name}"
@@ -2854,7 +3308,7 @@ def run_matrix_comparison(
         # 1. ALL-VS-ALL МАТРИЧНОЕ СРАВНЕНИЕ
         # ──────────────────────────────────────────────────
         try:
-            print("   🔸 All-vs-All матрица...")
+            logger.info("   🔸 All-vs-All матрица...")
             matrix_results: Dict[str, Any] = comparator.matrix_comparison(
                 image=img_array,
                 methods_config=methods_config_list,
@@ -2869,10 +3323,10 @@ def run_matrix_comparison(
                     "n_comparisons": len(matrix_results.get("df_comparisons", [])),
                 }
             )
-            print(f"   ✅ Матрица сравнения для {img_name}")
-            print(f"      ✅ Сравнено пар: {len(matrix_results.get('df_comparisons', []))}")
+            logger.info(f"   ✅ Матрица сравнения для {img_name}")
+            logger.info(f"      ✅ Сравнено пар: {len(matrix_results.get('df_comparisons', []))}")
         except Exception as e:
-            print(f"      ❌ Ошибка all-vs-all: {e}")
+            logger.error(f"      ❌ Ошибка all-vs-all: {e}")
             if os.getenv("DEBUG", "0") == "1":
                 traceback.print_exc()
 
@@ -2880,7 +3334,7 @@ def run_matrix_comparison(
         # 2. BATCH COMPARISON VS REFERENCE
         # ──────────────────────────────────────────────────
         try:
-            print("   🔸 Batch comparison vs reference...")
+            logger.info("   🔸 Batch comparison vs reference...")
             df_batch: pd.DataFrame = comparator.batch_comparison(
                 image=img_array,
                 methods_config=methods_config_list,
@@ -2890,16 +3344,16 @@ def run_matrix_comparison(
                 output_dir=str(Path(output_dir) / "batch_comparison"),
             )
             batch_results_list.append(df_batch)
-            print("   ✅ Пакетное сравнение завершено. Топ-3 метода сохранены.")
-            print(f"      ✅ Топ-3: {df_batch.nlargest(3, 'similarity_score')['method'].tolist()}")
+            logger.info("   ✅ Пакетное сравнение завершено. Топ-3 метода сохранены.")
+            logger.info(f"      ✅ Топ-3: {df_batch.nlargest(3, 'similarity_score')['method'].tolist()}")
         except Exception as e:
-            print(f"      ❌ Ошибка batch comparison: {e}")
+            logger.error(f"      ❌ Ошибка batch comparison: {e}")
 
         # ──────────────────────────────────────────────────
         # 3. PAIRWISE COMPARISON (CV2 vs Sklearn Otsu)
         # ──────────────────────────────────────────────────
         try:
-            print("   🔸 Pairwise comparison (CV2 vs Sklearn)...")
+            logger.info("   🔸 Pairwise comparison (CV2 vs Sklearn)...")
             df_pairwise: Dict[str, Any] = comparator.compare_methods(
                 image=img_array,
                 segmenter1=original_segmenter,
@@ -2910,43 +3364,43 @@ def run_matrix_comparison(
                 output_path=str(Path(output_dir) / f"compare_methods_{img_name}"),
             )
             pairwise_results_list.append(df_pairwise)
-            print("   ✅ Попарное сравнение сохранено.")
+            logger.info("   ✅ Попарное сравнение сохранено.")
             n_metrics: int = len(df_pairwise.get("metrics", {}))
-            print(f"✅ Сохранено: {n_metrics} метрик")
+            logger.info(f"✅ Сохранено: {n_metrics} метрик")
         except TypeError as te:
-            print(f"      ⚠️  Pairwise требует старой сигнатуры: {te}")
+            logger.error(f"      ⚠️  Pairwise требует старой сигнатуры: {te}")
         except Exception as e:
-            print(f"      ❌ Ошибка pairwise: {e}")
+            logger.error(f"      ❌ Ошибка pairwise: {e}")
 
     # ──────────────────────────────────────────────────────
     # СВОДНЫЙ ОТЧЁТ
     # ──────────────────────────────────────────────────────
-    print("\n" + "=" * 70)
-    print("📊 СВОДКА ПО МАТРИЧНОМУ СРАВНЕНИЮ")
-    print("=" * 70)
+    logger.info("\n" + "=" * 70)
+    logger.info("📊 СВОДКА ПО МАТРИЧНОМУ СРАВНЕНИЮ")
+    logger.info("=" * 70)
 
     # All-vs-All статистика
     if all_vs_all_results:
         total_comparisons: int = sum(r["n_comparisons"] for r in all_vs_all_results)
-        print(f"\n🔗 All-vs-All: {len(all_vs_all_results)} изображений, {total_comparisons} сравнений")
+        logger.info(f"\n🔗 All-vs-All: {len(all_vs_all_results)} изображений, {total_comparisons} сравнений")
 
     # Batch comparison: агрегация результатов
     if batch_results_list:
         batch_summary: pd.DataFrame = pd.concat(batch_results_list, ignore_index=True)
-        print(f"\n📦 Batch comparison: {len(batch_summary)} записей")
+        logger.info(f"\n📦 Batch comparison: {len(batch_summary)} записей")
 
         # Топ-5 методов по средней схожести
         if "similarity_score" in batch_summary.columns:
             top_methods: pd.Series = batch_summary.groupby("method")["similarity_score"].mean().nlargest(5)
-            print("\n🏆 Топ-5 по схожести с референсом:")
+            logger.info("\n🏆 Топ-5 по схожести с референсом:")
             for i, (method, score) in enumerate(top_methods.items(), 1):
-                print(f"   {i}. {method}: {score:.4f}")
+                logger.info(f"   {i}. {method}: {score:.4f}")
 
     # Pairwise статистика
     if pairwise_results_list:
-        print(f"\n🔍 Pairwise: {len(pairwise_results_list)} сравнений")
+        logger.info(f"\n🔍 Pairwise: {len(pairwise_results_list)} сравнений")
 
-    print(f"\n💾 Результаты: {output_dir}")
+    logger.info(f"\n💾 Результаты: {output_dir}")
 
     return {
         "all_vs_all_results": all_vs_all_results,
@@ -2967,11 +3421,24 @@ def run_ground_truth_evaluation(
 ) -> Optional[Dict[str, Any]]:
     """Оценка качества сегментации против Ground Truth.
 
-    Для каждого изображения с доступным GT:
-    1. Запускает все классические методы.
-    2. Вычисляет метрики: IoU, Dice, Precision, Recall, F1, MAE, Hausdorff.
-    3. Сохраняет детальные метрики в JSON.
-    4. Генерирует сводные графики и топ-методы.
+    Выполняет:
+    1. **Фильтрация**: Пропуск изображений без GT.
+    2. **Запуск методов**: Применение всех классических алгоритмов к каждому изображению.
+    3. **Расчёт метрик**: IoU, Dice, Precision, Recall, F1, MAE, Hausdorff.
+    4. **Визуализация**: Генерация бар-чартов, scatter-plot и PR-баланса.
+    5. **Ранжирование**: Определение топ-5 методов по среднему IoU.
+
+    Алгоритм:
+    ```
+    1. Объединить методы.
+    2. Для каждого изображения с GT:
+       a. Бинаризовать GT (threshold=0.5).
+       b. Для каждого метода: запустить segment() → вычислить метрики.
+       c. Сохранить детальные метрики в JSON.
+    3. Агрегировать результаты по изображениям.
+    4. Построить графики (metrics_comparison, speed_vs_accuracy, PR).
+    5. Сохранить сводный CSV и вернуть Dict{gt_results_summary, summary_df, top_methods}.
+    ```
 
     Args:
         test_images: Словарь `{имя: (путь, PIL.Image, GT-маска)}`.
@@ -3005,15 +3472,15 @@ def run_ground_truth_evaluation(
             torch_methods=torch_methods
         )
         if results:
-            print(f"Обработано изображений с GT: {len(results['gt_results_summary'])}")
-            print(f"Топ-3 метода: {[m for m, _ in results['top_methods']]}")
+            logger.info(f"Обработано изображений с GT: {len(results['gt_results_summary'])}")
+            logger.info(f"Топ-3 метода: {[m for m, _ in results['top_methods']]}")
         ```
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    print("\n" + "=" * 60)
-    print("ОЦЕНКА ПРОТИВ GROUND TRUTH")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("ОЦЕНКА ПРОТИВ GROUND TRUTH")
+    logger.info("=" * 60)
 
     all_segmenters: SegmenterDict = {**cv2_methods, **sklearn_methods, **torch_methods}
     gt_results_summary: Dict[str, Dict[str, MetricsDict]] = {}
@@ -3022,13 +3489,13 @@ def run_ground_truth_evaluation(
     # ──────────────────────────────────────────────────────
     # ЦИКЛ ПО ИЗОБРАЖЕНИЯМ С GT
     # ──────────────────────────────────────────────────────
-    for img_name, (img_path, img_pil, gt_mask) in tqdm(test_images.items(), desc="Ground Truth benchmark"):
+    for img_name, (_, img_pil, gt_mask) in tqdm(test_images.items(), desc="Ground Truth benchmark"):
         if gt_mask is None:
-            print(f"⚠️  Пропуск {img_name}: нет Ground Truth")
+            logger.warning(f"⚠️  Пропуск {img_name}: нет Ground Truth")
             continue
 
         has_gt_images = True
-        print(f"\n🎯 Обработка изображения: {img_name} (GT: {gt_mask.shape})")
+        logger.info(f"\n🎯 Обработка изображения: {img_name} (GT: {gt_mask.shape})")
 
         img_array: ImageArray = np.array(img_pil)
 
@@ -3067,12 +3534,12 @@ def run_ground_truth_evaluation(
                 # Статус
                 iou: float = metrics.get("iou", 0)
                 status: str = "✅" if iou > 0.5 else "⚠️" if iou > 0.2 else "❌"
-                print(f"   {status} {name}: IoU={iou:.4f}, Dice={metrics.get('dice', 0):.4f}, t={exec_time:.3f}s")
-                print(f"Mask after {name} segment: {pred_mask[:3, :3]}")
-                print(segmenter.params["execution_info"])
+                logger.info(f"   {status} {name}: IoU={iou:.4f}, Dice={metrics.get('dice', 0):.4f}, t={exec_time:.3f}s")
+                logger.info(f"Mask after {name} segment: {pred_mask[:3, :3]}")
+                logger.info(segmenter.params["execution_info"])
 
             except Exception as e:
-                print(f"   💥 Критическая ошибка в методе {name}: {e}")
+                logger.error(f"   💥 Критическая ошибка в методе {name}: {e}")
                 traceback.print_exc()
                 metrics_all[name] = {"error": str(e)}
 
@@ -3082,23 +3549,23 @@ def run_ground_truth_evaluation(
         metrics_path: Path = Path(output_dir) / f"gt_metrics_{img_name}.json"
         with open(metrics_path, "w", encoding="utf-8") as f:
             json.dump(metrics_all, f, indent=2, ensure_ascii=False, default=str)
-        print(f"   💾 Детальные метрики сохранены в {metrics_path}")
+        logger.info(f"   💾 Детальные метрики сохранены в {metrics_path}")
 
     # ──────────────────────────────────────────────────────
     # АНАЛИЗ И ВИЗУАЛИЗАЦИИ
     # ──────────────────────────────────────────────────────
     if not has_gt_images:
-        print("⚠️ Ground Truth маски не найдены ни для одного изображения. Пропускаем этап оценки качества.")
+        logger.warning("⚠️ Ground Truth маски не найдены ни для одного изображения. Пропускаем этап оценки качества.")
         return None
 
-    print("\n📈 Генерация отчётов...")
+    logger.info("\n📈 Генерация отчётов...")
 
     # Визуализации
-    print("\n📈 Построение сводных графиков по результатам Ground Truth...")
+    logger.info("\n📈 Построение сводных графиков по результатам Ground Truth...")
     visualize_gt_results(gt_results_summary, output_dir=output_dir)
 
     # Топ-5 методов по среднему IoU
-    print("\n🏆 ТОП-5 методов по среднему IoU:")
+    logger.info("\n🏆 ТОП-5 методов по среднему IoU:")
     flat_results: List[Dict[str, Any]] = []
     for img, methods in gt_results_summary.items():
         for method, metrics in methods.items():
@@ -3117,15 +3584,15 @@ def run_ground_truth_evaluation(
         top_series: pd.Series = df_flat.groupby("Method")["IoU"].mean().sort_values(ascending=False).head(5)
         top_methods = list(top_series.items())
 
-        print("\n🏆 ТОП-5 методов по среднему IoU:")
+        logger.info("\n🏆 ТОП-5 методов по среднему IoU:")
         for i, (method, iou) in enumerate(top_methods, 1):
-            print(f"   {i}. {method}: IoU = {iou:.4f}")
+            logger.info(f"   {i}. {method}: IoU = {iou:.4f}")
     else:
-        print("   Нет успешных результатов для ранжирования.")
+        logger.error("   Нет успешных результатов для ранжирования.")
 
-    print("\n" + "=" * 60)
-    print("СВОДНЫЙ ОТЧЕТ ПО GROUND TRUTH")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("СВОДНЫЙ ОТЧЕТ ПО GROUND TRUTH")
+    logger.info("=" * 60)
 
     # Сводная таблица
     rows: List[Dict[str, Any]] = []
@@ -3149,12 +3616,12 @@ def run_ground_truth_evaluation(
     if rows:
         summary_df = pd.DataFrame(rows)
         summary_df_sorted = summary_df.sort_values(by=["Image", "IoU"], ascending=[True, False])
-        print("\nТоп методов по IoU:")
-        print(summary_df_sorted[["Method", "Image", "IoU", "Dice", "Time_s"]].to_string(index=False))
+        logger.info("\nТоп методов по IoU:")
+        logger.info(summary_df_sorted[["Method", "Image", "IoU", "Dice", "Time_s"]].to_string(index=False))
         summary_df_sorted.to_csv("./data/gt_summary_report.csv", index=False)
         summary_path: Path = Path(output_dir) / "gt_summary_report.csv"
         summary_df_sorted.to_csv(summary_path, index=False, float_format="%.4f")
-        print(f"\n💾 Сводка: {summary_path}")
+        logger.info(f"\n💾 Сводка: {summary_path}")
         plt.figure(figsize=(12, 6))
         first_img = list(gt_results_summary.keys())[0]
         df_plot = summary_df[summary_df["Image"] == first_img].sort_values("IoU", ascending=False).head(10)
@@ -3166,12 +3633,12 @@ def run_ground_truth_evaluation(
             plt.gca().invert_yaxis()
             plt.tight_layout()
             plt.savefig("./data/gt_iu_comparison_chart.png")
-            print("📊 График сохранен в ./data/gt_iu_comparison_chart.png")
+            logger.info("📊 График сохранен в ./data/gt_iu_comparison_chart.png")
         else:
-            print("⚠️ Не удалось построить график: нет данных для первого изображения.")
+            logger.warning("⚠️ Не удалось построить график: нет данных для первого изображения.")
         plt.close()
     else:
-        print("Нет успешных метрик для отображения.")
+        logger.error("Нет успешных метрик для отображения.")
 
     return {
         "gt_results_summary": gt_results_summary,
@@ -3190,10 +3657,23 @@ def run_augmentation_training_study(
     """Исследование влияния уровней аугментаций на качество обучения моделей.
 
     Выполняет:
-    1. Обучение нескольких архитектур с разными уровнями аугментаций.
-    2. Сравнение метрик (mIoU, val loss) между конфигурациями.
-    3. Генерацию визуализаций: бар-чарты, тепловые карты, топ-комбинации.
-    4. Оценку обученных моделей на валидации через чекпоинты.
+    1. **Конфигурация**: Определение уровней аугментаций и архитектур.
+    2. **Обучение**: Запуск экспериментов с разными комбинациями.
+    3. **Сравнение**: Анализ метрик (mIoU, val loss) между конфигурациями.
+    4. **Визуализация**: Генерация бар-чартов, тепловых карт и топ-комбинаций.
+    5. **Оценка**: Валидация сохранённых чекпоинтов на подмножестве данных.
+
+    Алгоритм:
+    ```
+    1. Инициализировать ModelTrainer(root_dir, checkpoint_dir, device).
+    2. Для каждого уровня аугментации (none/basic/medium/aggressive):
+       Для каждой модели (unet, fpn, deeplab...):
+          → train_experiment(config) → сохранить результат.
+    3. Сравнить результаты по уровням.
+    4. Сгенерировать графики сравнения и тепловую карту (Model × Augmentation → mIoU).
+    5. Оценить чекпоинты на валидации.
+    6. Вернуть Dict{results_by_model, summary_df, trainer, checkpoints}.
+    ```
 
     Конфигурации аугментаций:
     - `none`: Без аугментаций (baseline).
@@ -3222,6 +3702,8 @@ def run_augmentation_training_study(
         - Обучение выполняется на подмножестве датасета (`subset_fraction=0.05` для скорости).
         - Каждый эксперимент сохраняет чекпоинт с именем `{model}_{aug_level}_*.pth`.
         - Для оценки на валидации используются только чекпоинты с `medium` аугментациями.
+        - Тепловая карта строится через `seaborn.heatmap` для наглядности.
+        - Топ-3 комбинации сохраняются в отдельный CSV.
 
     Example:
         ```python
@@ -3233,15 +3715,15 @@ def run_augmentation_training_study(
         if results:
             # Лучшая комбинация модель+аугментация
             best = results['summary_df'].nlargest(1, 'Best mIoU (%)')
-            print(f"🏆 Лучшая: {best['Model'].iloc[0]} + {best['Augmentation Level'].iloc[0]}")
-            print(f"   mIoU: {best['Best mIoU (%)'].iloc[0]:.2f}%")
+            logger.info(f"🏆 Лучшая: {best['Model'].iloc[0]} + {best['Augmentation Level'].iloc[0]}")
+            logger.info(f"   mIoU: {best['Best mIoU (%)'].iloc[0]:.2f}%")
         ```
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    print("\n" + "=" * 80)
-    print("ИССЛЕДОВАНИЕ: ВЛИЯНИЕ АУГМЕНТАЦИЙ НА КАЧЕСТВО ОБУЧЕНИЯ")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("ИССЛЕДОВАНИЕ: ВЛИЯНИЕ АУГМЕНТАЦИЙ НА КАЧЕСТВО ОБУЧЕНИЯ")
+    logger.info("=" * 80)
 
     # ──────────────────────────────────────────────────────
     # 1. ИНИЦИАЛИЗАЦИЯ ТРЕНЕРА
@@ -3273,16 +3755,16 @@ def run_augmentation_training_study(
 
     results_by_model_and_aug: Dict[str, Dict[str, Any]] = {model_type: {} for model_type in model_types}
 
-    print(f"\n🔧 План: {len(model_types)} моделей × {len(augmentation_configs)} уровней аугментаций")
+    logger.info(f"\n🔧 План: {len(model_types)} моделей × {len(augmentation_configs)} уровней аугментаций")
 
     # ──────────────────────────────────────────────────────
     # 3. ЦИКЛ ОБУЧЕНИЯ
     # ──────────────────────────────────────────────────────
     for aug_config in augmentation_configs:
         for model_type in model_types:
-            print(f"\n{'=' * 60}")
-            print(f"🔹 Модель: {model_type} | Аугментации: {aug_config['level']}")
-            print(f"{'=' * 60}")
+            logger.info(f"\n{'=' * 60}")
+            logger.info(f"🔹 Модель: {model_type} | Аугментации: {aug_config['level']}")
+            logger.info(f"{'=' * 60}")
 
             # Настройка энкодера
             encoder_name: Literal["resnet34", "resnet50", "resnet101", "mit_b5", "efficientnet-b0"]
@@ -3311,35 +3793,35 @@ def run_augmentation_training_study(
                 results_by_model_and_aug[model_type][aug_config["level"]] = result
 
                 miou_pct: float = result["best_miou"] * 100
-                print(f"✅ {model_type} ({aug_config['level']}): Best mIoU = {miou_pct:.2f}%")
+                logger.info(f"✅ {model_type} ({aug_config['level']}): Best mIoU = {miou_pct:.2f}%")
 
             except Exception as e:
-                print(f"❌ Ошибка обучения {model_type} ({aug_config['level']}): {e}")
+                logger.error(f"❌ Ошибка обучения {model_type} ({aug_config['level']}): {e}")
                 if os.getenv("DEBUG", "0") == "1":
                     traceback.print_exc()
 
     # ──────────────────────────────────────────────────────
     # 4. СРАВНЕНИЕ РЕЗУЛЬТАТОВ
     # ──────────────────────────────────────────────────────
-    print("\n" + "=" * 60)
-    print("📊 СРАВНЕНИЕ УРОВНЕЙ АУГМЕНТАЦИЙ")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("📊 СРАВНЕНИЕ УРОВНЕЙ АУГМЕНТАЦИЙ")
+    logger.info("=" * 60)
 
     for model_type in model_types:
-        print(f"\n🔹 {model_type}:")
-        print("-" * 60)
+        logger.info(f"\n🔹 {model_type}:")
+        logger.info("-" * 60)
         for level, result in results_by_model_and_aug[model_type].items():
             miou: float = result["best_miou"] * 100
-            print(f"   {level:10s}: {miou:6.2f}% mIoU")
+            logger.info(f"   {level:10s}: {miou:6.2f}% mIoU")
 
     # ──────────────────────────────────────────────────────
     # 5. ВИЗУАЛИЗАЦИИ
     # ──────────────────────────────────────────────────────
     trainer.plot_experiment_comparison(output_path="./data/augmentation_comparison.png")
 
-    print("\n" + "=" * 80)
-    print("🎨 ГЕНЕРАЦИЯ ВИЗУАЛИЗАЦИЙ")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("🎨 ГЕНЕРАЦИЯ ВИЗУАЛИЗАЦИЙ")
+    logger.info("=" * 80)
 
     _generate_augmentation_plots(
         results_by_model_and_aug=results_by_model_and_aug,
@@ -3351,10 +3833,10 @@ def run_augmentation_training_study(
     # ──────────────────────────────────────────────────────
     # 6. ОЦЕНКА НА ВАЛИДАЦИИ
     # ──────────────────────────────────────────────────────
-    print("\n🔹 Оценка обученных моделей на валидации...")
+    logger.info("\n🔹 Оценка обученных моделей на валидации...")
 
     comparison_results: Dict[str, float] = trainer.compare_trained_models(augmentation_level="medium")
-    print(f"Training results: {comparison_results}")
+    logger.info(f"Training results: {comparison_results}")
 
     # Сбор чекпоинтов с `medium` аугментациями
     checkpoints: Dict[str, str] = _collect_checkpoints(
@@ -3364,25 +3846,25 @@ def run_augmentation_training_study(
     )
 
     if checkpoints:
-        print(f"   🔍 Найдено чекпоинтов: {len(checkpoints)}")
+        logger.info(f"   🔍 Найдено чекпоинтов: {len(checkpoints)}")
 
         # Оценка
         try:
             eval_results_old: pd.DataFrame = trainer.evaluate_checkpoints(
                 checkpoint_paths=list(checkpoints.values()),
-                model_type="unet_smp",  # 🔥 Нужно указать тип модели или сделать универсально
+                model_type="unet_smp",
                 # val_fraction=0.05,
             )
-            print(eval_results_old)
+            logger.info(eval_results_old)
 
             eval_results: Dict[str, Any] = trainer.evaluate_trained_models_on_val(
                 checkpoints=checkpoints,
                 val_fraction=0.05,
             )
-            print(eval_results)
-            print("   ✅ Оценка завершена")
+            logger.info(eval_results)
+            logger.info("   ✅ Оценка завершена")
         except Exception as e:
-            print(f"   ⚠️  Ошибка оценки: {e}")
+            logger.warning(f"   ⚠️  Ошибка оценки: {e}")
 
     # ──────────────────────────────────────────────────────
     # 7. СВОДНАЯ ТАБЛИЦА И ТОП-3
@@ -3391,25 +3873,25 @@ def run_augmentation_training_study(
         results_by_model_and_aug=results_by_model_and_aug,
         model_types=model_types,
     )
-    print(summary_df.to_string(index=False))
+    logger.info(summary_df.to_string(index=False))
 
     # Сохранение сводки
     summary_path: Path = Path(output_dir) / "augmentation_impact_full_summary.csv"
     summary_df.to_csv(summary_path, index=False)
-    print(f"\n💾 Сводка: {summary_path}")
+    logger.info(f"\n💾 Сводка: {summary_path}")
 
     # Топ-3 комбинации
     top_combinations: pd.DataFrame = summary_df.nlargest(3, "Best mIoU (%)")
-    print("\n🏆 ТОП-3 ЛУЧШИХ КОМБИНАЦИЙ:")
+    logger.info("\n🏆 ТОП-3 ЛУЧШИХ КОМБИНАЦИЙ:")
     for idx, row in top_combinations.iterrows():
-        print(f"\n   {idx + 1}. {row['Model']} + {row['Augmentation Level']}")
-        print(f"      mIoU: {row['Best mIoU (%)']:.2f}%")
-        print(f"      Epochs: {row['Epochs']}")
-        print(f"   Final Val Loss: {row['Final Val Loss']}")
+        logger.info(f"\n   {idx + 1}. {row['Model']} + {row['Augmentation Level']}")
+        logger.info(f"      mIoU: {row['Best mIoU (%)']:.2f}%")
+        logger.info(f"      Epochs: {row['Epochs']}")
+        logger.info(f"   Final Val Loss: {row['Final Val Loss']}")
 
     top_path: Path = Path(output_dir) / "top_3_combinations.csv"
     top_combinations.to_csv(top_path, index=False)
-    print(f"\n📊 Топ-3 сохранён: {top_path}")
+    logger.info(f"\n📊 Топ-3 сохранён: {top_path}")
 
     # Тепловая карта
     _generate_augmentation_heatmap(summary_df, output_dir)
@@ -3429,16 +3911,60 @@ def _generate_augmentation_plots(
     augmentation_configs: List[Dict[str, Any]],
     output_dir: str,
 ) -> None:
-    """Генерирует графики сравнения аугментаций.
+    """Генерирует графики сравнения влияния аугментаций на качество обучения.
 
-    1. Бар-чарты: влияние аугментаций для каждой модели.
-    2. Групповые бар-чарты: сравнение моделей для каждого уровня аугментаций.
+    Выполняет:
+    1. **Подготовка**: Создание директории `plots/`.
+    2. **График 1 (модель × аугментации)**:
+       - Группированные бар-чарты для каждой архитектуры.
+       - Подписи значений поверх столбцов.
+    3. **График 2 (аугментация × модели)**:
+       - Сравнение всех моделей для каждого уровня аугментаций.
+       - Цветовая схема через `viridis` colormap.
+
+    Алгоритм:
+    ```
+    1. Создать plots_dir.
+    2. График 1:
+       → Для каждой модели: извлечь mIoU по уровням аугментаций.
+       → Построить bar chart с цветами ["#ffcccc", "#ff9999", "#ff6666"].
+       → Добавить подписи значений и сетку.
+    3. График 2:
+       → Для каждого уровня аугментаций: собрать mIoU по моделям.
+       → Построить bar chart с цветами из colormaps["viridis"].
+       → Повернуть подписи оси X на 45°.
+    4. Сохранить оба графика в PNG с DPI=300.
+    ```
+
+    Args:
+        results_by_model_and_aug: Результаты обучения `{модель: {уровень: метрики}}`.
+        model_types: Список типов моделей для визуализации.
+        augmentation_configs: Конфигурации уровней аугментаций.
+        output_dir: Базовая директория для сохранения.
+
+    Returns:
+        None. Графики сохраняются в `{output_dir}/plots/`.
+
+    Note:
+        - Цвета для аугментаций подобраны для интуитивного восприятия (светлее → слабее).
+        - Подписи значений отображаются с точностью до 2 знаков после запятой.
+        - При отсутствии данных для модели/уровня график пропускается.
+
+    Example:
+        ```python
+        _generate_augmentation_plots(
+            results_by_model_and_aug=results,
+            model_types=["unet_smp", "fpn_smp"],
+            augmentation_configs=[{"level": "basic"}, {"level": "medium"}],
+            output_dir="./results/aug_study"
+        )
+        ```
     """
     plots_dir: Path = Path(output_dir) / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     # График 1: Аугментации для каждой модели
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    _, axes = plt.subplots(2, 3, figsize=(18, 10))
     axes = axes.flatten()
 
     for idx, model_type in enumerate(model_types):
@@ -3475,7 +4001,7 @@ def _generate_augmentation_plots(
         bbox_inches="tight",
     )
     plt.close()
-    print(f"📊 График 1: {plots_dir / 'augmentation_comparison_all_models.png'}")
+    logger.info(f"📊 График 1: {plots_dir / 'augmentation_comparison_all_models.png'}")
 
     # График 2: Модели для каждого уровня аугментаций
     if augmentation_configs:
@@ -3526,7 +4052,7 @@ def _generate_augmentation_plots(
             bbox_inches="tight",
         )
         plt.close()
-        print(f"📊 График 2: {plots_dir / 'model_comparison_by_augmentation.png'}")
+        logger.info(f"📊 График 2: {plots_dir / 'model_comparison_by_augmentation.png'}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -3535,15 +4061,48 @@ def _collect_checkpoints(
     augmentation_levels: List[str],
     checkpoint_dir: str,
 ) -> Dict[str, str]:
-    """Собирает актуальные чекпоинты по паттернам.
+    """Собирает актуальные чекпоинты по паттернам имён файлов.
+
+    Выполняет:
+    1. **Поиск по шаблону**: Использование `glob` для поиска `*_*.pth`.
+    2. **Фильтрация по времени**: Выбор самого свежего файла через `max(..., key=getctime)`.
+    3. **Формирование отображения**: Создание `{display_name: checkpoint_path}`.
+
+    Алгоритм:
+    ```
+    1. Для каждой (model_type, level):
+       a. Сформировать pattern = f"{checkpoint_dir}/{model_type}_{level}_*.pth".
+       b. Найти files = glob.glob(pattern).
+       c. Если files не пуст:
+          → latest = max(files, key=os.path.getctime).
+          → checkpoints[f"{model_type} ({level})"] = latest.
+       d. Иначе → вывести предупреждение.
+    2. Вернуть словарь чекпоинтов.
+    ```
 
     Args:
-        model_types: Список типов моделей.
-        augmentation_levels: Уровни аугментаций для поиска.
-        checkpoint_dir: Директория с чекпоинтами.
+        model_types: Список типов моделей для поиска.
+        augmentation_levels: Уровни аугментаций для фильтрации.
+        checkpoint_dir: Директория с сохранёнными `.pth` файлами.
 
     Returns:
-        Dict[str, str]: {display_name: checkpoint_path}
+        Dict[str, str]: Словарь `{отображаемое_имя: путь_к_файлу}`.
+
+    Note:
+        - Используется время создания файла (`getctime`), а не модификации.
+        - При отсутствии чекпоинтов выводится предупреждение, но выполнение продолжается.
+        - Отображаемое имя форматируется как `"{модель} ({уровень})"`.
+
+    Example:
+        ```python
+        checkpoints = _collect_checkpoints(
+            model_types=["unet_smp", "fpn_smp"],
+            augmentation_levels=["basic", "medium"],
+            checkpoint_dir="./models"
+        )
+        print(checkpoints)
+        # {'unet_smp (basic)': './models/unet_smp_basic_epoch199.pth', ...}
+        ```
     """
     checkpoints: Dict[str, str] = {}
 
@@ -3557,9 +4116,9 @@ def _collect_checkpoints(
                 latest: str = max(files, key=os.path.getctime)
                 display_name: str = f"{model_type} ({level})"
                 checkpoints[display_name] = latest
-                print(f"   ✅ {display_name}: {latest}")
+                logger.info(f"   ✅ {display_name}: {latest}")
             else:
-                print(f"   ⚠️  {model_type} ({level}): не найден")
+                logger.warning(f"   ⚠️  {model_type} ({level}): не найден")
 
     return checkpoints
 
@@ -3569,21 +4128,52 @@ def _create_augmentation_summary(
     results_by_model_and_aug: Dict[str, Dict[str, Any]],
     model_types: List[str],
 ) -> pd.DataFrame:
-    """Создаёт сводный DataFrame по результатам обучения.
+    """Создаёт сводный DataFrame по результатам обучения с аугментациями.
+
+    Выполняет:
+    1. **Агрегация**: Сбор метрик из вложенной структуры результатов.
+    2. **Форматирование**: Конвертация `best_miou` в проценты, обработка `None` для val loss.
+    3. **Сортировка**: Упорядочивание по модели и убыванию mIoU.
+
+    Алгоритм:
+    ```
+    1. Инициализировать пустой список summary_data.
+    2. Для каждой (model_type, level, result):
+       → Добавить запись с полями:
+          - Model, Augmentation Level
+          - Best mIoU (%) = result["best_miou"] * 100
+          - Epochs, Final Val Loss (с заменой None на "N/A")
+    3. Создать DataFrame из списка.
+    4. Отсортировать по [Model (asc), Best mIoU (%) (desc)].
+    5. Вернуть DataFrame.
+    ```
 
     Args:
-        results_by_model_and_aug: Результаты по моделям и аугментациям.
-        model_types: Список типов моделей.
+        results_by_model_and_aug: Результаты обучения `{модель: {уровень: метрики}}`.
+        model_types: Список типов моделей для включения в сводку.
 
     Returns:
         pd.DataFrame: Сводная таблица с колонками:
-                     [Model, Augmentation Level, Best mIoU (%), Epochs, Final Val Loss]
+                      [Model, Augmentation Level, Best mIoU (%), Epochs, Final Val Loss].
+
+    Note:
+        - `Final Val Loss` отображается как `"N/A"`, если значение отсутствует.
+        - Сортировка позволяет легко найти лучшую конфигурацию для каждой модели.
+        - Все числовые значения сохраняются в исходной точности (кроме mIoU → %).
+
+    Example:
+        ```python
+        summary = _create_augmentation_summary(results, model_types=["unet_smp", "fpn_smp"])
+        print(summary.head())
+        #   Model      Augmentation Level  Best mIoU (%)  Epochs  Final Val Loss
+        # 0 unet_smp   basic               45.32          200     0.87
+        ```
     """
     summary_data: List[Dict[str, Any]] = []
 
-    print("\n" + "=" * 80)
-    print("СВОДНАЯ ТАБЛИЦА: ВЛИЯНИЕ АУГМЕНТАЦИЙ НА КАЧЕСТВО")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("СВОДНАЯ ТАБЛИЦА: ВЛИЯНИЕ АУГМЕНТАЦИЙ НА КАЧЕСТВО")
+    logger.info("=" * 80)
 
     for model_type in model_types:
         for level, result in results_by_model_and_aug[model_type].items():
@@ -3598,25 +4188,55 @@ def _create_augmentation_summary(
             )
 
     df: pd.DataFrame = pd.DataFrame(summary_data)
-
-    # Сортировка: по модели, затем по mIoU (убывание)
     return df.sort_values(["Model", "Best mIoU (%)"], ascending=[True, False])
 
 
 # ──────────────────────────────────────────────────────────────────────
 def _generate_augmentation_heatmap(summary_df: pd.DataFrame, output_dir: str) -> None:
-    """Генерирует тепловую карту влияния аугментаций.
+    """Генерирует тепловую карту влияния аугментаций на качество сегментации.
+
+    Выполняет:
+    1. **Проверка данных**: Пропуск генерации при пустом DataFrame.
+    2. **Pivot-трансформация**: Преобразование в матрицу [Модель × Уровень → mIoU].
+    3. **Визуализация**: Построение `seaborn.heatmap` с аннотациями и цветовой схемой.
+    4. **Сохранение**: Экспорт в PNG с высоким DPI и подписями.
+
+    Алгоритм:
+    ```
+    1. Если summary_df.empty → вернуть.
+    2. Создать plots_dir = Path(output_dir) / "plots".
+    3. pivot_data = summary_df.pivot(index="Model", columns="Augmentation Level", values="Best mIoU (%)").
+    4. Построить heatmap:
+       - cmap="YlOrRd" (от жёлтого к красному)
+       - annot=True с форматом ".2f"
+       - linewidths=0.5 для разделения ячеек
+    5. Добавить заголовок, подписи осей, сохранить в PNG.
+    ```
 
     Args:
-        summary_df: Сводный DataFrame с результатами.
-        output_dir: Директория для сохранения.
+        summary_df: Сводный DataFrame с результатами обучения.
+        output_dir: Базовая директория для сохранения визуализаций.
+
+    Returns:
+        None. Тепловая карта сохраняется в `{output_dir}/plots/augmentation_heatmap.png`.
+
+    Note:
+        - Цветовая схема `YlOrRd` интуитивно отображает рост качества (светлее → хуже).
+        - Аннотации отображают точные значения mIoU с двумя знаками после запятой.
+        - При отсутствии данных для комбинации ячейка остаётся пустой.
+
+    Example:
+        ```python
+        _generate_augmentation_heatmap(summary_df, output_dir="./results/aug_study")
+        # Сохранит тепловую карту в ./results/aug_study/plots/augmentation_heatmap.png
+        ```
     """
     if summary_df.empty:
         return
 
-    print("\n" + "=" * 80)
-    print("ТЕПЛОВАЯ КАРТА: МОДЕЛИ × АУГМЕНТАЦИИ")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("ТЕПЛОВАЯ КАРТА: МОДЕЛИ × АУГМЕНТАЦИИ")
+    logger.info("=" * 80)
 
     plots_dir: Path = Path(output_dir) / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
@@ -3653,7 +4273,7 @@ def _generate_augmentation_heatmap(summary_df: pd.DataFrame, output_dir: str) ->
     plt.savefig(heatmap_path, dpi=300, bbox_inches="tight")
     plt.close()
 
-    print(f"🔥 Тепловая карта сохранена: {heatmap_path}")
+    logger.info(f"🔥 Тепловая карта сохранена: {heatmap_path}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -3720,7 +4340,7 @@ def visualize_gt_results(
             all_rows.append(row)
 
     if not all_rows:
-        print("⚠️ Нет валидных данных для визуализации.")
+        logger.warning("⚠️ Нет валидных данных для визуализации.")
 
         return
     df: pd.DataFrame = pd.DataFrame(all_rows)
@@ -3740,18 +4360,43 @@ def visualize_gt_results(
     # Сохранение сводной таблицы
     csv_path: str = os.path.join(output_dir, "gt_summary_table.csv")
     df_avg.to_csv(csv_path, index=False, float_format="%.4f")
-    print(f"💾 Сводная таблица: {csv_path}")
+    logger.info(f"💾 Сводная таблица: {csv_path}")
 
 
 # ──────────────────────────────────────────────────────────────────────
 def _extract_library_from_name(method_name: str) -> str:
-    """Извлекает название библиотеки из имени метода.
+    """Извлекает название библиотеки из имени метода сегментации.
+
+    Выполняет:
+    1. **Разбиение**: Сегментация строки по символу подчёркивания.
+    2. **Анализ суффикса**: Проверка последнего элемента на известные библиотеки.
+    3. **Нормализация**: Приведение к верхнему регистру для сравнения.
+
+    Алгоритм:
+    ```
+    1. Разбить method_name на части: parts = method_name.split("_").
+    2. Если parts пуст → вернуть "Unknown".
+    3. Взять suffix = parts[-1].upper().
+    4. Если suffix в ["CV2", "SKLEARN", "TORCH", "NEURAL"] → вернуть suffix.
+    5. Иначе → вернуть "Unknown".
+    ```
 
     Args:
-        method_name: Имя метода, например "Otsu_Thresholding_CV2".
+        method_name: Имя метода, например `"Otsu_Thresholding_CV2"`.
 
     Returns:
-        str: Название библиотеки: "CV2", "Sklearn", "Torch" или "Unknown".
+        str: Название библиотеки: `"CV2"`, `"Sklearn"`, `"Torch"`, `"Neural"` или `"Unknown"`.
+
+    Note:
+        - Сравнение регистронезависимое благодаря `.upper()`.
+        - Поддерживаются только суффиксы в конце имени метода.
+        - Для методов без суффикса возвращается `"Unknown"`.
+
+    Example:
+        ```python
+        lib = _extract_library_from_name("adaptive_thresholding_Sklearn")
+        print(lib)  # "SKLEARN"
+        ```
     """
     parts: List[str] = method_name.split("_")
     if not parts:
@@ -3767,11 +4412,38 @@ def _extract_library_from_name(method_name: str) -> str:
 def _aggregate_metrics_by_method(df: pd.DataFrame) -> pd.DataFrame:
     """Агрегирует метрики по методам: усреднение по всем изображениям.
 
+    Выполняет:
+    1. **Группировка**: Объединение строк по паре [Method, Library].
+    2. **Агрегация**: Вычисление среднего для ключевых метрик.
+    3. **Сортировка**: Упорядочивание по убыванию IoU для наглядности.
+
+    Алгоритм:
+    ```
+    1. Группировать df по ["Method", "Library"].
+    2. Применить .agg() с функцией "mean" для колонок:
+       - IoU, Dice, F1_Score, Time_s, Precision, Recall.
+    3. Сбросить индекс через .reset_index().
+    4. Отсортировать по "IoU" в убывающем порядке.
+    5. Вернуть агрегированный DataFrame.
+    ```
+
     Args:
-        df: DataFrame с сырыми результатами.
+        df: DataFrame с сырыми результатами тестирования.
 
     Returns:
-        pd.DataFrame: Агрегированные данные с колонками [Method, Library, IoU, Dice, ...].
+        pd.DataFrame: Агрегированные данные с колонками:
+                      [Method, Library, IoU, Dice, F1_Score, Time_s, Precision, Recall].
+
+    Note:
+        - Агрегация корректно обрабатывает пропущенные значения (NaN).
+        - Сортировка по IoU позволяет сразу увидеть лучшие методы.
+        - Библиотека сохраняется для сравнения реализаций одного алгоритма.
+
+    Example:
+        ```python
+        df_avg = _aggregate_metrics_by_method(raw_results_df)
+        print(df_avg.head(3)[["Method", "Library", "IoU"]])
+        ```
     """
     return (
         df.groupby(["Method", "Library"])
@@ -3792,7 +4464,44 @@ def _aggregate_metrics_by_method(df: pd.DataFrame) -> pd.DataFrame:
 
 # ──────────────────────────────────────────────────────────────────────
 def _plot_metrics_comparison(df_avg: pd.DataFrame, output_dir: str) -> None:
-    """Построение bar chart сравнения метрик."""
+    """Построение bar chart сравнения метрик качества сегментации.
+
+    Выполняет:
+    1. **Подготовка данных**: Извлечение усреднённых значений метрик.
+    2. **Группировка баров**: Размещение IoU/Dice/F1 рядом для каждого метода.
+    3. **Оформление**: Подписи осей, легенда, сетка, поворот подписей.
+    4. **Сохранение**: Экспорт в PNG с DPI=150.
+
+    Алгоритм:
+    ```
+    1. Создать фигуру 14×8 дюймов.
+    2. Для каждого метода (индекс i):
+       → Бар 1 (i - width): IoU, цвет #2ecc71.
+       → Бар 2 (i): Dice, цвет #3498db.
+       → Бар 3 (i + width): F1-Score, цвет #e74c3c.
+    3. Установить подписи: методы на оси X (поворот 45°), "Score" на оси Y.
+    4. Добавить легенду, сетку по Y, title.
+    5. Сохранить в {output_dir}/metrics_comparison_bar.png.
+    ```
+
+    Args:
+        df_avg: Агрегированный DataFrame с метриками по методам.
+        output_dir: Директория для сохранения графика.
+
+    Returns:
+        None. График сохраняется в `{output_dir}/metrics_comparison_bar.png`.
+
+    Note:
+        - Ширина баров (0.25) обеспечивает чёткое разделение групп.
+        - Цветовая схема подобрана для цветовой доступности (colorblind-friendly).
+        - Поворот подписей методов предотвращает наложение при длинных именах.
+
+    Example:
+        ```python
+        _plot_metrics_comparison(df_avg, output_dir="./results/gt_evaluation")
+        # Сохранит график сравнения метрик в metrics_comparison_bar.png
+        ```
+    """
     plt.figure(figsize=(14, 8))
     x: range = range(len(df_avg))
     width: float = 0.25
@@ -3817,12 +4526,48 @@ def _plot_metrics_comparison(df_avg: pd.DataFrame, output_dir: str) -> None:
     output_path: str = os.path.join(output_dir, "metrics_comparison_bar.png")
     plt.savefig(output_path, dpi=150)
     plt.close()
-    print(f"📊 График метрик: {output_path}")
+    logger.info(f"📊 График метрик: {output_path}")
 
 
 # ──────────────────────────────────────────────────────────────────────
 def _plot_speed_vs_accuracy(df_avg: pd.DataFrame, output_dir: str) -> None:
-    """Построение scatter plot: время выполнения vs IoU."""
+    """Построение scatter plot: зависимость точности (IoU) от времени выполнения.
+
+    Выполняет:
+    1. **Цветовое кодирование**: Разделение точек по библиотекам (CV2/Sklearn/Torch/Neural).
+    2. **Размещение точек**: Ось X — время (сек), ось Y — IoU.
+    3. **Аннотации**: Подписи методов (обрезанные до 10 символов) рядом с точками.
+    4. **Оформление**: Легенда, сетка, заголовок, сохранение в PNG.
+
+    Алгоритм:
+    ```
+    1. Создать фигуру 10×8 дюймов.
+    2. Для каждой библиотеки в df_avg.groupby("Library"):
+       → Взять цвет из lib_colors.
+       → Построить scatter(Time_s, IoU) с размером точки 100, alpha=0.7.
+       → Для каждой точки: добавить аннотацию с именем метода (сдвиг +5,+5).
+    3. Установить подписи осей, заголовок, легенду, сетку.
+    4. Сохранить в {output_dir}/speed_vs_accuracy.png.
+    ```
+
+    Args:
+        df_avg: Агрегированный DataFrame с метриками и временем.
+        output_dir: Директория для сохранения графика.
+
+    Returns:
+        None. График сохраняется в `{output_dir}/speed_vs_accuracy.png`.
+
+    Note:
+        - Цвета библиотек фиксированы для консистентности между графиками.
+        - Аннотации обрезаны до 10 символов, чтобы избежать наложения.
+        - Точки с одинаковыми координатами могут перекрываться (alpha=0.7 для прозрачности).
+
+    Example:
+        ```python
+        _plot_speed_vs_accuracy(df_avg, output_dir="./results/gt_evaluation")
+        # Визуализирует компромисс скорость/точность для всех методов
+        ```
+    """
     plt.figure(figsize=(10, 8))
 
     lib_colors: Dict[str, str] = {
@@ -3863,12 +4608,46 @@ def _plot_speed_vs_accuracy(df_avg: pd.DataFrame, output_dir: str) -> None:
     output_path: str = os.path.join(output_dir, "speed_vs_accuracy.png")
     plt.savefig(output_path, dpi=150)
     plt.close()
-    print(f"🚀 Speed vs Accuracy: {output_path}")
+    logger.info(f"🚀 Speed vs Accuracy: {output_path}")
 
 
 # ──────────────────────────────────────────────────────────────────────
 def _plot_precision_recall(df_avg: pd.DataFrame, output_dir: str) -> None:
-    """Построение графика Precision-Recall."""
+    """Построение графика баланса Precision и Recall для методов сегментации.
+
+    Выполняет:
+    1. **Построение кривой**: Линия, соединяющая точки (Recall, Precision).
+    2. **Аннотации**: Подписи методов (обрезанные до 15 символов) рядом с точками.
+    3. **Оформление**: Подписи осей, заголовок, сетка, сохранение в PNG.
+
+    Алгоритм:
+    ```
+    1. Создать фигуру 10×6 дюймов.
+    2. Построить линию: plt.plot(Recall, Precision, "o-", linewidth=2).
+    3. Для каждой строки df_avg:
+       → Добавить аннотацию с именем метода[:15] (сдвиг +5,+5, шрифт 7pt).
+    4. Установить подписи: "Recall (Полнота)", "Precision (Точность)", заголовок.
+    5. Добавить сетку, сохранить в {output_dir}/precision_recall_balance.png.
+    ```
+
+    Args:
+        df_avg: Агрегированный DataFrame с метриками.
+        output_dir: Директория для сохранения графика.
+
+    Returns:
+        None. График сохраняется в `{output_dir}/precision_recall_balance.png`.
+
+    Note:
+        - Идеальный метод находится в правом верхнем углу (Precision=Recall=1).
+        - Аннотации обрезаны до 15 символов для читаемости.
+        - Линия соединяет точки в порядке следования в DataFrame (не по значению).
+
+    Example:
+        ```python
+        _plot_precision_recall(df_avg, output_dir="./results/gt_evaluation")
+        # Показывает компромисс между точностью и полнотой для каждого метода
+        ```
+    """
     plt.figure(figsize=(10, 6))
     plt.plot(df_avg["Recall"], df_avg["Precision"], "o-", linewidth=2, markersize=8)
 
@@ -3890,7 +4669,7 @@ def _plot_precision_recall(df_avg: pd.DataFrame, output_dir: str) -> None:
     output_path: str = os.path.join(output_dir, "precision_recall_balance.png")
     plt.savefig(output_path, dpi=150)
     plt.close()
-    print(f"⚖️ График Precision-Recall сохранен: {output_path}")
+    logger.info(f"⚖️ График Precision-Recall сохранен: {output_path}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -3908,11 +4687,25 @@ def load_test_images(
     2. **Без Ground Truth** (`use_image_with_mask=False`):
        - Загружает изображения из предопределённых URL или локальных путей.
        - Генерирует синтетические бинарные маски (половина изображения = объект).
+    3. **Валидация**: Проверка успешной загрузки хотя бы одного изображения.
 
     Алгоритм конвертации маски ADE20K → бинарная:
     1. Находим самый частый класс (предполагаем, что это фон).
     2. Все остальные классы считаем объектом (значение 255).
     3. Если объектов <1% — пробуем второй по величине класс.
+
+    Алгоритм:
+    ```
+    1. Если use_image_with_mask:
+       a. Скачать ADE_val_00000001.jpg/png.
+       b. Найти самый частый класс → фон, остальные → объект.
+       c. Сохранить локальные копии.
+    2. Иначе:
+       a. Загрузить изображения по URL или из test_images/.
+       b. Сгенерировать синтетическую маску (нижняя половина = 255).
+    3. Если test_images пуст → RuntimeError.
+    4. Вернуть TestImagesDict.
+    ```
 
     Args:
         use_image_with_mask: Если `True`, загружать с ground truth из ADE20K.
@@ -3924,12 +4717,17 @@ def load_test_images(
     Raises:
         RuntimeError: Если не удалось загрузить ни одного изображения.
 
+    Note:
+        - Конвертация ADE20K → бинарная: фон = самый частый класс, объекты = остальные.
+        - При <1% пикселей объектов пытается использовать второй по частоте класс.
+        - Синтетические маски генерируются как `mask[h//2:, :] = 255`.
+
     Example:
         ```python
         # Режим с GT
         images = load_test_images(use_image_with_mask=True)
         name, (path, img, gt) = next(iter(images.items()))
-        print(f"{name}: {img.size}, GT shape: {gt.shape if gt is not else None}")
+        logger.info(f"{name}: {img.size}, GT shape: {gt.shape if gt is not else None}")
 
         # Режим без GT (синтетические маски)
         images = load_test_images(use_image_with_mask=False)
@@ -3951,8 +4749,44 @@ def _load_images_with_ground_truth(
     test_images: TestImagesDict,
     repo_id: str,
 ) -> None:
-    """Загружает изображение и GT-маску из репозитория."""
-    print(f"📥 Загрузка из репозитория {repo_id}...")
+    """Загружает изображение и GT-маску из репозитория HuggingFace.
+
+    Выполняет:
+    1. **Скачивание**: Загрузка изображения и маски через `hf_hub_download`.
+    2. **Конвертация**: Преобразование многоклассовой маски в бинарную.
+    3. **Сохранение локальных копий**: Кэширование для офлайн-работы.
+    4. **Добавление в словарь**: Запись в `test_images` с ключом `"ade20k_sample"`.
+
+    Алгоритм:
+    ```
+    1. Скачать ADE_val_00000001.jpg и .png из repo_id.
+    2. Открыть изображения через PIL, конвертировать RGB.
+    3. Конвертировать GT: _convert_multiclass_to_binary(gt_np).
+    4. Сохранить локальные копии: _save_test_artifacts(...).
+    5. Добавить в test_images["ade20k_sample"] = (path, img, binary_gt).
+    ```
+
+    Args:
+        test_images: Словарь для добавления загруженного образца.
+        repo_id: ID репозитория на HuggingFace (например, `ADE20K fixtures`).
+
+    Returns:
+        None. Модифицирует `test_images` in-place.
+
+    Note:
+        - Конвертация GT: самый частый класс считается фоном, остальные — объектом.
+        - Локальные копии сохраняются в `test_images/` для повторного использования.
+        - При отсутствии интернета скачивание завершится ошибкой.
+
+    Example:
+        ```python
+        test_images = {}
+        _load_images_with_ground_truth(test_images, "hf-internal-testing/fixtures_ade20k")
+        name, (path, img, gt) = test_images["ade20k_sample"]
+        print(f"GT shape: {gt.shape}, unique values: {np.unique(gt)}")
+        ```
+    """
+    logger.info(f"📥 Загрузка из репозитория {repo_id}...")
 
     img_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset")
     mask_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.png", repo_type="dataset")
@@ -3960,22 +4794,24 @@ def _load_images_with_ground_truth(
     img: Image.Image = Image.open(img_path).convert("RGB")
     gt_mask_pil: Image.Image = Image.open(mask_path)
 
-    print(f"✅ Изображение загружено: {os.path.basename(img_path)}")
-    print(f"✅ Ground truth загружен: {os.path.basename(mask_path)}")
-    print(f"Ground Truth: {mask_path}")
-    print(f"Размер изображения: {img.size}")
-    print(f"Размер GT: {gt_mask_pil.size}")
+    logger.info(f"✅ Изображение загружено: {os.path.basename(img_path)}")
+    logger.info(f"✅ Ground truth загружен: {os.path.basename(mask_path)}")
+    logger.info(f"Ground Truth: {mask_path}")
+    logger.info(f"Размер изображения: {img.size}")
+    logger.info(f"Размер GT: {gt_mask_pil.size}")
 
     # Конвертация маски в бинарную
     gt_np: npt.NDArray = np.array(gt_mask_pil)
-    print(f"\nДиапазон значений Ground Truth: {gt_np.min()} - {gt_np.max()}, min: {gt_np.min()}, max: {gt_np.max()}")
+    logger.info(
+        f"\nДиапазон значений Ground Truth: {gt_np.min()} - {gt_np.max()}, min: {gt_np.min()}, max: {gt_np.max()}"
+    )
     binary_gt: MaskArray = _convert_multiclass_to_binary(gt_np)
 
     # Сохранение локальных копий
-    local_paths = _save_test_artifacts(img, gt_mask_pil, binary_gt)
+    local_paths: Dict[str, str] = _save_test_artifacts(img, gt_mask_pil, binary_gt)
 
     test_images["ade20k_sample"] = (local_paths["img"], img, binary_gt)
-    print(f"✅ Загружен образец: {img.size}, GT: {binary_gt.shape}")
+    logger.info(f"✅ Загружен образец: {img.size}, GT: {binary_gt.shape}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -3997,13 +4833,13 @@ def _convert_multiclass_to_binary(gt_np: npt.NDArray) -> MaskArray:
     counts: np.ndarray
     unique, counts = np.unique(gt_np, return_counts=True)
     bg_class: np.ndarray = unique[np.argmax(counts)]
-    print(f"📊 Статистика GT: Всего классов {len(unique)}. Самый частый: {bg_class} ({np.max(counts)} пикселей)")
+    logger.info(f"📊 Статистика GT: Всего классов {len(unique)}. Самый частый: {bg_class} ({np.max(counts)} пикселей)")
 
     binary: MaskArray = (gt_np != bg_class).astype(np.uint8) * 255
 
     # fallback: если объектов слишком мало
     if np.sum(binary > 0) < (binary.size * 0.01) and len(unique) > 1:
-        print("⚠️ Объектов слишком мало по стратегии 'не фон'. Пробуем взять второй по величине класс.")
+        logger.warning("⚠️ Объектов слишком мало по стратегии 'не фон'. Пробуем взять второй по величине класс.")
         if len(unique) > 1:
             second_common: np.ndarray = unique[np.argsort(counts)[-2]]
             binary = (gt_np == second_common).astype(np.uint8) * 255
@@ -4020,7 +4856,44 @@ def _save_test_artifacts(
     gt_raw: Image.Image,
     gt_binary: MaskArray,
 ) -> Dict[str, str]:
-    """Сохраняет локальные копии тестовых артефактов."""
+    """Сохраняет локальные копии тестовых артефактов для офлайн-работы.
+
+    Выполняет:
+    1. **Создание директории**: `test_images/` при отсутствии.
+    2. **Сохранение файлов**:
+       - Оригинальное изображение → `test_gt_image.jpg`
+       - Сырая GT-маска → `test_gt_mask_raw.png`
+       - Бинарная GT-маска → `test_gt_mask.png`
+    3. **Логирование**: Вывод путей к сохранённым файлам.
+
+    Алгоритм:
+    ```
+    1. Создать os.makedirs("test_images", exist_ok=True).
+    2. Определить paths = {img, mask_raw, mask}.
+    3. Сохранить: img.save(paths["img"]), gt_raw.save(paths["mask_raw"]), ...
+    4. Вывести подтверждения сохранения для каждого файла.
+    5. Вернуть словарь путей.
+    ```
+
+    Args:
+        img: Оригинальное изображение в формате PIL.
+        gt_raw: Сырая многоклассовая маска в формате PIL.
+        gt_binary: Бинарная маска в формате numpy array.
+
+    Returns:
+        Dict[str, str]: Словарь `{тип: путь_к_файлу}`.
+
+    Note:
+        - Бинарная маска конвертируется в PIL перед сохранением.
+        - Форматы: JPG для изображения, PNG для масок (без потерь).
+        - Пути относительные, относительно текущей рабочей директории.
+
+    Example:
+        ```python
+        paths = _save_test_artifacts(img, gt_raw, gt_binary)
+        print(paths["mask"])  # "test_images/test_gt_mask.png"
+        ```
+    """
     os.makedirs("test_images", exist_ok=True)
 
     paths: Dict[str, str] = {
@@ -4030,13 +4903,13 @@ def _save_test_artifacts(
     }
 
     img.save(paths["img"])
-    print(f"✅ Изображение сохранено локально: {paths['img']}")
+    logger.info(f"✅ Изображение сохранено локально: {paths['img']}")
 
     gt_raw.save(paths["mask_raw"])
-    print(f"✅ Изображение сырой маски сохранено локально: {paths['mask_raw']}")
+    logger.info(f"✅ Изображение сырой маски сохранено локально: {paths['mask_raw']}")
 
     Image.fromarray(gt_binary).save(paths["mask"])
-    print(f"✅ Изображение маски сохранено локально: {paths['mask']}")
+    logger.info(f"✅ Изображение маски сохранено локально: {paths['mask']}")
 
     return paths
 
@@ -4050,22 +4923,64 @@ def generate_precision_report(
     n_runs: int = 10,
     compute_metrics: bool = True,
 ) -> Optional[pd.DataFrame]:
-    """Генерирует CSV-отчёт: метод × точность × метрики.
+    """Генерирует CSV-отчёт: метод × точность × метрики производительности.
+
+    Выполняет:
+    1. **Подготовка референсов**: Запуск методов в fp32 для сравнения метрик.
+    2. **Бенчмарк по точностям**: Замер времени для fp32/fp16/bf16 с прогревом.
+    3. **Вычисление метрик**: IoU относительно fp32-референса (опционально).
+    4. **Агрегация и сохранение**: Формирование DataFrame и экспорт в CSV.
+
+    Алгоритм:
+    ```
+    1. Если compute_metrics:
+       → Для каждого метода: создать TorchSegmenter2(precision="fp32") → сохранить маску.
+    2. Для каждого (метод, точность):
+       → Создать сегментер с нужной точностью.
+       → Прогреть: n_warmup запусков с torch.cuda.synchronize().
+       → Замерить: n_runs запусков, записать времена.
+       → Вычислить IoU vs fp32 (если compute_metrics и точность != fp32).
+       → Добавить запись в results.
+    3. Создать DataFrame, сохранить в CSV.
+    4. Вывести pivot-таблицы времени и IoU.
+    ```
 
     Args:
-        methods: Список названий методов для тестирования
-        image: Входное изображение (numpy array)
-        output_path: Путь для сохранения CSV
-        n_warmup: Количество "прогревочных" запусков
-        n_runs: Количество измерений для статистики
-        compute_metrics: Вычислять ли метрики качества (IoU)
+        methods: Список названий методов для тестирования.
+        image: Входное изображение (numpy array).
+        output_path: Путь для сохранения CSV-отчёта.
+        n_warmup: Количество "прогревочных" запусков перед замером.
+        n_runs: Количество измерений для статистики.
+        compute_metrics: Вычислять ли метрики качества (IoU относительно fp32).
+
+    Returns:
+        Optional[pd.DataFrame]: DataFrame с колонками:
+                               [method, precision, mean_time_ms, std_time_ms, iou_vs_fp32, memory_mb]
+                               или `None` при отсутствии данных.
+
+    Note:
+        - `bf16` может работать медленно на GPU старее Ampere (проверяется capability).
+        - Замеры времени синхронизируются через `torch.cuda.synchronize()` для точности.
+        - При ошибке для одной комбинации метод/точность выполнение продолжается.
+
+    Example:
+        ```python
+        df = generate_precision_report(
+            methods=["otsu_thresholding", "sobel_edge"],
+            image=test_img,
+            output_path="./reports/precision.csv",
+            n_runs=20
+        )
+        if df is not None:
+            print(df.pivot_table(index="method", columns="precision", values="mean_time_ms"))
+        ```
     """
     results: List[Dict[str, Any]] = []
 
     # Предварительная подготовка референсов для fp32
     fp32_refs: Dict[str, Any] = {}
     if compute_metrics:
-        print("📦 Подготовка референсных масок (fp32)...")
+        logger.info("📦 Подготовка референсных масок (fp32)...")
         for method in methods:
             try:
                 ref = TorchSegmenter2(
@@ -4076,7 +4991,7 @@ def generate_precision_report(
                 with torch.no_grad():
                     fp32_refs[method] = ref.segment(image)
             except Exception as e:
-                print(f"⚠️  Не удалось создать референс для {method}: {e}")
+                logger.warning(f"⚠️  Не удалось создать референс для {method}: {e}")
 
     for method in methods:
         for precision in ["fp32", "fp16", "bf16"]:
@@ -4085,7 +5000,7 @@ def generate_precision_report(
                 continue
             if precision == "bf16" and torch.cuda.is_available():
                 if torch.cuda.get_device_capability(0)[0] < 8:
-                    print(f"⚠️  bf16 может работать медленно на {torch.cuda.get_device_name(0)}")
+                    logger.warning(f"⚠️  bf16 может работать медленно на {torch.cuda.get_device_name(0)}")
 
             try:
                 seg: TorchSegmenter2 = TorchSegmenter2(
@@ -4104,7 +5019,7 @@ def generate_precision_report(
                 times: List[float] = []
                 for _ in range(n_runs):
                     start: float = time.perf_counter()
-                    mask = seg.segment(image)
+                    mask: np.ndarray = seg.segment(image)
                     if torch.cuda.is_available():
                         torch.cuda.synchronize()
                     times.append(time.perf_counter() - start)
@@ -4129,7 +5044,7 @@ def generate_precision_report(
                 )
 
             except Exception as e:
-                print(f"❌ Ошибка для {method}/{precision}: {e}")
+                logger.error(f"❌ Ошибка для {method}/{precision}: {e}")
                 continue
 
     # Сохранение и вывод
@@ -4138,24 +5053,62 @@ def generate_precision_report(
         df.to_csv(output_path, index=False)
 
         # Pivot-таблица для наглядности
-        print(f"\n📊 Отчёт сохранён: {output_path}")
-        print("\n⏱️  Время выполнения (мс):")
-        print(df.pivot_table(index="method", columns="precision", values="mean_time_ms").round(2))
+        logger.info(f"\n📊 Отчёт сохранён: {output_path}")
+        logger.info("\n⏱️  Время выполнения (мс):")
+        logger.info(df.pivot_table(index="method", columns="precision", values="mean_time_ms").round(2))
 
         if compute_metrics:
-            print("\n🎯 IoU относительно fp32:")
-            print(df.pivot_table(index="method", columns="precision", values="iou_vs_fp32").round(4))
+            logger.info("\n🎯 IoU относительно fp32:")
+            logger.info(df.pivot_table(index="method", columns="precision", values="iou_vs_fp32").round(4))
 
         return df
     else:
-        print("⚠️  Нет данных для отчёта")
+        logger.warning("⚠️  Нет данных для отчёта")
         return None
 
 
 # ──────────────────────────────────────────────────────────────────────
 def _load_images_without_ground_truth(test_images: TestImagesDict) -> None:
-    """Загружает изображения без GT с генерацией синтетических масок."""
-    print("⚠️ Не удалось загрузить реальные GT. Используем только изображения.")
+    """Загружает изображения без GT с генерацией синтетических масок.
+
+    Выполняет:
+    1. **Загрузка из URL**: Скачивание изображений из предопределённых источников.
+    2. **Загрузка локально**: Чтение изображений из локальных путей.
+    3. **Генерация масок**: Создание синтетических бинарных масок (нижняя половина = объект).
+    4. **Добавление в словарь**: Запись в `test_images` с уникальными ключами.
+
+    Алгоритм:
+    ```
+    1. Для каждого (name, url) в image_sources:
+       → Скачать изображение через _download_image.
+       → Сгенерировать маску: _generate_synthetic_mask(img.size).
+       → Добавить в test_images[name] = (path, img, mask).
+    2. Для каждого (name, path) в image_paths:
+       → Открыть изображение локально.
+       → Сгенерировать синтетическую маску.
+       → Добавить в test_images.
+    3. При ошибках: логировать и продолжать загрузку остальных.
+    ```
+
+    Args:
+        test_images: Словарь для добавления загруженных изображений.
+
+    Returns:
+        None. Модифицирует `test_images` in-place.
+
+    Note:
+        - Синтетические маски генерируются как `mask[h//2:, :] = 255`.
+        - При ошибке загрузки одного изображения остальные продолжают загружаться.
+        - Все изображения конвертируются в RGB при загрузке.
+
+    Example:
+        ```python
+        test_images = {}
+        _load_images_without_ground_truth(test_images)
+        print(f"Загружено изображений: {len(test_images)}")
+        ```
+    """
+    logger.warning("⚠️ Не удалось загрузить реальные GT. Используем только изображения.")
     image_sources: Dict[str, str] = {
         "countryside": "https://i.pinimg.com/736x/17/e7/fc/17e7fc299466b2afd989e709fe7c9815.jpg",
         # "nature": "https://i.pinimg.com/736x/f7/5a/f2/f75af26820b50c24600f50f3998eb02f.jpg",
@@ -4183,24 +5136,59 @@ def _load_images_without_ground_truth(test_images: TestImagesDict) -> None:
                 img,
                 gt_synthetic,
             )
-            print(f"✅ {name}: {img.size}")
+            logger.info(f"✅ {name}: {img.size}")
         except Exception as e:
-            print(f"❌ Ошибка загрузки {name}: {e}")
+            logger.error(f"❌ Ошибка загрузки {name}: {e}")
 
     for name, path in image_paths.items():
         try:
             img = Image.open(path)
             gt_synthetic = _generate_synthetic_mask(img.size)
             test_images[name] = (path, img, gt_synthetic)
-            print(f"✅ {name}: {img.size}, ground truth: {gt_synthetic}")
+            logger.info(f"✅ {name}: {img.size}, ground truth: {gt_synthetic}")
 
         except Exception as e:
-            print(f"❌ Ошибка загрузки {name}: {e}")
+            logger.error(f"❌ Ошибка загрузки {name}: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────
 def _download_image(url: str, name: str) -> Image.Image:
-    """Загружает изображение по URL с обработкой ошибок."""
+    """Загружает изображение по URL с обработкой ошибок и локальным кэшированием.
+
+    Выполняет:
+    1. **Запрос**: `requests.get` с таймаутом 10 секунд.
+    2. **Валидация**: `raise_for_status()` для обработки HTTP-ошибок.
+    3. **Конвертация**: Открытие через PIL и приведение к режиму RGB.
+    4. **Кэширование**: Сохранение локальной копии в `test_images/`.
+
+    Алгоритм:
+    ```
+    1. Выполнить response = requests.get(url, timeout=10).
+    2. Проверить статус: response.raise_for_status().
+    3. Открыть изображение: img = Image.open(BytesIO(response.content)).convert("RGB").
+    4. Создать директорию test_images/ при необходимости.
+    5. Сохранить локально: img.save(f"test_images/test_image_{name}.jpg").
+    6. Вернуть PIL.Image.
+    ```
+
+    Args:
+        url: URL изображения для загрузки.
+        name: Уникальное имя для локального файла.
+
+    Returns:
+        Image.Image: Загруженное изображение в режиме RGB.
+
+    Note:
+        - Таймаут 10 секунд предотвращает зависание при медленном соединении.
+        - Локальные копии позволяют работать офлайн после первой загрузки.
+        - Конвертация в RGB обеспечивает единообразие входных данных.
+
+    Example:
+        ```python
+        img = _download_image("https://example.com/image.jpg", "test_sample")
+        print(f"Размер: {img.size}, режим: {img.mode}")
+        ```
+    """
     response = requests.get(url, timeout=10)
     response.raise_for_status()
     img: Image.Image = Image.open(BytesIO(response.content)).convert("RGB")
@@ -4214,7 +5202,38 @@ def _download_image(url: str, name: str) -> Image.Image:
 
 # ──────────────────────────────────────────────────────────────────────
 def _generate_synthetic_mask(size: Tuple[int, int]) -> MaskArray:
-    """Генерирует синтетическую бинарную маску (нижняя половина = объект)."""
+    """Генерирует синтетическую бинарную маску для тестирования без GT.
+
+    Выполняет:
+    1. **Инициализация**: Создание нулевого массива формы (H, W).
+    2. **Заполнение**: Установка нижней половины изображения в значение 255.
+    3. **Возврат**: Массив типа uint8 с значениями {0, 255}.
+
+    Алгоритм:
+    ```
+    1. Распаковать size → h, w.
+    2. Создать mask = np.zeros((h, w), dtype=np.uint8).
+    3. Установить mask[h // 2 :, :] = 255.
+    4. Вернуть mask.
+    ```
+
+    Args:
+        size: Размер изображения в формате (width, height).
+
+    Returns:
+        MaskArray: Бинарная маска формы (H, W), dtype=uint8, значения {0, 255}.
+
+    Note:
+        - Маска делит изображение горизонтально: верх = фон (0), низ = объект (255).
+        - Подходит для базового тестирования алгоритмов без реального GT.
+        - Для сложных сценариев рекомендуется использовать реальные маски.
+
+    Example:
+        ```python
+        mask = _generate_synthetic_mask((640, 480))
+        print(mask.shape, np.unique(mask))  # (480, 640) [0 255]
+        ```
+    """
     h, w = size
     mask: MaskArray = np.zeros((h, w), dtype=np.uint8)
     mask[h // 2 :, :] = 255
@@ -4228,11 +5247,25 @@ def save_metrics_report(
     indent: int = 2,
     ensure_ascii: bool = False,
 ) -> None:
-    """Сохраняет отчёт с метриками в JSON-формате.
+    """Сохраняет отчёт с метриками сегментации в JSON-формате.
+
+    Выполняет:
+    1. **Подготовка пути**: Создание родительских директорий при необходимости.
+    2. **Сериализация**: Запись словаря метрик в файл с форматированием.
+    3. **Обработка типов**: Использование `default=str` для numpy-типов.
+
+    Алгоритм:
+    ```
+    1. Преобразовать path в Path-объект.
+    2. Создать path.parent.mkdir(parents=True, exist_ok=True).
+    3. Открыть файл в режиме записи с encoding="utf-8".
+    4. Записать json.dump(metrics_all, f, indent=indent, ensure_ascii=ensure_ascii, default=str).
+    5. Вывести подтверждение сохранения.
+    ```
 
     Args:
-        metrics_all: Словарь метрик: {имя_метода: {метрика: значение}}.
-        path: Путь к выходному файлу.
+        metrics_all: Словарь метрик: `{имя_метода: {метрика: значение}}`.
+        path: Путь к выходному файлу (строка или Path).
         indent: Количество пробелов для форматирования (по умолчанию 2).
         ensure_ascii: Экранировать non-ASCII символы (по умолчанию False).
 
@@ -4240,8 +5273,9 @@ def save_metrics_report(
         None. Файл сохраняется на диск.
 
     Note:
-        - Используется `default=str` для сериализации numpy-типов.
-        - Создаёт родительские директории при необходимости.
+        - `default=str` позволяет сериализовать numpy-скаляры и другие нестандартные типы.
+        - `ensure_ascii=False` сохраняет кириллицу и спецсимволы в читаемом виде.
+        - Родительские директории создаются автоматически при отсутствии.
 
     Example:
         ```python
@@ -4258,15 +5292,57 @@ def save_metrics_report(
     with open(path_obj, "w", encoding="utf-8") as f:
         json.dump(metrics_all, f, indent=indent, ensure_ascii=ensure_ascii, default=str)
 
-    print(f"💾 Отчёт сохранён: {path_obj}")
+    logger.info(f"💾 Отчёт сохранён: {path_obj}")
 
 
 # ──────────────────────────────────────────────────────────────────────
 def test_neural_segmentation_variants() -> Tuple[Optional[NeuralSegmenter], Optional[Dict[str, Any]]]:
-    """Тестирование различных вариантов нейросетевой сегментации."""
-    print("\n" + "=" * 60)
-    print("ТЕСТИРОВАНИЕ ВАРИАНТОВ НЕЙРОСЕТЕВОЙ СЕГМЕНТАЦИИ")
-    print("=" * 60)
+    """Тестирование различных вариантов нейросетевой сегментации.
+
+    Выполняет:
+    1. **Загрузка тестового изображения**: Скачивание по предопределённому URL.
+    2. **Инициализация сегментера**: Создание `NeuralSegmenter` с локальной моделью.
+    3. **Вариант 1 (alpha)**: Визуализация результатов с разными значениями прозрачности.
+    4. **Вариант 2 (анализ)**: Детальный разбор распределения классов по площади.
+    5. **Вариант 3 (mask)**: Тестирование `segment_with_mask` с возвратом маски.
+
+    Алгоритм:
+    ```
+    1. Скачать тестовое изображение через requests.
+    2. Создать NeuralSegmenter(local_path="/path/to/model").
+    3. Вариант 1:
+       → Для alpha in [0.3, 0.5, 0.7, 1.0]: segment_image(alpha=alpha) → показать в subplot.
+    4. Вариант 2:
+       → detailed_segmentation() → вывести топ-5 классов по пикселям.
+    5. Вариант 3:
+       → segment_with_mask() → показать оригинал, результат, бинарную маску.
+    6. Вернуть (сегментер, детальные результаты).
+    ```
+
+    Args:
+        Нет аргументов (использует внутренние константы).
+
+    Returns:
+        Tuple[Optional[NeuralSegmenter], Optional[Dict[str, Any]]]:
+            - Сегментер для дальнейшего использования.
+            - Словарь с детальной статистикой сегментации.
+            - `(None, None)` при ошибке.
+
+    Note:
+        - Требует наличия локальной модели по указанному пути.
+        - Визуализации отображаются через `plt.show()` (блокирует выполнение).
+        - При ошибке загрузки изображения или модели выводится traceback.
+
+    Example:
+        ```python
+        segmenter, details = test_neural_segmentation_variants()
+        if details:
+            print(f"Обнаружено классов: {details['total_classes']}")
+        ```
+    """
+    logger.info("\n" + "=" * 60)
+    logger.info("ТЕСТИРОВАНИЕ ВАРИАНТОВ НЕЙРОСЕТЕВОЙ СЕГМЕНТАЦИИ")
+    logger.info("=" * 60)
 
     # Загрузка тестового изображения
     img_url: str = "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg"
@@ -4279,12 +5355,11 @@ def test_neural_segmentation_variants() -> Tuple[Optional[NeuralSegmenter], Opti
         segmenter: NeuralSegmenter = NeuralSegmenter(local_path="/home/yamshchikov/models/segformer-b5-ready")
 
         # Вариант 1: Различные значения alpha
-        print("\n1. Тестирование разных значений alpha:")
+        logger.info("\n1. Тестирование разных значений alpha:")
         alphas: List[float] = [0.3, 0.5, 0.7, 1.0]
 
-        fig: plt.Figure
         axes: np.ndarray  # type: ignore[assignment]
-        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        _, axes = plt.subplots(2, 2, figsize=(12, 10))
         axes = axes.flatten()
 
         for i, alpha in enumerate(alphas):
@@ -4301,12 +5376,12 @@ def test_neural_segmentation_variants() -> Tuple[Optional[NeuralSegmenter], Opti
         plt.show()
 
         # Вариант 2: Детальный анализ
-        print("\n2. Детальный анализ сегментации:")
+        logger.info("\n2. Детальный анализ сегментации:")
         detailed_result: Dict[str, Any] = segmenter.detailed_segmentation(test_image)
 
         # Выводим информацию о классах
-        print(f"Обнаружено классов: {detailed_result['total_classes']}")
-        print("\nТоп-5 классов по площади:")
+        logger.info(f"Обнаружено классов: {detailed_result['total_classes']}")
+        logger.info("\nТоп-5 классов по площади:")
 
         sorted_classes: List[Tuple[str, Dict[str, Any]]] = sorted(
             detailed_result["class_distribution"].items(),
@@ -4315,17 +5390,16 @@ def test_neural_segmentation_variants() -> Tuple[Optional[NeuralSegmenter], Opti
         )[:5]
 
         for class_name, info in sorted_classes:
-            print(f"  {class_name}: {info['percentage']:.1f}% ({info['pixel_count']} пикселей)")
+            logger.info(f"  {class_name}: {info['percentage']:.1f}% ({info['pixel_count']} пикселей)")
 
         # Вариант 3: segment_with_mask
-        print("\n3. Тестирование segment_with_mask:")
+        logger.info("\n3. Тестирование segment_with_mask:")
         result_np: np.ndarray
         mask: Optional[np.ndarray]
         result_np, mask = segmenter.segment_with_mask(test_image, alpha=0.5)
 
-        fig2: plt.Figure
         axes2: np.ndarray  # type: ignore[assignment]
-        fig2, axes2 = plt.subplots(1, 3, figsize=(15, 5))
+        _, axes2 = plt.subplots(1, 3, figsize=(15, 5))
 
         axes2[0].imshow(test_image)  # type: ignore[index]
         axes2[0].set_title("Original")  # type: ignore[index]
@@ -4343,14 +5417,14 @@ def test_neural_segmentation_variants() -> Tuple[Optional[NeuralSegmenter], Opti
         plt.show()
 
         if mask is not None:
-            print(f"Размер маски: {mask.shape}")
-            print(f"Площадь маски: {np.sum(mask > 0)} пикселей")
+            logger.info(f"Размер маски: {mask.shape}")
+            logger.info(f"Площадь маски: {np.sum(mask > 0)} пикселей")
 
         return segmenter, detailed_result
 
     except Exception as e:
-        print(f"❌ Ошибка тестирования нейросетевых вариантов: {e}")
-        print(traceback.format_exc())
+        logger.error(f"❌ Ошибка тестирования нейросетевых вариантов: {e}")
+        logger.error(traceback.format_exc())
         return None, None
 
 
@@ -4363,18 +5437,23 @@ def run_cpu_cuda_benchmark(
 ) -> BenchmarkResult:
     """Запуск бенчмарка CPU vs CUDA для классических методов.
 
-    Выполняет сравнение времени выполнения методов на CPU и CUDA:
-    1. Фильтрует методы: исключает нейросетевые (только классические).
-    2. Для каждого метода:
-       - Запускает `warmup_runs` раз для "прогрева".
-       - Замеряет время выполнения `n_runs` раз на CPU.
-       - Замеряет время выполнения `n_runs` раз на CUDA (если доступно).
-    3. Агрегирует результаты: среднее, std, speedup.
+    Выполняет:
+    1. **Фильтрация**: Исключение нейросетевых методов по ключевым словам.
+    2. **Инициализация**: Создание `CpuCudaBenchmark` с параметрами прогонов.
+    3. **Бенчмарк**: Замер времени на CPU и CUDA с предварительным прогревом.
+    4. **Сводка**: Вывод среднего времени, std и speedup для каждого метода.
+
+    Алгоритм:
+    ```
+    1. Отфильтровать методы: убрать neural/segformer/unet/sam и т.д.
+    2. Инициализировать CpuCudaBenchmark(base_output_dir, n_runs, warmup_runs).
+    3. benchmark_all_methods(methods_dict, image, test_name).
+    4. Вывести сводку: CPU_time, CUDA_time, Speedup.
+    5. Вернуть DataFrame с результатами.
+    ```
 
     Args:
-        cv2_methods: Словарь методов OpenCV.
-        sklearn_methods: Словарь методов scikit-learn.
-        torch_methods: Словарь методов PyTorch.
+        all_benchmark_methods: Полный словарь зарегистрированных методов.
         test_image: Тестовое изображение формы (H, W) или (H, W, 3).
         n_runs: Количество прогонов для замера времени.
         warmup_runs: Количество "прогревочных" прогонов.
@@ -4383,22 +5462,27 @@ def run_cpu_cuda_benchmark(
         BenchmarkResult: DataFrame с колонками:
                         [method, device, mean_time, std_time, speedup].
 
+    Note:
+        - Использует эвристику `_filter_classical_methods` для отсева нейросетей.
+        - Speedup рассчитывается как `CPU_time / CUDA_time`.
+        - Если CUDA недоступен, бенчмарк всё равно выполнит CPU-часть.
+
     Example:
         ```python
         df = run_cpu_cuda_benchmark(cv2_methods, sklearn_methods, torch_methods, test_img)
 
         # Анализ результатов
         cuda_methods = df[df["device"] == "cuda"]
-        print(f"Средний speedup: {cuda_methods['speedup'].mean():.2f}x")
+        logger.info(f"Средний speedup: {cuda_methods['speedup'].mean():.2f}x")
         ```
     """
-    print("\n" + "=" * 80)
-    print("ЗАПУСК БЕНЧМАРКА: CPU vs CUDA")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("ЗАПУСК БЕНЧМАРКА: CPU vs CUDA")
+    logger.info("=" * 80)
 
     classical_only: SegmenterDict = _filter_classical_methods(all_benchmark_methods)
 
-    print(f"Количество классических методов: {len(classical_only)}")
+    logger.info(f"Количество классических методов: {len(classical_only)}")
 
     # Бенчмарк CPU vs CUDA для классических методов
     benchmark: CpuCudaBenchmark = CpuCudaBenchmark(
@@ -4418,13 +5502,49 @@ def run_cpu_cuda_benchmark(
 
 # ──────────────────────────────────────────────────────────────────────
 def _print_cpu_cuda_summary(df_results: BenchmarkResult) -> None:
-    """Выводит сводку по бенчмарку CPU vs CUDA."""
-    print("\n" + "=" * 80)
-    print("СВОДКА ПО БЕНЧМАРКУ CPU vs CUDA")
-    print("=" * 80)
+    """Выводит сводку по бенчмарку CPU vs CUDA в табличном формате.
+
+    Выполняет:
+    1. **Проверка CUDA**: Пропуск при отсутствии GPU.
+    2. **Группировка по методам**: Разделение результатов на CPU и CUDA.
+    3. **Расчёт speedup**: Отношение времени CPU к времени CUDA.
+    4. **Форматированный вывод**: Таблица с методом, временами и ускорением.
+
+    Алгоритм:
+    ```
+    1. Если not torch.cuda.is_available() → вывести предупреждение и вернуть.
+    2. Для каждого уникального метода в df_results:
+       a. Извлечь cpu_data и cuda_data по колонке "device".
+       b. Если обе выборки не пустые:
+          → Вычислить cpu_time, cuda_time в миллисекундах.
+          → Рассчитать speedup = cpu_time / cuda_time.
+          → Вывести строку: метод, CPU=XXms, CUDA=YYms, Speedup=ZZx.
+    3. Вывести разделитель в конце.
+    ```
+
+    Args:
+        df_results: DataFrame с результатами бенчмарка (колонки: method, device, mean_time).
+
+    Returns:
+        None. Выводит отформатированную сводку в stdout.
+
+    Note:
+        - Speedup > 1 означает ускорение на CUDA, < 1 — замедление.
+        - Методы без данных для CPU или CUDA пропускаются.
+        - Времена конвертируются из секунд в миллисекунды для наглядности.
+
+    Example:
+        ```python
+        _print_cpu_cuda_summary(benchmark_df)
+        # otsu_thresholding_CV2           : CPU= 12.34ms, CUDA=  3.21ms, ⚡ Speedup=3.84x
+        ```
+    """
+    logger.info("\n" + "=" * 80)
+    logger.info("СВОДКА ПО БЕНЧМАРКУ CPU vs CUDA")
+    logger.info("=" * 80)
 
     if not torch.cuda.is_available():
-        print("⚠️  CUDA недоступен, пропуск сравнения")
+        logger.warning("⚠️  CUDA недоступен, пропуск сравнения")
         return
 
     for method in df_results["method"].unique():
@@ -4439,20 +5559,43 @@ def _print_cpu_cuda_summary(df_results: BenchmarkResult) -> None:
         cuda_time: float = cuda_data["mean_time"].values[0] * 1000
 
         speedup: float = cpu_time / cuda_time
-        print(f"{method:40s}: CPU={cpu_time:7.2f}ms, CUDA={cuda_time:7.2f}ms, ⚡ Speedup={speedup:.2f}x")
+        logger.info(f"{method:40s}: CPU={cpu_time:7.2f}ms, CUDA={cuda_time:7.2f}ms, ⚡ Speedup={speedup:.2f}x")
 
-    print("=" * 80)
+    logger.info("=" * 80)
 
 
 # ──────────────────────────────────────────────────────────────────────
 def _filter_classical_methods(all_methods: SegmenterDict) -> SegmenterDict:
-    """Фильтрует методы, исключая нейросетевые.
+    """Фильтрует методы, исключая нейросетевые, для бенчмарка классических алгоритмов.
+
+    Выполняет:
+    1. **Определение ключевых слов**: Список подстрок, характерных для нейросетей.
+    2. **Фильтрация по имени**: Исключение методов, содержащих ключевые слова.
+    3. **Возврат отфильтрованного словаря**: Только классические методы.
+
+    Алгоритм:
+    ```
+    1. Определить neural_keywords = ["neural", "segformer", "unet", "fpn", ...].
+    2. Вернуть {name: seg for name, seg in all_methods.items()
+                if not any(kw in name.lower() for kw in neural_keywords)}.
+    ```
 
     Args:
-        all_methods: Полный словарь методов.
+        all_methods: Полный словарь зарегистрированных методов.
 
     Returns:
-        SegmenterDict: Только классические методы.
+        SegmenterDict: Словарь только с классическими методами (OpenCV, Sklearn, Torch).
+
+    Note:
+        - Сравнение регистронезависимое благодаря `.lower()`.
+        - Ключевые слова покрывают основные архитектуры нейросетей и библиотеки.
+        - Методы с частичным совпадением (например, "neural_network_CV2") также исключаются.
+
+    Example:
+        ```python
+        classical = _filter_classical_methods(all_methods)
+        print(f"Классических методов: {len(classical)} из {len(all_methods)}")
+        ```
     """
     neural_keywords: List[str] = [
         "neural",
@@ -4473,7 +5616,46 @@ def _filter_classical_methods(all_methods: SegmenterDict) -> SegmenterDict:
 
 # ──────────────────────────────────────────────────────────────────────
 def get_device_capabilities() -> Dict[str, Any]:
-    """Проверяет возможности CUDA для автоматического подбора настроек."""
+    """Проверяет возможности CUDA для автоматического подбора настроек оптимизации.
+
+    Выполняет:
+    1. **Проверка доступности**: Возврат базового конфига при отсутствии CUDA.
+    2. **Чтение свойств GPU**: Получение `compute capability` и имени устройства.
+    3. **Определение поддержки**:
+       - BF16: Ampere+ (≥8.0)
+       - INT8: Volta+ (≥7.0)
+    4. **Формирование словаря**: Возврат всех характеристик в едином формате.
+
+    Алгоритм:
+    ```
+    1. Если not torch.cuda.is_available() → вернуть {"cuda": False, ...}.
+    2. Получить props = torch.cuda.get_device_properties(0).
+    3. bf16_support = props.major >= 8.
+    4. int8_support = props.major >= 7.
+    5. Вернуть словарь с флагами и именем устройства.
+    ```
+
+    Args:
+        Нет аргументов (использует глобальный torch.cuda).
+
+    Returns:
+        Dict[str, Any]: Словарь с характеристиками:
+                        - `cuda`: доступность CUDA.
+                        - `bf16_support`, `int8_support`: поддержка форматов.
+                        - `device_name`: имя GPU.
+
+    Note:
+        - BF16 требует архитектуры Ampere (RTX 30xx, A100) или новее.
+        - INT8 квантование доступно на Volta (T4, V100) и новее.
+        - При отсутствии CUDA все флаги устанавливаются в значения для CPU-режима.
+
+    Example:
+        ```python
+        caps = get_device_capabilities()
+        if caps["cuda"] and caps["bf16_support"]:
+            print(f"Можно использовать bf16 на {caps['device_name']}")
+        ```
+    """
     if not torch.cuda.is_available():
         return {"cuda": False, "bf16_support": False, "int8_support": True}
 
@@ -4493,18 +5675,92 @@ def get_device_capabilities() -> Dict[str, Any]:
 
 # ──────────────────────────────────────────────────────────────────────
 def create_segmenter_config(method_name: str, device: Optional[str], **kwargs: Any) -> Any:
-    """Фабрика для создания сегментера с нужными флагами оптимизации."""
+    """Фабрика для создания сегментера с нужными флагами оптимизации.
+
+    Выполняет:
+    1. **Инициализация**: Попытка создания `TorchSegmenter2` с переданными параметрами.
+    2. **Обработка ошибок**: Логирование предупреждения при сбое.
+    3. **Возврат результата**: Сегментер или `None` при ошибке.
+
+    Алгоритм:
+    ```
+    1. try:
+       → seg = TorchSegmenter2(method=method_name, device=device, **kwargs)
+       → вернуть seg.
+    2. except Exception as e:
+       → print(f"[WARNING] Не удалось создать конфиг: {e}")
+       → вернуть None.
+    ```
+
+    Args:
+        method_name: Имя метода сегментации.
+        device: Устройство для выполнения (`"cuda"`/`"cpu"`/`None`).
+        **kwargs: Дополнительные параметры для инициализации сегментера.
+
+    Returns:
+        Any: Экземпляр `TorchSegmenter2` или `None` при ошибке создания.
+
+    Note:
+        - Ошибки не прерывают выполнение, что позволяет продолжать бенчмарк.
+        - Предупреждения выводятся в stdout для отладки.
+        - Поддерживает любые параметры, принимаемые конструктором `TorchSegmenter2`.
+
+    Example:
+        ```python
+        seg = create_segmenter_config(
+            "otsu_thresholding", device="cuda", precision="bf16", use_compile=True
+        )
+        if seg:
+            mask = seg.segment(test_image)
+        ```
+    """
     try:
         seg: TorchSegmenter2 = TorchSegmenter2(method=method_name, device=device, **kwargs)
         return seg
     except Exception as e:
-        print(f"[WARNING] Не удалось создать конфиг для {method_name} ({device}): {e}")
+        logger.warning(f"[WARNING] Не удалось создать конфиг для {method_name} ({device}): {e}")
         return None
 
 
 # ──────────────────────────────────────────────────────────────────────
 def _get_device_metrics(device: str) -> Dict[str, Any]:
-    """Возвращает словарь с характеристиками устройства и метриками памяти."""
+    """Возвращает словарь с характеристиками устройства и метриками памяти.
+
+    Выполняет:
+    1. **Проверка CUDA**: При `device=="cuda"` — сбор статистики через `torch.cuda`.
+    2. **Сбор метрик**: Выделение, резервирование, пиковые значения памяти.
+    3. **Форматирование**: Округление до 2 знаков для ГБ/МБ.
+    4. **CPU-фоллбэк**: Возврат заглушек при отсутствии CUDA.
+
+    Алгоритм:
+    ```
+    1. Если device == "cuda" и torch.cuda.is_available():
+       → Собрать: GPU_Name, Compute_Cap, Total_VRAM_GB, Curr/Peak_Alloc_MB, Curr/Peak_Reserv_MB.
+       → Округлить значения через round(..., 2).
+    2. Иначе:
+       → Вернуть словарь с "CPU", "N/A" и нулевыми метриками.
+    3. Вернуть итоговый словарь.
+    ```
+
+    Args:
+        device: Строка с названием устройства (`"cuda"` или `"cpu"`).
+
+    Returns:
+        Dict[str, Any]: Словарь с характеристиками:
+                        - `GPU_Name`, `Compute_Cap`, `Total_VRAM_GB`
+                        - `Curr_Alloc_MB`, `Peak_Alloc_MB`, `Curr_Reserv_MB`, `Peak_Reserv_MB`
+
+    Note:
+        - Метрики памяти в МБ, объём VRAM в ГБ для удобства чтения.
+        - При отсутствии CUDA все метрики возвращаются как 0 или "N/A".
+        - `Peak_*` метрики сбрасываются через `torch.cuda.reset_peak_memory_stats()`.
+
+    Example:
+        ```python
+        metrics = _get_device_metrics("cuda")
+        print(f"Пиковое выделение: {metrics['Peak_Alloc_MB']} MB")
+        ```
+    """
     if device == "cuda" and torch.cuda.is_available():
         return {
             "GPU_Name": torch.cuda.get_device_name(0),
@@ -4531,23 +5787,66 @@ def run_optimization_benchmarks(
     image_path: str,
     methods_list: List[str],
 ) -> Optional[pd.DataFrame]:
-    """Запускает серию тестов производительности для списка методов."""
-    # Dict[str, Any] вместо Dict[str, Optional[bool]], т.к. возвращаются также строки
+    """Запускает серию тестов производительности для списка методов с разными конфигурациями.
+
+    Выполняет:
+    1. **Диагностика системы**: Проверка поддержки BF16/INT8 через `get_device_capabilities`.
+    2. **Подготовка конфигураций**: Матрица тестов (Baseline, Compile, BF16, Quantized).
+    3. **Цикл по методам**: Для каждого метода — запуск всех конфигураций с замером времени.
+    4. **Профилирование**: Вызов `profile_segmentation` с 100 запусками и 20 прогревочными.
+    5. **Агрегация**: Формирование сводной таблицы с временем, speedup и памятью.
+    6. **Визуализация**: Вывод отформатированной таблицы и сохранение в CSV.
+
+    Алгоритм:
+    ```
+    1. Получить caps = get_device_capabilities(), вывести системную информацию.
+    2. Загрузить изображение, конвертировать в numpy array.
+    3. Сформировать configs: список словарей {name, device, kwargs} для тестов.
+    4. Для каждого метода в methods_list:
+       a. Для каждой конфигурации:
+          → Создать сегментер через create_segmenter_config.
+          → Запустить profile_segmentation(n_runs=100, warmup=20).
+          → Записать время, speedup относительно baseline, метрики памяти.
+    5. Создать DataFrame, отсортировать по [Method, Time].
+    6. Вывести таблицу через tabulate, сохранить в CSV.
+    ```
+
+    Args:
+        image_path: Путь к тестовому изображению.
+        methods_list: Список имён методов для бенчмарка.
+
+    Returns:
+        Optional[pd.DataFrame]: Сводная таблица с колонками:
+                               [Method, Config, Device, Time (ms), Speedup, Peak_Alloc_MB, ...]
+                               или `None` при ошибке загрузки изображения.
+
+    Note:
+        - Профилирование использует 100 запусков для стабильности статистики.
+        - Speedup рассчитывается относительно базовой конфигурации (FP32 Eager).
+        - При ошибке для одной конфигурации тест продолжается для остальных.
+
+    Example:
+        ```python
+        df = run_optimization_benchmarks(
+            image_path="test.jpg",
+            methods_list=["otsu_thresholding", "sobel_edge"]
+        )
+        if df is not None:
+            print(df.groupby("Method")["Speedup"].max())
+        ```
+    """
     caps: Dict[str, Any] = get_device_capabilities()
-    print(f"🖥️  System Info: {caps.get('device_name') if caps.get('cuda') else 'CPU'}")
-    print(f" CUDA BF16 Support: {caps.get('bf16_support')} | INT8 Support: {caps.get('int8_support')}")
-    print("=" * 80)
+    logger.info(f"🖥️  System Info: {caps.get('device_name') if caps.get('cuda') else 'CPU'}")
+    logger.info(f" CUDA BF16 Support: {caps.get('bf16_support')} | INT8 Support: {caps.get('int8_support')}")
+    logger.info("=" * 80)
 
     # --- НАСТРОЙКИ ТЕСТА (МАТРИЦА) ---
-    from PIL import Image
-    import numpy as np
-
     try:
         img: Image.Image = Image.open(image_path).convert("RGB")
         img_array: np.ndarray = np.array(img)
-        print(f"✅ Изображение загружено: {img_array.shape}")
+        logger.info(f"✅ Изображение загружено: {img_array.shape}")
     except Exception as e:
-        print(f"❌ Ошибка загрузки изображения {image_path}: {e}")
+        logger.error(f"❌ Ошибка загрузки изображения {image_path}: {e}")
         return None
 
     configs: List[Dict[str, Any]] = [
@@ -4612,17 +5911,17 @@ def run_optimization_benchmarks(
     all_results: List[Dict[str, Any]] = []
 
     for method in methods_list:
-        print(f"\n🧪 Тестирование метода: {method.upper()}")
-        print("-" * 40)
+        logger.info(f"\n🧪 Тестирование метода: {method.upper()}")
+        logger.info("-" * 40)
 
         baseline_time: Optional[float] = None
 
         for cfg in configs:
-            print(f"   ▶ Запуск: {cfg['name']} ... ", end="", flush=True)
+            logger.info(f"   ▶ Запуск: {cfg['name']} ... ", end="", flush=True)
 
             seg: Optional[TorchSegmenter2] = create_segmenter_config(method, cfg["device"], **cfg["kwargs"])
             if seg is None:
-                print("❌ Пропуск")
+                logger.error("❌ Пропуск")
                 continue
 
             if cfg["device"] == "cuda" and torch.cuda.is_available():
@@ -4631,7 +5930,7 @@ def run_optimization_benchmarks(
             try:
                 stats: Dict[str, Any] = seg.profile_segmentation(segmenter=seg, image=img_array, n_runs=100, warmup=20)
                 mean_time_ms: float = cast(float, stats["mean_time_s"]) * 1000
-                print(f"⏱️ {stats['method']} | {mean_time_ms:.2f}ms | Device: {stats['device']}")
+                logger.info(f"⏱️ {stats['method']} | {mean_time_ms:.2f}ms | Device: {stats['device']}")
 
                 dev_metrics: Dict[str, Any] = _get_device_metrics(cfg["device"])
 
@@ -4656,14 +5955,14 @@ def run_optimization_benchmarks(
                         "Peak_Reserv_MB": dev_metrics["Peak_Reserv_MB"],
                     }
                 )
-                print(f"✅ {mean_time_ms:.2f} ms ({speedup:.2f}x) | Mem: {dev_metrics['Peak_Alloc_MB']:.1f}MB")
+                logger.info(f"✅ {mean_time_ms:.2f} ms ({speedup:.2f}x) | Mem: {dev_metrics['Peak_Alloc_MB']:.1f}MB")
 
             except Exception as e:
-                print(f"❌ Ошибка профилирования: {e}")
+                logger.error(f"❌ Ошибка профилирования: {e}")
 
-    print("\n" + "=" * 80)
-    print("📊 СВОДНАЯ ТАБЛИЦА ПРОИЗВОДИТЕЛЬНОСТИ")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("📊 СВОДНАЯ ТАБЛИЦА ПРОИЗВОДИТЕЛЬНОСТИ")
+    logger.info("=" * 80)
 
     if all_results:
         df_summary: pd.DataFrame = pd.DataFrame(all_results)
@@ -4695,14 +5994,14 @@ def run_optimization_benchmarks(
             lambda x: f"{x[0]}.{x[1]}" if isinstance(x, tuple) else str(x)
         )
 
-        print(tabulate(df_display, headers="keys", tablefmt="grid", showindex=False))
+        logger.info(tabulate(df_display, headers="keys", tablefmt="grid", showindex=False))
 
         csv_path: str = "optimization_benchmark.csv"
         df_summary.to_csv(csv_path, index=False)
-        print(f"\n💾 Таблица сохранена: {csv_path}")
+        logger.info(f"\n💾 Таблица сохранена: {csv_path}")
         return df_summary
     else:
-        print("Нет данных для отображения.")
+        logger.warning("Нет данных для отображения.")
         return None
 
 
@@ -4712,7 +6011,51 @@ def benchmark_with_baseline(
     image: np.ndarray,
     configurations: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """Сравнение различных конфигураций относительно baseline."""
+    """Сравнение различных конфигураций сегментера относительно базовой (baseline).
+
+    Выполняет:
+    1. **Запуск baseline**: Создание сегментера с параметрами по умолчанию (fp32, eager).
+    2. **Замер базового времени**: 100 запусков через `profile_method`.
+    3. **Тестирование конфигураций**: Для каждой — создание сегментера, замер, расчёт speedup.
+    4. **Агрегация результатов**: Возврат словаря с временем и ускорением для каждой конфигурации.
+
+    Алгоритм:
+    ```
+    1. Создать baseline_seg = TorchSegmenter2(method, device="cuda", precision="fp32", use_compile=False).
+    2. baseline_time = baseline_seg.profile_method(image, n_runs=100)["mean_time_ms"].
+    3. Для каждой (config_name, config_params) в configurations:
+       → Создать seg = TorchSegmenter2(method, device="cuda", **config_params).
+       → time_ms = seg.profile_method(image, n_runs=100)["mean_time_ms"].
+       → speedup = baseline_time / time_ms (или inf при time_ms==0).
+       → Добавить в results[config_name] = {time_ms, speedup}.
+    4. Вернуть results.
+    ```
+
+    Args:
+        segmenter: Исходный сегментер (используется только для извлечения `method`).
+        image: Тестовое изображение в формате numpy array.
+        configurations: Словарь конфигураций: `{имя: {параметры_для_конструктора}}`.
+
+    Returns:
+        Dict[str, Any]: Результаты сравнения:
+                        - `baseline_fp32_eager`: время базовой конфигурации.
+                        - `{config_name}`: {time_ms, speedup} для каждой тестовой конфигурации.
+
+    Note:
+        - Все конфигурации тестируются на одном изображении для консистентности.
+        - `profile_method` автоматически выполняет прогрев перед замером.
+        - При `time_ms == 0` speedup устанавливается в `float('inf')`.
+
+    Example:
+        ```python
+        configs = {
+            "bf16_compile": {"precision": "bf16", "use_compile": True},
+            "fp16": {"precision": "fp16", "use_compile": False},
+        }
+        results = benchmark_with_baseline(seg, test_img, configs)
+        print(f"BF16+Compile speedup: {results['bf16_compile']['speedup']:.2f}x")
+        ```
+    """
     results: Dict[str, Any] = {}
 
     baseline_seg: TorchSegmenter2 = TorchSegmenter2(
@@ -4734,27 +6077,6 @@ def benchmark_with_baseline(
         }
 
     return results
-
-
-# # Конфигурации для тестирования
-# configs = {
-#     "fp32_compile": {"precision": "fp32", "use_compile": True, "compile_mode": "reduce-overhead"},
-#     "bf16_native": {"precision": "bf16", "use_compile": False},
-#     "bf16_compile": {"precision": "bf16", "use_compile": True},
-# }
-
-# # Тестируем
-# results = benchmark_with_baseline(segmenter, large_image, configs)
-
-# # Вывод
-# print("\n📊 Результаты бенчмарка:")
-# print(f"{'Конфигурация':<30} {'Время (мс)':<15} {'Speedup':<10}")
-# print("-" * 60)
-# for name, data in results.items():
-#     if isinstance(data, dict):
-#         print(f"{name:<30} {data['time_ms']:<15.4f} {data['speedup']:.2f}x")
-#     else:
-#         print(f"{name:<30} {data:<15.4f} 1.00x")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -4779,10 +6101,10 @@ def main_legacy() -> Tuple[
 # ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # Основной тест
-    print("ЗАПУСК ОСНОВНОГО ТЕСТА")
-    print("=" * 60)
+    logger.info("ЗАПУСК ОСНОВНОГО ТЕСТА")
+    logger.info("=" * 60)
     tester, results, comparator = main()
 
-    print("\n\nЗАПУСК ДОПОЛНИТЕЛЬНОГО ТЕСТА НЕЙРОСЕТЕВЫХ ВАРИАНТОВ")
-    print("=" * 60)
+    logger.info("\n\nЗАПУСК ДОПОЛНИТЕЛЬНОГО ТЕСТА НЕЙРОСЕТЕВЫХ ВАРИАНТОВ")
+    logger.info("=" * 60)
     segmenter, detailed_result = test_neural_segmentation_variants()

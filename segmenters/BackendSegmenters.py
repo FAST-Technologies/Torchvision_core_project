@@ -61,6 +61,7 @@ import onnxruntime as ort
 import torch
 from PIL import Image as PILImage
 from scipy.ndimage import zoom
+import cv2
 
 from typing import Optional, Set, Dict, Any, Union, Literal, Tuple, List, Sequence, cast, TYPE_CHECKING, TypeAlias
 import logging
@@ -349,37 +350,56 @@ class ONNXSegmenter(BaseSegmenter):
             logger.error(f"ONNX '{self.method}' inference error: {e}")
             return np.zeros((orig_h, orig_w), dtype=np.uint8)
 
-    def segment_with_mask(self, image: ImageInput, **kwargs: Any) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
-        """Сегментация с возвратом бинарной и вероятностной масок.
+    def segment_with_mask(
+        self, image: ImageInput, alpha: float = 0.9, **kwargs: Any
+    ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
+        """Сегментация с возвратом визуализации и бинарной маски.
 
-        Для ONNX-модели возвращаем только бинарную маску,
-        вероятностная маска не поддерживается.
+        Создаёт наложение маски на оригинальное изображение с прозрачностью `alpha`.
+        Стиль визуализации соответствует другим сегментерам (OpenCV/Sklearn/Torch).
 
         Args:
             image: Входное изображение.
-            **kwargs: Дополнительные параметры.
+            alpha: Коэффициент наложения маски [0, 1]:
+                - 0.0 = только оригинальное изображение
+                - 1.0 = только маска (красным цветом)
+                - 0.9 = по умолчанию (сильный акцент на маске)
+            **kwargs: Дополнительные параметры:
+                - return_probs (bool): Если True, возвращать вероятностную маску.
+                - prob_class (int): Для multi-class: индекс класса для вероятностной маски.
+                - prob_threshold (float): Порог для бинаризации вероятностей (по умолчанию 0.5).
 
         Returns:
-            Tuple[BinaryMask, Optional[ProbabilityMask]]:
-            - Бинарная маска: значения {0, 255}.
-            - Вероятностная маска: None (не поддерживается).
+            Tuple[np.ndarray, np.ndarray]:
+                - `overlay`: Визуализация формы `(H, W, 3)`, dtype=uint8, RGB.
+                - `mask`: Бинарная маска формы `(H, W)`, dtype=uint8, {0, 255}.
+
+        Note:
+            - Маска накладывается красным цветом `[255, 0, 0]` для пикселей > 127.
+            - Grayscale изображения автоматически конвертируются в 3-канальные для наложения.
+            - Формула смешивания: `result = overlay * alpha + original * (1 - alpha)`.
         """
         # ──────────────────────────────────────────────────────────────
         # 1. Конвертация входного изображения в numpy
         # ──────────────────────────────────────────────────────────────
-        if not isinstance(image, np.ndarray):
-            if isinstance(image, PILImage.Image):
-                image_np: npt.NDArray[np.uint8] = np.array(image)
-            elif isinstance(image, str):
-                image_np = np.array(PILImage.open(image).convert("RGB"))
-            elif isinstance(image, torch.Tensor):
-                image_np = image.cpu().numpy()
-                if image_np.ndim == 3 and image_np.shape[0] in (1, 3):
-                    image_np = np.transpose(image_np, (1, 2, 0))
-            else:
-                raise TypeError(f"Unsupported image type: {type(image)}")
-        else:
+        if isinstance(image, str):
+            image_np: np.ndarray = np.array(Image.open(image).convert("RGB"))
+        elif isinstance(image, Image.Image):
+            image_np = np.array(image.convert("RGB"))
+        elif isinstance(image, torch.Tensor):
+            image_np = image.cpu().numpy()
+            if image_np.ndim == 3 and image_np.shape[0] in (1, 3):
+                image_np = np.transpose(image_np, (1, 2, 0))
+            if image_np.ndim == 2:
+                image_np = np.stack([image_np] * 3, axis=-1)
+        elif isinstance(image, np.ndarray):
             image_np = image
+            if image_np.ndim == 2:
+                image_np = np.stack([image_np] * 3, axis=-1)
+            elif image_np.shape[2] != 3:
+                image_np = image_np[:, :, :3]
+        else:
+            raise TypeError(f"Unsupported image type: {type(image)}")
 
         orig_h, orig_w = image_np.shape[:2]
 
@@ -399,7 +419,7 @@ class ONNXSegmenter(BaseSegmenter):
 
             if not outputs or outputs[0] is None:
                 logger.error(f"ONNX '{self.method}' returned None output")
-                return np.zeros((orig_h, orig_w), dtype=np.uint8), None
+                return image_np.copy(), np.zeros((orig_h, orig_w), dtype=np.uint8)
 
             logits: RawOutput = outputs[0]
 
@@ -453,7 +473,30 @@ class ONNXSegmenter(BaseSegmenter):
                 sh, sw = orig_h / prob_mask.shape[0], orig_w / prob_mask.shape[1]
                 prob_mask = zoom(prob_mask, (sh, sw), order=1).astype(np.float32)  # linear для вероятностей
 
-            return mask.astype(np.uint8), prob_mask
+            # ──────────────────────────────────────────────────────────────
+            # 5. 🔧 СОЗДАНИЕ ОВЕРЛЕЯ (как в OpenCV/Sklearn/Torch сегментерах)
+            # ──────────────────────────────────────────────────────────────
+            # Конвертируем исходное изображение в RGB если нужно
+            if image_np.ndim == 2:
+                base_img = np.stack([image_np] * 3, axis=-1)
+            else:
+                base_img = image_np.copy()
+
+            # Создаём оверлей: копию изображения для наложения маски
+            overlay = base_img.copy()
+
+            # 🔧 FIX: Красный цвет для маски [255, 0, 0] — только там, где mask > 127
+            mask_bool = mask > 127
+            overlay[mask_bool] = [255, 0, 0]  # RGB: красный
+
+            # 🔧 FIX: Правильная формула alpha blending (как в OpenCVSegmenter):
+            # result = overlay * alpha + base_img * (1 - alpha)
+            # Это даёт: красная маска с прозрачностью, оригинал виден под ней
+            result = cv2.addWeighted(
+                overlay.astype(np.float32), alpha, base_img.astype(np.float32), 1.0 - alpha, 0
+            ).astype(np.uint8)
+
+            return result, mask.astype(np.uint8)
 
         except Exception as e:
             logger.error(f"TRT '{self.method}' segment_with_mask error: {e}", exc_info=True)
@@ -552,6 +595,52 @@ class TRTSegmenter(BaseSegmenter):
 
         tensor_torch: torch.Tensor = torch.from_numpy(np.transpose(tensor, (2, 0, 1))).unsqueeze(0).to(self.device)
         return tensor_torch
+
+    def _preprocess_classic(self, image: npt.NDArray[np.uint8]) -> PreprocessedTensor:
+        """Конвертирует изображение в формат (1, 3, H, W), float32, [0, 1].
+
+        Args:
+            image: Входное изображение (H, W) или (H, W, 3), uint8.
+
+        Returns:
+            PreprocessedTensor: Тензор формы (1, 3, H, W), float32, нормализованный к [0, 1].
+        """
+        if image.ndim == 2:
+            image = np.stack([image] * 3, axis=-1)
+        if image.ndim == 3 and image.shape[2] == 3:
+            tensor: npt.NDArray[np.float32] = np.transpose(image, (2, 0, 1)).astype(np.float32) / 255.0
+            return np.expand_dims(tensor, 0)  # (1,3,H,W)
+        # Уже (B,C,H,W)
+        return image.astype(np.float32)
+
+    def _preprocess_neural(self, image: npt.NDArray[np.uint8]) -> PreprocessedTensor:
+        """Imagenet нормализация: конвертирует изображение в формат (1, 3, H, W), float32, [0, 1].
+
+        Args:
+            image: Входное изображение (H, W) или (H, W, 3), uint8.
+
+        Returns:
+            PreprocessedTensor: Тензор формы (1, 3, H, W), float32, нормализованный к [0, 1].
+        """
+        if image.ndim == 3 and image.shape[2] != 3:
+            image = image[:, :, :3]
+        elif image.ndim == 2:
+            image = np.stack([image] * 3, axis=-1)
+
+        # Resize к целевому размеру
+        h_target, w_target = self.input_shape[2], self.input_shape[3]
+        if image.shape[0] != h_target or image.shape[1] != w_target:
+            pil: Image.Image = PILImage.fromarray(image.astype(np.uint8))
+            pil = pil.resize((w_target, h_target), PILImage.Resampling.BILINEAR)
+            image = np.array(pil)
+
+        # ImageNet нормализация
+        if self.mean is not None and self.std is not None:
+            tensor: npt.NDArray[np.float32] = (image.astype(np.float32) / 255.0 - self.mean) / self.std
+        else:
+            tensor = image.astype(np.float32) / 255.0
+        tensor = np.transpose(tensor, (2, 0, 1))  # HWC → CHW
+        return np.expand_dims(tensor, 0)  # (1, C, H, W)
 
     def segment(self, image: ImageInput, **kwargs: Any) -> BinaryMask:
         """Запускает TRT инференс.
@@ -658,12 +747,17 @@ class TRTSegmenter(BaseSegmenter):
             logger.error(f"TRT '{self.method}' inference error: {e}")
             return np.zeros((orig_h, orig_w), dtype=np.uint8)
 
-    def segment_with_mask(self, image: ImageInput, **kwargs: Any) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
-        """Сегментация с возвратом бинарной и вероятностной масок.
+    def segment_with_mask(
+        self, image: ImageInput, alpha: float = 0.9, **kwargs: Any
+    ) -> Tuple[BinaryMask, Optional[ProbabilityMask]]:
+        """Сегментация с возвратом визуализации и бинарной маски.
 
         Для TRT-модели:
         - Бинарная маска: результат пост-обработки (argmax для multi-class, порог для binary)
         - Вероятностная маска: нормализованные вероятности/логиты модели (опционально)
+
+        Создаёт наложение маски на оригинальное изображение с прозрачностью `alpha`.
+        Стиль визуализации соответствует другим сегментерам (OpenCV/Sklearn/Torch).
 
         Алгоритм пост-обработки:
         1. Multi-class output (C>1): argmax → binary mask, softmax → prob mask
@@ -672,6 +766,10 @@ class TRTSegmenter(BaseSegmenter):
 
         Args:
             image: Входное изображение (путь, PIL, numpy или torch).
+            alpha: Коэффициент наложения маски [0, 1]:
+              - 0.0 = только оригинальное изображение
+              - 1.0 = только маска (красным цветом)
+              - 0.9 = по умолчанию (сильный акцент на маске)
             **kwargs: Дополнительные параметры:
                 - return_probs (bool): Если True, возвращать вероятностную маску.
                 - prob_class (int): Для multi-class: индекс класса для вероятностной маски.
@@ -679,25 +777,35 @@ class TRTSegmenter(BaseSegmenter):
 
         Returns:
             Tuple[BinaryMask, Optional[ProbabilityMask]]:
-            - Бинарная маска: значения {0, 255}, форма (H, W), dtype=uint8.
-            - Вероятностная маска: форма (H, W), dtype=float32, диапазон [0, 1] или None.
+            - `overlay`: Визуализация формы `(H, W, 3)`, dtype=uint8, RGB.
+            - `mask`: Бинарная маска формы `(H, W)`, dtype=uint8, {0, 255}.
+
+        Note:
+            - Маска накладывается красным цветом `[255, 0, 0]` для пикселей > 127.
+            - Grayscale изображения автоматически конвертируются в 3-канальные для наложения.
+            - Формула смешивания: `result = overlay * alpha + original * (1 - alpha)`.
         """
         # ──────────────────────────────────────────────────────────────
         # 1. Конвертация входного изображения в numpy
         # ──────────────────────────────────────────────────────────────
-        if not isinstance(image, np.ndarray):
-            if isinstance(image, PILImage.Image):
-                image_np: npt.NDArray[np.uint8] = np.array(image)
-            elif isinstance(image, str):
-                image_np = np.array(PILImage.open(image).convert("RGB"))
-            elif isinstance(image, torch.Tensor):
-                image_np = image.cpu().numpy()
-                if image_np.ndim == 3 and image_np.shape[0] in (1, 3):
-                    image_np = np.transpose(image_np, (1, 2, 0))
-            else:
-                raise TypeError(f"Unsupported image type: {type(image)}")
-        else:
+        if isinstance(image, str):
+            image_np: np.ndarray = np.array(Image.open(image).convert("RGB"))
+        elif isinstance(image, Image.Image):
+            image_np = np.array(image.convert("RGB"))
+        elif isinstance(image, torch.Tensor):
+            image_np = image.cpu().numpy()
+            if image_np.ndim == 3 and image_np.shape[0] in (1, 3):
+                image_np = np.transpose(image_np, (1, 2, 0))
+            if image_np.ndim == 2:
+                image_np = np.stack([image_np] * 3, axis=-1)
+        elif isinstance(image, np.ndarray):
             image_np = image
+            if image_np.ndim == 2:
+                image_np = np.stack([image_np] * 3, axis=-1)
+            elif image_np.shape[2] != 3:
+                image_np = image_np[:, :, :3]
+        else:
+            raise TypeError(f"Unsupported image type: {type(image)}")
 
         orig_h, orig_w = image_np.shape[:2]
 
@@ -706,27 +814,17 @@ class TRTSegmenter(BaseSegmenter):
             # 2. Предобработка (аналогично методу segment)
             # ──────────────────────────────────────────────────────────────
             if self.is_neural:
-                tensor: torch.Tensor = self._preprocess_torch(image_np)
+                # tensor: torch.Tensor = self._preprocess_torch(image_np)
+                tensor_np = self._preprocess_neural(image_np)
             else:
-                if image_np.ndim == 2:
-                    image_np = np.stack([image_np] * 3, axis=-1)
-                h_t, w_t = self.input_shape[2], self.input_shape[3]
-                if image_np.shape[:2] != (h_t, w_t):
-                    pil: Image.Image = PILImage.fromarray(image_np.astype(np.uint8))
-                    image_np = np.array(pil.resize((w_t, h_t), PILImage.Resampling.BILINEAR))
-                if getattr(self, "normalization_in_graph", False):
-                    tensor_np: npt.NDArray[np.float32] = image_np.astype(np.float32) / 255.0
-                elif self.mean is not None and self.std is not None:
-                    tensor_np = (image_np.astype(np.float32) / 255.0 - self.mean) / self.std
-                else:
-                    tensor_np = image_np.astype(np.float32) / 255.0
-                tensor_np = np.transpose(tensor_np, (2, 0, 1))  # HWC → CHW
-                tensor = torch.from_numpy(tensor_np).unsqueeze(0).to(self.device)
+                tensor_np = self._preprocess_classic(image_np)
 
             # ──────────────────────────────────────────────────────────────
             # 3. Инференс модели
             # ──────────────────────────────────────────────────────────────
-            use_stream: bool = kwargs.get("use_cuda_stream", True)
+            tensor = torch.from_numpy(tensor_np).to(self.device) if isinstance(tensor_np, np.ndarray) else tensor_np
+            use_stream = kwargs.get("use_cuda_stream", True)
+
             if use_stream and self.device.type == "cuda":
                 if not hasattr(self, "_inference_stream"):
                     self._inference_stream = torch.cuda.Stream(device=self.device)
@@ -738,7 +836,23 @@ class TRTSegmenter(BaseSegmenter):
                 with torch.no_grad():
                     out = self.model(tensor)
 
-            out_np: np.ndarray = out.cpu().float().numpy()
+            if isinstance(out, torch.Tensor):
+                logits: np.ndarray = out.cpu().float().numpy()
+            elif isinstance(out, np.ndarray):
+                logits = out.astype(np.float32)
+            elif isinstance(out, (list, tuple)):
+                # Если модель возвращает несколько выходов, берём первый
+                first = out[0]
+                if isinstance(first, torch.Tensor):
+                    logits = first.cpu().float().numpy()
+                else:
+                    logits = np.asarray(first, dtype=np.float32)
+            else:
+                # Fallback: пытаемся конвертировать в массив
+                logits = np.asarray(out, dtype=np.float32)
+
+            # 🔧 FIX: Явное приведение типов для linter
+            logits = cast(np.ndarray, logits)
 
             # ──────────────────────────────────────────────────────────────
             # 4. Интеллектуальная пост-обработка (аналогично segment)
@@ -749,53 +863,41 @@ class TRTSegmenter(BaseSegmenter):
 
             prob_mask: Optional[ProbabilityMask] = None
 
-            if out_np.ndim == 4 and out_np.shape[1] > 1:
-                # ===== Multi-class сегментация =====
-                # Бинарная маска: argmax по каналу классов
-                mask: np.ndarray = out_np[0].argmax(axis=0).astype(np.uint8)
-
-                # Вероятностная маска (если запрошено)
+            if logits.ndim == 4 and logits.shape[1] > 1:
+                # Multi-class: argmax
+                mask: np.ndarray = logits[0].argmax(axis=0).astype(np.uint8)
                 if return_probs:
-                    if 0 <= prob_class < out_np.shape[1]:
-                        # Вероятности для конкретного класса
-                        probs = out_np[0, prob_class]
+                    if 0 <= prob_class < logits.shape[1]:
+                        probs = logits[0, prob_class]
                     else:
-                        # Максимальная вероятность среди всех классов
-                        probs = np.max(out_np[0], axis=0)
-
-                    # Нормализация к [0, 1] через softmax если значения > 1 (логиты)
+                        probs = np.max(logits[0], axis=0)
                     if probs.max() > 1.0 or probs.min() < 0:
-                        # Применяем softmax по каналу классов для каждого пикселя
-                        exp_vals = np.exp(out_np[0] - np.max(out_np[0], axis=0, keepdims=True))
+                        exp_vals = np.exp(logits[0] - np.max(logits[0], axis=0, keepdims=True))
                         softmax = exp_vals / (np.sum(exp_vals, axis=0, keepdims=True) + 1e-8)
-                        if 0 <= prob_class < out_np.shape[1]:
-                            prob_mask = softmax[prob_class].astype(np.float32)
-                        else:
-                            prob_mask = np.max(softmax, axis=0).astype(np.float32)
+                        prob_mask = (
+                            softmax[prob_class].astype(np.float32)
+                            if 0 <= prob_class < logits.shape[1]
+                            else np.max(softmax, axis=0).astype(np.float32)
+                        )
                     else:
                         prob_mask = probs.astype(np.float32)
             else:
-                # ===== Binary / single-channel сегментация =====
-                if out_np.ndim == 4:
-                    raw_mask = out_np[0, 0]
-                elif out_np.ndim == 3:
-                    raw_mask = out_np[0]
+                # Binary
+                if logits.ndim == 4:
+                    raw_mask = logits[0, 0]
+                elif logits.ndim == 3:
+                    raw_mask = logits[0]
                 else:
-                    raw_mask = out_np
+                    raw_mask = logits
 
-                # Бинарная маска
                 if raw_mask.max() <= 1.0:
                     mask = (raw_mask > prob_threshold).astype(np.uint8) * 255
                 else:
                     mask = raw_mask.astype(np.uint8)
-
-                # Вероятностная маска (если запрошено)
                 if return_probs:
                     if raw_mask.max() <= 1.0 and raw_mask.min() >= 0:
-                        # Уже вероятности [0, 1]
                         prob_mask = raw_mask.astype(np.float32)
                     else:
-                        # Предполагаем логиты, применяем сигмоиду
                         prob_mask = 1.0 / (1.0 + np.exp(-np.clip(raw_mask.astype(np.float32), -50, 50)))
 
             # ──────────────────────────────────────────────────────────────
@@ -809,7 +911,30 @@ class TRTSegmenter(BaseSegmenter):
                 sh, sw = orig_h / prob_mask.shape[0], orig_w / prob_mask.shape[1]
                 prob_mask = zoom(prob_mask, (sh, sw), order=1).astype(np.float32)  # linear для вероятностей
 
-            return mask.astype(np.uint8), prob_mask
+            # ──────────────────────────────────────────────────────────────
+            # 5. 🔧 СОЗДАНИЕ ОВЕРЛЕЯ (как в OpenCV/Sklearn/Torch сегментерах)
+            # ──────────────────────────────────────────────────────────────
+            # Конвертируем исходное изображение в RGB если нужно
+            if image_np.ndim == 2:
+                base_img = np.stack([image_np] * 3, axis=-1)
+            else:
+                base_img = image_np.copy()
+
+            # Создаём оверлей: копию изображения для наложения маски
+            overlay = base_img.copy()
+
+            # 🔧 FIX: Красный цвет для маски [255, 0, 0] — только там, где mask > 127
+            mask_bool = mask > 127
+            overlay[mask_bool] = [255, 0, 0]  # RGB: красный
+
+            # 🔧 FIX: Правильная формула alpha blending (как в OpenCVSegmenter):
+            # result = overlay * alpha + base_img * (1 - alpha)
+            # Это даёт: красная маска с прозрачностью, оригинал виден под ней
+            result = cv2.addWeighted(
+                overlay.astype(np.float32), alpha, base_img.astype(np.float32), 1.0 - alpha, 0
+            ).astype(np.uint8)
+
+            return result, mask.astype(np.uint8)
 
         except Exception as e:
             logger.error(f"TRT '{self.method}' segment_with_mask error: {e}", exc_info=True)

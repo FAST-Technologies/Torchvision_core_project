@@ -5199,10 +5199,6 @@ __all__: List[str] = [
     # 🔹 Типизация параметров и методов
     "ParamsDict",
     "SegmentationMethod",
-    # 🔹 Re-export базовых типов (для удобства)
-    "ImageInput",
-    "BinaryMask",
-    "ProbabilityMask",
 ]
 """Публичный API модуля OpenCVSegmenter.
 

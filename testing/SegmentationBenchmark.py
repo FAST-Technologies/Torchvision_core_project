@@ -738,6 +738,18 @@ class SegmentationBenchmark:
         if self.gt_mask is not None:
             gt_np: np.ndarray = np.array(self.gt_mask) if isinstance(self.gt_mask, Image.Image) else self.gt_mask
             metrics = compute_metrics(mask, gt_np, self.num_classes, self.ignore_index)
+        else:
+            # 🔹 Заглушка без GT — все метрики = NaN, кроме unique_classes
+            metrics = {
+                "mIoU": np.nan,
+                "pixel_acc": np.nan,
+                "f1_weighted": np.nan,
+                "per_class_iou": [np.nan] * self.num_classes,
+                "confusion_matrix": None,
+                "unique_pred_classes": len(np.unique(mask)),
+                "valid_pixels": 0,
+            }
+            logger.debug(f"⚠️  No GT for {model_key}, using placeholder metrics")
 
         print(f"Метрики {metrics}")
         result: Dict[str, Any] = {
@@ -1009,6 +1021,9 @@ class SegmentationBenchmark:
         model_names: List[str] = []
         for model_name, res in self.results.items():
             iou_arr = res["metrics"].get("per_class_iou")
+            if iou_arr is None:
+                logger.debug(f"⚠️  {model_name}: per_class_iou not available (no GT)")
+                continue
             if iou_arr is not None and len(iou_arr) > 0:
                 iou_arr = np.array(iou_arr[: self.num_classes])
                 if np.any(np.isfinite(iou_arr)):
@@ -1084,7 +1099,7 @@ class SegmentationBenchmark:
 
         cm = self.results[model_key]["metrics"].get("confusion_matrix")
         if cm is None:
-            print("⚠️  No confusion matrix available.")
+            logger.warning(f"⚠️  No confusion matrix for '{model_key}' (requires GT). Skipping plot.")
             return
 
         # Нормализация
@@ -1409,13 +1424,13 @@ class SegmentationBenchmark:
                 benchmark_tasks[task_id]["message"] = f"✅ {key} завершён"
                 await asyncio.sleep(0)
 
-            if i < len(model_keys) - 1:
-                if key in self.models:
-                    self.models[key].pop("model", None)
-                    self.models[key].pop("processor", None)
-                torch.cuda.empty_cache()
-                gc.collect()
-                print(f"   🗑️  Freed {key} from VRAM")
+            # if i < len(model_keys) - 1:
+            #     if key in self.models:
+            #         self.models[key].pop("model", None)
+            #         self.models[key].pop("processor", None)
+            #     torch.cuda.empty_cache()
+            #     gc.collect()
+            #     print(f"   🗑️  Freed {key} from VRAM")
 
         return self.get_summary()
 

@@ -1963,6 +1963,13 @@ class SegmentationTester:
                     print(f"⚠️ {method_name}: {e}")
                     break
 
+                print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+                print("   (нажмите Ctrl+C для отмены, если нужно)")
+                try:
+                    time.sleep(15)  # 🔥 Задержка 15 секунд
+                except KeyboardInterrupt:
+                    print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+
             if not times or last_result is None:
                 records.append({"method": method_name, "error": "failed"})
                 continue
