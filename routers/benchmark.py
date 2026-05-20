@@ -766,7 +766,7 @@ async def start_benchmark(
     use_default_image: bool = Form(True),
     image_path: Optional[str] = Form(None),
     config: Optional[str] = Form(None),
-    bg: BackgroundTasks = None,
+    bg: Optional[BackgroundTasks] = None,
 ) -> Dict[str, str]:
     """Запускает асинхронный бенчмарк сегментации.
 

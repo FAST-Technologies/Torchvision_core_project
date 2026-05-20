@@ -783,11 +783,11 @@ Note:
 
 
 @app.middleware("http")
-async def log_benchmark_requests(request: Request, call_next):
+async def log_benchmark_requests(request: Request, call_next: Any) -> Any:
     if request.url.path.startswith("/api/benchmark"):
-        start = time.time()
+        start: float = time.time()
         response = await call_next(request)
-        duration = time.time() - start
+        duration: float = time.time() - start
         logger.info(f"Benchmark {request.url.path} took {duration:.2f}s")
         return response
     return await call_next(request)

@@ -18,7 +18,7 @@ FROM python:3.13-slim-bookworm
 # Runtime-зависимости
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1 ffmpeg curl \
-    && rm -rf /var/lib/apt/lists/*
+    gcc g++ make && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -28,6 +28,10 @@ COPY --from=builder /install /usr/local
 ENV PATH=/usr/local/bin:$PATH
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+
+ENV TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_cache
+ENV TRITON_CACHE_DIR=/tmp/triton_cache
+ENV TORCHINDUCTOR_COMPILE_THREADS=1
 
 # Копируем код
 COPY backend/ ./backend/

@@ -351,7 +351,7 @@ def _extract_library_from_name(name: str) -> str:
 # ──────────────────────────────────────────────────────────────────────
 def _create_segmenter(
     library: str, method: str, params: Dict[str, Any]
-) -> OpenCVSegmenter | SklearnSegmenter | TorchSegmenter:
+) -> OpenCVSegmenter | SklearnSegmenter | TorchSegmenter | TorchSegmenter2:
     """Фабричный метод для создания экземпляра сегментера.
 
     Динамически импортирует и инициализирует класс сегментера на основе названия библиотеки.
