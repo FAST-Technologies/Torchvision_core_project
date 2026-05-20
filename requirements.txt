@@ -68,3 +68,4 @@ pydantic_core>=2.41.5
 pydantic-settings>=2.13.1
 segmentation_models_pytorch>=0.5.0
 statsmodels>=0.14.6
+uvicorn>=0.46.0

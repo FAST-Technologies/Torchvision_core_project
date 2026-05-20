@@ -4,4 +4,39 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# === Docker-specific ===
+.docker/
+docker-compose*.yml
+*.dockerfile
+
+# Frontend build artifacts (собираются внутри контейнера)
+frontend/dist/
+frontend/node_modules/
+frontend/.next/
+frontend/.nuxt/
+frontend/.vite/
+
+# Backend cache
+backend/__pycache__/
+backend/*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Large data/models (монтируются как volumes, не копируются в образ)
+data/
+models/
+exported_models*/
+*.pt
+*.pth
+*.onnx
+*.trt
+*.safetensors
+
+# Logs and temp
 *.log
+tmp/
+temp/
+.profiling/
+.reports/

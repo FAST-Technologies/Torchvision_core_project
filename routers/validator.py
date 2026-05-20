@@ -118,6 +118,7 @@ import logging
 import traceback
 import cv2
 from typing import Dict, Any, Optional, List, Tuple, Callable, TypeAlias
+import torch
 
 import numpy as np
 from PIL import Image
@@ -638,13 +639,27 @@ def _process_single_method(
     logger.info(f"🔹 START Processing method: {method_name}")
     try:
         t1: float = time.perf_counter()
-        seg1 = primary_class(method=method_name, **params)
+        if primary_class == TorchSegmenter2:
+            params_primary = {
+                "precision": params.get("precision", "fp32"),
+                "use_compile": params.get("use_compile", False),
+                "device": params.get("device", "cuda" if torch.cuda.is_available() else "cpu"),
+                **{k: v for k, v in params.items() if k not in ["precision", "use_compile", "device"]},
+            }
+            seg1 = primary_class(method=method_name, **params_primary)
+        else:
+            seg1 = primary_class(method=method_name, **params)
         mask1: np.ndarray = seg1.segment(img_array, **params)
         time1: float = time.perf_counter() - t1
         logger.info(f"✅ {method_name} primary done: {time1:.3f}s")
 
         ref_params: Dict[str, Any] = params.copy()
-        ref_params["postprocess"] = False
+        if reference_class == TorchSegmenter2:
+            ref_params["postprocess"] = False  # TorchSegmenter2 не требует postprocess
+            ref_params.setdefault("precision", "fp32")
+            ref_params.setdefault("use_compile", False)
+        else:
+            ref_params["postprocess"] = False  # для старых сегментеров
         t2: float = time.perf_counter()
         seg2 = reference_class(method=method_name, **ref_params)
         mask2: np.ndarray = seg2.segment(img_array, **ref_params)
@@ -702,8 +717,8 @@ def _process_single_method(
 @router.post("/start")
 async def start_validation(
     file: UploadFile = File(...),
-    primary_library: str = Form("torch"),  # "torch" | "opencv" | "sklearn"
-    reference_library: str = Form("opencv"),  # "torch" | "opencv" | "sklearn"
+    primary_library: str = Form("torch"),  # "torch" | "opencv" | "sklearn" | "torch_v2"
+    reference_library: str = Form("opencv"),  # "torch" | "opencv" | "sklearn" | "torch_v2"
     methods_filter: Optional[str] = Form(None),  # "threshold" | "edge" | "region" | "all"
 ) -> Dict[str, str]:
     """Запускает асинхронную валидацию кросс-библиотечных реализаций.

@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1.4
+FROM python:3.13-slim-bookworm AS builder
+
+# Системные зависимости для сборки
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake git libgl1 libglib2.0-0 libsm6 libxext6 \
+    libxrender-dev libgomp1 && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 🔹 FIX: Устанавливаем в /install вместо ~/.local
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# === Runtime stage ===
+FROM python:3.13-slim-bookworm
+
+# Runtime-зависимости
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1 ffmpeg curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 🔹 FIX: Копируем из /install в системный путь
+COPY --from=builder /install /usr/local
+
+ENV PATH=/usr/local/bin:$PATH
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Копируем код
+COPY backend/ ./backend/
+COPY routers/ ./routers/
+COPY segmenters/ ./segmenters/
+COPY metrics/ ./metrics/
+COPY testing/ ./testing/
+COPY utils/ ./utils/
+COPY dataseters/ ./dataseters/
+COPY configs/ ./configs/
+COPY pyproject.toml .
+
+# Создаём пользователя и назначаем права
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/api/health || exit 1
+
+EXPOSE 8000
+
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

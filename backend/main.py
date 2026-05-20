@@ -1,5 +1,4 @@
 # backend/main.py
-
 r"""AutoSegmenter API — улучшенная версия FastAPI бэкенда.
 
 Модуль предоставляет REST API для интеллектуальной сегментации изображений с поддержкой:
@@ -180,7 +179,6 @@ print(f"🔍 CWD: {os.getcwd()}")
 print(f"🔍 __file__: {__file__}")
 
 
-# ──────────────────────────────────────────────────────────────────────
 def _get_or_load_neural(config: Dict[str, Any], task: str) -> Any:
     """Загружает нейронный сегментер с LRU-кешем (макс. 3 модели).
 
@@ -523,45 +521,6 @@ def _best_for(method_name: str) -> List[str]:
 # КОНФИГУРАЦИЯ НЕЙРОСЕТЕЙ
 # ──────────────────────────────────────────────────────────────────────
 NEURAL_CONFIGS: NeuralConfigDict = {
-    """Конфигурации предобученных нейросетевых моделей по типам задач.
-
-    Структура:
-    ```
-    {
-        "semantic": {  # Семантическая сегментация
-            "segformer_b0": {"model_type": "segformer", "model_name": "..."},
-            "mask2former_swin_base": {"model_type": "mask2former", "model_name": "..."},
-            ...
-        },
-        "instance": {  # Instance segmentation
-            "mask2former_coco_instance": {...},
-            "yolov8n_seg": {...},
-            ...
-        },
-        "panoptic": {  # Паноптическая сегментация
-            "mask2former_ade_panoptic": {...},
-            ...
-        }
-    }
-    ```
-
-    Поддерживаемые архитектуры:
-        - **SegFormer** (B0–B5): Transformer-based, ADE20K, 512×512 / 640×640.
-        - **Mask2Former**: Универсальная, поддержка semantic/instance/panoptic.
-        - **OneFormer**: Multi-task, ADE20K / COCO.
-        - **DPT / UPerNet**: Dense prediction transformers.
-        - **SMP** (Unet/FPN/PSP): С энкодерами ResNet, EfficientNet, MiT.
-        - **TorchVision** (FCN/DeepLab/SegNet): Классические архитектуры.
-        - **SAM / MobileSAM / SAM2**: Segment Anything Model.
-        - **YOLOv8-seg**: Real-time instance segmentation.
-
-    Note:
-        - model_name может быть:
-        - Идентификатором HuggingFace Hub (загружается автоматически).
-        - Путём к локальному файлу .pt / .pth / .bin.
-        - Для SMP-моделей дополнительно указывается encoder_name.
-        - Конфигурации можно расширять без изменения кода эндпоинтов.
-    """
     "semantic": {
         "segformer_b0": {
             "model_type": "segformer",
@@ -663,6 +622,45 @@ NEURAL_CONFIGS: NeuralConfigDict = {
         },
     },
 }
+"""Конфигурации предобученных нейросетевых моделей по типам задач.
+
+    Структура:
+    ```
+    {
+        "semantic": {  # Семантическая сегментация
+            "segformer_b0": {"model_type": "segformer", "model_name": "..."},
+            "mask2former_swin_base": {"model_type": "mask2former", "model_name": "..."},
+            ...
+        },
+        "instance": {  # Instance segmentation
+            "mask2former_coco_instance": {...},
+            "yolov8n_seg": {...},
+            ...
+        },
+        "panoptic": {  # Паноптическая сегментация
+            "mask2former_ade_panoptic": {...},
+            ...
+        }
+    }
+    ```
+
+    Поддерживаемые архитектуры:
+        - **SegFormer** (B0–B5): Transformer-based, ADE20K, 512×512 / 640×640.
+        - **Mask2Former**: Универсальная, поддержка semantic/instance/panoptic.
+        - **OneFormer**: Multi-task, ADE20K / COCO.
+        - **DPT / UPerNet**: Dense prediction transformers.
+        - **SMP** (Unet/FPN/PSP): С энкодерами ResNet, EfficientNet, MiT.
+        - **TorchVision** (FCN/DeepLab/SegNet): Классические архитектуры.
+        - **SAM / MobileSAM / SAM2**: Segment Anything Model.
+        - **YOLOv8-seg**: Real-time instance segmentation.
+
+    Note:
+        - model_name может быть:
+        - Идентификатором HuggingFace Hub (загружается автоматически).
+        - Путём к локальному файлу .pt / .pth / .bin.
+        - Для SMP-моделей дополнительно указывается encoder_name.
+        - Конфигурации можно расширять без изменения кода эндпоинтов.
+"""
 
 
 # def build_neural_configs() -> Dict[str, Dict[str, Dict]]:
@@ -755,7 +753,6 @@ Note:
     - Маршруты регистрируются до инициализации auto_seg для корректного импорта.
     - print-отладка зарегистрированных роутов помогает при отладке 404 ошибок.
 """
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -767,7 +764,6 @@ app.include_router(benchmark.router)
 app.include_router(comparator.router)
 app.include_router(validator.router)
 print(f"📋 Registered routes: {[r.path for r in app.routes if hasattr(r, 'path')]}")
-
 auto_seg = AutoSegmenter()
 """Глобальный экземпляр AutoSegmenter для выбора и выполнения методов.
 
@@ -786,49 +782,18 @@ Note:
 """
 
 
-# ──────────────────────────────────────────────────────────────────────
 @app.middleware("http")
-async def log_benchmark_requests(request: Request, call_next: Callable[[Request], Any]) -> Any:
-    """Мидлвэр логирования времени выполнения бенчмарк-запросов.
-
-    Назначение:
-    - Мониторинг производительности эндпоинтов /api/benchmark/*.
-    - Выявление "медленных" запросов для оптимизации.
-    - Сбор метрик для систем мониторинга (Prometheus, Grafana).
-
-    Алгоритм:
-    1. Проверяет, начинается ли путь запроса с "/api/benchmark".
-    2. Замеряет время до и после обработки запроса через time.perf_counter().
-    3. Логирует длительность выполнения в секундах с двумя знаками после запятой.
-    4. Возвращает оригинальный response без изменений.
-
-    Args:
-        request (Request): Входящий HTTP-запрос (FastAPI).
-        call_next (Callable[[Request], Any]): Следующий обработчик в цепочке.
-
-    Returns:
-        Any: Response от следующего обработчика (без модификаций).
-
-    Note:
-        - time.perf_counter() выбран за высокую точность (наносекунды).
-        - Логирование только для /api/benchmark снижает накладные расходы.
-        - Для продакшена рекомендуется отправлять метрики в time-series БД.
-    """
+async def log_benchmark_requests(request: Request, call_next):
     if request.url.path.startswith("/api/benchmark"):
-        start: float = time.perf_counter()
+        start = time.time()
         response = await call_next(request)
-        duration: float = time.perf_counter() - start
+        duration = time.time() - start
         logger.info(f"Benchmark {request.url.path} took {duration:.2f}s")
         return response
     return await call_next(request)
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────
-
-
-# ──────────────────────────────────────────────────────────────────────
-# ENDPOINTS
-# ──────────────────────────────────────────────────────────────────────
 @app.get("/api/health")
 async def health() -> Dict[str, Any]:
     """Возвращает статус системы: доступность CUDA, использование VRAM, активные задачи.
@@ -890,7 +855,6 @@ async def health() -> Dict[str, Any]:
     else:
         total_vram_mb = alloc_vram_mb = free_vram_mb = reserved_vram_mb = 0.0
         device_name = "cpu"
-
     return {
         "status": "ok",
         "cuda_available": torch.cuda.is_available(),
@@ -1344,7 +1308,7 @@ async def segment(
                 final_params: Dict[str, Any] = {**(profile.params or {}), **user_params}
                 logger.info(f"🛠 Using params for {method}/{library} params={final_params}")
 
-                segmenter = auto_seg._get_segmenter_class(method, library)(**final_params)
+                segmenter = auto_seg._get_segmenter_class(method, library)(method=method, **final_params)
                 result = segmenter.segment_with_mask(img_array)
                 if isinstance(result, tuple) and len(result) == 2:
                     _, mask_opt = result
@@ -1360,6 +1324,7 @@ async def segment(
                     "image_characteristics": auto_seg.analyze_image(img_array),
                 }
 
+        # ─── Метрики ───────────────────────────────────────────────────────
         # ─── Метрики ───────────────────────────────────────────────────────
         metrics: MetricsDict = {}
         if gt_mask is not None:
@@ -1502,12 +1467,11 @@ Note:
     - Для продакшена соберите фронтенд (npm run build) перед запуском.
     - Альтернатива: использовать отдельный nginx для раздачи статики.
 """
-
 if os.path.exists(_DIST):
     app.mount("/", StaticFiles(directory=_DIST, html=True), name="static")
 
 if __name__ == "__main__":
-    host: str = os.getenv("API_HOST", "127.0.0.1")  # ← Безопасный дефолт
+    host: str = os.getenv("API_HOST", "127.0.0.1")
     port: int = int(os.getenv("API_PORT", 8000))
     reload: bool = os.getenv("API_RELOAD", "false").lower() == "true"
 

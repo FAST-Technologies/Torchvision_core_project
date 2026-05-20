@@ -1,7 +1,8 @@
 import { Fragment, useState, ChangeEvent, FormEvent, useMemo, useCallback, useEffect, useRef } from 'react'
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Legend, Cell, ScatterChart, Scatter, ReferenceLine  
+  // LineChart, Line,
+  Legend, Cell, ScatterChart, Scatter, ReferenceLine,
 } from 'recharts'
 import './App.css'
 
@@ -207,7 +208,7 @@ export interface BenchmarkConfig {
 
 export interface ComparatorMethod {
   name: string;
-  library: "opencv" | "sklearn" | "torch";
+  library: "opencv" | "sklearn" | "torch" | "torch_v2";
   method: string;
   params?: Record<string, any>;
 }
@@ -283,6 +284,11 @@ export const DEFAULT_COMPARATOR_METHODS: Record<string, string[]> = {
     "global_thresholding", "otsu_thresholding", "adaptive_thresholding",
     "canny_edge", "sobel_edge", "threshold_sauvola",
     "threshold_niblack", "threshold_bernsen", "prewitt_edge"
+  ],
+  torch_v2: [
+    "global_thresholding", "otsu_thresholding", "adaptive_thresholding",
+    "canny_edge", "sobel_edge", "threshold_sauvola",
+    "threshold_niblack", "threshold_bernsen", "prewitt_edge"
   ]
 };
 
@@ -299,15 +305,16 @@ const LIBRARIES: LibraryOption[] = [
     { value: "opencv", label: "OpenCV", icon: "🟢" },
     { value: "sklearn", label: "Scikit-learn", icon: "🔵" },
     { value: "torch", label: "PyTorch", icon: "🔴" },
+    { value: "torch_v2", label: "PyTorch_v2", icon: "🟣" },
   ];
 const API = 'http://localhost:8000'
 
-type AreaChartData = {
-  method: string;
-  coverage: number;
-  status?: 'PASS' | 'WARNING' | 'FAIL';
-  gt_area: number;
-};
+// type AreaChartData = {
+//   method: string;
+//   coverage: number;
+//   status?: 'PASS' | 'WARNING' | 'FAIL';
+//   gt_area: number;
+// };
 
 const isValidAreaData = (d: BenchmarkData): d is BenchmarkData & { coverage_pct: number; ground_truth_area: number } => {
   return d.coverage_pct != null && d.ground_truth_area != null && d.ground_truth_area > 0;
@@ -714,7 +721,12 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis type="number" label={{ value: 'Время (с)', position: 'insideBottom' }} />
             <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
-            <Tooltip formatter={(v: number) => [`${v.toFixed(3)}s`, 'Время']} />
+            <Tooltip 
+              formatter={(v) => {
+                const value = typeof v === 'number' ? v : 0;
+                return [`${value.toFixed(3)}s`, 'Время'];
+              }} 
+            />
             <Bar dataKey="time" fill="#3b82f6" radius={[0, 2, 2, 0]} />
             <Legend />
           </BarChart>
@@ -729,7 +741,12 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis type="number" domain={[0, 1]} label={{ value: 'IoU', position: 'insideBottom' }} />
             <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
-            <Tooltip formatter={(v: number) => [`${(v * 100).toFixed(1)}%`, 'IoU']} />
+            <Tooltip 
+              formatter={(v, name) => {
+                const value = typeof v === 'number' ? v : 0;
+                return [`${(value * 100).toFixed(1)}%`, String(name)];
+              }} 
+            />
             <Bar dataKey="iou" radius={[0, 2, 2, 0]}>
               {iouData.map((entry, index) => {
                 const color = 
@@ -767,9 +784,12 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
                 label={{ value: 'Reference (с)', angle: -90, position: 'insideLeft', offset: 0 }}
                 domain={[0, 'dataMax']}
               />
-              
+
               <Tooltip 
-                formatter={(v: number, name: string) => [`${v.toFixed(3)}s`, name]} 
+                formatter={(v, name) => {
+                  const value = typeof v === 'number' ? v : 0;
+                  return [`${value.toFixed(3)}s`, String(name ?? '')];
+                }} 
                 cursor={{ strokeDasharray: '3 3' }} 
               />
               
@@ -808,7 +828,12 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" domain={[0, 100]} label={{ value: 'Покрытие (px)', position: 'insideBottom' }} />
               <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(v: number) => [`${v.toFixed(1)}px`, 'Покрытие']} />
+              <Tooltip 
+                formatter={(v) => {
+                  const value = typeof v === 'number' ? v : 0;
+                  return [`${value.toFixed(1)}px`, 'Покрытие'];
+                }} 
+              />
               <Bar dataKey="coverage" fill="#14b8a6" radius={[0, 2, 2, 0]} />
               <Legend />
             </BarChart>
@@ -824,7 +849,12 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" domain={[0, 200]} label={{ value: 'Покрытие (%)', position: 'insideBottom' }} />
               <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, 'Покрытие']} />
+              <Tooltip 
+                formatter={(v) => {
+                  const value = typeof v === 'number' ? v : 0;
+                  return [`${value.toFixed(1)}%`, 'Покрытие'];
+                }} 
+              />
               <Bar dataKey="coverage" fill="#14b8a6" radius={[0, 2, 2, 0]} />
               <ReferenceLine x={100} stroke="#888" strokeDasharray="3 3" /> 
               <Legend />
@@ -847,11 +877,12 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
               />
               <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
               <Tooltip 
-                formatter={(v: number, name: string) => {
-                  if (name === 'coverage') return [`${v.toFixed(1)}%`, 'Отношение'];
-                  if (name === 'pred_area') return [`${Math.round(v)} px`, 'Предсказание'];
-                  if (name === 'gt_area') return [`${Math.round(v)} px`, 'Ground Truth'];
-                  return [v, name];
+                formatter={(v, name) => {
+                  const value = typeof v === 'number' ? v : 0;
+                  if (name === 'coverage') return [`${value.toFixed(1)}%`, 'Отношение'];
+                  if (name === 'pred_area') return [`${Math.round(value)} px`, 'Предсказание'];
+                  if (name === 'gt_area') return [`${Math.round(value)} px`, 'Ground Truth'];
+                  return [String(value), String(name ?? '')];
                 }}
               />
               <Bar dataKey="coverage" radius={[0, 2, 2, 0]}>
@@ -893,10 +924,11 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
               />
               <YAxis dataKey="method" type="category" width={150} tick={{ fontSize: 10 }} />
               <Tooltip 
-                formatter={(v: number, name: string) => {
-                  if (name === 'coverage') return [`${v.toFixed(1)}%`, 'Покрытие'];
-                  if (name === 'gt_area') return [`${Math.round(v)} px`, 'GT площадь'];
-                  return [v, name];
+                formatter={(v, name) => {
+                  const value = typeof v === 'number' ? v : 0;
+                  if (name === 'coverage') return [`${value.toFixed(1)}%`, 'Покрытие'];
+                  if (name === 'gt_area') return [`${Math.round(value)} px`, 'GT площадь'];
+                  return [String(value), String(name ?? '')];
                 }}
               />
               <Bar dataKey="coverage" radius={[0, 2, 2, 0]}>
@@ -930,11 +962,12 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
               <XAxis type="number" label={{ value: 'Пиксели', position: 'insideBottom' }} />
               <YAxis dataKey="method" type="category" width={140} tick={{ fontSize: 9 }} />
               <Tooltip 
-                formatter={(v: number, name: string) => {
-                  if (name === 'predicted') return [`${Math.round(v)} px`, 'Предсказание'];
-                  if (name === 'ground_truth') return [`${Math.round(v)} px`, 'Ground Truth'];
-                  if (name === 'ratio') return [`${v.toFixed(1)}%`, 'Отношение'];
-                  return [v, name];
+                formatter={(v, name) => {
+                  const value = typeof v === 'number' ? v : 0;
+                  if (name === 'predicted') return [`${Math.round(value)} px`, 'Предсказание'];
+                  if (name === 'ground_truth') return [`${Math.round(value)} px`, 'Ground Truth'];
+                  if (name === 'ratio') return [`${value.toFixed(1)}%`, 'Отношение'];
+                  return [String(value), String(name ?? '')];
                 }}
               />
               <Legend />
@@ -1007,9 +1040,13 @@ function ValidationBenchmarkCharts({ data }: { data: BenchmarkSummary }) {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" dataKey="time" name="Время" label={{ value: 'Время (с)', position: 'insideBottom' }} />
               <YAxis type="number" dataKey="iou" name="IoU" label={{ value: 'IoU', angle: -90, position: 'insideLeft' }} />
-              <Tooltip formatter={(v: number, name: string) => 
-                name === 'iou' ? [`${(v * 100).toFixed(1)}%`, 'IoU'] : [`${v.toFixed(3)}s`, 'Время']
-              } />
+              <Tooltip 
+                formatter={(v, name) => {
+                  const value = typeof v === 'number' ? v : 0;
+                  if (name === 'iou') return [`${(value * 100).toFixed(1)}%`, 'IoU'];
+                  return [`${value.toFixed(3)}s`, 'Время'];
+                }} 
+              />
               <Scatter name="Методы" data={tradeoffData}>
                 {tradeoffData.map((entry, index) => {
                   // Цвет по статусу
@@ -1092,7 +1129,7 @@ export default function App() {
   const [selectedLibrary, setSelectedLibrary] = useState<string>("opencv");
   const [selectedMethod, setSelectedMethod] = useState<string>("");
   const [availableMethods, setAvailableMethods] = useState<Record<string, MethodInfo>>({});
-  const [methodSchema, setMethodSchema] = useState<Record<string, any>>({});
+  const [_methodSchema, setMethodSchema] = useState<Record<string, any>>({});
   const [customParams, setCustomParams] = useState<Record<string, any>>({});
 
   // Neural
@@ -1129,7 +1166,7 @@ export default function App() {
 
   // Comparator
   const [comparatorLoading, setComparatorLoading] = useState(false);
-  const [comparatorTaskId, setComparatorTaskId] = useState<string | null>(null);
+  const [_comparatorTaskId, setComparatorTaskId] = useState<string | null>(null);
   const [comparatorProgress, setComparatorProgress] = useState<BenchmarkProgress>({
     status: 'idle', progress: 0, message: '',
   });
@@ -1138,6 +1175,7 @@ export default function App() {
     { name: "Otsu_OpenCV", library: "opencv", method: "otsu_thresholding" },
     { name: "Otsu_Sklearn", library: "sklearn", method: "otsu_thresholding" },
     { name: "Otsu_Torch", library: "torch", method: "otsu_thresholding" },
+    { name: "Otsu_Torch_v2", library: "torch_v2", method: "otsu_thresholding" },
   ]);
   const [comparatorReference, setComparatorReference] = useState<ComparatorMethod>({
     name: "Reference_Otsu", library: "sklearn", method: "otsu_thresholding"
@@ -1822,6 +1860,7 @@ export default function App() {
                       disabled={validationLoading || validationProgress.status === 'running'}
                     >
                       <option value="torch">🔴 PyTorch</option>
+                      <option value="torch_v2">🟣 PyTorch_v2</option>
                       <option value="opencv">🟢 OpenCV</option>
                       <option value="sklearn">🔵 Scikit-learn</option>
                     </select>
@@ -1838,6 +1877,7 @@ export default function App() {
                       <option value="opencv">🟢 OpenCV</option>
                       <option value="sklearn">🔵 Scikit-learn</option>
                       <option value="torch">🔴 PyTorch</option>
+                      <option value="torch_v2">🟣 PyTorch_v2</option>
                     </select>
                   </div>
                   
@@ -2158,7 +2198,7 @@ export default function App() {
             <div className="card">
               <h3 className="card__title">⚖️ Компаратор методов</h3>
               <p className="text-sm text-gray-600 mb-4">
-                Сравните реализации одного метода в разных библиотеках (OpenCV / Sklearn / Torch).
+                Сравните реализации одного метода в разных библиотеках (OpenCV / Sklearn / Torch / Torch_v2).
               </p>
               
               {/* Настройки */}
@@ -2253,6 +2293,29 @@ export default function App() {
                         🔴 {method}
                       </label>
                     ))}
+                    {DEFAULT_COMPARATOR_METHODS.torch.map((method: string) => (
+                      <label key={method} className="flex items-center gap-1 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={selectedComparatorMethods.some(m => m.method === method && m.library === 'torch_v2')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedComparatorMethods(prev => [...prev, {
+                                name: `${method}_PyTorch_v2`, 
+                                library: 'torch_v2' as const, 
+                                method: method,
+                                params: {}
+                              }]);
+                            } else {
+                              setSelectedComparatorMethods(prev => prev.filter(m => 
+                                !(m.method === method && m.library === 'torch_v2')
+                              ));
+                            }
+                          }}
+                        />
+                        🟣 {method}
+                      </label>
+                    ))}
                   </div>
                 </div>
                 
@@ -2293,7 +2356,7 @@ export default function App() {
                     <table className="data-table">
                       <thead><tr><th>Метод</th><th>Библиотека</th><th>F1</th><th>IoU</th><th>Время (с)</th></tr></thead>
                       <tbody>
-                        {comparatorResult.summary.top_by_f1.map((r, i) => (
+                        {comparatorResult.summary.top_by_f1.map((r, _) => (
                           <tr key={r.method}>
                             <td><b>{r.method}</b></td>
                             <td>{r.library}</td>
@@ -2422,7 +2485,12 @@ export default function App() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="bin" tick={{ fontSize: 10 }} label={{ value: 'Яркость', position: 'insideBottom', offset: -2, fontSize: 11 }} />
                   <YAxis label={{value: 'Частота', angle: -90, position: 'insideLeft', fontSize: 11}} tick={{ fontSize: 10 }} />
-                  <Tooltip formatter={(v: number | undefined) => [v ?? 0, 'Частота']} />
+                  <Tooltip 
+                    formatter={(v, _) => {
+                      const value = typeof v === 'number' ? v : 0;
+                      return [String(Math.round(value)), 'Частота'];
+                    }} 
+                  />
                   <Bar dataKey="count" fill="#3b82f6" radius={[2,2,0,0]} />
                   <Legend />
                 </BarChart>

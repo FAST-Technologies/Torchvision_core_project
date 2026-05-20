@@ -95,7 +95,7 @@ from pydantic import BaseModel
 
 import numpy as np
 import torch
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Form, File, UploadFile, Depends
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Form, File, UploadFile
 from fastapi.responses import JSONResponse
 
 import numpy as np
