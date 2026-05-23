@@ -136,7 +136,7 @@ from utils.backend_exporter_new import (
     OnnxTrtFallbackSegmenter,
     TRT_PRESETS,
     _build_trt_provider_options,
-    TRT_PRESET_PRODUCTION
+    TRT_PRESET_PRODUCTION,
 )
 
 # Настройка логгера
@@ -174,7 +174,7 @@ THRESHOLD_METHODS: List[str] = [
     # "threshold_multi_otsu",
     # "threshold_local_contrast",
 ]
-"""Список пороговых методов сегментации, dtype=List[str].""" 
+"""Список пороговых методов сегментации, dtype=List[str]."""
 
 # ──────────────────────────────────────────────────────────────────────────────
 EDGE_METHODS: List[str] = [
@@ -190,7 +190,7 @@ EDGE_METHODS: List[str] = [
     # "gradient_magnitude_direction",
     # "phase_congruency_edge",
 ]
-"""Список граничных методов сегментации, dtype=List[str].""" 
+"""Список граничных методов сегментации, dtype=List[str]."""
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -204,7 +204,7 @@ def export_all_classical_methods(
     export_trt: bool = True,
     trt_strategy: TRTStrategyType = "auto",
     enable_trt_ep_fallback: bool = True,  # Гарантированный fallback через TRT EP
-    trt_ep_preset: str = "production",    # Пресет конфигурации: "production" | "debug" | "int8" | "dynamic"
+    trt_ep_preset: str = "production",  # Пресет конфигурации: "production" | "debug" | "int8" | "dynamic"
     trt_ep_custom_options: Optional[Dict[str, Any]] = None,  # Пользовательские опции (перезаписывают пресет)
     trt_ep_cache_path: Optional[str] = None,  # Путь для кэша TRT EP
 ) -> Dict[str, Dict[str, Any]]:
@@ -225,7 +225,7 @@ def export_all_classical_methods(
             - "onnx_tensorrt": через onnx-tensorrt parser
             - "jit": legacy torch_tensorrt JIT
         enable_trt_ep_fallback: Если True, создаёт ONNXSegmenter с TensorRT EP
-                               как гарантированный рабочий вариант, даже если 
+                               как гарантированный рабочий вариант, даже если
                                нативный TRT экспорт не удался.
         trt_ep_preset: Название пресета конфигурации для TensorRT EP:
                       - "production": баланс скорость/точность (по умолчанию)
@@ -405,47 +405,46 @@ def export_all_classical_methods(
                 # Этот блок НЕ создаёт новый файл, а гарантирует, что метод
                 # можно будет запустить через ONNX Runtime с TRT EP
                 trt_ep_status_key = f"onnxrt_trt_{precision}"
-                
+
                 try:
                     # Проверяем, что onnxruntime с поддержкой TRT EP доступен
                     import onnxruntime as ort
+
                     available_providers = ort.get_available_providers()
-                    
+
                     if "TensorrtExecutionProvider" in available_providers:
                         # Проверяем, что tensorrt установлен (нужен для инициализации опций)
                         import tensorrt  # noqa: F401
-                        
+
                         # Собираем опции: пресет + кастомные переопределения
                         base_opts = TRT_PRESETS.get(trt_ep_preset, TRT_PRESET_PRODUCTION).copy()
                         if trt_ep_custom_options:
                             base_opts.update(trt_ep_custom_options)
-                        
+
                         cache_path = trt_ep_cache_path or f"./trt_engines_onnxrt/{precision}"
-                        
+
                         # Тестовая инициализация сессии для валидации конфигурации
                         test_opts = _build_trt_provider_options(
-                            device_id=0,
-                            trt_options=base_opts,
-                            cache_path=cache_path
+                            device_id=0, trt_options=base_opts, cache_path=cache_path
                         )
-                        
+
                         # Создаём тестовую сессию (не сохраняем, только проверяем)
                         sess_opts = ort.SessionOptions()
                         sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
                         sess_opts.log_severity_level = 3  # ERROR
-                        
+
                         providers = [
-                            ('TensorrtExecutionProvider', test_opts),
-                            ('CUDAExecutionProvider', {'device_id': 0}),
+                            ("TensorrtExecutionProvider", test_opts),
+                            ("CUDAExecutionProvider", {"device_id": 0}),
                         ]
-                        
+
                         # Пробуем создать сессию — это триггерит сборку TRT engine в кэш
                         test_session = ort.InferenceSession(
                             onnx_path,
                             sess_options=sess_opts,
                             providers=providers,
                         )
-                        
+
                         # Проверяем, что TRT EP действительно активен
                         active = test_session.get_providers()
                         if "TensorrtExecutionProvider" in active:
@@ -454,14 +453,14 @@ def export_all_classical_methods(
                         else:
                             results[method_name][trt_ep_status_key] = "⚠️ TRT EP not active"
                             print(f"  │  └─ ONNX+TRT EP: ⚠️ fallback to CUDA EP")
-                        
+
                         # Закрываем тестовую сессию
                         del test_session
-                        
+
                     else:
                         results[method_name][trt_ep_status_key] = "⚠️ TRT EP not available"
                         print(f"  │  └─ ONNX+TRT EP: ⚠️ провайдер не найден в ONNX Runtime")
-                        
+
                 except ImportError as e:
                     results[method_name][trt_ep_status_key] = f"⚠️ Import error: {e}"
                     print(f"  │  └─ ONNX+TRT EP: ⚠️ {e}")
@@ -546,7 +545,7 @@ def _print_export_summary(results: Dict[str, Dict[str, Any]]) -> None:
         ok_count = sum(1 for v in backends.values() if v == "✅ OK" or "Ready" in v)
         total = len(backends)
         status_icon = "✅" if ok_count == total else ("⚠️" if ok_count > 0 else "❌")
-        
+
         print(f"\n{status_icon} {method:35s} [{ok_count}/{total}]")
         for backend, status in sorted(backends.items()):
             icon = "✅" if status == "✅ OK" or "Ready" in status else ("⚠️" if "⚠️" in status else "❌")

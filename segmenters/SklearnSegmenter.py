@@ -234,18 +234,21 @@ def _remove_small_components(
     """Универсальная обёртка для remove_small_objects/holes с поддержкой всех версий skimage."""
     from typing import cast
     import numpy.typing as npt
-    
+
     try:
         # Способ 1: через importlib.metadata (Python 3.8+)
         try:
             from importlib.metadata import version as get_version
+
             skimage_version = get_version("scikit-image")
         except ImportError:
             # Способ 2: через pkg_resources (fallback)
             import pkg_resources
+
             skimage_version = pkg_resources.get_distribution("scikit-image").version
-        
+
         from packaging import version
+
         use_new_api = version.parse(skimage_version) >= version.parse("0.26.0")
     except Exception:
         # Fallback: предполагаем новую версию при любой ошибке
@@ -253,17 +256,19 @@ def _remove_small_components(
 
     if remove_objects:
         from skimage.morphology import remove_small_objects
+
         if use_new_api:
             result = remove_small_objects(binary, max_size=min_area)
         else:
             result = remove_small_objects(binary, min_size=min_area)
     else:
         from skimage.morphology import remove_small_holes
+
         if use_new_api:
             result = remove_small_holes(binary, max_size=min_area)
         else:
             result = remove_small_holes(binary, area_threshold=min_area)
-    
+
     return cast(npt.NDArray[np.bool_], result)
 
 

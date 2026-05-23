@@ -78,7 +78,6 @@ from PIL import Image
 # Локальные импорты
 from utils.utils import (
     extract_logits_info,
-    compute_metrics,
     analyze_prediction,
     generate_class_report,
     export_class_report,
@@ -96,7 +95,6 @@ if not logger.handlers:
     formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-
 
 
 project_root: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1071,11 +1069,14 @@ def _log_inference_details_standalone(
     for cls in unique_classes:
         count: int = np.sum(seg_map == cls)
         if count > 0:
-            name_idx = cls - 1
-            name: str = class_names.get(name_idx, class_names.get(cls, f"Class_{cls}")) if class_names else f"Class_{cls}"
+            name_idx = int(cls) - 1  # Сдвиг -1
+            if name_idx < 0:
+                name = "Background"
+            else:
+                name = class_names.get(name_idx, f"Class_{name_idx}") if class_names else f"Class_{name_idx}"
             pct: float = 100 * count / total_pixels
-            class_stats.append((cls, name, count, pct))
-            print(f"     Class {cls:3d}: {count:6d} px ({pct:5.3f}%)")
+            class_stats.append((name_idx, name, count, pct))
+            print(f"     Class {name_idx:3d}: {count:6d} px ({pct:5.3f}%)")
 
     n_classes: Optional[int] = _get_num_classes_standalone(model, model_type, fallback=num_classes)
 
@@ -1236,7 +1237,7 @@ def _create_overlay_standalone(
     # Защита от выхода за пределы палитры
     max_label: int = int(mask.max())
     for label in range(max_label + 1):
-        palette_idx = label  # ← КЛЮЧЕВОЙ ФИКС!
+        palette_idx = label - 1  # ← КЛЮЧЕВОЙ ФИКС!
         if 0 <= palette_idx < len(palette_array):
             color_mask[mask == label] = palette_array[palette_idx]
 

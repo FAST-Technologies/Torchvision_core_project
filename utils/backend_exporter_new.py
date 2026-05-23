@@ -876,10 +876,10 @@ class OnnxTrtFallbackSegmenter:
     Example:
         >>> # Стандартный fallback с CUDA EP
         >>> fallback = OnnxTrtFallbackSegmenter("model.onnx", device="cuda")
-        >>> 
+        >>>
         >>> # С включённым TensorRT EP для максимальной производительности
         >>> fallback_trt = OnnxTrtFallbackSegmenter(
-        ...     "model.onnx", 
+        ...     "model.onnx",
         ...     device="cuda",
         ...     use_tensorrt_ep=True,
         ...     trt_options={'trt_fp16_enable': True}
@@ -919,15 +919,13 @@ class OnnxTrtFallbackSegmenter:
                 # 🎯 TensorRT EP как основной + CUDA как fallback
                 try:
                     trt_opts: Dict[str, Any] = _build_trt_provider_options(
-                        device_id=0,
-                        trt_options=trt_options,
-                        cache_path=trt_cache_path
+                        device_id=0, trt_options=trt_options, cache_path=trt_cache_path
                     )
-                    providers.append(('TensorrtExecutionProvider', trt_opts))
+                    providers.append(("TensorrtExecutionProvider", trt_opts))
                     logger.info("✅ TensorRT EP options configured")
                 except ImportError:
                     logger.warning("⚠️ tensorrt не установлен, пропускаем TensorRT EP")
-            
+
             # CUDA EP всегда добавляем как основной или fallback
             cuda_opts: Dict[str, Any] = {
                 "device_id": 0,
@@ -936,10 +934,10 @@ class OnnxTrtFallbackSegmenter:
                 "cudnn_conv_algo_search": "EXHAUSTIVE",
                 "do_copy_in_default_stream": True,
             }
-            providers.append(('CUDAExecutionProvider', cuda_opts))
-            providers.append('CPUExecutionProvider')
+            providers.append(("CUDAExecutionProvider", cuda_opts))
+            providers.append("CPUExecutionProvider")
         else:
-            providers = ['CPUExecutionProvider']
+            providers = ["CPUExecutionProvider"]
 
         sess_options: ort.SessionOptions = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
@@ -959,8 +957,10 @@ class OnnxTrtFallbackSegmenter:
         if "TensorrtExecutionProvider" in actual_providers:
             logger.info("✅ TensorRT EP active — максимальная производительность")
             trt_opts_active = self.session.get_provider_options().get("TensorrtExecutionProvider", {})
-            logger.debug(f"TRT EP options: fp16={trt_opts_active.get('trt_fp16_enable')}, "
-                        f"cache={trt_opts_active.get('trt_engine_cache_enable')}")
+            logger.debug(
+                f"TRT EP options: fp16={trt_opts_active.get('trt_fp16_enable')}, "
+                f"cache={trt_opts_active.get('trt_engine_cache_enable')}"
+            )
         elif "CUDAExecutionProvider" in actual_providers:
             logger.info("✅ CUDA acceleration active")
             cuda_opts = self.session.get_provider_options().get("CUDAExecutionProvider", {})
@@ -994,15 +994,15 @@ class OnnxTrtFallbackSegmenter:
             OnnxTrtFallbackSegmenter: Сам объект (состояние не меняется).
         """
         return self
-    
+
     def get_active_provider(self) -> str:
         """Возвращает имя активного execution provider.
-        
+
         Returns:
             str: Название провайдера: 'TensorrtExecutionProvider', 'CUDAExecutionProvider' или 'CPUExecutionProvider'.
         """
         providers = self.session.get_providers()
-        return providers[0] if providers else 'Unknown'
+        return providers[0] if providers else "Unknown"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -1587,63 +1587,58 @@ def load_trt_model(path: PathLike, device: str = "cuda", **kwargs: Any) -> Optio
 
 
 def _build_trt_provider_options(
-    device_id: int,
-    trt_options: Optional[Dict[str, Any]] = None,
-    cache_path: Optional[str] = None
+    device_id: int, trt_options: Optional[Dict[str, Any]] = None, cache_path: Optional[str] = None
 ) -> Dict[str, Any]:
     """Собирает словарь опций для TensorRT Execution Provider в ONNX Runtime.
-    
+
     Args:
         device_id: ID GPU устройства (0, 1, ...).
         trt_options: Дополнительные опции TensorRT (перезаписывают дефолтные).
         cache_path: Путь для кэширования TRT engines и timing cache.
-    
+
     Returns:
         Dict[str, Any]: Словарь опций для TensorrtExecutionProvider.
-    
+
     Note:
         Все опции соответствуют документации:
         https://onnxruntime.ai/docs/execution-providers/TensorRT-ExecutionProvider.html
     """
-    cache_dir: str = cache_path or './trt_engines_onnxrt'
+    cache_dir: str = cache_path or "./trt_engines_onnxrt"
     # Базовые опции для продакшена
     base_opts: Dict[str, Any] = {
-        'device_id': device_id,
+        "device_id": device_id,
         # 🚀 Precision & Performance
-        'trt_fp16_enable': True,           # FP16 на Tensor Cores (1.5-3× ускорение)
-        'trt_int8_enable': False,          # INT8 требует calibration table
-        'trt_int8_use_native_calibration_table': False,
-        'trt_int8_calibration_table_name': 'calibration.table',
-        'trt_max_workspace_size': 2 * 1024 * 1024 * 1024,  # 2GB
-        
+        "trt_fp16_enable": True,  # FP16 на Tensor Cores (1.5-3× ускорение)
+        "trt_int8_enable": False,  # INT8 требует calibration table
+        "trt_int8_use_native_calibration_table": False,
+        "trt_int8_calibration_table_name": "calibration.table",
+        "trt_max_workspace_size": 2 * 1024 * 1024 * 1024,  # 2GB
         #  🗃️ Engine Caching (критично для быстрого старта!)
-        'trt_engine_cache_enable': True,
-        'trt_engine_cache_path': cache_dir,
-        'trt_engine_hw_compatible': True,   # Совместимость между GPU одной архитектуры
-        'trt_engine_version_check': False,  # Отключить проверку версий при загрузке кэша
-        
+        "trt_engine_cache_enable": True,
+        "trt_engine_cache_path": cache_dir,
+        "trt_engine_hw_compatible": True,  # Совместимость между GPU одной архитектуры
+        "trt_engine_version_check": False,  # Отключить проверку версий при загрузке кэша
         # ⚡ Timing Cache (ускоряет сборку engine при повторных запусках)
-        'trt_timing_cache_enable': True,
-        'trt_timing_cache_path': os.path.join(cache_dir, 'timing_cache.cache'),
-        
+        "trt_timing_cache_enable": True,
+        "trt_timing_cache_path": os.path.join(cache_dir, "timing_cache.cache"),
         # 🎯 Graph Optimization
-        'trt_max_partition_iterations': 500,    # Баланс качество/время partitioning
-        'trt_min_subgraph_size': 3,             # Не отправлять в TRT слишком мелкие подграфы
-        'trt_cuda_graph_enable': True,          # CUDA Graphs для снижения CPU overhead
-        'trt_layer_norm_fp32_fallback': False,  # Не форсить FP32 для LayerNorm
-        
+        "trt_max_partition_iterations": 500,  # Баланс качество/время partitioning
+        "trt_min_subgraph_size": 3,  # Не отправлять в TRT слишком мелкие подграфы
+        "trt_cuda_graph_enable": True,  # CUDA Graphs для снижения CPU overhead
+        "trt_layer_norm_fp32_fallback": False,  # Не форсить FP32 для LayerNorm
         # 🔧 Advanced
-        'trt_builder_optimization_level': 3,    # [0-5]: баланс скорость сборки / оптимизация
-        'trt_auxiliary_streams': 0,             # 0 = оптимальное использование памяти
-        'trt_sparsity_enable': False,           # Включать если модель sparse (pruned)
-        'trt_dla_enable': False,                # DLA не используется в большинстве GPU
+        "trt_builder_optimization_level": 3,  # [0-5]: баланс скорость сборки / оптимизация
+        "trt_auxiliary_streams": 0,  # 0 = оптимальное использование памяти
+        "trt_sparsity_enable": False,  # Включать если модель sparse (pruned)
+        "trt_dla_enable": False,  # DLA не используется в большинстве GPU
     }
-    
+
     # Перезаписать пользовательскими опциями если есть
     if trt_options:
         base_opts.update(trt_options)
-    
+
     return base_opts
+
 
 # ─────────────────────────────────────────────────────────────────────
 # ПРЕСЕТЫ КОНФИГУРАЦИЙ ДЛЯ TensorRT Execution Provider
@@ -1658,23 +1653,23 @@ TRT_PRESET_PRODUCTION: Dict[str, Any] = {
     - CUDA Graphs для снижения CPU overhead
     - Оптимизация уровня 4 (баланс время сборки/производительность)
     """
-    'trt_fp16_enable': True,
-    'trt_int8_enable': False,
-    'trt_engine_cache_enable': True,
-    'trt_engine_cache_path': './trt_engines_onnxrt',
-    'trt_engine_hw_compatible': True,
-    'trt_engine_version_check': False,
-    'trt_timing_cache_enable': True,
-    'trt_timing_cache_path': './trt_engines_onnxrt/timing_cache.cache',
-    'trt_cuda_graph_enable': True,
-    'trt_builder_optimization_level': 4,
-    'trt_max_workspace_size': 4 * 1024**3,  # 4GB
-    'trt_min_subgraph_size': 5,
-    'trt_max_partition_iterations': 500,
-    'trt_auxiliary_streams': 0,
-    'trt_sparsity_enable': False,
-    'trt_dla_enable': False,
-    'trt_layer_norm_fp32_fallback': False,
+    "trt_fp16_enable": True,
+    "trt_int8_enable": False,
+    "trt_engine_cache_enable": True,
+    "trt_engine_cache_path": "./trt_engines_onnxrt",
+    "trt_engine_hw_compatible": True,
+    "trt_engine_version_check": False,
+    "trt_timing_cache_enable": True,
+    "trt_timing_cache_path": "./trt_engines_onnxrt/timing_cache.cache",
+    "trt_cuda_graph_enable": True,
+    "trt_builder_optimization_level": 4,
+    "trt_max_workspace_size": 4 * 1024**3,  # 4GB
+    "trt_min_subgraph_size": 5,
+    "trt_max_partition_iterations": 500,
+    "trt_auxiliary_streams": 0,
+    "trt_sparsity_enable": False,
+    "trt_dla_enable": False,
+    "trt_layer_norm_fp32_fallback": False,
 }
 
 TRT_PRESET_DEBUG: Dict[str, Any] = {
@@ -1685,17 +1680,17 @@ TRT_PRESET_DEBUG: Dict[str, Any] = {
     - Отладки проблем с конвертацией
     - Анализа разбиения графа на subgraphs
     """
-    'trt_fp16_enable': False,  # FP32 для максимальной точности
-    'trt_int8_enable': False,
-    'trt_detailed_build_log': True,
-    'trt_dump_subgraphs': True,
-    'trt_builder_optimization_level': 2,  # Быстрая сборка
-    'trt_engine_cache_enable': False,  # Не кэшировать при отладке
-    'trt_timing_cache_enable': False,
-    'trt_cuda_graph_enable': False,
-    'trt_max_workspace_size': 2 * 1024**3,
-    'trt_min_subgraph_size': 1,  # Отправлять в TRT даже мелкие операции
-    'trt_max_partition_iterations': 100,
+    "trt_fp16_enable": False,  # FP32 для максимальной точности
+    "trt_int8_enable": False,
+    "trt_detailed_build_log": True,
+    "trt_dump_subgraphs": True,
+    "trt_builder_optimization_level": 2,  # Быстрая сборка
+    "trt_engine_cache_enable": False,  # Не кэшировать при отладке
+    "trt_timing_cache_enable": False,
+    "trt_cuda_graph_enable": False,
+    "trt_max_workspace_size": 2 * 1024**3,
+    "trt_min_subgraph_size": 1,  # Отправлять в TRT даже мелкие операции
+    "trt_max_partition_iterations": 100,
 }
 
 TRT_PRESET_INT8: Dict[str, Any] = {
@@ -1706,14 +1701,14 @@ TRT_PRESET_INT8: Dict[str, Any] = {
     - Возможна потеря точности — всегда валидируйте метрики
     - Не совместим с FP16 (выбирайте один режим)
     """
-    'trt_int8_enable': True,
-    'trt_int8_use_native_calibration_table': True,
-    'trt_int8_calibration_table_name': 'calibration.table',
-    'trt_fp16_enable': False,  # INT8 и FP16 не совместимы
-    'trt_engine_cache_path': './trt_int8_cache',
-    'trt_engine_cache_enable': True,
-    'trt_builder_optimization_level': 3,
-    'trt_max_workspace_size': 2 * 1024**3,
+    "trt_int8_enable": True,
+    "trt_int8_use_native_calibration_table": True,
+    "trt_int8_calibration_table_name": "calibration.table",
+    "trt_fp16_enable": False,  # INT8 и FP16 не совместимы
+    "trt_engine_cache_path": "./trt_int8_cache",
+    "trt_engine_cache_enable": True,
+    "trt_builder_optimization_level": 3,
+    "trt_max_workspace_size": 2 * 1024**3,
 }
 
 TRT_PRESET_DYNAMIC: Dict[str, Any] = {
@@ -1724,15 +1719,15 @@ TRT_PRESET_DYNAMIC: Dict[str, Any] = {
     - Требуется поддержка разных разрешений входа
     - Важно: задайте min/opt/max shapes в соответствии с вашим use-case
     """
-    'trt_fp16_enable': True,
+    "trt_fp16_enable": True,
     # Динамические профили задаются через отдельные параметры при создании сессии:
     # 'trt_profile_min_shapes': 'input:1x3x256x256',
-    # 'trt_profile_opt_shapes': 'input:4x3x512x512', 
+    # 'trt_profile_opt_shapes': 'input:4x3x512x512',
     # 'trt_profile_max_shapes': 'input:8x3x1024x1024',
-    'trt_engine_cache_enable': True,
-    'trt_timing_cache_enable': True,
-    'trt_builder_optimization_level': 3,
-    'trt_max_workspace_size': 4 * 1024**3,
+    "trt_engine_cache_enable": True,
+    "trt_timing_cache_enable": True,
+    "trt_builder_optimization_level": 3,
+    "trt_max_workspace_size": 4 * 1024**3,
 }
 
 # Алиас для быстрого доступа ко всем пресетам
@@ -1748,19 +1743,16 @@ __all__: List[str] = [
     # Основные функции экспорта
     "export_method_to_onnx_safe",
     "export_onnx_to_trt_via_api",
-    "export_onnx_to_trt_via_trtexec", 
+    "export_onnx_to_trt_via_trtexec",
     "export_onnx_to_trt_via_onnx_tensorrt",
     "export_neural_model",
     "_export_via_torch_tensorrt_jit",
-    
     # Загрузчики
     "load_trt_engine",
     "load_trt_model",
     "TrtEngineWrapper",
-    
     # Fallback-сегментер
     "OnnxTrtFallbackSegmenter",
-    
     # Утилиты
     "_build_trt_provider_options",
     "_check_import",
@@ -1768,15 +1760,13 @@ __all__: List[str] = [
     "_should_rebuild_trt",
     "_get_trt_ir_mode",
     "SegmenterMethodWrapper",
-    
     # Типы
     "ShapeType",
-    "PrecisionType", 
+    "PrecisionType",
     "OnnxProvider",
     "InputShape",
     "PathLike",
     "TRTStrategyType",
-    
     # 🔥 ПРЕСЕТЫ КОНФИГУРАЦИЙ ДЛЯ TensorRT EP
     "TRT_PRESET_PRODUCTION",
     "TRT_PRESET_DEBUG",

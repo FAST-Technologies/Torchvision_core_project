@@ -90,7 +90,7 @@ import numpy.typing as npt
 import torch
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
-from scipy.ndimage import binary_erosion, binary_dilation, zoom
+from scipy.ndimage import zoom
 from scipy import stats
 import warnings
 from contextlib import contextmanager, nullcontext
@@ -99,14 +99,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
-# HuggingFace для загрузки датасета
 from huggingface_hub import hf_hub_download, list_repo_files
-
 import logging
 
 # Настройка логгера
 logger: logging.Logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 if not logger.handlers:
     handler: logging.StreamHandler = logging.StreamHandler()
     formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -155,16 +153,17 @@ AugmentationTypes: List[str] = ["none", "basic", "medium"]
 """Текущий уровень тестируемых аугментаций, dtype=List[str]."""
 
 MODEL_TYPE_MAPPING: Dict[str, str] = {
-    """Маппинг имён чекпоинтов на ModelType enum (для NeuralSegmenter), dtype=Dict[str, str].""" "unet_smp": "unet_smp",
+    "unet_smp": "unet_smp",
     "fpn_smp": "fpn_smp",
     "psp_smp": "pspnet_smp",
     "deeplab_tv": "deeplab_tv",
     "fcn_tv": "fcn_tv",
     "segnet": "segnet",
 }
+"""Маппинг имён чекпоинтов на ModelType enum (для NeuralSegmenter), dtype=Dict[str, str]."""
 
 DEFAULT_METRICS: List[str] = [
-    """Стандартные метрики для агрегации, dtype=List[str].""" "iou",
+    "iou",
     "dice",
     "f1_score",
     "precision",
@@ -174,18 +173,20 @@ DEFAULT_METRICS: List[str] = [
     "hausdorff_distance",
     "boundary_f1",
 ]
+"""Стандартные метрики для агрегации, dtype=List[str]."""
 
 # ──────────────────────────────────────────────────────────────────────
 # CONSTANTS для парсинга
 # ──────────────────────────────────────────────────────────────────────
 KNOWN_MODEL_PREFIXES: List[str] = [
-    """Известные префиксы нейронных моделей, dtype=List[str].""" "unet_smp",
+    "unet_smp",
     "fpn_smp",
     "psp_smp",
     "deeplab_tv",
     "fcn_tv",
     "segnet",
 ]
+"""Известные префиксы нейронных моделей, dtype=List[str]."""
 
 KNOWN_AUG_LEVELS: Set[str] = {"none", "basic", "medium"}
 """Известные уровни аугментаций ("none", "basic", "medium"), dtype=Set[str]."""
@@ -611,7 +612,7 @@ def save_augmentation_comparison_grid(
         return
 
     n_models: int = len(models)
-    fig, axes = plt.subplots(n_models, 3, figsize=(15, 5 * n_models), squeeze=False)
+    _, axes = plt.subplots(n_models, 3, figsize=(15, 5 * n_models), squeeze=False)
 
     for row, model in enumerate(models):
         for col, aug in enumerate(AugmentationTypes):
@@ -639,14 +640,16 @@ def save_augmentation_comparison_grid(
                 ax.set_title(f"{aug.upper()}", fontsize=10, fontweight="bold", color="gray")
                 ax.axis("off")
 
-        axes[row, 0].set_ylabel(
+        axes[row, 0].text(
+            -0.08,
+            0.5,
             model.upper(),
-            rotation=0,
-            labelpad=60,
-            fontsize=11,
-            fontweight="bold",
             ha="right",
             va="center",
+            transform=axes[row, 0].transAxes,
+            fontsize=11,
+            fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="gray", alpha=0.7),
         )
 
     plt.suptitle(
@@ -960,48 +963,6 @@ class BatchNeuralTester:
         return np.round(resized).astype(mask.dtype)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _calculate_multiclass_iou(
-        self,
-        pred: MaskArray,
-        gt: MaskArray,
-        ignore_index: int = 255,
-    ) -> Tuple[float, Dict[int, float]]:
-        """Расчёт mIoU для многоклассовой сегментации.
-
-        Args:
-            pred: Маска предсказания.
-            gt: Ground truth маска.
-            ignore_index: Индекс класса, игнорируемый при расчёте (обычно 255).
-
-        Returns:
-            Tuple[float, Dict[int, float]]: (средний IoU, словарь {class_id: iou}).
-
-        Note:
-            Union=0 обрабатывается как IoU=0.0 для данного класса.
-        """
-        valid_mask = gt != ignore_index
-        if not valid_mask.any():
-            return 0.0, {}
-
-        pred_valid: np.ndarray = np.where(valid_mask, pred, ignore_index)
-        gt_valid: MaskArray = gt
-        classes: np.ndarray = np.unique(np.concatenate([gt_valid[valid_mask], pred_valid[valid_mask]]))
-        iou_per_class: Dict[int, float] = {}
-
-        for cls in classes:
-            if cls == ignore_index:
-                continue
-            pred_cls = (pred == cls).astype(np.uint8)
-            gt_cls = (gt == cls).astype(np.uint8)
-            intersection = np.logical_and(pred_cls, gt_cls).sum()
-            union = np.logical_or(pred_cls, gt_cls).sum()
-            iou_per_class[int(cls)] = intersection / union if union > 0 else 0.0
-
-        valid_ious: List[float] = [v for v in iou_per_class.values() if v >= 0]
-        mean_iou: float = float(np.mean(valid_ious)) if valid_ious else 0.0
-        return mean_iou, iou_per_class
-
-    # ──────────────────────────────────────────────────────────────────────
     def _calculate_binary_metrics(
         self,
         pred: MaskArray,
@@ -1060,7 +1021,13 @@ class BatchNeuralTester:
         # ──────────────────────────────────────────────────────────────
         m_iou: float
         iou_per_class: Dict[int, float]
-        m_iou, iou_per_class = self._calculate_multiclass_iou(pred, gt, ignore_index)
+        m_iou, iou_per_class = SegmentationMetrics.calculate_multiclass_miou(
+            pred_mask=pred,
+            gt_mask=gt,
+            ignore_index=ignore_index,
+            num_classes=num_classes,  # ← Важно для ADE20K!
+            return_per_class=True,
+        )
         results["m_iou"] = m_iou
         for cls, iou in iou_per_class.items():
             results[f"iou_class_{cls}"] = iou
@@ -1070,60 +1037,44 @@ class BatchNeuralTester:
         # ──────────────────────────────────────────────────────────────
         if getattr(self.config, "per_class_metrics", False):
             dice_per_class: Dict[int, float] = {}
-            for cls in range(num_classes):
-                if cls == ignore_index:
-                    continue
-                pred_c: np.ndarray = pred == cls
-                gt_c: np.ndarray = gt == cls
-                intersection: int = int(np.logical_and(pred_c, gt_c).sum())
-                union: int = int(pred_c.sum() + gt_c.sum())
-                dice: float = (2.0 * intersection) / (union + 1e-8) if union > 0 else 0.0
-                dice_per_class[cls] = dice
+            dice_per_class = SegmentationMetrics.calculate_per_class_dice(
+                pred_mask=pred,
+                gt_mask=gt,
+                num_classes=num_classes,
+                ignore_index=ignore_index,
+            )
+
+            for cls, dice in dice_per_class.items():
                 results[f"dice_class_{cls}"] = dice
 
-            results["m_dice"] = float(np.mean(list(dice_per_class.values()))) if dice_per_class else 0.0
-
+            valid_dice = [v for v in dice_per_class.values() if not np.isnan(v)]
+            results["m_dice"] = float(np.mean(valid_dice)) if valid_dice else 0.0
             # ──────────────────────────────────────────────────────────────
             # 3. Per-class Precision/Recall (для анализа дисбаланса)
             # ──────────────────────────────────────────────────────────────
-            for cls in range(min(20, num_classes)):  # Ограничим первыми 10 классами для экономии
-                if cls == ignore_index:
-                    continue
-                pred_c: np.ndarray = (pred == cls).astype(np.uint8)
-                gt_c: np.ndarray = (gt == cls).astype(np.uint8)
-                tp = np.logical_and(pred_c, gt_c).sum()
-                fp = np.logical_and(pred_c, ~gt_c).sum()
-                fn = np.logical_and(~pred_c, gt_c).sum()
+            pr_results = SegmentationMetrics.calculate_per_class_precision_recall(
+                pred_mask=pred,
+                gt_mask=gt,
+                num_classes=num_classes,
+                ignore_index=ignore_index,
+                max_classes=20,  # Ограничение для скорости
+            )
 
-                prec: float = tp / (tp + fp + 1e-8)
-                rec: float = tp / (tp + fn + 1e-8)
+            for cls, (prec, rec) in pr_results.items():
                 results[f"precision_class_{cls}"] = prec
                 results[f"recall_class_{cls}"] = rec
 
-        # ──────────────────────────────────────────────────────────────
-        # 4. Boundary F1 (точность границ) — опционально, медленно!
-        # ──────────────────────────────────────────────────────────────
-        if compute_boundary_f1:
-            boundary_f1_scores: List[float] = []
-            for cls in range(min(5, num_classes)):  # Только первые 5 классов
-                if cls == ignore_index:
-                    continue
-                pred_mask_c: np.ndarray = pred == cls
-                gt_mask_c: np.ndarray = gt == cls
-
-                # Границы = dilation XOR erosion
-                pred_boundary: np.ndarray = binary_dilation(pred_mask_c) ^ binary_erosion(pred_mask_c)
-                gt_boundary: np.ndarray = binary_dilation(gt_mask_c) ^ binary_erosion(gt_mask_c)
-
-                tp_b = np.logical_and(pred_boundary, gt_boundary).sum()
-                fp_b = np.logical_and(pred_boundary, ~gt_boundary).sum()
-                fn_b = np.logical_and(~pred_boundary, gt_boundary).sum()
-
-                f1_b: float = (2 * tp_b) / (2 * tp_b + fp_b + fn_b + 1e-8)
-                boundary_f1_scores.append(f1_b)
-
-            if boundary_f1_scores:
-                results["boundary_f1"] = float(np.mean(boundary_f1_scores))
+            # ──────────────────────────────────────────────────────────────
+            # 4. Boundary F1 (точность границ) — опционально, медленно!
+            # ──────────────────────────────────────────────────────────────
+            if compute_boundary_f1:
+                results["boundary_f1"] = SegmentationMetrics.calculate_boundary_f1(
+                    pred_mask=pred,
+                    gt_mask=gt,
+                    num_classes=num_classes,
+                    ignore_index=ignore_index,
+                    max_classes=5,  # Только первые 5 классов для скорости
+                )
 
         return results
 
@@ -1158,10 +1109,25 @@ class BatchNeuralTester:
         overlay_key: str = f"{checkpoint.key}_{img_path.stem}"
 
         # Конвертация в PIL с обработкой всех форматов
+        # try:
+        #     overlay_pil: Image.Image = ensure_pil_compatible(overlay)
+        #     self.overlays[overlay_key] = overlay_pil
+        #     logger.debug(f"✅ Оверлей добавлен: {overlay_key}")
+        # except Exception as e:
+        #     logger.warning(f"⚠️ Не удалось сохранить оверлей {overlay_key}: {e}")
         try:
-            overlay_pil: Image.Image = ensure_pil_compatible(overlay)
+            if isinstance(overlay, Image.Image):
+                # ✅ Оверлей уже готов — сохраняем как есть
+                if overlay.mode in ["RGB", "RGBA"]:
+                    overlay_pil = overlay
+                else:
+                    overlay_pil = overlay.convert("RGB")
+            else:
+                # ❌ Только для numpy массивов используем конвертацию
+                overlay_pil: Image.Image = ensure_pil_compatible(overlay)
+
             self.overlays[overlay_key] = overlay_pil
-            logger.debug(f"✅ Оверлей добавлен: {overlay_key}")
+            logger.debug(f"✅ Оверлей добавлен: {overlay_key}, mode={overlay_pil.mode}")
         except Exception as e:
             logger.warning(f"⚠️ Не удалось сохранить оверлей {overlay_key}: {e}")
 
@@ -1174,6 +1140,7 @@ class BatchNeuralTester:
         cache: Optional[PredictionCache] = None,
         config_hash: str = "",
         profile_dir: Optional[Path] = None,
+        num_classes: Optional[int] = None,
     ) -> List[TestResult]:
         """Инференс одной модели на наборе изображений с расчётом метрик.
 
@@ -1193,6 +1160,9 @@ class BatchNeuralTester:
         """
         results: List[TestResult] = []
         normalization_in_graph: bool = checkpoint.format != "pth"
+
+        if num_classes is None:
+            num_classes = getattr(self.config, "num_classes", 150)
 
         # === 1. Загрузка модели с учётом точности ===
         dtype: torch.dtype = self._resolve_torch_dtype(precision)
@@ -1331,7 +1301,12 @@ class BatchNeuralTester:
                 else:
                     pred_resized = pred_mask
 
-                m_iou, _ = self._calculate_multiclass_iou(pred_resized, gt_mask, self.config.ignore_index)
+                m_iou = SegmentationMetrics.calculate_multiclass_miou(
+                    pred_mask=pred_resized,
+                    gt_mask=gt_mask,
+                    ignore_index=self.config.ignore_index,
+                    num_classes=num_classes,
+                )
                 binary_metrics = self._calculate_binary_metrics(pred_resized, gt_mask, self.config.metrics)
                 comprehensive = self._calculate_comprehensive_metrics(
                     pred_resized,
@@ -1340,6 +1315,114 @@ class BatchNeuralTester:
                     ignore_index=self.config.ignore_index,
                     compute_boundary_f1=getattr(self.config, "compute_boundary_f1", False),
                 )
+
+                # ──────────────────────────────────────────────────────────────
+                # 🔍 ДИАГНОСТИКА: Вывод классов с правильным смещением
+                # ──────────────────────────────────────────────────────────────
+                if self.config.verbose and idx == 0:  # Только для первого изображения, чтобы не засорять лог
+                    palette = NeuralSegmenter.ade_palette()
+                    class_names = NeuralSegmenter.get_ade_class_names()
+
+                    # Хелперы для получения цвета/имени со смещением -1
+                    def get_color_for_class(cls: int, palette: List[List[int]], offset: int = -1) -> List[int]:
+                        cls_int = int(cls)
+                        palette_idx = cls_int + offset
+                        if 0 <= palette_idx < len(palette):
+                            return palette[palette_idx]
+                        return [0, 0, 0]
+
+                    def get_name_for_class(cls: int, class_names: Dict[int, str], offset: int = -1) -> str:
+                        cls_int = int(cls)
+                        name_idx = cls_int + offset
+                        if name_idx < 0:
+                            return "Background"
+                        if name_idx in class_names:
+                            return class_names[name_idx]
+                        return f"Class_{name_idx}"
+
+                    model_name, aug_level = extract_model_aug_from_key(checkpoint.key)
+                    display_name = checkpoint.display_name
+
+                    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+
+                    axes[0].imshow(test_image)
+                    axes[0].set_title("Original Image")
+
+                    # Анализ предсказания
+                    unique_pred, counts_pred = np.unique(pred_resized, return_counts=True)
+                    total_pred = pred_resized.size
+
+                    print("\n📊 Predicted Mask Prediction Analysis")
+                    print(
+                        f"   Valid pixels: {total_pred:,} / {pred_resized.size:,} ({100 * total_pred / pred_resized.size:.3f}%)"
+                    )
+                    print(f"   Unique classes: {len(unique_pred)}")
+
+                    print(f"\n🎨 Визуальная проверка (предсказано) для {img_path.name}:")
+                    sorted_idx_pred = np.argsort(counts_pred)[::-1][:15]
+                    for i in sorted_idx_pred:
+                        cls = unique_pred[i]
+                        cnt = counts_pred[i]
+                        pct = 100 * cnt / total_pred
+                        name = get_name_for_class(cls, class_names, offset=-1)
+                        color = get_color_for_class(cls, palette, offset=-1)
+                        print(f"   Класс {int(cls)-1:3d}: {name:20s} → RGB {color}, {cnt:7,} px ({pct:5.3f}%)")
+
+                    # Анализ GT
+                    unique_gt, counts_gt = np.unique(gt_mask, return_counts=True)
+                    total_gt = gt_mask.size
+
+                    print("\n📊 Ground Truth Prediction Analysis")
+                    print(f"   Valid pixels: {total_gt:,} / {gt_mask.size:,} ({100 * total_gt / gt_mask.size:.3f}%)")
+                    print(f"   Unique classes: {len(unique_gt)}")
+
+                    print(f"\n🎨 Визуальная проверка (ground truth) для {img_path.name}:")
+                    sorted_idx_gt = np.argsort(counts_gt)[::-1][:15]
+                    for i in sorted_idx_gt:
+                        cls = unique_gt[i]
+                        cnt = counts_gt[i]
+                        pct = 100 * cnt / total_gt
+                        name = get_name_for_class(cls, class_names, offset=-1)
+                        color = get_color_for_class(cls, palette, offset=-1)
+                        print(f"   Класс {int(cls)-1:3d}: {name:20s} → RGB {color}, {cnt:7,} px ({pct:5.3f}%)")
+
+                    # GT с палитрой ADE20K
+                    gt_color = np.zeros((*gt_mask.shape, 3), dtype=np.uint8)
+                    for cls in np.unique(gt_mask):
+                        color = get_color_for_class(cls, palette, offset=-1)  # ← offset=-1 для фикса!
+                        gt_color[gt_mask == cls] = color
+                    axes[1].imshow(gt_color)
+                    axes[1].set_title("Ground Truth (ADE20K)")
+
+                    # Prediction с палитрой ADE20K
+                    pred_color = np.zeros((*pred_resized.shape, 3), dtype=np.uint8)
+                    for cls in np.unique(pred_resized):
+                        color = get_color_for_class(cls, palette, offset=-1)  # ← Тот же offset!
+                        pred_color[pred_resized == cls] = color
+                    axes[2].imshow(pred_color)
+                    axes[2].set_title("Prediction (твоя модель)")
+
+                    viz_dir: Path = Path(self.config.output_dir) / "palette_cheks_overlays"
+                    viz_dir.mkdir(parents=True, exist_ok=True)
+                    palette_check_path: Path = viz_dir / f"palette_check_{display_name}_{aug_level}_{img_path.stem}.png"
+
+                    plt.tight_layout()
+                    plt.savefig(palette_check_path, dpi=300, bbox_inches="tight")
+                    plt.close()  # 🔧 Обязательно закрываем figure!
+
+                    logger.debug(f"✅ Palette check saved: {palette_check_path}")
+
+                    # 🔧 Дополнительно: сохраняем цветные маски отдельно для отладки
+                    debug_dir: Path = Path(self.config.output_dir) / "debug_masks"
+                    debug_dir.mkdir(parents=True, exist_ok=True)
+
+                    # Сохраняем цветную маску предсказания
+                    pred_color_pil = Image.fromarray(pred_color)
+                    pred_color_pil.save(debug_dir / f"{checkpoint.key}_{img_path.stem}_pred_color.png")
+
+                    # Сохраняем цветную маску GT
+                    gt_color_pil = Image.fromarray(gt_color)
+                    gt_color_pil.save(debug_dir / f"{checkpoint.key}_{img_path.stem}_gt_color.png")
 
                 # Визуализация: вынесено в отдельный метод + безопасный вызов
                 overlay: Image.Image
@@ -1442,6 +1525,7 @@ class BatchNeuralTester:
                     image=test_image,
                     gt_mask=gt_mask,
                     output_dir=Path(self.config.output_dir) / "exports",
+                    num_classes=self.config.num_classes,
                 )
                 if validation_results:
                     # Сохраняем сводку валидации
@@ -1478,7 +1562,6 @@ class BatchNeuralTester:
             torch.dtype: Точность модели.
         """
         try:
-            # return cast(torch.dtype, model.dtype)  # type: ignore[attr-defined]
             raw_dtype = model.dtype  # type: ignore[attr-defined]
             if isinstance(raw_dtype, torch.dtype):
                 return raw_dtype
@@ -1522,14 +1605,21 @@ class BatchNeuralTester:
         Returns:
             Image.Image: Смешанное изображение.
         """
-        mask_np: MaskArray = pred.copy()
-        if mask_np.max() <= 1.0:
-            mask_np = (mask_np * 255).astype(np.uint8)
-        elif mask_np.dtype != np.uint8:
-            mask_np = mask_np.astype(np.uint8)
+        if pred.max() > 1:  # Многоклассовая маска (классы 0-149)
+            # Конвертируем через палитру ADE20K
+            pred_color = self._mask_to_color(pred, palette=NeuralSegmenter.ade_palette())
+            mask_pil: Image.Image = Image.fromarray(pred_color, mode="RGB")
+        else:
+            # Бинарная маска — как было
+            mask_np: MaskArray = pred.copy()
+            if mask_np.max() <= 1.0:
+                mask_np = (mask_np * 255).astype(np.uint8)
+            elif mask_np.dtype != np.uint8:
+                mask_np = mask_np.astype(np.uint8)
+            mask_pil: Image.Image = Image.fromarray(mask_np, mode="L").convert("RGB")
 
         orig: Image.Image = image.convert("RGB")
-        mask_pil: Image.Image = Image.fromarray(mask_np, mode="L").convert("RGB")
+        # mask_pil: Image.Image = Image.fromarray(mask_np, mode="L").convert("RGB")
         # Ресайз маски если размеры не совпадают
         if mask_pil.size != orig.size:
             mask_pil = mask_pil.resize(orig.size, Image.Resampling.NEAREST)
@@ -1566,8 +1656,8 @@ class BatchNeuralTester:
                 import wandb
 
                 # Проверка авторизации
-                # if not wandb.api.api_key:
-                #     logger.warning("⚠️  WandB не авторизован. Запусти 'wandb login' в терминале")
+                if not wandb.api.api_key:
+                    logger.warning("⚠️  WandB не авторизован. Запусти 'wandb login' в терминале")
                 #     return
                 logger.info("Entered to the function!")
                 run = wandb.init(
@@ -1588,7 +1678,6 @@ class BatchNeuralTester:
                 logger.warning("⚠️  wandb не установлен. Установи: pip install wandb")
             except Exception as e:
                 logger.warning(f"⚠️  Ошибка инициализации W&B: {type(e).__name__}: {e}")
-                # Fallback: продолжаем без wandb
                 pass
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1887,11 +1976,21 @@ class BatchNeuralTester:
         h, w = pred.shape
         pred_color: np.ndarray = np.zeros((h, w, 3), dtype=np.uint8)
 
+        def get_color(cls_id: int) -> Tuple[int, int, int]:
+            palette_idx = cls_id - 1  # ← СДВИГ НА -1
+            if palette_idx < 0:
+                return (0, 0, 0)  # Чёрный для фона/игнора
+            if palette_idx < len(palette):
+                return tuple(palette[palette_idx])
+            return (0, 0, 0)  # fallback
+
         for cls_id in range(min(len(palette), int(pred.max()) + 1)):
             mask: np.ndarray = pred == cls_id
             if mask.any():
-                color: List[int] = palette[cls_id]
-                pred_color[mask] = tuple(color)  # type: ignore[assignment]
+                # color: List[int] = palette[cls_id]
+                # pred_color[mask] = tuple(color)  # type: ignore[assignment]
+                color = get_color(cls_id)
+                pred_color[mask] = color
 
         # ──────────────────────────────────────────────────────────────
         # 3. Подготовка оригинального изображения и ресайз
@@ -1929,16 +2028,21 @@ class BatchNeuralTester:
 
             # Фильтрация классов: только те, что есть в предсказании и имеют имя
             available_classes: List[int] = []
-            for cls_id in range(len(palette)):
-                if cls_id < len(class_names) and np.any(pred == cls_id):
-                    available_classes.append(cls_id)
+            # for cls_id in range(len(palette)):
+            #     if cls_id < len(class_names) and np.any(pred == cls_id):
+            #         available_classes.append(cls_id)
+            for cls_id in range(int(pred.min()), int(pred.max()) + 1):
+                if np.any(pred == cls_id):
+                    name_idx = cls_id - 1  # ← СДВИГ НА -1 для имён
+                    if 0 <= name_idx < len(class_names):
+                        available_classes.append(cls_id)
 
             # Сортировка по частоте и ограничение
             shown_classes: List[int] = sorted(available_classes, key=lambda c: int(np.sum(pred == c)), reverse=True)[
                 :max_classes_legend
             ]
 
-            # 🔧 Динамический расчёт высоты легенды
+            # Динамический расчёт высоты легенды
             n_items: int = len(shown_classes)
             legend_height: int = header_height + n_items * item_height + padding * 2
             # Ограничиваем высоту легенды (не больше 40% изображения)
@@ -1967,14 +2071,24 @@ class BatchNeuralTester:
 
             # Элементы легенды
             for cls_id in shown_classes:
-                if cls_id >= len(palette) or cls_id >= len(class_names):
-                    continue
                 if current_y + item_height > legend_y + legend_height:
                     break  # Не выходить за пределы фона
 
-                color_list: List[int] = palette[cls_id]
-                color_tuple: Tuple[int, int, int] = tuple(color_list)
-                name: str = class_names[cls_id] if cls_id < len(class_names) else f"Class {cls_id}"
+                # 🔧 Сдвиг для цвета и имени
+                palette_idx = cls_id - 1
+                name_idx = cls_id - 1
+
+                # Цвет (уже есть get_color, но для легенды явно)
+                if 0 <= palette_idx < len(palette):
+                    color_tuple = tuple(palette[palette_idx])
+                else:
+                    color_tuple = (0, 0, 0)
+
+                # Имя класса со сдвигом
+                if 0 <= name_idx < len(class_names):
+                    name: str = class_names[name_idx]
+                else:
+                    name = f"Class_{cls_id}"  # fallback с оригинальным ID
 
                 # Цветной квадратик
                 draw.rectangle(
@@ -2069,11 +2183,15 @@ class BatchNeuralTester:
         image: Image.Image,
         gt_mask: np.ndarray,
         output_dir: Path,
+        num_classes: Optional[int] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """Валидация .pth/.onnx/.trt версий модели: инференс + метрики + время."""
         from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
 
         results: Dict[str, Dict[str, Any]] = {}
+
+        if num_classes is None:
+            num_classes = getattr(self.config, "num_classes", 150)
 
         # === 1. PyTorch (.pth) ===
         if checkpoint.path.suffix == ".pth":
@@ -2091,7 +2209,12 @@ class BatchNeuralTester:
             if pred_pth.shape != gt_mask.shape:
                 pred_pth = self._resize_mask(pred_pth, gt_mask.shape)
 
-            metrics_pth: float = self._calculate_multiclass_iou(pred_pth, gt_mask, self.config.ignore_index)[0]
+            metrics_pth = SegmentationMetrics.calculate_multiclass_miou(
+                pred_mask=pred_pth,
+                gt_mask=gt_mask,
+                ignore_index=self.config.ignore_index,
+                num_classes=num_classes,
+            )
             results["pth"] = {"time_s": time_pth, "m_iou": metrics_pth, "pred": pred_pth}
             del seg_pth
             torch.cuda.empty_cache()
@@ -2116,7 +2239,12 @@ class BatchNeuralTester:
                 if pred_onnx.shape != gt_mask.shape:
                     pred_onnx = self._resize_mask(pred_onnx, gt_mask.shape)
 
-                metrics_onnx: float = self._calculate_multiclass_iou(pred_onnx, gt_mask, self.config.ignore_index)[0]
+                metrics_onnx = SegmentationMetrics.calculate_multiclass_miou(
+                    pred_mask=pred_onnx,
+                    gt_mask=gt_mask,
+                    ignore_index=self.config.ignore_index,
+                    num_classes=num_classes,
+                )
                 results["onnx"] = {"time_s": time_onnx, "m_iou": metrics_onnx, "pred": pred_onnx}
                 del seg_onnx
                 torch.cuda.empty_cache()
@@ -2143,7 +2271,13 @@ class BatchNeuralTester:
                 if pred_trt.shape != gt_mask.shape:
                     pred_trt = self._resize_mask(pred_trt, gt_mask.shape)
 
-                metrics_trt: float = self._calculate_multiclass_iou(pred_trt, gt_mask, self.config.ignore_index)[0]
+                metrics_trt = SegmentationMetrics.calculate_multiclass_miou(
+                    pred_mask=pred_trt,
+                    gt_mask=gt_mask,
+                    ignore_index=self.config.ignore_index,
+                    num_classes=num_classes,
+                )
+
                 results["trt"] = {"time_s": time_trt, "m_iou": metrics_trt, "pred": pred_trt}
                 del seg_trt, trt_model
                 torch.cuda.empty_cache()
@@ -2238,7 +2372,9 @@ class BatchNeuralTester:
         for cls_id in range(min(len(palette), int(mask.max()) + 1)):
             mask_cls = mask == cls_id
             if mask_cls.any():
-                colored[mask_cls] = palette[cls_id]
+                palette_idx = cls_id - 1
+                if 0 <= palette_idx < len(palette):
+                    colored[mask_cls] = palette[palette_idx]
 
         return colored
 
@@ -2431,6 +2567,7 @@ class BatchNeuralTester:
                 cache=self.cache,
                 config_hash=config_hash,
                 profile_dir=profile_dir,
+                num_classes=self.config.num_classes,
             )
             all_results.extend(model_results)
 
@@ -2958,7 +3095,7 @@ class BatchNeuralTester:
         # ──────────────────────────────────────────────────────────────
         # График 1: Все метрики по моделям и аугментациям (2×3 сетка)
         # ──────────────────────────────────────────────────────────────
-        fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+        _, axes = plt.subplots(2, 3, figsize=(18, 10))
         axes = axes.flatten()
 
         metrics_to_plot: List[str] = [
@@ -3136,7 +3273,7 @@ class BatchNeuralTester:
         # ──────────────────────────────────────────────────────────────
         # График 6: Прирост по уровням аугментаций (два графика)
         # ──────────────────────────────────────────────────────────────
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+        _, axes = plt.subplots(1, 2, figsize=(14, 5))
 
         for model in df["model"].unique():
             model_data = df[df["model"] == model]

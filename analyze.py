@@ -122,30 +122,35 @@ MODEL_TYPE_MAPPING: Dict[str, str] = {
     "fcn_tv": "fcn_tv",
     "segnet": "segnet",
 }
-"""Маппинг имён чекпоинтов на ModelType enum, dtype=Dict[str, str].""" 
+"""Маппинг имён чекпоинтов на ModelType enum, dtype=Dict[str, str]."""
 
-def get_color_for_class(cls: int, palette: List[List[int]], offset: int = 0) -> List[int]:
-    """Получает цвет для класса с учётом сдвига и защитой от выхода за границы."""
+
+def get_color_for_class(cls: int, palette: List[List[int]], offset: int = -1) -> List[int]:
+    """Получает цвет для класса. Если индекс < 0 (Background), возвращает черный."""
     cls_int = int(cls)
     palette_idx = cls_int + offset
-    
-    # 🔧 FIX: Если индекс < 0 (например, background), возвращаем черный/прозрачный
-    # Это предотвращает доступ к palette[-1] (последний элемент) и ошибки
-    if palette_idx < 0 or palette_idx >= len(palette):
-        return [0, 0, 0] 
-    
-    return palette[palette_idx]
 
-def get_name_for_class(cls: int, class_names: Dict[int, str], offset: int = 0) -> str:
-    """Получает имя класса с учётом сдвига и защитой от отрицательных индексов."""
+    # 🔧 FIX: Если индекс отрицательный (Background), возвращаем черный [0,0,0]
+    if palette_idx < 0:
+        return [0, 0, 0]
+
+    if 0 <= palette_idx < len(palette):
+        return palette[palette_idx]
+    return [0, 0, 0]  # fallback
+
+
+def get_name_for_class(cls: int, class_names: Dict[int, str], offset: int = -1) -> str:
+    """Получает имя класса. Если индекс < 0 (Background), возвращает 'Background'."""
     cls_int = int(cls)
     name_idx = cls_int + offset
-    
-    # 🔧 FIX: Если индекс < 0, это Background, а не fallback на class 0
+
+    # 🔧 FIX: Если индекс отрицательный, это фон, а не fallback на класс 0 (wall)!
     if name_idx < 0:
-        return "Background" 
-    
-    return class_names.get(name_idx, f"Class_{name_idx}")
+        return "Background"
+
+    if name_idx in class_names:
+        return class_names[name_idx]
+    return f"Class_{name_idx}"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -271,10 +276,9 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
                 # )
                 # pred_mask_resized: MaskArray = zoom(pred_mask, (sh, sw), order=0)
                 pred_pil = Image.fromarray(pred_mask.astype(np.uint16))
-                pred_mask_resized = np.array(pred_pil.resize(
-                    (gt_mask.shape[1], gt_mask.shape[0]), 
-                    Image.Resampling.NEAREST
-                )).astype(np.uint8)
+                pred_mask_resized = np.array(
+                    pred_pil.resize((gt_mask.shape[1], gt_mask.shape[0]), Image.Resampling.NEAREST)
+                ).astype(np.uint8)
             else:
                 pred_mask_resized = pred_mask
 
@@ -302,7 +306,7 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
             # ──────────────────────────────────────────────────────────────
             # Создаём бинарные маски: 1 = любой семантический класс (1-149), 0 = фон/игнор
             pred_binary = np.where((pred_mask_resized != 255) & (pred_mask_resized != 0), 1, 0).astype(np.uint8)
-            gt_binary   = np.where((gt_mask != 255) & (gt_mask != 0), 1, 0).astype(np.uint8)
+            gt_binary = np.where((gt_mask != 255) & (gt_mask != 0), 1, 0).astype(np.uint8)
 
             # Применяем valid_mask для исключения ignore-пикселей из бинарных метрик тоже
             valid_mask = (gt_mask != 255) & (pred_mask_resized != 255)
@@ -329,20 +333,28 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
             gt_unique, gt_counts = np.unique(gt_mask, return_counts=True)
             print("\n📊 Ground Truth (ADE20K стандарт):")
             for cls, cnt in sorted(zip(gt_unique, gt_counts), key=lambda x: -x[1])[:10]:
+                mapped_idx = int(cls) - 1
                 name = get_name_for_class(cls, class_names, offset=-1)
-                print(f"   {cls:3d}: {name:20s} {cnt:7,} px ({100*cnt/gt_mask.size:5.2f}%)")
+                print(f"   {mapped_idx:3d}: {name:20s} {cnt:7,} px ({100*cnt/gt_mask.size:5.2f}%)")
 
             # Распределение в предсказании
             pred_unique, pred_counts = np.unique(pred_mask_resized, return_counts=True)
             print("\n📊 Prediction (твоя модель):")
             for cls, cnt in sorted(zip(pred_unique, pred_counts), key=lambda x: -x[1])[:10]:
+                mapped_idx = int(cls) - 1
                 name = get_name_for_class(cls, class_names, offset=-1)
-                print(f"   {cls:3d}: {name:20s} {cnt:7,} px ({100*cnt/pred_mask_resized.size:5.2f}%)")
+                print(f"   {mapped_idx:3d}: {name:20s} {cnt:7,} px ({100*cnt/pred_mask_resized.size:5.2f}%)")
 
             # Проверка на частые классы ADE20K
             ade_frequent_classes = {
-                0: "wall", 1: "building", 2: "sky", 3: "floor", 4: "tree",
-                5: "ceiling", 10: "cabinet", 15: "road"
+                0: "wall",
+                1: "building",
+                2: "sky",
+                3: "floor",
+                4: "tree",
+                5: "ceiling",
+                10: "cabinet",
+                15: "road",
             }
             print("\n⚠️  Проверка частых классов ADE20K:")
             for cls_id, cls_name in ade_frequent_classes.items():
@@ -385,7 +397,6 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
             print(f"      ✅ Время: {inference_time:.3f}s")
             print(f"      ✅ Сохранено: {overlay_path}")
 
-
             # Создай свою визуализацию с явными подписями
             fig, axes = plt.subplots(1, 3, figsize=(18, 6))
 
@@ -403,11 +414,15 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
             total_pixels_pred_mask_resized: int = pred_mask_resized.size
 
             print("\n📊 Ground Truth Prediction Analysis")
-            print(f"   Valid pixels: {total_pixels_gt:,} / {gt_mask.size:,} ({100 * total_pixels_gt / gt_mask.size:.3f}%)")
+            print(
+                f"   Valid pixels: {total_pixels_gt:,} / {gt_mask.size:,} ({100 * total_pixels_gt / gt_mask.size:.3f}%)"
+            )
             print(f"   Unique classes: {len(unique_gt)}")
 
             print("\n📊 Predicted Mask Prediction Analysis")
-            print(f"   Valid pixels: {total_pixels_pred_mask_resized:,} / {pred_mask_resized.size:,} ({100 * total_pixels_pred_mask_resized / pred_mask_resized.size:.3f}%)")
+            print(
+                f"   Valid pixels: {total_pixels_pred_mask_resized:,} / {pred_mask_resized.size:,} ({100 * total_pixels_pred_mask_resized / pred_mask_resized.size:.3f}%)"
+            )
             print(f"   Unique classes: {len(unique_pred_mask_resized)}")
 
             # GT с палитрой ADE20K
@@ -415,6 +430,9 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
             for cls in np.unique(gt_mask):
                 color = get_color_for_class(cls, palette, offset=-1)  # ← offset=-1 для фикса!
                 gt_color[gt_mask == cls] = color
+                # palette_idx = cls - 1  # ← КЛЮЧЕВОЙ ФИКС!
+                # if palette_idx < len(palette):
+                #     gt_color[gt_mask == cls] = palette[palette_idx]
             axes[1].imshow(gt_color)
             axes[1].set_title("Ground Truth (ADE20K)")
 
@@ -423,6 +441,9 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
             for cls in np.unique(pred_mask_resized):
                 color = get_color_for_class(cls, palette, offset=-1)  # ← Тот же offset!
                 pred_color[pred_mask_resized == cls] = color
+                # palette_idx = cls - 1  # ← КЛЮЧЕВОЙ ФИКС!
+                # if palette_idx < len(palette):
+                #     pred_color[pred_mask_resized == cls] = palette[palette_idx]
             axes[2].imshow(pred_color)
             axes[2].set_title("Prediction (твоя модель)")
 
@@ -434,13 +455,12 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
             # 🔧 Используем уже вычисленные unique_pred_mask_resized и counts_pred_mask_resized
             sorted_indices_pred = np.argsort(counts_pred_mask_resized)[::-1][:20]  # Топ-20 по количеству
             for idx in sorted_indices_pred:
-                cls = unique_pred_mask_resized[idx] - 1
+                cls = unique_pred_mask_resized[idx]
                 cnt = counts_pred_mask_resized[idx]
                 pct: float = 100 * cnt / total_pixels_pred_mask_resized
-                name = get_name_for_class(cls, class_names, offset=0)
-                color = get_color_for_class(cls, palette, offset=0)
-                print(f"   Класс {cls:3d}: {name:20s} → RGB {color}, {cnt:7,} px ({pct:5.3f}%)")
-
+                name = get_name_for_class(cls, class_names, offset=-1)
+                color = get_color_for_class(cls, palette, offset=-1)
+                print(f"   Класс {int(cls)-1:3d}: {name:20s} → RGB {color}, {cnt:7,} px ({pct:5.3f}%)")
 
             # print("\n🎨 Визуальная проверка (предсказано):")
             # # Сортируем по убыванию количества пикселей
@@ -463,9 +483,9 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
                 cls = unique_gt[idx]
                 cnt = counts_gt[idx]
                 pct: float = 100 * cnt / total_pixels_gt
-                name = get_name_for_class(cls, class_names, offset=0)
-                color = get_color_for_class(cls, palette, offset=0)
-                print(f"   Класс {cls:3d}: {name:20s} → RGB {color}, {cnt:7,} px ({pct:5.3f}%)")
+                name = get_name_for_class(cls, class_names, offset=-1)
+                color = get_color_for_class(cls, palette, offset=-1)
+                print(f"   Класс {int(cls)-1:3d}: {name:20s} → RGB {color}, {cnt:7,} px ({pct:5.3f}%)")
 
             # Топ классы
             del segmenter, pred_mask, pred_info
@@ -481,7 +501,6 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
     if not results:
         print("\n❌ Нет результатов для анализа!")
         return None
-
 
     print("\n" + "=" * 80)
     print("РЕЗУЛЬТАТЫ ОЦЕНКИ")
@@ -810,11 +829,15 @@ def save_augmentation_comparison_grid(
                 ax.axis("off")
 
         axes[row, 0].text(
-            -0.08, 0.5, model.upper(),
-            ha="right", va="center",
+            -0.08,
+            0.5,
+            model.upper(),
+            ha="right",
+            va="center",
             transform=axes[row, 0].transAxes,
-            fontsize=11, fontweight="bold",
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="gray", alpha=0.7)
+            fontsize=11,
+            fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="gray", alpha=0.7),
         )
 
     plt.suptitle(

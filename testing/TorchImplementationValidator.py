@@ -101,17 +101,29 @@ MetricDict: TypeAlias = Dict[str, float]
 PathLike: TypeAlias = Union[str, Path]
 """Унифицированный тип для путей к файлам: строка или pathlib.Path, dtype=Union[str, Path]."""
 
-SegmenterClass: TypeAlias = Type[Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter, ONNXSegmenter, TRTSegmenter]]
+SegmenterClass: TypeAlias = Type[
+    Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter, ONNXSegmenter, TRTSegmenter]
+]
 """Текущий используемый класс сегментатора, dtype=Type[Union[TorchSegmenter, TorchSegmenter2, SklearnSegmenter, OpenCVSegmenter]]."""
 
 ValidationStatus: TypeAlias = Literal["PASS", "WARNING", "FAIL"]
 """Статусы валидации, dtype=Literal["PASS", "WARNING", "FAIL"]."""
 
 SEGMENT_CALL_EXCLUDED_PARAMS: Set[str] = {
-    "precision", "use_compile", "compile_mode", "compile_fullgraph",
-    "compile_dynamic", "debug_mode", "device", "use_quantization",
-    "postprocess", "input_shape", "is_neural", "output_names", 
-    "provider_options", "trt_config",
+    "precision",
+    "use_compile",
+    "compile_mode",
+    "compile_fullgraph",
+    "compile_dynamic",
+    "debug_mode",
+    "device",
+    "use_quantization",
+    "postprocess",
+    "input_shape",
+    "is_neural",
+    "output_names",
+    "provider_options",
+    "trt_config",
 }
 
 
@@ -335,10 +347,9 @@ class TorchImplementationValidator:
             # Всегда разрешаем 'postprocess' для совместимости
             valid_params.add("postprocess")
             if segmenter_class in (ONNXSegmenter, TRTSegmenter):
-                valid_params.update({
-                    "input_shape", "device", "precision", "is_neural", 
-                    "output_names", "provider_options"
-                })
+                valid_params.update(
+                    {"input_shape", "device", "precision", "is_neural", "output_names", "provider_options"}
+                )
             return {k: v for k, v in params.items() if k in valid_params}
         except (ValueError, TypeError):
             # Если не удалось получить сигнатуру, возвращаем как есть
@@ -413,10 +424,10 @@ class TorchImplementationValidator:
         prepared.pop("postprocess", None)  # postprocess обрабатывается отдельно
 
         return prepared
-    
+
     @staticmethod
     def _prepare_onnx_trt_params(
-        params: Dict[str, Any], 
+        params: Dict[str, Any],
         segmenter_class: Type[Union[ONNXSegmenter, TRTSegmenter]],
         model_path: str,
         precision: str = "fp32",
@@ -429,15 +440,18 @@ class TorchImplementationValidator:
         prepared.setdefault("device", device)
         prepared.setdefault("precision", precision)  # 🔹 Добавляем precision
         prepared.setdefault("is_neural", False)  # Для классических методов
-        
+
         # TRT специфичные настройки
         if segmenter_class == TRTSegmenter:
-            prepared.setdefault("trt_config", {
-                "max_workspace_size": 1 << 30,  # 1GB
-                "fp16_mode": (precision in ["fp16", "bf16"]),
-                "int8_mode": False,
-            })
-        
+            prepared.setdefault(
+                "trt_config",
+                {
+                    "max_workspace_size": 1 << 30,  # 1GB
+                    "fp16_mode": (precision in ["fp16", "bf16"]),
+                    "int8_mode": False,
+                },
+            )
+
         return prepared
 
     # ──────────────────────────────────────────────────────────────────────
@@ -461,7 +475,7 @@ class TorchImplementationValidator:
             return np.array(image_path.convert("RGB"))
         else:
             raise ValueError(f"Неподдерживаемый тип изображения: {type(image_path)}")
-        
+
     @staticmethod
     def _get_model_path(
         method_name: str,
@@ -471,7 +485,7 @@ class TorchImplementationValidator:
         trt_dir: Optional[str] = None,
     ) -> str:
         """Возвращает путь к экспортированной модели с учётом точности.
-        
+
         Структура директорий:
         - ONNX: {onnx_dir}/{precision}/{method_name}.onnx
         - TRT:  {trt_dir}/{precision}/{method_name}.trt
@@ -482,16 +496,17 @@ class TorchImplementationValidator:
         else:  # TRTSegmenter
             base_dir = trt_dir or "./exported_models/tensorrt"
             ext = ".trt"
-        
+
         model_path = os.path.join(base_dir, precision, f"{method_name}{ext}")
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Модель не найдена: {model_path}")
         return model_path
-    
+
         # ──────────────────────────────────────────────────────────────────────
+
     # НОВЫЕ МЕТОДЫ ДЛЯ ВАЛИДАЦИИ С БЭКЕНДАМИ (ONNX/TRT)
     # ──────────────────────────────────────────────────────────────────────
-    
+
     def validate_all_methods_with_backends(
         self,
         image_path: ImageInput,
@@ -539,7 +554,7 @@ class TorchImplementationValidator:
             - TRT: "threshold_torch_vs_trt_fp32", "edge_torch_vs_trt_bf16", ...
         """
         all_results: Dict[str, Any] = {}
-        
+
         # ──────────────────────────────────────────────────────
         # 1. БАЗОВАЯ ВАЛИДАЦИЯ (Torch vs CPU-бэкенды)
         # ──────────────────────────────────────────────────────
@@ -550,7 +565,7 @@ class TorchImplementationValidator:
             torch2_precision=torch2_precision,
         )
         all_results.update(base_results)
-        
+
         # ──────────────────────────────────────────────────────
         # 2. ВАЛИДАЦИЯ ПРОТИВ ONNX
         # ──────────────────────────────────────────────────────
@@ -572,7 +587,7 @@ class TorchImplementationValidator:
                 precisions=["fp32", "fp16", "bf16"],  # Тестируем все доступные точности
             )
             all_results.update(onnx_results)
-        
+
         # ──────────────────────────────────────────────────────
         # 3. ВАЛИДАЦИЯ ПРОТИВ TENSORRT
         # ──────────────────────────────────────────────────────
@@ -595,7 +610,7 @@ class TorchImplementationValidator:
             all_results.update(trt_results)
         elif validate_trt and not torch.cuda.is_available():
             logger.warning("⚠️  CUDA недоступен, пропускаем валидацию TensorRT")
-        
+
         return all_results
 
     def _validate_backend_vs_torch(
@@ -629,32 +644,32 @@ class TorchImplementationValidator:
         results: Dict[str, Any] = {}
         torch_class = TorchSegmenter2 if use_torch2 else TorchSegmenter
         img_array: ImageArray = self._load_image(image_path)
-        
+
         for category_name, methods_list in methods_categories:
             logger.info(f"\n📊 Категория: {category_name.upper()} vs {backend_name}")
-            
+
             for precision in precisions:
                 # 🔹 Проверка доступности моделей для данной точности
                 available_methods = []
                 for method_name, params in methods_list:
                     model_path = os.path.join(
-                        model_dir, 
+                        model_dir,
                         precision if backend_name == "ONNX" else f"{precision}",
-                        f"{method_name}.{backend_name.lower()}"
+                        f"{method_name}.{backend_name.lower()}",
                     )
                     # Для TRT расширение .trt, для ONNX — .onnx
                     ext = ".trt" if backend_name == "TRT" else ".onnx"
                     model_path = os.path.join(model_dir, precision, f"{method_name}{ext}")
-                    
+
                     if os.path.exists(model_path):
                         available_methods.append((method_name, params))
                     else:
                         logger.debug(f"   ⚠️  Модель не найдена: {model_path}")
-                
+
                 if not available_methods:
                     logger.warning(f"   ⚠️  Нет доступных моделей для {category_name}/{backend_name}/{precision}")
                     continue
-                
+
                 # 🔹 Подготовка параметров для TorchSegmenter2
                 def _prepare_torch_params_with_precision(params: Dict[str, Any]) -> Dict[str, Any]:
                     prepared = params.copy()
@@ -665,12 +680,11 @@ class TorchImplementationValidator:
                         prepared.setdefault("device", "cuda" if torch.cuda.is_available() else "cpu")
                         prepared.pop("postprocess", None)
                     return prepared
-                
+
                 torch_methods = [
-                    (name, _prepare_torch_params_with_precision(params))
-                    for name, params in available_methods
+                    (name, _prepare_torch_params_with_precision(params)) for name, params in available_methods
                 ]
-                
+
                 # 🔹 Запуск валидации
                 key = f"{category_name}_torch_vs_{backend_name.lower()}_{precision}"
                 results[key] = self.validate_segmentation_methods(
@@ -688,11 +702,11 @@ class TorchImplementationValidator:
                     trt_model_dir=model_dir if backend_name == "TRT" else None,
                     input_shape=input_shape,
                 )
-                
+
                 logger.info(f"   ✅ {key}: {len([r for r in results[key].values() if r.get('success')])} методов")
-        
+
         return results
-    
+
     def get_exported_model_path(
         self,
         method_name: str,
@@ -703,17 +717,17 @@ class TorchImplementationValidator:
         """Возвращает путь к экспортированной модели или None если не найдена."""
         ext = ".onnx" if backend == "onnx" else ".trt"
         subdir = backend if backend == "onnx" else "tensorrt"
-        
+
         path = Path(output_base_dir) / subdir / precision / f"{method_name}{ext}"
-        
+
         if path.exists():
             return str(path)
-        
+
         # Fallback: поиск без поддиректории точности
         path_fallback = Path(output_base_dir) / subdir / f"{method_name}{ext}"
         if path_fallback.exists():
             return str(path_fallback)
-        
+
         return None
 
     # ──────────────────────────────────────────────────────────────────────
@@ -795,18 +809,18 @@ class TorchImplementationValidator:
                 # ──────────────────────────────────────────────────────
                 if is_first_onnx_trt:
                     model_path = self._get_model_path(
-                        method_name, 
+                        method_name,
                         first_segmenter_class,
                         precision=params.get("precision", "fp32"),
                         onnx_dir=onnx_model_dir,
-                        trt_dir=trt_model_dir
+                        trt_dir=trt_model_dir,
                     )
                     first_params = self._prepare_onnx_trt_params(
-                        params, 
-                        first_segmenter_class, 
-                        model_path, 
+                        params,
+                        first_segmenter_class,
+                        model_path,
                         precision=params.get("precision", "fp32"),
-                        input_shape=input_shape
+                        input_shape=input_shape,
                     )
                 else:
                     first_params = self._filter_params(first_segmenter_class, params.copy())
@@ -835,27 +849,27 @@ class TorchImplementationValidator:
                     # Проверка: это бэкенд-сегментер (ONNX/TRT)?
                     if second_segmenter_class.__name__ in ("ONNXSegmenter", "TRTSegmenter"):
                         # 🔥 Специальная инициализация для бэкендов
-                        
+
                         precision = ref_params.get("precision", "fp32")
                         backend = "onnx" if second_segmenter_class.__name__ == "ONNXSegmenter" else "tensorrt"
-                        
+
                         # Получаем путь к экспортированной модели
                         model_path = self.get_exported_model_path(
                             method_name=method_name,
                             backend=backend,
                             precision=precision,
-                            output_base_dir="./exported_models1"  # ← ваш путь к экспорту
+                            output_base_dir="./exported_models1",  # ← ваш путь к экспорту
                         )
-                        
+
                         if model_path is None:
                             logger.warning(f"⚠️  Модель {method_name}_{backend}_{precision} не найдена, пропуск")
                             results[method_name] = {
                                 "success": False,
                                 "error": f"Model export not found: {backend}/{precision}",
-                                "validation_status": "FAIL"
+                                "validation_status": "FAIL",
                             }
                             continue
-                        
+
                         # Инициализация бэкенд-сегментера
                         if backend == "onnx":
                             segmenter2 = ONNXSegmenter(
@@ -868,10 +882,11 @@ class TorchImplementationValidator:
                             )
                         else:  # TRT
                             from utils.backend_exporter_new import load_trt_engine
+
                             trt_model = load_trt_engine(model_path, device=ref_params.get("device", "cuda"))
                             if trt_model is None:
                                 raise RuntimeError(f"Failed to load TRT engine: {model_path}")
-                            
+
                             segmenter2 = TRTSegmenter(
                                 model_key=method_name,
                                 trt_model_or_path=trt_model,
@@ -882,14 +897,14 @@ class TorchImplementationValidator:
                     else:
                         # 🔹 Стандартная инициализация для классических сегментеров
                         segmenter2 = second_segmenter_class(method=method_name, **ref_params)
-                        
+
                 except Exception as e:
                     logger.error(f"❌ Ошибка создания {second_segmenter_class.__name__} для {method_name}: {e}")
                     results[method_name] = {
                         "success": False,
                         "error": str(e),
                         "validation_status": "FAIL",
-                        "traceback": traceback.format_exc()
+                        "traceback": traceback.format_exc(),
                     }
                     continue
                 mask2_raw: MaskArray = segmenter2.segment(img_array, **ref_params)

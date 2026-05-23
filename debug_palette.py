@@ -25,7 +25,7 @@ for idx in range(150):
 # 🔍 Проверка критических классов
 critical_classes = {
     0: "wall",
-    1: "building", 
+    1: "building",
     2: "sky",
     3: "floor",
     4: "tree",
@@ -48,18 +48,19 @@ for idx, expected_name in critical_classes.items():
 fig, ax = plt.subplots(figsize=(15, 3))
 ax.set_xlim(0, len(palette))
 ax.set_ylim(0, 1)
-ax.axis('off')
+ax.axis("off")
 
 # Отобразим первые 50 классов
 for idx in range(min(150, len(palette))):
     rgb = palette[idx]
-    rgb_normalized = [rgb[0]/255, rgb[1]/255, rgb[2]/255]
+    rgb_normalized = [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255]
     ax.add_patch(plt.Rectangle((idx, 0), 1, 1, color=rgb_normalized))
-    ax.text(idx + 0.5, 0.5, str(idx), ha='center', va='center', 
-            fontsize=6, color='black' if sum(rgb) > 384 else 'white')
+    ax.text(
+        idx + 0.5, 0.5, str(idx), ha="center", va="center", fontsize=6, color="black" if sum(rgb) > 384 else "white"
+    )
 
-ax.set_title("ADE20K Color Palette (first 50 classes)", fontsize=12, fontweight='bold')
+ax.set_title("ADE20K Color Palette (first 50 classes)", fontsize=12, fontweight="bold")
 plt.tight_layout()
-plt.savefig("debug_palette_visualization.png", dpi=300, bbox_inches='tight')
+plt.savefig("debug_palette_visualization.png", dpi=300, bbox_inches="tight")
 print("\n✅ Визуализация палитры сохранена: debug_palette_visualization.png")
 plt.show()

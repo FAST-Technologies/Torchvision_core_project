@@ -590,9 +590,7 @@ def main(use_optimizations: bool = True) -> Tuple[
                     n_runs=10,
                     compute_metrics=True,  # Сравнивает IoU относительно fp32
                 )
-                print(
-                    "✅ Бенчмарк точностей завершён. CSV-отчёт: ./data/reports/precision/precision_benchmark.csv"
-                )
+                print("✅ Бенчмарк точностей завершён. CSV-отчёт: ./data/reports/precision/precision_benchmark.csv")
             except Exception as e:
                 logger.warning(f"⚠️ Ошибка при запуске бенчмарка точностей: {e}")
                 traceback.print_exc()
@@ -1037,12 +1035,13 @@ def _run_backend_export_and_comparison(
         if torch.cuda.is_available() and enable_trt_ep_in_benchmark:  # новый флаг
             try:
                 import onnxruntime as ort
+
                 if "TensorrtExecutionProvider" in ort.get_available_providers():
                     # Выбираем пресет из конфига или по умолчанию
                     trt_preset_name = trt_ep_preset
                     trt_opts = TRT_PRESETS.get(trt_preset_name, TRT_PRESET_PRODUCTION)
                     cache_path = f"./cache/trt_ep/{precision}/{method_name}"
-                    
+
                     onnx_trt_seg = ONNXSegmenter(
                         method_name,
                         onnx_path,
@@ -1332,7 +1331,6 @@ def _create_cv2_methods() -> SegmenterDict:
         #     k_noise=2.0,
         #     threshold=0.5,
         # ),
-
         # "Region_Growing_CV2": OpenCVSegmenter("region_growing", seed=(100, 100), tolerance=0.1),
         # "Split_And_Merge_CV2": OpenCVSegmenter("split_and_merge", min_size=50, threshold=0.1),
         # "Floodfill_CV2": OpenCVSegmenter("floodfill", seed=(100, 100), tolerance=0.15),
@@ -1414,7 +1412,6 @@ def _create_sklearn_methods() -> SegmenterDict:
         #     threshold=0.5,
         #     postprocess=False,
         # ),
-
         # "Region_Growing_Sklearn": SklearnSegmenter("region_growing", seed=(100, 100), tolerance=0.1),
         # "Split_And_Merge_Sklearn": SklearnSegmenter("split_and_merge", min_size=50, threshold=0.1),
         # "Floodfill_Sklearn": SklearnSegmenter("floodfill", seed=(100, 100), tolerance=0.15),
@@ -1645,7 +1642,6 @@ def _create_torch_methods() -> SegmenterDict:
         #     k_noise=2.0,
         #     threshold=0.5,
         # ),
-
         # "Region_Growing_Torch": TorchSegmenter("region_growing", seed=(100, 100), tolerance=0.1),
         # "Split_And_Merge_Torch": TorchSegmenter("split_and_merge", min_size=50, threshold=20),
         # "Floodfill_Torch": TorchSegmenter("floodfill", seed=(100, 100), tolerance=0.15),
@@ -3185,11 +3181,7 @@ def run_implementation_validation(
             )
         else:
             # Базовая валидация (Torch vs CPU-бэкенды)
-            all_results = validator.validate_all_methods(
-                image_path=img_array,
-                use_torch2=True,
-                torch2_precision="bf16"
-            )
+            all_results = validator.validate_all_methods(image_path=img_array, use_torch2=True, torch2_precision="bf16")
         print(f"   ✅ Валидировано: {len(all_results)} методов")
     except Exception as e:
         logger.error(f"❌ Ошибка валидации: {e}")
@@ -3256,9 +3248,10 @@ def run_implementation_validation(
                 for result in config_results.values():
                     if isinstance(result, dict) and "validation_status" in result:
                         statuses.append(result["validation_status"])
-        
+
         if statuses:
             from collections import Counter
+
             status_counts: Counter = Counter(statuses)
 
             print("\n📈 Распределение статусов:")
@@ -3274,7 +3267,7 @@ def run_implementation_validation(
                         if isinstance(result, dict) and result.get("success") and "metrics" in result:
                             iou = result["metrics"].get("iou", 0)
                             all_iou_results.append((f"{config_name}/{method_name}", iou, result["validation_status"]))
-            
+
             if all_iou_results:
                 sorted_results = sorted(all_iou_results, key=lambda x: x[1], reverse=True)[:5]
                 print("\n🏆 Топ-5 по IoU (согласованность):")
@@ -4913,9 +4906,7 @@ def _load_images_with_ground_truth(
 
     # Конвертация маски в бинарную
     gt_np: npt.NDArray = np.array(gt_mask_pil)
-    print(
-        f"\nДиапазон значений Ground Truth: {gt_np.min()} - {gt_np.max()}, min: {gt_np.min()}, max: {gt_np.max()}"
-    )
+    print(f"\nДиапазон значений Ground Truth: {gt_np.min()} - {gt_np.max()}, min: {gt_np.min()}, max: {gt_np.max()}")
     binary_gt: MaskArray = _convert_multiclass_to_binary(gt_np)
 
     # Сохранение локальных копий

@@ -841,7 +841,7 @@ class SegmentationMetrics:
             return m_iou, iou_per_class
         return m_iou
 
-     # ──────────────────────────────────────────────────────────────────────
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def compute_segmentation_metrics(
         pred_mask: MaskArray,
@@ -884,7 +884,7 @@ class SegmentationMetrics:
             ```
         """
         # Валидные пиксели
-        valid_mask = (gt_mask != ignore_index)
+        valid_mask = gt_mask != ignore_index
         if not np.any(valid_mask):
             return {
                 "mIoU": np.nan,
@@ -931,7 +931,7 @@ class SegmentationMetrics:
         # 5. Бинарные метрики (для совместимости с старым кодом)
         pred_binary = (pred_mask > 0).astype(np.uint8)
         gt_binary = (gt_mask > 0).astype(np.uint8)
-        
+
         binary_metrics = SegmentationMetrics.calculate_all_metrics(
             pred_mask=pred_binary,
             gt_mask=gt_binary,
@@ -953,3 +953,77 @@ class SegmentationMetrics:
             result["hausdorff_distance"] = binary_metrics.get("hausdorff_distance", np.nan)
 
         return result
+
+    @staticmethod
+    def calculate_per_class_dice(
+        pred_mask: MaskArray,
+        gt_mask: MaskArray,
+        num_classes: int,
+        ignore_index: int = 255,
+    ) -> Dict[int, float]:
+        """Расчёт Dice coefficient для каждого класса."""
+        dice_per_class: Dict[int, float] = {}
+        for cls in range(num_classes):
+            if cls == ignore_index:
+                continue
+            pred_c = pred_mask == cls
+            gt_c = gt_mask == cls
+            intersection = np.logical_and(pred_c, gt_c).sum()
+            union = pred_c.sum() + gt_c.sum()
+            dice = (2.0 * intersection) / (union + 1e-8) if union > 0 else 0.0
+            dice_per_class[cls] = dice
+        return dice_per_class
+
+    @staticmethod
+    def calculate_per_class_precision_recall(
+        pred_mask: MaskArray,
+        gt_mask: MaskArray,
+        num_classes: int,
+        ignore_index: int = 255,
+        max_classes: int = 20,  # Ограничение для скорости
+    ) -> Dict[int, Tuple[float, float]]:
+        """Расчёт Precision/Recall для каждого класса."""
+        results: Dict[int, Tuple[float, float]] = {}
+        for cls in range(min(max_classes, num_classes)):
+            if cls == ignore_index:
+                continue
+            pred_c = (pred_mask == cls).astype(np.uint8)
+            gt_c = (gt_mask == cls).astype(np.uint8)
+            tp = np.logical_and(pred_c, gt_c).sum()
+            fp = np.logical_and(pred_c, ~gt_c).sum()
+            fn = np.logical_and(~pred_c, gt_c).sum()
+
+            prec = tp / (tp + fp + 1e-8)
+            rec = tp / (tp + fn + 1e-8)
+            results[cls] = (prec, rec)
+        return results
+
+    @staticmethod
+    def calculate_boundary_f1(
+        pred_mask: MaskArray,
+        gt_mask: MaskArray,
+        num_classes: int,
+        ignore_index: int = 255,
+        max_classes: int = 5,
+    ) -> float:
+        """Расчёт Boundary F1 score (точность границ)."""
+        from scipy.ndimage import binary_erosion, binary_dilation
+
+        boundary_f1_scores: List[float] = []
+        for cls in range(min(max_classes, num_classes)):
+            if cls == ignore_index:
+                continue
+            pred_c = pred_mask == cls
+            gt_c = gt_mask == cls
+
+            pred_boundary = binary_dilation(pred_c) ^ binary_erosion(pred_c)
+            gt_boundary = binary_dilation(gt_c) ^ binary_erosion(gt_c)
+
+            tp = np.logical_and(pred_boundary, gt_boundary).sum()
+            fp = np.logical_and(pred_boundary, ~gt_boundary).sum()
+            fn = np.logical_and(~pred_boundary, gt_boundary).sum()
+
+            f1 = (2 * tp) / (2 * tp + fp + fn + 1e-8)
+            boundary_f1_scores.append(f1)
+
+        return float(np.mean(boundary_f1_scores)) if boundary_f1_scores else 0.0

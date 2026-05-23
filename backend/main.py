@@ -121,23 +121,23 @@ if not logger.handlers:
     log_dir: Path = Path("./logs")  # ← измените на нужный путь, например:
     # log_dir = Path("/home/user/my_project/logs")  # абсолютный путь
     # log_dir = Path.home() / ".autoseg" / "logs"     # в домашней директории
-    
+
     log_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Формируем полный путь к файлу лога
     log_file: Path = log_dir / "autoseg.log"
-    
+
     # Создаём и настраиваем FileHandler
     file_handler: logging.FileHandler = logging.FileHandler(
         filename=log_file,
-        mode='a',           # 'a' = append, 'w' = overwrite
-        encoding='utf-8',   # важно для кириллицы и спецсимволов
-        delay=True          # откладывает создание файла до первой записи
+        mode="a",  # 'a' = append, 'w' = overwrite
+        encoding="utf-8",  # важно для кириллицы и спецсимволов
+        delay=True,  # откладывает создание файла до первой записи
     )
-    
+
     file_formatter: logging.Formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"  # опционально: свой формат даты
+        datefmt="%Y-%m-%d %H:%M:%S",  # опционально: свой формат даты
     )
     file_handler.setFormatter(file_formatter)
     file_handler.setLevel(logging.DEBUG)
