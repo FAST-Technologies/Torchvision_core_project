@@ -47,6 +47,8 @@ Note:
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
 from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+import os
+import sys
 import torch
 import numpy as np
 import pandas as pd
@@ -63,6 +65,12 @@ if not logger.handlers:
     formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+
+project_root: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from metrics.SegmentationMetrics import SegmentationMetrics
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
@@ -86,47 +94,12 @@ def compute_metrics(
     threshold: float = 0.5,
     include_hausdorff: bool = False,
 ) -> Dict[str, Any]:
-    """Вычисляет основные метрики семантической сегментации.
+    """Wrapper для SegmentationMetrics.compute_segmentation_metrics().
 
-    Поддерживаемые метрики:
-    - Pixel Accuracy: Доля правильно классифицированных пикселей.
-    - Mean IoU: Среднее пересечение-над-объединением по классам.
-    - Weighted F1-Score: F1-мера с учётом дисбаланса классов.
-    - Per-class IoU: IoU для каждого класса отдельно.
-    - Confusion Matrix: Матрица ошибок размера `num_classes × num_classes`.
-
-    Args:
-        pred_mask: Предсказанная маска `[H, W]` с целочисленными метками классов.
-        gt_mask: Ground truth маска `[H, W]` с целочисленными метками.
-        num_classes: Общее количество классов в задаче.
-        ignore_index: Индекс пикселей, которые следует игнорировать при расчёте (обычно 255).
-
-    Returns:
-        Dict[str, Any]: Словарь с метриками:
-        ```python
-        {
-            "mIoU": float,                    # Mean IoU (nan если нет валидных пикселей)
-            "pixel_acc": float,               # Pixel Accuracy
-            "f1_weighted": float,             # Weighted F1-Score
-            "per_class_iou": np.ndarray,      # Array[num_classes] с IoU по классам
-            "confusion_matrix": np.ndarray,   # Matrix[num_classes, num_classes]
-            "unique_pred_classes": int,       # Количество уникальных классов в предсказании
-            "valid_pixels": int,              # Количество неигнорируемых пикселей
-        }
-        ```
-
-    Note:
-        - Ground truth значения автоматически обрезаются до `[0, num_classes-1]` с предупреждением при выходе за диапазон.
-        - Если все пиксели игнорируются, возвращается `nan` для числовых метрик.
-        - `per_class_iou` содержит `nan` для классов, не представленных в предсказании или GT.
-
-    Example:
-        ```python
-        metrics = compute_metrics(pred, gt, num_classes=150, ignore_index=255)
-        print(f"IoU: {metrics['mIoU']:.3f}, Acc: {metrics['pixel_acc']:.3f}")
-        ```
+    ⚠️  DEPRECATED: Используйте напрямую SegmentationMetrics.compute_segmentation_metrics()
+    
+    Оставлен для обратной совместимости со старым кодом.
     """
-    # Маска валидных пикселей (исключаем ignore_index)
     if gt_mask is None:
         return {
             "mIoU": np.nan,
@@ -137,65 +110,21 @@ def compute_metrics(
             "unique_pred_classes": len(np.unique(pred_mask)),
             "valid_pixels": 0,
         }
-    valid: bool = gt_mask != ignore_index
-    if not np.any(valid):
-        return {
-            "mIoU": np.nan,
-            "pixel_acc": np.nan,
-            "f1_weighted": np.nan,
-            "per_class_iou": [np.nan] * num_classes,
-            "confusion_matrix": None,
-            "unique_pred_classes": len(np.unique(pred_mask)),
-            "valid_pixels": 0,
-        }
 
-    pred_valid = pred_mask[valid]
-    gt_valid: np.ndarray = np.clip(gt_mask[valid], 0, num_classes - 1)
-
-    # Значения в ground truth должны быть в диапазоне [0, num_classes-1]
-    gt_min, gt_max = gt_valid.min(), gt_valid.max()
-    if gt_min < 0 or gt_max >= num_classes:
-        print(f"⚠️ Warning: gt_mask values out of range [{gt_min}, {gt_max}], expected [0, {num_classes - 1}]")
-        gt_valid = np.clip(gt_valid, 0, num_classes - 1)
-
-    # Pixel Accuracy
-    pixel_acc: float = accuracy_score(gt_valid, pred_valid)
-
-    # Confusion matrix
-    cm: np.ndarray = confusion_matrix(gt_valid, pred_valid, labels=list(range(num_classes)))
-
-    # Per-class IoU
-    iou_per_class: List[float] = []
-    for c in range(num_classes):
-        tp = cm[c, c]
-        fp = cm[:, c].sum() - tp
-        fn = cm[c, :].sum() - tp
-        if tp + fp + fn == 0:
-            iou_per_class.append(np.nan)
-        else:
-            iou_per_class.append(tp / (tp + fp + fn))
-
-    # Mean IoU
-    mIoU: float = float(np.nanmean(iou_per_class))
-
-    # Weighted F1-score
-    f1: float = f1_score(
-        gt_valid,
-        pred_valid,
-        average="weighted",
-        labels=list(range(num_classes)),
-        zero_division=0,
+    # Делегируем SegmentationMetrics
+    metrics = SegmentationMetrics.compute_segmentation_metrics(
+        pred_mask=pred_mask,
+        gt_mask=gt_mask,
+        num_classes=num_classes,
+        ignore_index=ignore_index,
+        include_confusion_matrix=True,
+        include_hausdorff=include_hausdorff,
     )
 
-    return {
-        "mIoU": mIoU,
-        "pixel_acc": pixel_acc,
-        "f1_weighted": f1,
-        "per_class_iou": np.array(iou_per_class),
-        "confusion_matrix": cm,
-        "unique_pred_classes": len(np.unique(pred_mask)),
-        "valid_pixels": int(np.sum(valid)),
-    }
+    # Добавляем поля для совместимости со старым API
+    metrics["unique_pred_classes"] = len(np.unique(pred_mask))
+    metrics["valid_pixels"] = int(np.sum(gt_mask != ignore_index))
+    return metrics
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -391,7 +320,9 @@ def analyze_prediction(
         cls = unique[idx]
         cnt: np.ndarray = counts[idx]
         pct: np.ndarray = 100 * cnt / total
-        name: str = class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
+        name_idx = cls - 1
+        name: str = class_names.get(name_idx, class_names.get(cls, f"Class_{cls}")) if class_names else f"Class_{cls}"
+        # name: str = class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
         print(f"     {cls:3d}: {name:25s} {cnt:7,} px ({pct:5.3f}%)")
 
     # Проверка на доминирующий класс
@@ -462,7 +393,8 @@ def generate_class_report(
     rows: List[Dict[str, Any]] = []
     for cls, cnt in zip(unique, counts):
         if cnt >= min_pixels:  # Фильтрация шума
-            name: str = class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
+            name_idx = cls
+            name: str = class_names.get(name_idx, class_names.get(cls, f"Class_{cls}")) if class_names else f"Class_{cls}"
             rows.append(
                 {
                     "class_id": int(cls),

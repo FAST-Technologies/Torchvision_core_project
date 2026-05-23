@@ -35,8 +35,8 @@ Example:
         # Запуск с оптимизациями
         tester, results, _ = main(use_optimizations=True)
         if results is not None:
-            logger.info(f"Обработано {len(results)} методов")
-            logger.info(results.sort_values("IoU", ascending=False).head(10))
+            print(f"Обработано {len(results)} методов")
+            print(results.sort_values("IoU", ascending=False).head(10))
     ```
 """
 
@@ -108,6 +108,8 @@ from utils.warmup import SegmentationWarmUp
 from utils.threshold_warmup import ThresholdWarmUp
 from utils.strategies import _create_overlay_standalone, segment_image_unified
 from utils.batch_exporter import export_all_classical_methods
+from utils.backend_exporter_new import TRT_PRESETS, TRT_PRESET_PRODUCTION
+from utils.backend_exporter_new import PrecisionType
 
 import logging
 
@@ -163,33 +165,33 @@ DEFAULT_IMAGE_SIZE: Tuple[int, int] = (512, 512)
 
 TARGET_METHODS_FOR_RESEARCH: List[str] = [
     "global_thresholding",
-    "adaptive_thresholding",
-    "otsu_thresholding",
-    "threshold_niblack",
-    "threshold_sauvola",
-    "threshold_bernsen",
-    "threshold_phansalkar",
-    "threshold_percentile",
-    "threshold_kittler_illingworth",
-    "threshold_entropy_kapur",
-    "threshold_triangle",
-    "threshold_multi_otsu",
-    "threshold_local_contrast",
-    "sobel_edge",
-    "canny_edge",
-    "prewitt_edge",
-    "scharr_edge",
-    "laplacian_edge",
-    "roberts_cross_edge",
-    "log_edge",
-    "dog_edge",
-    "marr_hildreth_edge",
-    "gradient_magnitude_direction",
-    "phase_congruency_edge",
+    # "adaptive_thresholding",
+    # "otsu_thresholding",
+    # "threshold_niblack",
+    # "threshold_sauvola",
+    # "threshold_bernsen",
+    # "threshold_phansalkar",
+    # "threshold_percentile",
+    # "threshold_kittler_illingworth",
+    # "threshold_entropy_kapur",
+    # "threshold_triangle",
+    # "threshold_multi_otsu",
+    # "threshold_local_contrast",
+    # "sobel_edge",
+    # "canny_edge",
+    # "prewitt_edge",
+    # "scharr_edge",
+    # "laplacian_edge",
+    # "roberts_cross_edge",
+    # "log_edge",
+    # "dog_edge",
+    # "marr_hildreth_edge",
+    # "gradient_magnitude_direction",
+    # "phase_congruency_edge",
 ]
 """Методы для исследования, dtype=List[str]."""
 
-PrecisionType: List[str] = ["fp32", "fp16", "bf16"]
+AVAILABLE_PRECISIONS: List[PrecisionType] = ["fp32", "fp16", "bf16"]
 """Возможные точности, dtype=List[str]."""
 
 # Глобальные настройки окружения
@@ -199,6 +201,14 @@ torch.backends.cudnn.benchmark = True
 warnings.filterwarnings("ignore")
 
 num_classes: int = 150
+
+DEFAULT_BENCHMARK_CONFIG: Dict[str, Any] = {
+    "enable_trt_ep_benchmark": True,
+    "trt_ep_preset": "production",
+    "trt_ep_cache_path": "./cache/trt_ep",
+}
+
+DEFAULT_TRT_EP_PRECISION: PrecisionType = "fp32"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -431,8 +441,8 @@ def main(use_optimizations: bool = True) -> Tuple[
             # Запуск с оптимизациями
             tester, results, _ = main(use_optimizations=True)
             if results is not None:
-                logger.info(f"Обработано {len(results)} методов")
-                logger.info(results.sort_values("IoU", ascending=False).head(10))
+                print(f"Обработано {len(results)} методов")
+                print(results.sort_values("IoU", ascending=False).head(10))
         ```
     """
     # ──────────────────────────────────────────────────────────────
@@ -449,36 +459,36 @@ def main(use_optimizations: bool = True) -> Tuple[
     _log_environment_info()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     optimal_precision = get_optimal_precision(device)
-    logger.info(f"🚀 Используемое устройство: {device}")
-    logger.info(f"⚡ Точность: {optimal_precision}")
+    print(f"🚀 Используемое устройство: {device}")
+    print(f"⚡ Точность: {optimal_precision}")
     if use_optimizations:
-        logger.info(f"⚡ Оптимизации включены: Точность={optimal_precision}, Compile=ON")
+        print(f"⚡ Оптимизации включены: Точность={optimal_precision}, Compile=ON")
     else:
         logger.warning("⚠️  [LEGACY] Оптимизации отключены (fp32, eager mode)")
 
-    logger.info("=" * 60)
-    logger.info("ОБЪЕДИНЁННЫЙ ФРЕЙМВОРК СЕГМЕНТАЦИИ")
-    logger.info("=" * 60)
+    print("=" * 60)
+    print("ОБЪЕДИНЁННЫЙ ФРЕЙМВОРК СЕГМЕНТАЦИИ")
+    print("=" * 60)
 
     # ──────────────────────────────────────────────────────────────
     # 2. ЗАГРУЗКА ТЕСТОВЫХ ДАННЫХ
     # ──────────────────────────────────────────────────────────────
-    logger.info("\n1. Загрузка тестовых изображений...")
+    print("\n1. Загрузка тестовых изображений...")
     test_images: TestImagesDict = load_test_images(use_image_with_mask=False)
-    logger.info(f"✅ Загружено изображений: {len(test_images)}")
+    print(f"✅ Загружено изображений: {len(test_images)}")
 
     first_img_pil: Optional[Image.Image] = None
     first_img_name: Optional[str] = None
     if test_images:
         first_img_name, (_, first_img_pil, _) = next(iter(test_images.items()))
-        logger.info(f"📌 Первое изображение для бенчмарков: {first_img_name} ({first_img_pil.size})")
+        print(f"📌 Первое изображение для бенчмарков: {first_img_name} ({first_img_pil.size})")
 
     # ──────────────────────────────────────────────────────────────
     # 3. РЕГИСТРАЦИЯ МЕТОДОВ СЕГМЕНТАЦИИ
     # ──────────────────────────────────────────────────────────────
-    logger.info("\n" + "=" * 60)
-    logger.info("ИНИЦИАЛИЗАЦИЯ МЕТОДОВ СЕГМЕНТАЦИИ")
-    logger.info("=" * 60)
+    print("\n" + "=" * 60)
+    print("ИНИЦИАЛИЗАЦИЯ МЕТОДОВ СЕГМЕНТАЦИИ")
+    print("=" * 60)
 
     tester: SegmentationTester = SegmentationTester(
         base_output_dir="./data/segmentation_tester_results",
@@ -486,13 +496,13 @@ def main(use_optimizations: bool = True) -> Tuple[
         n_warmup_runs=5,
     )
 
-    logger.info("\n1. Загрузка методов OpenCV...")
+    print("\n1. Загрузка методов OpenCV...")
     cv2_methods: SegmenterDict = _create_cv2_methods()
 
-    logger.info("\n2. Загрузка методов SKlearn...")
+    print("\n2. Загрузка методов SKlearn...")
     sklearn_methods: SegmenterDict = _create_sklearn_methods()
 
-    logger.info("\n3. Загрузка методов PyTorch...")
+    print("\n3. Загрузка методов PyTorch...")
     if use_optimizations:
         torch_methods: SegmenterDict = _create_torch_methods_factory(
             use_v1=use_torch_v1,
@@ -504,7 +514,7 @@ def main(use_optimizations: bool = True) -> Tuple[
     else:
         # 🔥 Fallback на старую реализацию
         torch_methods = _create_torch_methods()
-    logger.info(f"   📦 Загружено методов Torch: {len(torch_methods)}")
+    print(f"   📦 Загружено методов Torch: {len(torch_methods)}")
 
     if test_classic_logic:
         _register_classic_methods(tester, cv2_methods, sklearn_methods, torch_methods)
@@ -517,15 +527,15 @@ def main(use_optimizations: bool = True) -> Tuple[
     # ──────────────────────────────────────────────────────────────
 
     if test_classic_logic:
-        logger.info("🔬 ИССЛЕДОВАНИЕ: Мульти-бэкенд бенчмарк (PyTorch / ONNX / TensorRT)")
+        print("🔬 ИССЛЕДОВАНИЕ: Мульти-бэкенд бенчмарк (PyTorch / ONNX / TensorRT)")
         precision_benchmark_result: Optional[BenchmarkResult] = _run_multi_backend_precision_benchmark(
             tester, first_img_pil
         )
         if precision_benchmark_result is not None:
-            logger.info(precision_benchmark_result)
+            print(precision_benchmark_result)
 
-    logger.info("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-    logger.info("   (нажмите Ctrl+C для отмены, если нужно)")
+    print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    print("   (нажмите Ctrl+C для отмены, если нужно)")
     try:
         time.sleep(15)
     except KeyboardInterrupt:
@@ -533,24 +543,24 @@ def main(use_optimizations: bool = True) -> Tuple[
         return tester, None, None
 
     if test_classic_logic:
-        logger.info("🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT")
+        print("🔬 ИССЛЕДОВАНИЕ: PyTorch vs ONNX vs TensorRT")
         backend_export_compare_result: Optional[BenchmarkResult] = _run_backend_export_and_comparison(
             tester, first_img_pil
         )
         if backend_export_compare_result is not None:
-            logger.info(backend_export_compare_result)
+            print(backend_export_compare_result)
 
     # 4.1 Профилирование выбранных методов
-    if enable_profiling and test_classic_logic and use_torch_v2:
-        _run_profiling_demo(tester, test_images, device)
+    # if enable_profiling and test_classic_logic and use_torch_v2:
+    #     _run_profiling_demo(tester, test_images, device)
 
     # 4.2 Бенчмарк точностей (опционально, медленно)
     if enable_benchmark_precision and test_classic_logic and use_torch_v2:
         _run_precision_benchmark_demo(tester, test_images)
 
-        logger.info("\n" + "=" * 60)
-        logger.info("⚡ БЕНЧМАРК ТОЧНОСТЕЙ: fp32 / fp16 / bf16")
-        logger.info("=" * 60)
+        print("\n" + "=" * 60)
+        print("⚡ БЕНЧМАРК ТОЧНОСТЕЙ: fp32 / fp16 / bf16")
+        print("=" * 60)
 
         # Берём первое тестовое изображение в формате numpy
         _, (_, first_img_pil, _) = next(iter(test_images.items()))
@@ -566,8 +576,8 @@ def main(use_optimizations: bool = True) -> Tuple[
                     # Fallback на случай, если атрибута method нет
                     target_methods.append(name.replace("_Torch_v2", "").lower())
 
-        logger.info(f"🧪 Выбрано методов для бенчмарка: {len(target_methods)}")
-        logger.info(f"📋 Список методов: {target_methods}")
+        print(f"🧪 Выбрано методов для бенчмарка: {len(target_methods)}")
+        print(f"📋 Список методов: {target_methods}")
 
         if target_methods:
             try:
@@ -580,7 +590,7 @@ def main(use_optimizations: bool = True) -> Tuple[
                     n_runs=10,
                     compute_metrics=True,  # Сравнивает IoU относительно fp32
                 )
-                logger.info(
+                print(
                     "✅ Бенчмарк точностей завершён. CSV-отчёт: ./data/reports/precision/precision_benchmark.csv"
                 )
             except Exception as e:
@@ -597,7 +607,7 @@ def main(use_optimizations: bool = True) -> Tuple[
     #         n_runs=10,
     #         warmup_runs=10,
     #     )
-    #     logger.info(perf_results)
+    #     print(perf_results)
 
     # 4.4 Запускает тестирование нейросетевых методов сегментации.
     if test_neural_logic:
@@ -609,29 +619,36 @@ def main(use_optimizations: bool = True) -> Tuple[
             device=device,
             num_classes=NUM_CLASSES_ADE20K,
         )
-        logger.info(neural_results)
+        print(neural_results)
 
     #  4.6 Валидация реализаций
-    # if test_classic_logic:
-    #     validation_results: Optional[Dict[str, Any]] = run_implementation_validation(
-    #         test_images=test_images,
-    #         output_dir="./data/validation",
-    #         image_name="countryside",
-    #     )
-    #     logger.info(validation_results)
+    if test_classic_logic:
+        print("\n🔬 ИССЛЕДОВАНИЕ: Валидация с поддержкой бэкендов")
+        validation_results: Optional[Dict[str, Any]] = run_implementation_validation(
+            test_images=test_images,
+            output_dir="./data/validation_with_backends",
+            image_name="countryside",
+            include_backends=True,  # 🔹 Включаем ONNX/TRT
+            onnx_dir="./exported_models/onnx",
+            trt_dir="./exported_models/tensorrt",
+            input_shape=(1, 3, 512, 512),
+        )
+        if validation_results:
+            print(f"✅ Валидация завершена: {len(validation_results['all_results'])} конфигураций")
+            print(validation_results)
 
-    # # 4.7 Матричное сравнение
+    # 4.7 Матричное сравнение
     # if test_classic_logic:
     #     matrix_results: Optional[Dict[str, Any]] = run_matrix_comparison(
     #         test_images=test_images,
     #         cv2_methods=cv2_methods,
     #         sklearn_methods=sklearn_methods,
     #         torch_methods=torch_methods,
-    #         reference_method="Otsu_Thresholding_Sklearn",
+    #         reference_method="global_thresholding_CV2",
     #     )
-    #     logger.info(matrix_results)
+    #     print(matrix_results)
 
-    # # 4.8 Оценка против GT (опционально)
+    # 4.8 Оценка против GT (опционально)
     # if test_classic_logic:
     #     gt_results: Optional[Dict[str, Any]] = run_ground_truth_evaluation(
     #         test_images=test_images,
@@ -639,7 +656,7 @@ def main(use_optimizations: bool = True) -> Tuple[
     #         sklearn_methods=sklearn_methods,
     #         torch_methods=torch_methods,
     #     )
-    #     logger.info(gt_results)
+    #     print(gt_results)
 
     # 4.9 Обучение с аугментациями
     if test_neural_logic:
@@ -648,13 +665,13 @@ def main(use_optimizations: bool = True) -> Tuple[
             checkpoint_dir="./models",
             device="cuda",
         )
-        logger.info(aug_results)
+        print(aug_results)
 
     # 4.10 Тестирование CPU/CUDA бенчмарка
     if test_classic_logic:
-        logger.info("\n" + "=" * 80)
-        logger.info("🧪 ЗАПУСК MULTI-BACKEND CPU/CUDA БЕНЧМАРКА")
-        logger.info("=" * 80)
+        print("\n" + "=" * 80)
+        print("🧪 ЗАПУСК MULTI-BACKEND CPU/CUDA БЕНЧМАРКА")
+        print("=" * 80)
 
         # 1. Собираем все методы в один словарь
         all_benchmark_methods: SegmenterDict = {}
@@ -672,7 +689,7 @@ def main(use_optimizations: bool = True) -> Tuple[
         test_image = None
         for img_name, (_, img_pil, _) in tqdm(test_images.items(), desc="CUDA/CPU benchmark (Выбор изображения)"):
             test_image = np.array(img_pil)
-            logger.info(f"✅ Используем изображение: {img_name} ({test_image.shape})")
+            print(f"✅ Используем изображение: {img_name} ({test_image.shape})")
             break
 
         if test_image is not None:
@@ -682,18 +699,18 @@ def main(use_optimizations: bool = True) -> Tuple[
                 n_runs=10,  # Увеличил прогонов для стабильности
                 warmup_runs=5,
             )
-            logger.info(cpu_cuda_results.sort_values("mean_time"))
+            print(cpu_cuda_results.sort_values("mean_time"))
 
             # Сортировка и вывод топ-10 по времени
             top10: BenchmarkResult = (
                 cpu_cuda_results[cpu_cuda_results["error"].isna()].sort_values("mean_time").head(10)
             )
-            logger.info(top10[["method", "device", "mean_time", "backend", "precision"]])
+            print(top10[["method", "device", "mean_time", "backend", "precision"]])
 
     # ──────────────────────────────────────────────────────────────
     # 5. МАССОВОЕ ТЕСТИРОВАНИЕ КЛАССИЧЕСКИХ МЕТОДОВ
     # ──────────────────────────────────────────────────────────────
-    logger.info(f"Current precision: {optimal_precision}")
+    print(f"Current precision: {optimal_precision}")
     results_df: Optional[BenchmarkResult] = None
     if test_classic_logic:
         results_df = _run_batch_classic_testing_optimized(
@@ -702,12 +719,12 @@ def main(use_optimizations: bool = True) -> Tuple[
             precision=optimal_precision,
         )
 
-    logger.info("\n" + "=" * 60)
-    logger.info("ТЕСТИРОВАНИЕ ЗАВЕРШЕНО")
-    logger.info("=" * 60)
-    logger.info(f"✓ Методов протестировано: {len(tester.methods)}")
-    logger.info(f"✓ Изображений обработано: {len(test_images)}")
-    logger.info("✓ Результаты в: ./data/")
+    print("\n" + "=" * 60)
+    print("ТЕСТИРОВАНИЕ ЗАВЕРШЕНО")
+    print("=" * 60)
+    print(f"✓ Методов протестировано: {len(tester.methods)}")
+    print(f"✓ Изображений обработано: {len(test_images)}")
+    print("✓ Результаты в: ./data/")
 
     return tester, results_df, None
 
@@ -749,7 +766,7 @@ def parse_method_name(method_name: str) -> Dict[str, str]:
     Example:
         ```python
         result = parse_method_name("otsu_thresholding_ONNX_fp16")
-        logger.info(result)
+        print(result)
         # {'BaseMethod': 'otsu_thresholding', 'Backend': 'ONNX', 'Precision': 'fp16'}
         ```
     """
@@ -833,7 +850,7 @@ def _run_multi_backend_precision_benchmark(
         ```python
         result = _run_multi_backend_precision_benchmark(tester, first_img_pil)
         if result is not None:
-            logger.info(result.pivot_table(index="Backend", columns="Precision", values="Mean_Time_s"))
+            print(result.pivot_table(index="Backend", columns="Precision", values="Mean_Time_s"))
         ```
     """
     if first_img_pil is None:
@@ -841,11 +858,11 @@ def _run_multi_backend_precision_benchmark(
         return None
 
     real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]
-    logger.info(f"📐 Размер изображения: {real_w}x{real_h}")
+    print(f"📐 Размер изображения: {real_w}x{real_h}")
 
     # Пауза перед экспортом/регистрацией
-    logger.info("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-    logger.info("   (нажмите Ctrl+C для отмены, если нужно)")
+    print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    print("   (нажмите Ctrl+C для отмены, если нужно)")
     try:
         time.sleep(15)
     except KeyboardInterrupt:
@@ -861,11 +878,11 @@ def _run_multi_backend_precision_benchmark(
         input_shape=(1, 3, real_h, real_w),
         trt_strategy="auto",
     )
-    logger.info(backend_registration)
+    print(backend_registration)
 
     # Пауза перед запуском бенчмарка
-    logger.info("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-    logger.info("   (нажмите Ctrl+C для отмены, если нужно)")
+    print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    print("   (нажмите Ctrl+C для отмены, если нужно)")
     try:
         time.sleep(15)
     except KeyboardInterrupt:
@@ -893,21 +910,21 @@ def _run_multi_backend_precision_benchmark(
             aggfunc="mean",
         )
 
-        logger.info("\n⚡ Сравнение времени выполнения (мс) по точностям:")
-        logger.info(summary.round(4).to_string())
+        print("\n⚡ Сравнение времени выполнения (мс) по точностям:")
+        print(summary.round(4).to_string())
 
         if "fp32" in summary.columns:
             for backend in ["ONNX", "TRT"]:
                 if backend in summary.index.get_level_values("Backend"):
-                    logger.info(f"\n🚀 Speedup {backend} относительно PyTorch/fp32:")
+                    print(f"\n🚀 Speedup {backend} относительно PyTorch/fp32:")
                     for precision in ["fp16", "bf16"]:
                         if precision in summary.columns:
                             subset = summary.xs(backend, level="Backend", drop_level=False)
                             if precision in subset.columns and "fp32" in subset.columns:
                                 speedup = subset["fp32"] / subset[precision]
-                                logger.info(f"   {precision}: {speedup.mean():.2f}x (среднее)")
+                                print(f"   {precision}: {speedup.mean():.2f}x (среднее)")
 
-    logger.info("✅ Сравнение бэкендов завершено. Результаты сохранены.")
+    print("✅ Сравнение бэкендов завершено. Результаты сохранены.")
     return backend_results
 
 
@@ -953,15 +970,15 @@ def _run_backend_export_and_comparison(
         ```python
         comparison_df = _run_backend_export_and_comparison(tester, first_img_pil)
         if comparison_df is not None:
-            logger.info(comparison_df.sort_values("Mean_Time_s").head(10))
+            print(comparison_df.sort_values("Mean_Time_s").head(10))
         ```
     """
     if first_img_pil is None:
-        logger.info("⚠️  Пропуск сравнения бэкендов: нет тестового изображения")
+        print("⚠️  Пропуск сравнения бэкендов: нет тестового изображения")
         return None
 
     real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]  # PIL: (W, H)
-    logger.info(f"📐 Реальный размер изображения: {real_w}x{real_h}")
+    print(f"📐 Реальный размер изображения: {real_w}x{real_h}")
 
     exported_methods = export_all_classical_methods(
         output_base_dir="./exported_models1",
@@ -972,7 +989,7 @@ def _run_backend_export_and_comparison(
         export_onnx=True,
         export_trt=torch.cuda.is_available(),
     )
-    logger.info(exported_methods)
+    print(exported_methods)
 
     for method_name in TARGET_METHODS_FOR_RESEARCH:
         # PyTorch (оригинал)
@@ -996,7 +1013,7 @@ def _run_backend_export_and_comparison(
                     is_neural=False,
                 )
                 tester.add_method(f"{method_name}_ONNX", onnx_seg)
-                logger.info(f"✅ Загружен {method_name}_ONNX")
+                print(f"✅ Загружен {method_name}_ONNX")
             except Exception as e:
                 logger.warning(f"⚠️ Не загружен {method_name}_ONNX: {e}")
 
@@ -1009,20 +1026,54 @@ def _run_backend_export_and_comparison(
                     if trt_model is not None:
                         trt_seg = TRTSegmenter(method_name, trt_model, device="cuda")
                         tester.add_method(f"{method_name}_TRT", trt_seg)
-                        logger.info(f"✅ Загружен {method_name}_TRT")
+                        print(f"✅ Загружен {method_name}_TRT")
                 except Exception as e:
                     logger.warning(f"⚠️ Не загружен {method_name}_TRT: {e}")
 
-        logger.info("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-        logger.info("   (нажмите Ctrl+C для отмены, если нужно)")
+        enable_trt_ep_in_benchmark = DEFAULT_BENCHMARK_CONFIG["enable_trt_ep_benchmark"]
+        trt_ep_preset = DEFAULT_BENCHMARK_CONFIG["trt_ep_preset"]
+        precision = DEFAULT_TRT_EP_PRECISION
+
+        if torch.cuda.is_available() and enable_trt_ep_in_benchmark:  # новый флаг
+            try:
+                import onnxruntime as ort
+                if "TensorrtExecutionProvider" in ort.get_available_providers():
+                    # Выбираем пресет из конфига или по умолчанию
+                    trt_preset_name = trt_ep_preset
+                    trt_opts = TRT_PRESETS.get(trt_preset_name, TRT_PRESET_PRODUCTION)
+                    cache_path = f"./cache/trt_ep/{precision}/{method_name}"
+                    
+                    onnx_trt_seg = ONNXSegmenter(
+                        method_name,
+                        onnx_path,
+                        device="cuda",
+                        input_shape=(1, 3, real_h, real_w),
+                        is_neural=False,
+                        # 🔥 Ключевые параметры для TRT EP:
+                        use_tensorrt_ep=True,
+                        trt_options=trt_opts,
+                        trt_cache_path=cache_path,
+                    )
+                    method_key = f"{method_name}_ONNX_TRT_EP_{precision}"
+                    tester.add_method(method_key, onnx_trt_seg)
+                    print(f"   ✅ {method_key} (TensorRT EP, preset='{trt_preset_name}')")
+                else:
+                    logger.warning(f"⚠️ TRT EP не доступен в ONNX Runtime для {method_name}")
+            except ImportError as e:
+                logger.warning(f"⚠️ Не создан {method_name}_ONNX_TRT_EP (ImportError): {e}")
+            except Exception as e:
+                logger.warning(f"⚠️ Не создан {method_name}_ONNX_TRT_EP: {e}", exc_info=True)
+
+        print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+        print("   (нажмите Ctrl+C для отмены, если нужно)")
         try:
             time.sleep(15)
         except KeyboardInterrupt:
             logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
             return None
 
-    logger.info("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-    logger.info("   (нажмите Ctrl+C для отмены, если нужно)")
+    print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    print("   (нажмите Ctrl+C для отмены, если нужно)")
     try:
         time.sleep(15)
     except KeyboardInterrupt:
@@ -1035,8 +1086,8 @@ def _run_backend_export_and_comparison(
         force_warmup=True,
         test_name="backend_comparison",
     )
-    logger.info(backend_results)
-    logger.info("✅ Сравнение бэкендов завершено. Результаты сохранены.")
+    print(backend_results)
+    print("✅ Сравнение бэкендов завершено. Результаты сохранены.")
     return backend_results
 
 
@@ -1103,7 +1154,7 @@ def _register_backend_methods_with_precision(
             precisions=["fp32", "fp16"],
             input_shape=(1, 3, 512, 512)
         )
-        logger.info(f"Успешно: {len(reg_status['success'])}, Ошибки: {len(reg_status['failed'])}")
+        print(f"Успешно: {len(reg_status['success'])}, Ошибки: {len(reg_status['failed'])}")
         ```
     """
     if precisions is None:
@@ -1117,7 +1168,7 @@ def _register_backend_methods_with_precision(
     registered: Dict[str, Any] = {"success": [], "failed": [], "skipped": []}
 
     for method_name in target_methods:
-        logger.info(f"\n🔹 Регистрация бэкендов: {method_name}")
+        print(f"\n🔹 Регистрация бэкендов: {method_name}")
 
         # ──────────────────────────────────────────────────
         # 1. PyTorch (оригинал) — только fp32 как референс
@@ -1132,7 +1183,7 @@ def _register_backend_methods_with_precision(
             method_key: str = f"{method_name}_Torch_fp32"
             tester.add_method(method_key, pt_seg)
             registered["success"].append(method_key)
-            logger.info(f"   ✅ {method_key}")
+            print(f"   ✅ {method_key}")
         except Exception as e:
             registered["failed"].append(f"{method_name}_Torch_fp32: {e}")
             logger.error(f"   ❌ {method_name}_Torch_fp32: {e}")
@@ -1158,7 +1209,7 @@ def _register_backend_methods_with_precision(
                 method_key = f"{method_name}_ONNX_{precision}"
                 tester.add_method(method_key, onnx_seg)
                 registered["success"].append(method_key)
-                logger.info(f"   ✅ {method_key}")
+                print(f"   ✅ {method_key}")
             except Exception as e:
                 registered["failed"].append(f"{method_name}_ONNX_{precision}: {e}")
                 logger.error(f"   ❌ {method_name}_ONNX_{precision}: {e}")
@@ -1182,15 +1233,15 @@ def _register_backend_methods_with_precision(
                     method_key = f"{method_name}_TRT_{precision}"
                     tester.add_method(method_key, trt_seg)
                     registered["success"].append(method_key)
-                    logger.info(f"   ✅ {method_key}")
+                    print(f"   ✅ {method_key}")
                 else:
                     registered["failed"].append(f"{method_name}_TRT_{precision} (модель=None)")
             except Exception as e:
                 registered["failed"].append(f"{method_name}_TRT_{precision}: {e}")
                 logger.error(f"   ❌ {method_name}_TRT_{precision}: {e}")
 
-        logger.info("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-        logger.info("   (нажмите Ctrl+C для отмены, если нужно)")
+        print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+        print("   (нажмите Ctrl+C для отмены, если нужно)")
         try:
             time.sleep(15)  # 🔥 Задержка 15 секунд
         except KeyboardInterrupt:
@@ -1199,10 +1250,10 @@ def _register_backend_methods_with_precision(
     # ──────────────────────────────────────────────────
     # Сводка регистрации
     # ──────────────────────────────────────────────────
-    logger.info("\n📊 Сводка регистрации бэкендов:")
-    logger.info(f"   ✅ Успешно: {len(registered['success'])}")
-    logger.info(f"   ❌ Ошибки: {len(registered['failed'])}")
-    logger.info(f"   ⚠️  Пропущено: {len(registered['skipped'])}")
+    print("\n📊 Сводка регистрации бэкендов:")
+    print(f"   ✅ Успешно: {len(registered['success'])}")
+    print(f"   ❌ Ошибки: {len(registered['failed'])}")
+    print(f"   ⚠️  Пропущено: {len(registered['skipped'])}")
 
     if registered["failed"]:
         logger.error("\n⚠️  Ошибки:")
@@ -1217,21 +1268,21 @@ def _register_backend_methods_with_precision(
 # ──────────────────────────────────────────────────────────────────────
 def _log_environment_info() -> None:
     """Логирует информацию об окружении: пути, CUDA, память."""
-    logger.info(f"📍 CWD: {os.getcwd()}")
-    logger.info(f"📍 __file__: {__file__}")
-    logger.info(f"📍 sys.path: {sys.path[:3]}...")
+    print(f"📍 CWD: {os.getcwd()}")
+    print(f"📍 __file__: {__file__}")
+    print(f"📍 sys.path: {sys.path[:3]}...")
 
-    logger.info(f"🚀 CUDA available: {torch.cuda.is_available()}")
+    print(f"🚀 CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         props: Any = torch.cuda.get_device_properties(0)
-        logger.info("🔥 CUDA available:")
-        logger.info(f"   Device: {torch.cuda.get_device_name(0)}")
+        print("🔥 CUDA available:")
+        print(f"   Device: {torch.cuda.get_device_name(0)}")
         vram_gb: float = props.total_memory / 1024**3
-        logger.info(f"   VRAM: {vram_gb:.1f} GB")
-        logger.info(f"   GPU Memory: {props.total_memory / 1e9:.2f} GB")
-        logger.info(f"Full props: {props}")
+        print(f"   VRAM: {vram_gb:.1f} GB")
+        print(f"   GPU Memory: {props.total_memory / 1e9:.2f} GB")
+        print(f"Full props: {props}")
     else:
-        logger.info("💻 CUDA not available, using CPU")
+        print("💻 CUDA not available, using CPU")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1244,43 +1295,44 @@ def _create_cv2_methods() -> SegmenterDict:
     return {
         # --- Пороговые методы (Threshold) ---
         "global_thresholding_CV2": OpenCVSegmenter("global_thresholding", threshold=0.5),
-        "otsu_thresholding_CV2": OpenCVSegmenter("otsu_thresholding"),
-        "adaptive_thresholding_CV2": OpenCVSegmenter("adaptive_thresholding", block_size=11, C=2),
-        "threshold_niblack_CV2": OpenCVSegmenter("threshold_niblack", window_size=15, k=-0.2),
-        "threshold_sauvola_CV2": OpenCVSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
-        "threshold_bernsen_CV2": OpenCVSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
-        "threshold_phansalkar_CV2": OpenCVSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
-        "threshold_kittler_illingworth_CV2": OpenCVSegmenter("threshold_kittler_illingworth", num_bins=256),
-        "threshold_entropy_kapur_CV2": OpenCVSegmenter("threshold_entropy_kapur", num_bins=256),
-        "threshold_triangle_CV2": OpenCVSegmenter("threshold_triangle", num_bins=256),
-        "threshold_multi_otsu_CV2": OpenCVSegmenter("threshold_multi_otsu", n_thresholds=2),
-        "threshold_percentile_CV2": OpenCVSegmenter("threshold_percentile", percentile=90),
-        "threshold_local_contrast_CV2": OpenCVSegmenter(
-            "threshold_local_contrast", window_size=15, contrast_factor=0.1
-        ),
-        # --- Граничные методы (Edge) ---
-        "sobel_edge_CV2": OpenCVSegmenter("sobel_edge", threshold=0.1),
-        "canny_edge_CV2": OpenCVSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
-        "prewitt_edge_CV2": OpenCVSegmenter("prewitt_edge", threshold=0.1),
-        "scharr_edge_CV2": OpenCVSegmenter("scharr_edge", threshold=0.1),
-        "roberts_cross_edge_CV2": OpenCVSegmenter("roberts_cross_edge", threshold=0.1),
-        "laplacian_edge_CV2": OpenCVSegmenter(
-            "laplacian_edge", sigma=1.0, ksize=1, threshold=0.1, use_zero_crossing=False
-        ),
-        "log_edge_CV2": OpenCVSegmenter("log_edge", sigma=1.0, threshold=0.01),
-        "dog_edge_CV2": OpenCVSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
-        "marr_hildreth_edge_CV2": OpenCVSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
-        "gradient_magnitude_direction_CV2": OpenCVSegmenter("gradient_magnitude_direction", threshold=0.1),
-        "phase_congruency_edge_CV2": OpenCVSegmenter(
-            "phase_congruency_edge",
-            nscales=4,
-            norientations=4,
-            min_wavelength=3,
-            mult=2.0,
-            sigma_onf=0.55,
-            k_noise=2.0,
-            threshold=0.5,
-        ),
+        # "otsu_thresholding_CV2": OpenCVSegmenter("otsu_thresholding"),
+        # "adaptive_thresholding_CV2": OpenCVSegmenter("adaptive_thresholding", block_size=11, C=2),
+        # "threshold_niblack_CV2": OpenCVSegmenter("threshold_niblack", window_size=15, k=-0.2),
+        # "threshold_sauvola_CV2": OpenCVSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
+        # "threshold_bernsen_CV2": OpenCVSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
+        # "threshold_phansalkar_CV2": OpenCVSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
+        # "threshold_kittler_illingworth_CV2": OpenCVSegmenter("threshold_kittler_illingworth", num_bins=256),
+        # "threshold_entropy_kapur_CV2": OpenCVSegmenter("threshold_entropy_kapur", num_bins=256),
+        # "threshold_triangle_CV2": OpenCVSegmenter("threshold_triangle", num_bins=256),
+        # "threshold_multi_otsu_CV2": OpenCVSegmenter("threshold_multi_otsu", n_thresholds=2),
+        # "threshold_percentile_CV2": OpenCVSegmenter("threshold_percentile", percentile=90),
+        # "threshold_local_contrast_CV2": OpenCVSegmenter(
+        #     "threshold_local_contrast", window_size=15, contrast_factor=0.1
+        # ),
+        # # --- Граничные методы (Edge) ---
+        # "sobel_edge_CV2": OpenCVSegmenter("sobel_edge", threshold=0.1),
+        # "canny_edge_CV2": OpenCVSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
+        # "prewitt_edge_CV2": OpenCVSegmenter("prewitt_edge", threshold=0.1),
+        # "scharr_edge_CV2": OpenCVSegmenter("scharr_edge", threshold=0.1),
+        # "roberts_cross_edge_CV2": OpenCVSegmenter("roberts_cross_edge", threshold=0.1),
+        # "laplacian_edge_CV2": OpenCVSegmenter(
+        #     "laplacian_edge", sigma=1.0, ksize=1, threshold=0.1, use_zero_crossing=False
+        # ),
+        # "log_edge_CV2": OpenCVSegmenter("log_edge", sigma=1.0, threshold=0.01),
+        # "dog_edge_CV2": OpenCVSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
+        # "marr_hildreth_edge_CV2": OpenCVSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
+        # "gradient_magnitude_direction_CV2": OpenCVSegmenter("gradient_magnitude_direction", threshold=0.1),
+        # "phase_congruency_edge_CV2": OpenCVSegmenter(
+        #     "phase_congruency_edge",
+        #     nscales=4,
+        #     norientations=4,
+        #     min_wavelength=3,
+        #     mult=2.0,
+        #     sigma_onf=0.55,
+        #     k_noise=2.0,
+        #     threshold=0.5,
+        # ),
+
         # "Region_Growing_CV2": OpenCVSegmenter("region_growing", seed=(100, 100), tolerance=0.1),
         # "Split_And_Merge_CV2": OpenCVSegmenter("split_and_merge", min_size=50, threshold=0.1),
         # "Floodfill_CV2": OpenCVSegmenter("floodfill", seed=(100, 100), tolerance=0.15),
@@ -1310,58 +1362,59 @@ def _create_sklearn_methods() -> SegmenterDict:
     return {
         # --- Пороговые методы (Threshold) ---
         "global_thresholding_Sklearn": SklearnSegmenter("global_thresholding", threshold=0.5, postprocess=False),
-        "otsu_thresholding_Sklearn": SklearnSegmenter("otsu_thresholding", postprocess=False),
-        "adaptive_thresholding_Sklearn": SklearnSegmenter(
-            "adaptive_thresholding", block_size=11, C=2, postprocess=False
-        ),
-        "threshold_niblack_Sklearn": SklearnSegmenter("threshold_niblack", window_size=15, k=-0.2, postprocess=False),
-        "threshold_sauvola_Sklearn": SklearnSegmenter(
-            "threshold_sauvola", window_size=15, k=0.5, r=128, postprocess=False
-        ),
-        "threshold_bernsen_Sklearn": SklearnSegmenter(
-            "threshold_bernsen", window_size=15, contrast_threshold=0.15, postprocess=False
-        ),
-        "threshold_phansalkar_Sklearn": SklearnSegmenter(
-            "threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5, postprocess=False
-        ),
-        "threshold_kittler_illingworth_Sklearn": SklearnSegmenter(
-            "threshold_kittler_illingworth", num_bins=256, postprocess=False
-        ),
-        "threshold_entropy_kapur_Sklearn": SklearnSegmenter("threshold_entropy_kapur", num_bins=256, postprocess=False),
-        "threshold_triangle_Sklearn": SklearnSegmenter("threshold_triangle", num_bins=256, postprocess=False),
-        "threshold_multi_otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2, postprocess=False),
-        "threshold_percentile_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90, postprocess=False),
-        "threshold_local_contrast_Sklearn": SklearnSegmenter(
-            "threshold_local_contrast", window_size=15, contrast_factor=0.1, postprocess=False
-        ),
-        # --- Граничные методы (Edge) ---
-        "sobel_edge_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1, postprocess=False),
-        "canny_edge_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0, postprocess=False),
-        "prewitt_edge_Sklearn": SklearnSegmenter("prewitt_edge", threshold=0.1, postprocess=False),
-        "scharr_edge_Sklearn": SklearnSegmenter("scharr_edge", threshold=0.1, postprocess=False),
-        "roberts_cross_edge_Sklearn": SklearnSegmenter("roberts_cross_edge", threshold=0.1, postprocess=False),
-        "laplacian_edge_Sklearn": SklearnSegmenter(
-            "laplacian_edge", sigma=1.0, threshold=0.1, use_zero_crossing=False, postprocess=False
-        ),
-        "log_edge_Sklearn": SklearnSegmenter("log_edge", sigma=1.0, threshold=0.01, postprocess=False),
-        "dog_edge_Sklearn": SklearnSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01, postprocess=False),
-        "marr_hildreth_edge_Sklearn": SklearnSegmenter(
-            "marr_hildreth_edge", sigma=1.5, threshold=0.01, postprocess=False
-        ),
-        "gradient_magnitude_direction_Sklearn": SklearnSegmenter(
-            "gradient_magnitude_direction", threshold=0.1, postprocess=False
-        ),
-        "phase_congruency_edge_Sklearn": SklearnSegmenter(
-            "phase_congruency_edge",
-            nscales=4,
-            norientations=4,
-            min_wavelength=3,
-            mult=2.0,
-            sigma_onf=0.55,
-            k_noise=2.0,
-            threshold=0.5,
-            postprocess=False,
-        ),
+        # "otsu_thresholding_Sklearn": SklearnSegmenter("otsu_thresholding", postprocess=False),
+        # "adaptive_thresholding_Sklearn": SklearnSegmenter(
+        #     "adaptive_thresholding", block_size=11, C=2, postprocess=False
+        # ),
+        # "threshold_niblack_Sklearn": SklearnSegmenter("threshold_niblack", window_size=15, k=-0.2, postprocess=False),
+        # "threshold_sauvola_Sklearn": SklearnSegmenter(
+        #     "threshold_sauvola", window_size=15, k=0.5, r=128, postprocess=False
+        # ),
+        # "threshold_bernsen_Sklearn": SklearnSegmenter(
+        #     "threshold_bernsen", window_size=15, contrast_threshold=0.15, postprocess=False
+        # ),
+        # "threshold_phansalkar_Sklearn": SklearnSegmenter(
+        #     "threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5, postprocess=False
+        # ),
+        # "threshold_kittler_illingworth_Sklearn": SklearnSegmenter(
+        #     "threshold_kittler_illingworth", num_bins=256, postprocess=False
+        # ),
+        # "threshold_entropy_kapur_Sklearn": SklearnSegmenter("threshold_entropy_kapur", num_bins=256, postprocess=False),
+        # "threshold_triangle_Sklearn": SklearnSegmenter("threshold_triangle", num_bins=256, postprocess=False),
+        # "threshold_multi_otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2, postprocess=False),
+        # "threshold_percentile_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90, postprocess=False),
+        # "threshold_local_contrast_Sklearn": SklearnSegmenter(
+        #     "threshold_local_contrast", window_size=15, contrast_factor=0.1, postprocess=False
+        # ),
+        # # --- Граничные методы (Edge) ---
+        # "sobel_edge_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1, postprocess=False),
+        # "canny_edge_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0, postprocess=False),
+        # "prewitt_edge_Sklearn": SklearnSegmenter("prewitt_edge", threshold=0.1, postprocess=False),
+        # "scharr_edge_Sklearn": SklearnSegmenter("scharr_edge", threshold=0.1, postprocess=False),
+        # "roberts_cross_edge_Sklearn": SklearnSegmenter("roberts_cross_edge", threshold=0.1, postprocess=False),
+        # "laplacian_edge_Sklearn": SklearnSegmenter(
+        #     "laplacian_edge", sigma=1.0, threshold=0.1, use_zero_crossing=False, postprocess=False
+        # ),
+        # "log_edge_Sklearn": SklearnSegmenter("log_edge", sigma=1.0, threshold=0.01, postprocess=False),
+        # "dog_edge_Sklearn": SklearnSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01, postprocess=False),
+        # "marr_hildreth_edge_Sklearn": SklearnSegmenter(
+        #     "marr_hildreth_edge", sigma=1.5, threshold=0.01, postprocess=False
+        # ),
+        # "gradient_magnitude_direction_Sklearn": SklearnSegmenter(
+        #     "gradient_magnitude_direction", threshold=0.1, postprocess=False
+        # ),
+        # "phase_congruency_edge_Sklearn": SklearnSegmenter(
+        #     "phase_congruency_edge",
+        #     nscales=4,
+        #     norientations=4,
+        #     min_wavelength=3,
+        #     mult=2.0,
+        #     sigma_onf=0.55,
+        #     k_noise=2.0,
+        #     threshold=0.5,
+        #     postprocess=False,
+        # ),
+
         # "Region_Growing_Sklearn": SklearnSegmenter("region_growing", seed=(100, 100), tolerance=0.1),
         # "Split_And_Merge_Sklearn": SklearnSegmenter("split_and_merge", min_size=50, threshold=0.1),
         # "Floodfill_Sklearn": SklearnSegmenter("floodfill", seed=(100, 100), tolerance=0.15),
@@ -1444,84 +1497,84 @@ def _create_torch_methods_factory(
     # Базовые списки методов
     threshold_methods: List[Tuple[str, str, Dict[str, Any]]] = [
         ("global_thresholding_Torch", "global_thresholding", {"threshold": 0.5}),
-        ("otsu_thresholding_Torch", "otsu_thresholding", {}),
-        (
-            "adaptive_thresholding_Torch",
-            "adaptive_thresholding",
-            {"block_size": 11, "C": 2},
-        ),
-        (
-            "threshold_niblack_Torch",
-            "threshold_niblack",
-            {"window_size": 15, "k": -0.2},
-        ),
-        (
-            "threshold_sauvola_Torch",
-            "threshold_sauvola",
-            {"window_size": 15, "k": 0.5, "r": 128},
-        ),
-        (
-            "threshold_bernsen_Torch",
-            "threshold_bernsen",
-            {"window_size": 15, "contrast_threshold": 0.15},
-        ),
-        (
-            "threshold_phansalkar_Torch",
-            "threshold_phansalkar",
-            {"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
-        ),
-        (
-            "threshold_kittler_illingworth_Torch",
-            "threshold_kittler_illingworth",
-            {"num_bins": 256},
-        ),
-        ("threshold_entropy_kapur_Torch", "threshold_entropy_kapur", {"num_bins": 256}),
-        ("threshold_triangle_Torch", "threshold_triangle", {"num_bins": 256}),
-        ("threshold_multi_otsu_Torch", "threshold_multi_otsu", {"n_thresholds": 2}),
-        ("threshold_percentile_Torch", "threshold_percentile", {"percentile": 90}),
-        (
-            "threshold_local_contrast_Torch",
-            "threshold_local_contrast",
-            {"window_size": 15, "contrast_factor": 0.1},
-        ),
+        # ("otsu_thresholding_Torch", "otsu_thresholding", {}),
+        # (
+        #     "adaptive_thresholding_Torch",
+        #     "adaptive_thresholding",
+        #     {"block_size": 11, "C": 2},
+        # ),
+        # (
+        #     "threshold_niblack_Torch",
+        #     "threshold_niblack",
+        #     {"window_size": 15, "k": -0.2},
+        # ),
+        # (
+        #     "threshold_sauvola_Torch",
+        #     "threshold_sauvola",
+        #     {"window_size": 15, "k": 0.5, "r": 128},
+        # ),
+        # (
+        #     "threshold_bernsen_Torch",
+        #     "threshold_bernsen",
+        #     {"window_size": 15, "contrast_threshold": 0.15},
+        # ),
+        # (
+        #     "threshold_phansalkar_Torch",
+        #     "threshold_phansalkar",
+        #     {"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
+        # ),
+        # (
+        #     "threshold_kittler_illingworth_Torch",
+        #     "threshold_kittler_illingworth",
+        #     {"num_bins": 256},
+        # ),
+        # ("threshold_entropy_kapur_Torch", "threshold_entropy_kapur", {"num_bins": 256}),
+        # ("threshold_triangle_Torch", "threshold_triangle", {"num_bins": 256}),
+        # ("threshold_multi_otsu_Torch", "threshold_multi_otsu", {"n_thresholds": 2}),
+        # ("threshold_percentile_Torch", "threshold_percentile", {"percentile": 90}),
+        # (
+        #     "threshold_local_contrast_Torch",
+        #     "threshold_local_contrast",
+        #     {"window_size": 15, "contrast_factor": 0.1},
+        # ),
     ]
 
     edge_methods: List[Tuple[str, str, Dict[str, Any]]] = [
-        ("sobel_edge_Torch", "sobel_edge", {"threshold": 0.1}),
-        ("canny_edge_Torch", "canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
-        ("prewitt_edge_Torch", "prewitt_edge", {"threshold": 0.1}),
-        ("scharr_edge_Torch", "scharr_edge", {"threshold": 0.1}),
-        ("roberts_cross_edge_Torch", "roberts_cross_edge", {"threshold": 0.1}),
-        ("log_edge_Torch", "log_edge", {"sigma": 1.0, "threshold": 0.01}),
-        ("laplacian_edge_Torch", "laplacian_edge", {"sigma": 1.0, "threshold": 0.1}),
-        (
-            "dog_edge_Torch",
-            "dog_edge",
-            {"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01},
-        ),
-        (
-            "marr_hildreth_edge_Torch",
-            "marr_hildreth_edge",
-            {"sigma": 1.5, "threshold": 0.01},
-        ),
-        (
-            "gradient_magnitude_direction_Torch",
-            "gradient_magnitude_direction",
-            {"threshold": 0.1},
-        ),
-        (
-            "phase_congruency_edge_Torch",
-            "phase_congruency_edge",
-            {
-                "nscales": 4,
-                "norientations": 4,
-                "min_wavelength": 3,
-                "mult": 2.0,
-                "sigma_onf": 0.55,
-                "k_noise": 2.0,
-                "threshold": 0.5,
-            },
-        ),
+        # ("sobel_edge_Torch", "sobel_edge", {"threshold": 0.1}),
+        # ("canny_edge_Torch", "canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
+        # ("prewitt_edge_Torch", "prewitt_edge", {"threshold": 0.1}),
+        # ("scharr_edge_Torch", "scharr_edge", {"threshold": 0.1}),
+        # ("roberts_cross_edge_Torch", "roberts_cross_edge", {"threshold": 0.1}),
+        # ("log_edge_Torch", "log_edge", {"sigma": 1.0, "threshold": 0.01}),
+        # ("laplacian_edge_Torch", "laplacian_edge", {"sigma": 1.0, "threshold": 0.1}),
+        # (
+        #     "dog_edge_Torch",
+        #     "dog_edge",
+        #     {"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01},
+        # ),
+        # (
+        #     "marr_hildreth_edge_Torch",
+        #     "marr_hildreth_edge",
+        #     {"sigma": 1.5, "threshold": 0.01},
+        # ),
+        # (
+        #     "gradient_magnitude_direction_Torch",
+        #     "gradient_magnitude_direction",
+        #     {"threshold": 0.1},
+        # ),
+        # (
+        #     "phase_congruency_edge_Torch",
+        #     "phase_congruency_edge",
+        #     {
+        #         "nscales": 4,
+        #         "norientations": 4,
+        #         "min_wavelength": 3,
+        #         "mult": 2.0,
+        #         "sigma_onf": 0.55,
+        #         "k_noise": 2.0,
+        #         "threshold": 0.5,
+        #     },
+        # ),
     ]
 
     all_methods = threshold_methods + edge_methods
@@ -1559,39 +1612,40 @@ def _create_torch_methods() -> SegmenterDict:
     return {
         # --- Пороговые методы (Threshold) ---
         "Global_Threshold_Torch": TorchSegmenter("global_thresholding", threshold=0.5),
-        "Otsu_Thresholding_Torch": TorchSegmenter("otsu_thresholding"),
-        "Adaptive_Threshold_Torch": TorchSegmenter("adaptive_thresholding", block_size=11, C=2),
-        "Niblack_Thresholding_Torch": TorchSegmenter("threshold_niblack", window_size=15, k=-0.2),
-        "Sauvola_Thresholding_Torch": TorchSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
-        "Bernsen_Thresholding_Torch": TorchSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
-        "Phansalkar_Thresholding_Torch": TorchSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
-        "Kittler_Illingworth_Torch": TorchSegmenter("threshold_kittler_illingworth", num_bins=256),
-        "Kapur_Entropy_Torch": TorchSegmenter("threshold_entropy_kapur", num_bins=256),
-        "Triangle_Threshold_Torch": TorchSegmenter("threshold_triangle", num_bins=256),
-        "Multi_Otsu_Torch": TorchSegmenter("threshold_multi_otsu", n_thresholds=2),
-        "Percentile_Threshold_Torch": TorchSegmenter("threshold_percentile", percentile=90),
-        "Local_Contrast_Torch": TorchSegmenter("threshold_local_contrast", window_size=15, contrast_factor=0.1),
-        # --- Граничные методы (Edge) ---
-        "Sobel_Torch": TorchSegmenter("sobel_edge", threshold=0.1),
-        "Canny_Torch": TorchSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
-        "Prewitt_Torch": TorchSegmenter("prewitt_edge", threshold=0.1),
-        "Scharr_Torch": TorchSegmenter("scharr_edge", threshold=0.1),
-        "Roberts_Cross_Torch": TorchSegmenter("roberts_cross_edge", threshold=0.1),
-        "LoG_Torch": TorchSegmenter("log_edge", sigma=1.0, threshold=0.01),
-        "DoG_Torch": TorchSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
-        "Laplacian_Torch": TorchSegmenter("laplacian_edge", sigma=1.0, threshold=0.1),
-        "Marr_Hildreth_Torch": TorchSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
-        "Gradient_Mag_Dir_Torch": TorchSegmenter("gradient_magnitude_direction", threshold=0.1),
-        "Phase_Congruency_Torch": TorchSegmenter(
-            "phase_congruency_edge",
-            nscales=4,
-            norientations=4,
-            min_wavelength=3,
-            mult=2.0,
-            sigma_onf=0.55,
-            k_noise=2.0,
-            threshold=0.5,
-        ),
+        # "Otsu_Thresholding_Torch": TorchSegmenter("otsu_thresholding"),
+        # "Adaptive_Threshold_Torch": TorchSegmenter("adaptive_thresholding", block_size=11, C=2),
+        # "Niblack_Thresholding_Torch": TorchSegmenter("threshold_niblack", window_size=15, k=-0.2),
+        # "Sauvola_Thresholding_Torch": TorchSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
+        # "Bernsen_Thresholding_Torch": TorchSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
+        # "Phansalkar_Thresholding_Torch": TorchSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
+        # "Kittler_Illingworth_Torch": TorchSegmenter("threshold_kittler_illingworth", num_bins=256),
+        # "Kapur_Entropy_Torch": TorchSegmenter("threshold_entropy_kapur", num_bins=256),
+        # "Triangle_Threshold_Torch": TorchSegmenter("threshold_triangle", num_bins=256),
+        # "Multi_Otsu_Torch": TorchSegmenter("threshold_multi_otsu", n_thresholds=2),
+        # "Percentile_Threshold_Torch": TorchSegmenter("threshold_percentile", percentile=90),
+        # "Local_Contrast_Torch": TorchSegmenter("threshold_local_contrast", window_size=15, contrast_factor=0.1),
+        # # --- Граничные методы (Edge) ---
+        # "Sobel_Torch": TorchSegmenter("sobel_edge", threshold=0.1),
+        # "Canny_Torch": TorchSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
+        # "Prewitt_Torch": TorchSegmenter("prewitt_edge", threshold=0.1),
+        # "Scharr_Torch": TorchSegmenter("scharr_edge", threshold=0.1),
+        # "Roberts_Cross_Torch": TorchSegmenter("roberts_cross_edge", threshold=0.1),
+        # "LoG_Torch": TorchSegmenter("log_edge", sigma=1.0, threshold=0.01),
+        # "DoG_Torch": TorchSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
+        # "Laplacian_Torch": TorchSegmenter("laplacian_edge", sigma=1.0, threshold=0.1),
+        # "Marr_Hildreth_Torch": TorchSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
+        # "Gradient_Mag_Dir_Torch": TorchSegmenter("gradient_magnitude_direction", threshold=0.1),
+        # "Phase_Congruency_Torch": TorchSegmenter(
+        #     "phase_congruency_edge",
+        #     nscales=4,
+        #     norientations=4,
+        #     min_wavelength=3,
+        #     mult=2.0,
+        #     sigma_onf=0.55,
+        #     k_noise=2.0,
+        #     threshold=0.5,
+        # ),
+
         # "Region_Growing_Torch": TorchSegmenter("region_growing", seed=(100, 100), tolerance=0.1),
         # "Split_And_Merge_Torch": TorchSegmenter("split_and_merge", min_size=50, threshold=20),
         # "Floodfill_Torch": TorchSegmenter("floodfill", seed=(100, 100), tolerance=0.15),
@@ -1660,9 +1714,9 @@ def _run_profiling_demo(
         # ✅ Трансферов не обнаружено. Память и GPU используются оптимально.
         ```
     """
-    logger.info("\n" + "=" * 60)
-    logger.info("🔍 ДЕМО ПРОФИЛИРОВАНИЯ")
-    logger.info("=" * 60)
+    print("\n" + "=" * 60)
+    print("🔍 ДЕМО ПРОФИЛИРОВАНИЯ")
+    print("=" * 60)
 
     # Берём первое изображение для демо
     _, (_, img_pil, _) = next(iter(test_images.items()))
@@ -1679,8 +1733,8 @@ def _run_profiling_demo(
         if not isinstance(segmenter, TorchSegmenter2):
             continue
 
-        logger.info(f"\n📊 Профилирование: {method_name}")
-        logger.info("-" * 40)
+        print(f"\n📊 Профилирование: {method_name}")
+        print("-" * 40)
 
         try:
             # Профилирование с детекцией трансферов
@@ -1690,32 +1744,32 @@ def _run_profiling_demo(
                 detect_transfers=True,
             )
 
-            logger.info(f"   ⏱️  Среднее время выполнения: {profile['avg_time_ms']:.2f} мс")
-            logger.info(f"   💾 Память: {profile['memory_mb']:.1f} МБ")
+            print(f"   ⏱️  Среднее время выполнения: {profile['avg_time_ms']:.2f} мс")
+            print(f"   💾 Память: {profile['memory_mb']:.1f} МБ")
 
-            logger.info(profile["profiler_table"])
+            print(profile["profiler_table"])
             if profile["transfer_warnings"]:
-                logger.info("\n⚠️  Предупреждения о трансферах:")
+                print("\n⚠️  Предупреждения о трансферах:")
                 for w in profile["transfer_warnings"]:
-                    logger.info(f"  {w}")
+                    print(f"  {w}")
             else:
-                logger.info("✅ Трансферов не обнаружено. Память и GPU используются оптимально.")
+                print("✅ Трансферов не обнаружено. Память и GPU используются оптимально.")
 
             # Предупреждения о трансферах
             if profile.get("transfer_warnings"):
-                logger.info(f"   ⚠️  Трансферы ({len(profile['transfer_warnings'])}):")
+                print(f"   ⚠️  Трансферы ({len(profile['transfer_warnings'])}):")
                 for w in profile["transfer_warnings"][:3]:  # Показываем первые 3
-                    logger.info(f"      • {w}")
+                    print(f"      • {w}")
             else:
-                logger.info("   ✅ Лишних трансферов не обнаружено")
+                print("   ✅ Лишних трансферов не обнаружено")
 
             # Доступ к метаданным выполнения
             if "execution_info" in segmenter.params:
                 exec_info = segmenter.params["execution_info"]
-                logger.info(f"   📋 Метод: {exec_info.get('method', 'N/A')}")
-                logger.info(f"   ⚡ Время: {exec_info.get('execution_time', 0) * 1000:.2f} мс")
+                print(f"   📋 Метод: {exec_info.get('method', 'N/A')}")
+                print(f"   ⚡ Время: {exec_info.get('execution_time', 0) * 1000:.2f} мс")
                 # Доступ к метаданным выполнения
-                logger.info(segmenter.params["execution_info"])
+                print(segmenter.params["execution_info"])
 
             segmenter.profile_with_tracing(segmenter, img_array, output_dir="./profiling/tests")
 
@@ -1771,9 +1825,9 @@ def _run_precision_benchmark_demo(
         logger.warning("\n⚠️  Бенчмарк точностей требует CUDA. Пропускаем.")
         return
 
-    logger.info("\n" + "=" * 60)
-    logger.info("⚡ БЕНЧМАРК ТОЧНОСТЕЙ (fp32/fp16/bf16)")
-    logger.info("=" * 60)
+    print("\n" + "=" * 60)
+    print("⚡ БЕНЧМАРК ТОЧНОСТЕЙ (fp32/fp16/bf16)")
+    print("=" * 60)
 
     _, (_, img_pil, _) = next(iter(test_images.items()))
     img_array = np.array(img_pil)
@@ -1791,7 +1845,7 @@ def _run_precision_benchmark_demo(
         if not isinstance(segmenter, TorchSegmenter2):
             continue
 
-        logger.info(f"\n🔹 {method_name}:")
+        print(f"\n🔹 {method_name}:")
 
         try:
             # Бенчмарк точностей
@@ -1801,7 +1855,7 @@ def _run_precision_benchmark_demo(
             )
 
             for prec, time_ms in precision_results.items():
-                logger.info(f"   {prec}: {time_ms:.2f} мс/вызов")
+                print(f"   {prec}: {time_ms:.2f} мс/вызов")
                 results.append(
                     {
                         "method": method_name,
@@ -1809,7 +1863,7 @@ def _run_precision_benchmark_demo(
                         "time_ms": time_ms,
                     }
                 )
-            logger.info(segmenter.params["execution_info"])
+            print(segmenter.params["execution_info"])
 
         except Exception as e:
             logger.error(f"   ❌ Ошибка: {e}")
@@ -1817,8 +1871,8 @@ def _run_precision_benchmark_demo(
     # Сводная таблица
     if results:
         df = pd.DataFrame(results)
-        logger.info("\n📊 Сводка по точностям:")
-        logger.info(
+        print("\n📊 Сводка по точностям:")
+        print(
             df.pivot(index="method", columns="precision", values="time_ms").to_string(float_format=lambda x: f"{x:.2f}")
         )
 
@@ -1873,7 +1927,7 @@ def _register_classic_methods(
     for name, segmenter in all_methods.items():
         try:
             tester.add_method(name, segmenter)
-            logger.info(f"   ✅ {name}")
+            print(f"   ✅ {name}")
         except Exception as e:
             logger.warning(f"   ⚠️ Не удалось добавить {name}: {e}")
 
@@ -1881,7 +1935,7 @@ def _register_classic_methods(
 # ──────────────────────────────────────────────────────────────────────
 def _clear_gpu_memory() -> None:
     """Очищает память GPU и вызывает сборщик мусора."""
-    logger.info("🧹 Очистка памяти CUDA перед загрузкой тяжелой модели...")
+    print("🧹 Очистка памяти CUDA перед загрузкой тяжелой модели...")
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
@@ -1942,7 +1996,7 @@ def _run_neural_segmentation_tests(tester: SegmentationTester, device: torch.dev
         },
     ]
 
-    logger.info("\n4. Загрузка нейросетевых методов...")
+    print("\n4. Загрузка нейросетевых методов...")
     for config in neural_models_config:
         _load_single_neural_model(tester, config, device)
 
@@ -1960,7 +2014,7 @@ def _load_single_neural_model(
         config: Конфигурация модели.
         device: Устройство для выполнения.
     """
-    logger.info(f"Current device: {device.type}")
+    print(f"Current device: {device.type}")
     try:
         if "checkpoint_path" in config and not os.path.exists(config["checkpoint_path"]):
             logger.warning(f"   ⚠️ {config['name']} - чекпоинт не найден: {config['checkpoint_path']}")
@@ -1983,8 +2037,8 @@ def _load_single_neural_model(
             },
         )
         tester.add_method(config["name"], segmenter)
-        logger.info(f"   ✅ {config['name']}")
-        logger.info(segmenter.params["execution_info"])
+        print(f"   ✅ {config['name']}")
+        print(segmenter.params["execution_info"])
         segmenter.get_class_info()
 
     except Exception as e:
@@ -1994,10 +2048,10 @@ def _load_single_neural_model(
         if os.getenv("DEBUG", "0") == "1":
             traceback.print_exc()
 
-    logger.info(f"\nВсего методов загружено: {len(tester.methods)}")
+    print(f"\nВсего методов загружено: {len(tester.methods)}")
 
     # # ========== ВАРИАНТ 2: Через YAML конфиг ==========
-    logger.info("\n=== ВАРИАНТ 2: Через YAML конфиг ===")
+    print("\n=== ВАРИАНТ 2: Через YAML конфиг ===")
     _ = NeuralSegmenter(
         model_type="segformer",
         variant="b5",  # ← Берётся из configs/neural_models.yaml
@@ -2005,13 +2059,13 @@ def _load_single_neural_model(
     )
 
     # # ========== ВАРИАНТ 3: Factory + конфиг ==========
-    logger.info("\n=== ВАРИАНТ 3: Factory метод ===")
+    print("\n=== ВАРИАНТ 3: Factory метод ===")
     _, _, _ = NeuralModelFactory.create_model_from_config(
         model_type="segformer", variant="b2", device="cuda"  # ← Берётся из конфига
     )
 
     # # ========== ВАРИАНТ 4: Обученная модель с чекпоинтом ==========
-    logger.info("\n=== ВАРИАНТ 4: Обученная модель ===")
+    print("\n=== ВАРИАНТ 4: Обученная модель ===")
     _ = NeuralSegmenter(
         model_type="unet_smp",
         encoder_name="resnet34",  # ← Можно из конфига
@@ -2020,20 +2074,20 @@ def _load_single_neural_model(
     )
 
     # # ========== ВАРИАНТ 5: Конфиг обучения ==========
-    logger.info("\n=== ВАРИАНТ 5: Конфиг обучения ===")
+    print("\n=== ВАРИАНТ 5: Конфиг обучения ===")
     training_config: Dict[str, Any] = NeuralModelFactory.get_training_config("ade20k")
-    logger.info(f"Batch size: {training_config['batch_size']}")
-    logger.info(f"Epochs: {training_config['epochs']}")
-    logger.info(f"LR: {training_config['lr']}")
+    print(f"Batch size: {training_config['batch_size']}")
+    print(f"Epochs: {training_config['epochs']}")
+    print(f"LR: {training_config['lr']}")
 
     # # ========== ВАРИАНТ 6: Конфиг метрик ==========
-    logger.info("\n=== ВАРИАНТ 6: Конфиг метрик ===")
+    print("\n=== ВАРИАНТ 6: Конфиг метрик ===")
     metrics_config: Dict[str, Any] = NeuralModelFactory.get_metrics_config()
-    logger.info(f"Threshold: {metrics_config['threshold']}")
-    logger.info(f"Include Hausdorff: {metrics_config['include_hausdorff']}")
+    print(f"Threshold: {metrics_config['threshold']}")
+    print(f"Include Hausdorff: {metrics_config['include_hausdorff']}")
 
     # # ========== ВАРИАНТ 7: Массовая загрузка из конфига ==========
-    logger.info("\n=== ВАРИАНТ 7: Массовая загрузка ===")
+    print("\n=== ВАРИАНТ 7: Массовая загрузка ===")
     neural_models_config: List[Dict[str, str]] = [
         {"name": "SegFormer_B5", "type": "segformer", "variant": "b5"},
         {"name": "SegFormer_B2", "type": "segformer", "variant": "b2"},
@@ -2072,7 +2126,7 @@ def _load_single_neural_model(
                     num_classes=num_classes,
                 )
 
-            logger.info(f"   ✅ {config['name']}")
+            print(f"   ✅ {config['name']}")
         except Exception as e:
             logger.error(f"   ❌ {config['name']} - {e}")
 
@@ -2086,15 +2140,15 @@ def _run_batch_classic_testing_optimized(
     precision: str,
 ) -> Optional[BenchmarkResult]:
     """Запускает массовое тестирование с учётом оптимизаций."""
-    logger.info("\n" + "=" * 80)
-    logger.info("🚀 МАССОВОЕ ТЕСТИРОВАНИЕ С ОПТИМИЗАЦИЯМИ")
-    logger.info(f"   Устройство: {device}, Точность: {precision}")
-    logger.info("=" * 80)
+    print("\n" + "=" * 80)
+    print("🚀 МАССОВОЕ ТЕСТИРОВАНИЕ С ОПТИМИЗАЦИЯМИ")
+    print(f"   Устройство: {device}, Точность: {precision}")
+    print("=" * 80)
 
     try:
         # Конфигурация теста
         batch_tester: BatchClassicTester = BatchClassicTester(
-            ade20k_root="./data/ade20k/ADEChallengeData2016",
+            ade20k_root="./data1/ade20k/ADEChallengeData2016",
             output_dir="./data/batch_classic_test_optimized",
             split="validation",
             max_images=50,  # Лимит для быстрого теста
@@ -2106,7 +2160,7 @@ def _run_batch_classic_testing_optimized(
             resume=True,
         )
 
-        logger.info("⏳ Запуск тестирования...")
+        print("⏳ Запуск тестирования...")
         results_df: BenchmarkResult = batch_tester.run_batch_test()
 
         # Сохранение и визуализация
@@ -2114,7 +2168,7 @@ def _run_batch_classic_testing_optimized(
         batch_tester.plot_results(results_df)
         batch_tester.print_summary(results_df)
 
-        logger.info(f"\n💾 Результаты: {batch_tester.output_dir}")
+        print(f"\n💾 Результаты: {batch_tester.output_dir}")
         return results_df
 
     except Exception as e:
@@ -2130,28 +2184,28 @@ def _print_batch_test_summary(results_df: BenchmarkResult) -> None:
     Args:
         results_df: DataFrame с результатами бенчмарка.
     """
-    logger.info("\n" + "=" * 80)
-    logger.info("📊 СВОДКА ПО МАССОВОМУ ТЕСТИРОВАНИЮ")
-    logger.info("=" * 80)
+    print("\n" + "=" * 80)
+    print("📊 СВОДКА ПО МАССОВОМУ ТЕСТИРОВАНИЮ")
+    print("=" * 80)
 
-    logger.info("\n🏆 Топ-5 методов по IoU:")
+    print("\n🏆 Топ-5 методов по IoU:")
     for i, row in results_df.head(5).iterrows():
-        logger.info(f"   {i + 1}. {row['Method']}: IoU={row['iou_mean']:.4f} ± {row['iou_std']:.4f}")
+        print(f"   {i + 1}. {row['Method']}: IoU={row['iou_mean']:.4f} ± {row['iou_std']:.4f}")
 
-    logger.info("\n⚡ Топ-5 самых быстрых методов:")
+    print("\n⚡ Топ-5 самых быстрых методов:")
     fast_df: BenchmarkResult = results_df.dropna(subset=["time_mean_s"]).sort_values("time_mean_s").head(5)
     for i, row in fast_df.iterrows():
-        logger.info(f"   {i + 1}. {row['Method']}: {row['time_mean_s'] * 1000:.1f} мс")
+        print(f"   {i + 1}. {row['Method']}: {row['time_mean_s'] * 1000:.1f} мс")
 
-    logger.info("\n❌ Методы с наибольшим числом ошибок:")
+    print("\n❌ Методы с наибольшим числом ошибок:")
     error_df: BenchmarkResult = (
         results_df[results_df["error_count"] > 0].sort_values("error_count", ascending=False).head(5)
     )
     if not error_df.empty:
         for i, row in error_df.iterrows():
-            logger.info(f"   {row['Method']}: {row['error_count']} ошибок ({row['error_rate'] * 100:.1f}%)")
+            print(f"   {row['Method']}: {row['error_count']} ошибок ({row['error_rate'] * 100:.1f}%)")
     else:
-        logger.info("   Нет ошибок!")
+        print("   Нет ошибок!")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -2186,8 +2240,8 @@ def prepare_mask_for_overlay(mask_input: Union[Image.Image, npt.NDArray]) -> Mas
         # RGB маска → 2D binary
         rgb_mask = Image.open("mask_rgb.png")
         binary = prepare_mask_for_overlay(rgb_mask)
-        logger.info(binary.shape)  # (512, 512)
-        logger.info(np.unique(binary))  # [0, 255]
+        print(binary.shape)  # (512, 512)
+        print(np.unique(binary))  # [0, 255]
         ```
     """
     # Конвертация PIL → numpy
@@ -2267,29 +2321,29 @@ def run_performance_benchmark(
             warmup_runs=10
         )
         if df is not None:
-            logger.info(f"Средний speedup: {df['speedup'].mean():.2f}x")
+            print(f"Средний speedup: {df['speedup'].mean():.2f}x")
             # Топ-5 ускоренных методов
-            logger.info(df.nlargest(5, 'speedup')[['method', 'speedup']])
+            print(df.nlargest(5, 'speedup')[['method', 'speedup']])
         ```
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    logger.info("\n3. Бенчмарк производительности и оценка качества перед warm up...")
+    print("\n3. Бенчмарк производительности и оценка качества перед warm up...")
 
     first_img_array: Optional[ImageArray] = None
     all_comparisons: List[pd.DataFrame] = []
     cold_dfs: Dict[str, pd.DataFrame] = {}
 
-    logger.info("\n" + "=" * 60)
-    logger.info("БЕНЧМАРК ПРОИЗВОДИТЕЛЬНОСТИ: COLD vs HOT")
-    logger.info("=" * 60)
+    print("\n" + "=" * 60)
+    print("БЕНЧМАРК ПРОИЗВОДИТЕЛЬНОСТИ: COLD vs HOT")
+    print("=" * 60)
 
     # ──────────────────────────────────────────────────────
     # ЭТАП 1: Cold benchmark (без прогрева)
     # ──────────────────────────────────────────────────────
-    logger.info("\n🔹 Этап 1: Cold benchmark...")
+    print("\n🔹 Этап 1: Cold benchmark...")
     for img_name, (img_path, img_pil, gt_mask) in tqdm(test_images.items(), desc="Cold benchmark"):
-        logger.info(f"\n--- Обработка: {img_name} ---")
+        print(f"\n--- Обработка: {img_name} ---")
         img_array: ImageArray = np.array(img_pil)
 
         if first_img_array is None:
@@ -2304,14 +2358,14 @@ def run_performance_benchmark(
             ground_truth=gt_mask,
         )
         cold_dfs[img_name] = df_cold.copy()
-        logger.info(f"   ✅ Cold: {len(df_cold)} методов")
-        logger.info(f"   ✅ Бенчмарк для {img_name} завершён")
+        print(f"   ✅ Cold: {len(df_cold)} методов")
+        print(f"   ✅ Бенчмарк для {img_name} завершён")
 
     # ──────────────────────────────────────────────────────
     # ЭТАП 2: Warm-up сегментеров
     # ──────────────────────────────────────────────────────
     if first_img_array is not None:
-        logger.info("\n🔹 Этап 2: Warm-up сегментеров...")
+        print("\n🔹 Этап 2: Warm-up сегментеров...")
 
         warmup_utility: SegmentationWarmUp = SegmentationWarmUp(n_warmup_runs=warmup_runs)
 
@@ -2321,21 +2375,21 @@ def run_performance_benchmark(
             image=first_img_array,
             verbose=True,
         )
-        logger.info(f"   ✅ Warmup all: {len(warmup_results)} методов")
-        logger.info(warmup_results)
+        print(f"   ✅ Warmup all: {len(warmup_results)} методов")
+        print(warmup_results)
 
         # Прогрев пороговых методов
         threshold_warmup: Dict[str, Any] = ThresholdWarmUp.warmup_threshold_methods(
             segmenters_dict=tester.methods,
             image_sizes=[(128, 128), (256, 256)],
         )
-        logger.info(f"   ✅ Threshold warmup: {len(threshold_warmup)} методов")
+        print(f"   ✅ Threshold warmup: {len(threshold_warmup)} методов")
 
         # Прогрев граничных методов
         edge_warmup: Dict[str, Any] = ThresholdWarmUp.warmup_edge_methods(
             segmenters_dict=tester.methods,
         )
-        logger.info(f"   ✅ Edge warmup: {len(edge_warmup)} методов")
+        print(f"   ✅ Edge warmup: {len(edge_warmup)} методов")
 
         # Сохранение отчёта о прогреве
         report_path: Path = Path(output_dir) / "warmup_report.txt"
@@ -2347,7 +2401,7 @@ def run_performance_benchmark(
             f.write(str(threshold_warmup))
             f.write("\n\nГраничные методы:\n")
             f.write(str(edge_warmup))
-        logger.info(f"   💾 Отчёт: {report_path}")
+        print(f"   💾 Отчёт: {report_path}")
 
         # Синхронизация CUDA
         if torch.cuda.is_available():
@@ -2356,11 +2410,11 @@ def run_performance_benchmark(
     # ──────────────────────────────────────────────────────
     # ЭТАП 3: Hot benchmark (после прогрева) + анализ
     # ──────────────────────────────────────────────────────
-    logger.info("\n🔹 Этап 3: Hot benchmark + анализ...")
-    logger.info("\n3.1. Бенчмарк производительности после warm up...")
+    print("\n🔹 Этап 3: Hot benchmark + анализ...")
+    print("\n3.1. Бенчмарк производительности после warm up...")
 
     for img_name, (_, img_pil, gt_mask) in tqdm(test_images.items(), desc="Hot benchmark"):
-        logger.info(f"\n--- Обработка: {img_name} ---")
+        print(f"\n--- Обработка: {img_name} ---")
         img_array = np.array(img_pil)
 
         df_hot: BenchmarkResult = tester.benchmark_methods(
@@ -2381,7 +2435,7 @@ def run_performance_benchmark(
                 cold_csv = Path(cold_dir) / "benchmark_results.csv"
                 if cold_csv.exists():
                     df_cold_loaded = pd.read_csv(cold_csv)
-                    logger.info(f"   ✅ Загружен cold-файл из диска: {cold_csv}")
+                    print(f"   ✅ Загружен cold-файл из диска: {cold_csv}")
             else:
                 logger.warning(f"   ⚠️  CSV не найден в {cold_csv}")
 
@@ -2399,21 +2453,21 @@ def run_performance_benchmark(
         # Сохранение сравнения
         comp_path: Path = Path(output_dir) / f"cold_hot_comparison_{img_name}.csv"
         comparison.to_csv(comp_path, index=False)
-        logger.info("\n" + "=" * 70)
-        logger.info(f"🔥 COLD vs HOT BENCHMARK COMPARISON ({img_name})")
-        logger.info("=" * 70)
-        logger.info(
+        print("\n" + "=" * 70)
+        print(f"🔥 COLD vs HOT BENCHMARK COMPARISON ({img_name})")
+        print("=" * 70)
+        print(
             comparison.sort_values("speedup", ascending=False).to_string(
                 float_format=lambda x: f"{x:.2f}" if not np.isinf(x) else "∞"
             )
         )
 
         # Вывод топ-5 по speedup
-        logger.info(f"\n   🔥 Топ-5 по ускорению ({img_name}):")
+        print(f"\n   🔥 Топ-5 по ускорению ({img_name}):")
         top5: pd.DataFrame = comparison.nlargest(5, "speedup")
         for _, row in top5.iterrows():
             speedup_str: str = f"{row['speedup']:.2f}x" if not np.isinf(row["speedup"]) else "∞"
-            logger.info(f"      • {row['method']}: {speedup_str}")
+            print(f"      • {row['method']}: {speedup_str}")
 
         all_comparisons.append(comparison)
 
@@ -2425,19 +2479,19 @@ def run_performance_benchmark(
         summary_path: Path = Path(output_dir) / "cold_hot_comparison_summary.csv"
         summary.to_csv(summary_path, index=False)
 
-        logger.info("\n" + "=" * 70)
-        logger.info("📊 СВОДНЫЙ ОТЧЁТ: COLD vs HOT BENCHMARK")
-        logger.info("=" * 70)
+        print("\n" + "=" * 70)
+        print("📊 СВОДНЫЙ ОТЧЁТ: COLD vs HOT BENCHMARK")
+        print("=" * 70)
 
         # Группировка по методам
         avg_speedup: pd.Series = summary.groupby("method")["speedup"].mean().sort_values(ascending=False)
 
-        logger.info("\n🏆 Топ-10 методов по среднему speedup:")
+        print("\n🏆 Топ-10 методов по среднему speedup:")
         for i, (method, speedup) in enumerate(avg_speedup.head(10).items(), 1):
             speedup_str = f"{speedup:.2f}x" if not np.isinf(speedup) else "∞"
-            logger.info(f"   {i}. {method}: {speedup_str}")
+            print(f"   {i}. {method}: {speedup_str}")
 
-        logger.info(avg_speedup)
+        print(avg_speedup)
 
         return summary
 
@@ -2539,7 +2593,7 @@ def run_neural_segmentation_benchmark(
             output_dir="./results/neural"
         )
         if results:
-            logger.info(f"Лучшая модель по mIoU: {results['summary'].nlargest(1, 'mIoU')['model'].iloc[0]}")
+            print(f"Лучшая модель по mIoU: {results['summary'].nlargest(1, 'mIoU')['model'].iloc[0]}")
             # Сохранение визуализаций
             for name, overlay in results['results_map'].items():
                 if overlay:
@@ -2550,14 +2604,14 @@ def run_neural_segmentation_benchmark(
 
     os.makedirs(output_dir, exist_ok=True)
 
-    logger.info("\n" + "=" * 60)
-    logger.info("НЕЙРОСЕТЕВОЙ БЕНЧМАРК: ADE20K")
-    logger.info("=" * 60)
+    print("\n" + "=" * 60)
+    print("НЕЙРОСЕТЕВОЙ БЕНЧМАРК: ADE20K")
+    print("=" * 60)
 
     # ──────────────────────────────────────────────────────
     # 1. ЗАГРУЗКА ТЕСТОВЫХ ДАННЫХ
     # ──────────────────────────────────────────────────────
-    logger.info("\n🔹 Загрузка данных ADE20K...")
+    print("\n🔹 Загрузка данных ADE20K...")
 
     image_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset")
     original_img: Image.Image = Image.open(image_path)
@@ -2568,19 +2622,19 @@ def run_neural_segmentation_benchmark(
 
     # Конвертация GT в бинарную маску
     mask_array: npt.NDArray = np.array(segmentation_map)
-    logger.info(f"Mask shape: {mask_array.shape}")
-    logger.info(f"Mask dtype: {mask_array.dtype}")
-    logger.info(f"Unique values: {np.unique(mask_array)[:20]}")
+    print(f"Mask shape: {mask_array.shape}")
+    print(f"Mask dtype: {mask_array.dtype}")
+    print(f"Unique values: {np.unique(mask_array)[:20]}")
 
     gt_mask_2d: MaskArray = prepare_mask_for_overlay(segmentation_map)
     segmentation_map.save(Path(output_dir) / "ground_truth.png")
 
-    logger.info(f"✅ Изображение: {original_img.size}, GT: {gt_mask_2d.shape}")
+    print(f"✅ Изображение: {original_img.size}, GT: {gt_mask_2d.shape}")
 
     # ──────────────────────────────────────────────────────
     # 2. ИНИЦИАЛИЗАЦИЯ БЕНЧМАРКА
     # ──────────────────────────────────────────────────────
-    logger.info("\n🔹 Инициализация моделей...")
+    print("\n🔹 Инициализация моделей...")
 
     infer_res_ade: Image.Image = _create_overlay_standalone(
         original_img,
@@ -2589,7 +2643,7 @@ def run_neural_segmentation_benchmark(
         palette=NeuralSegmenter.ade_palette(),
     )
 
-    logger.info("🔹 Запуск MaskFormer (Изолированный режим)...")
+    print("🔹 Запуск MaskFormer (Изолированный режим)...")
 
     model_name_maskformer: str = "facebook/maskformer-resnet50-ade20k-full"
     processor_maskformer = MaskFormerImageProcessor.from_pretrained(model_name_maskformer)
@@ -2626,7 +2680,7 @@ def run_neural_segmentation_benchmark(
     torch.cuda.synchronize()
     gc.collect()
 
-    logger.info(f"✅ MaskFormer готов. VRAM освобождена: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
+    print(f"✅ MaskFormer готов. VRAM освобождена: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
     class_names_dict: Dict[int, str] = NeuralSegmenter.get_ade_class_names()
     class_names: Optional[List[str]] = [class_names_dict.get(i, f"Class {i}") for i in range(num_classes)]
     benchmark: SegmentationBenchmark = SegmentationBenchmark(
@@ -2643,8 +2697,8 @@ def run_neural_segmentation_benchmark(
     # ──────────────────────────────────────────────────────
     # 3. ЗАПУСК СРАВНЕНИЯ
     # ──────────────────────────────────────────────────────
-    logger.info("\n🔹 Запуск сравнения моделей...")
-    logger.info("\n🚀 Running benchmark (this may take 10-15 minutes)...")
+    print("\n🔹 Запуск сравнения моделей...")
+    print("\n🚀 Running benchmark (this may take 10-15 minutes)...")
 
     benchmark.compare(image_input=original_img, alpha=0.6)
     benchmark.results["maskformer"] = maskformer_manual_ade_result
@@ -2652,7 +2706,7 @@ def run_neural_segmentation_benchmark(
     # ──────────────────────────────────────────────────────
     # 4. СОХРАНЕНИЕ РЕЗУЛЬТАТОВ
     # ──────────────────────────────────────────────────────
-    logger.info("\n🔹 Сохранение результатов...")
+    print("\n🔹 Сохранение результатов...")
 
     # Карта результатов для визуализации
     results_map: Dict[str, Optional[Image.Image]] = {
@@ -2666,57 +2720,57 @@ def run_neural_segmentation_benchmark(
         if overlay is not None:
             overlay_path: Path = Path(output_dir) / f"segmented_{model_key}.jpg"
             overlay.save(overlay_path)
-            logger.info(f"✅ Сохранено: {model_key}: {overlay_path}")
+            print(f"✅ Сохранено: {model_key}: {overlay_path}")
 
     # Метрики и сводка
-    logger.info("\n🔍 Checking metrics...")
+    print("\n🔍 Checking metrics...")
     summary_ade: Dict[str, Dict[str, Any]] = benchmark.get_summary()
     for metric in ["mIoU", "pixel_acc", "time_ms"]:
         values: List = [summary_ade[m].get(metric, np.nan) for m in summary_ade]
         valid: int = sum(1 for v in values if not np.isnan(v))
-        logger.info(f"   {metric}: {valid} models")
+        print(f"   {metric}: {valid} models")
     summary: pd.DataFrame = pd.DataFrame(summary_ade).T.sort_values("mIoU", ascending=False)
 
     for model_name, res in benchmark.results.items():
-        logger.info(f"\n{model_name}:")
-        logger.info(f"  mIoU: {res['metrics'].get('mIoU', 'N/A'):.4f}")
-        logger.info(f"  Time: {res['inference_time_ms']:.1f} ms")
-        logger.info(f"  Classes: {res['unique_classes']}")
+        print(f"\n{model_name}:")
+        print(f"  mIoU: {res['metrics'].get('mIoU', 'N/A'):.4f}")
+        print(f"  Time: {res['inference_time_ms']:.1f} ms")
+        print(f"  Classes: {res['unique_classes']}")
 
     # Сохранение отчётов
-    logger.info("\n💾 Saving results...")
+    print("\n💾 Saving results...")
     benchmark.save_results(str(Path(output_dir) / "ade_benchmark"))
 
     # Генерация визуализаций
     _generate_neural_benchmark_plots(benchmark, output_dir)
 
     # LaTeX таблица для публикации
-    logger.info("\n" + "=" * 70)
-    logger.info("LATEX TABLE FOR PAPER")
-    logger.info("=" * 70)
+    print("\n" + "=" * 70)
+    print("LATEX TABLE FOR PAPER")
+    print("=" * 70)
     latex_table: str = benchmark.export_latex_table(caption="Comprehensive Semantic Segmentation Benchmark on ADE20K")
     with open(Path(output_dir) / "benchmark_table.tex", "w") as f:
         f.write(latex_table)
-    logger.info(latex_table)
+    print(latex_table)
 
     if "segformer" in summary.index and "segformer_b2" in summary.index:
-        logger.info("\n" + "=" * 70)
-        logger.info("SEGFORMER SPEED-ACCURACY TRADEOFF")
-        logger.info("=" * 70)
+        print("\n" + "=" * 70)
+        print("SEGFORMER SPEED-ACCURACY TRADEOFF")
+        print("=" * 70)
         sf: pd.DataFrame = summary.loc[["segformer", "segformer_b2"], ["mIoU", "time_ms"]]
         sf["mIoU"] = sf["mIoU"] * 100
-        logger.info(sf.to_string(float_format="%.2f"))
-        logger.info(
+        print(sf.to_string(float_format="%.2f"))
+        print(
             f"\n💡 B2 is {summary.loc['segformer', 'time_ms'] / summary.loc['segformer_b2', 'time_ms']:.1f}x faster with {summary.loc['segformer', 'mIoU'] - summary.loc['segformer_b2', 'mIoU']:.1f} pp mIoU drop"
         )
 
-    logger.info("\n" + "=" * 70)
-    logger.info("✅ BENCHMARK COMPLETE — Results saved to 'ade20k_11models_comprehensive/'")
-    logger.info("=" * 70)
+    print("\n" + "=" * 70)
+    print("✅ BENCHMARK COMPLETE — Results saved to 'ade20k_11models_comprehensive/'")
+    print("=" * 70)
 
     # Сводная таблица результатов
     table: pd.DataFrame = export_comparison_table(benchmark, str(Path(output_dir) / "model_comparison.md"))
-    logger.info(table)
+    print(table)
 
     plt.figure(figsize=(20, 10))
     titles: List[str] = [
@@ -2782,7 +2836,7 @@ def run_neural_segmentation_benchmark(
     )
     plt.show()
 
-    logger.info(f"\n✅ Результаты сохранены в: {output_dir}")
+    print(f"\n✅ Результаты сохранены в: {output_dir}")
 
     return {
         "summary": summary,
@@ -2890,21 +2944,21 @@ def _load_benchmark_models(benchmark: SegmentationBenchmark, output_dir: str) ->
         },
     ]
 
-    logger.info("=" * 50)
-    logger.info("CUDA DIAGNOSTICS")
-    logger.info("=" * 50)
-    logger.info(f"VRAM Allocated: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
-    logger.info(f"VRAM Reserved:  {torch.cuda.memory_reserved() / 1024**2:.1f} MB")
-    logger.info(f"VRAM Max:       {torch.cuda.max_memory_allocated() / 1024**2:.1f} MB")
-    logger.info(f"Deterministic:  {torch.are_deterministic_algorithms_enabled()}")
-    logger.info(f"cuDNN Benchmark: {torch.backends.cudnn.benchmark}")
-    logger.info("=" * 50)
+    print("=" * 50)
+    print("CUDA DIAGNOSTICS")
+    print("=" * 50)
+    print(f"VRAM Allocated: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
+    print(f"VRAM Reserved:  {torch.cuda.memory_reserved() / 1024**2:.1f} MB")
+    print(f"VRAM Max:       {torch.cuda.max_memory_allocated() / 1024**2:.1f} MB")
+    print(f"Deterministic:  {torch.are_deterministic_algorithms_enabled()}")
+    print(f"cuDNN Benchmark: {torch.backends.cudnn.benchmark}")
+    print("=" * 50)
 
     torch.cuda.empty_cache()
     torch.cuda.synchronize()
     gc.collect()
 
-    logger.info(f"VRAM After Clean: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
+    print(f"VRAM After Clean: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
 
     for model_config in models_to_load:
         try:
@@ -2918,7 +2972,7 @@ def _load_benchmark_models(benchmark: SegmentationBenchmark, output_dir: str) ->
             else:
                 method()
 
-            logger.info(f"   ✅ {method_name}")
+            print(f"   ✅ {method_name}")
 
         except Exception as e:
             logger.warning(f"   ⚠️  {model_config.get('method', 'unknown')}: {e}")
@@ -2978,7 +3032,7 @@ def _generate_neural_benchmark_plots(benchmark: SegmentationBenchmark, output_di
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Все метрики
-    logger.info("\n📊 Generating visualizations...")
+    print("\n📊 Generating visualizations...")
     benchmark.plot_all_metrics(figsize=(15, 5))
     plt.savefig(plots_dir / "all_metrics.png", dpi=150, bbox_inches="tight")
     plt.close()
@@ -3009,7 +3063,7 @@ def _generate_neural_benchmark_plots(benchmark: SegmentationBenchmark, output_di
     plt.savefig(plots_dir / "summary.png", dpi=150, bbox_inches="tight")
     plt.close()
 
-    logger.info(f"📊 Графики сохранены в: {plots_dir}")
+    print(f"📊 Графики сохранены в: {plots_dir}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -3017,6 +3071,10 @@ def run_implementation_validation(
     test_images: TestImagesDict,
     output_dir: str = "./data/validation",
     image_name: str = "mountain",
+    include_backends: bool = False,
+    onnx_dir: Optional[str] = None,
+    trt_dir: Optional[str] = None,
+    input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
 ) -> Optional[Dict[str, Any]]:
     """Валидация согласованности реализаций методов через TorchImplementationValidator (Torch vs OpenCV/Sklearn).
 
@@ -3071,29 +3129,33 @@ def run_implementation_validation(
             image_name="mountain"
         )
         if results:
-            logger.info(f"Валидировано методов: {len(results['all_results'])}")
+            print(f"Валидировано методов: {len(results['all_results'])}")
             # Статистика по статусам
             statuses = [r.get('status') for r in results['all_results'].values()]
             from collections import Counter
-            logger.info(f"Статусы: {Counter(statuses)}")
+            print(f"Статусы: {Counter(statuses)}")
         ```
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    logger.info("\n" + "=" * 60)
-    logger.info("ВАЛИДАЦИЯ РЕАЛИЗАЦИЙ: Torch vs OpenCV/Sklearn")
-    logger.info("=" * 60)
+    print("\n" + "=" * 60)
+    print("ВАЛИДАЦИЯ РЕАЛИЗАЦИЙ: Torch vs OpenCV/Sklearn")
+    print("=" * 60)
 
     # Проверка наличия изображения
     if image_name not in test_images:
         logger.error(f"❌ Изображение '{image_name}' не найдено в test_images")
-        logger.info(f"   Доступные: {list(test_images.keys())}")
+        print(f"   Доступные: {list(test_images.keys())}")
         return None
 
     _, img_pil, _ = test_images[image_name]
     img_array: ImageArray = np.array(img_pil)
 
-    logger.info(f"\n🔹 Валидация на изображении: {image_name} ({img_array.shape})")
+    print(f"\n🔹 Валидация на изображении: {image_name} ({img_array.shape})")
+    if include_backends:
+        print(f"🔹 Включена валидация с бэкендами (ONNX/TRT)")
+        print(f"   ONNX dir: {onnx_dir or './exported_models/onnx/fp32'}")
+        print(f"   TRT dir:  {trt_dir or './exported_models/tensorrt/fp32'}")
 
     # ──────────────────────────────────────────────────────
     # 1. ИНИЦИАЛИЗАЦИЯ ВАЛИДАТОРА
@@ -3103,16 +3165,32 @@ def run_implementation_validation(
     # ──────────────────────────────────────────────────────
     # 2. ЗАПУСК ВАЛИДАЦИИ
     # ──────────────────────────────────────────────────────
-    logger.info("\n🔹 Запуск валидации методов...")
+    print("\n🔹 Запуск валидации методов...")
 
     try:
         # test_images['ade20k_sample'][0]
         # test_images['countryside'][0]
         # all_results = validator.validate_all_methods(test_images["mountain"][0])
-        all_results: Dict[str, Any] = validator.validate_all_methods(
-            image_path=img_array, use_torch2=True, torch2_precision="bf16"
-        )
-        logger.info(f"   ✅ Валидировано: {len(all_results)} методов")
+        if include_backends:
+            # 🔥 Расширенная валидация с поддержкой бэкендов
+            all_results: Dict[str, Any] = validator.validate_all_methods_with_backends(
+                image_path=img_array,
+                use_torch2=True,
+                torch2_precision="bf16",
+                validate_onnx=True,
+                validate_trt=torch.cuda.is_available(),
+                onnx_dir=onnx_dir,
+                trt_dir=trt_dir,
+                input_shape=input_shape,
+            )
+        else:
+            # Базовая валидация (Torch vs CPU-бэкенды)
+            all_results = validator.validate_all_methods(
+                image_path=img_array,
+                use_torch2=True,
+                torch2_precision="bf16"
+            )
+        print(f"   ✅ Валидировано: {len(all_results)} методов")
     except Exception as e:
         logger.error(f"❌ Ошибка валидации: {e}")
         traceback.print_exc()
@@ -3121,12 +3199,12 @@ def run_implementation_validation(
     # ──────────────────────────────────────────────────────
     # 3. ГЕНЕРАЦИЯ ОТЧЁТА
     # ──────────────────────────────────────────────────────
-    logger.info("\n🔹 Генерация отчёта...")
+    print("\n🔹 Генерация отчёта...")
 
     try:
         validator.generate_validation_report(all_results)
-        logger.info(f"   ✅ Отчёт: {validator.output_dir}/validation_report.md")
-        logger.info(f"\n✅ Все результаты сохранены в: {validator.output_dir}")
+        print(f"   ✅ Отчёт: {validator.output_dir}/validation_report.md")
+        print(f"\n✅ Все результаты сохранены в: {validator.output_dir}")
     except Exception as e:
         logger.error(f"⚠️  Ошибка генерации отчёта: {e}")
 
@@ -3137,41 +3215,74 @@ def run_implementation_validation(
     try:
         benchmark_dir: str = os.path.join(output_dir, "benchmark")
         benchmark_df = validator.generate_benchmark_report_from_validation(all_results, output_dir=benchmark_dir)
-        logger.info(f"   ✅ Бенчмарк-отчёт: {benchmark_dir}")
+        print(f"   ✅ Бенчмарк-отчёт: {benchmark_dir}")
     except Exception as e:
         logger.error(f"⚠️  Ошибка генерации бенчмарка: {e}")
 
     # ──────────────────────────────────────────────────────
     # 5. СВОДКА
     # ──────────────────────────────────────────────────────
-    logger.info("\n" + "=" * 70)
-    logger.info("📊 СВОДКА ПО ВАЛИДАЦИИ")
-    logger.info("=" * 70)
+    print("\n" + "=" * 70)
+    print("📊 СВОДКА ПО ВАЛИДАЦИИ")
+    print("=" * 70)
 
+    # if all_results:
+    #     # Статистика по статусам
+    #     statuses: List[str] = [result.get("status", "UNKNOWN") for result in all_results.values()]
+    #     from collections import Counter
+
+    #     status_counts: Counter = Counter(statuses)
+
+    #     print("\n📈 Распределение статусов:")
+    #     for status, count in status_counts.most_common():
+    #         emoji = {"PASS": "✅", "WARNING": "⚠️", "FAIL": "❌"}.get(status, "❓")
+    #         print(f"   {emoji} {status}: {count} методов ({count / len(statuses) * 100:.1f}%)")
+
+    #     # Топ-5 по согласованности (IoU)
+    #     print("\n🏆 Топ-5 по IoU (согласованность):")
+    #     sorted_results: List[Tuple[str, Any]] = sorted(
+    #         all_results.items(),
+    #         key=lambda x: x[1].get("metrics", {}).get("iou", 0),
+    #         reverse=True,
+    #     )
+    #     for i, (method, result) in enumerate(sorted_results[:5], 1):
+    #         iou: float = result.get("metrics", {}).get("iou", 0)
+    #         print(f"   {i}. {method}: IoU = {iou:.4f}")
     if all_results:
-        # Статистика по статусам
-        statuses: List[str] = [result.get("status", "UNKNOWN") for result in all_results.values()]
-        from collections import Counter
+        # Статистика по статусам (агрегируем по всем конфигурациям)
+        statuses: List[str] = []
+        for config_results in all_results.values():
+            if isinstance(config_results, dict):
+                for result in config_results.values():
+                    if isinstance(result, dict) and "validation_status" in result:
+                        statuses.append(result["validation_status"])
+        
+        if statuses:
+            from collections import Counter
+            status_counts: Counter = Counter(statuses)
 
-        status_counts: Counter = Counter(statuses)
+            print("\n📈 Распределение статусов:")
+            for status, count in status_counts.most_common():
+                emoji = {"PASS": "✅", "WARNING": "⚠️", "FAIL": "❌"}.get(status, "❓")
+                print(f"   {emoji} {status}: {count} методов ({count / len(statuses) * 100:.1f}%)")
 
-        logger.info("\n📈 Распределение статусов:")
-        for status, count in status_counts.most_common():
-            emoji = {"PASS": "✅", "WARNING": "⚠️", "FAIL": "❌"}.get(status, "❓")
-            logger.info(f"   {emoji} {status}: {count} методов ({count / len(statuses) * 100:.1f}%)")
+            # Топ-5 по согласованности (IoU) — агрегируем по всем конфигурациям
+            all_iou_results: List[Tuple[str, float, str]] = []
+            for config_name, config_results in all_results.items():
+                if isinstance(config_results, dict):
+                    for method_name, result in config_results.items():
+                        if isinstance(result, dict) and result.get("success") and "metrics" in result:
+                            iou = result["metrics"].get("iou", 0)
+                            all_iou_results.append((f"{config_name}/{method_name}", iou, result["validation_status"]))
+            
+            if all_iou_results:
+                sorted_results = sorted(all_iou_results, key=lambda x: x[1], reverse=True)[:5]
+                print("\n🏆 Топ-5 по IoU (согласованность):")
+                for i, (full_name, iou, status) in enumerate(sorted_results, 1):
+                    status_icon = {"PASS": "✅", "WARNING": "⚠️", "FAIL": "❌"}.get(status, "❓")
+                    print(f"   {i}. {full_name}: IoU = {iou:.4f} {status_icon}")
 
-        # Топ-5 по согласованности (IoU)
-        logger.info("\n🏆 Топ-5 по IoU (согласованность):")
-        sorted_results: List[Tuple[str, Any]] = sorted(
-            all_results.items(),
-            key=lambda x: x[1].get("metrics", {}).get("iou", 0),
-            reverse=True,
-        )
-        for i, (method, result) in enumerate(sorted_results[:5], 1):
-            iou: float = result.get("metrics", {}).get("iou", 0)
-            logger.info(f"   {i}. {method}: IoU = {iou:.4f}")
-
-    logger.info(f"\n💾✅ Все результаты сохранены в: {output_dir}")
+    print(f"\n💾✅ Все результаты сохранены в: {output_dir}")
 
     return {
         "all_results": all_results,
@@ -3250,14 +3361,14 @@ def run_matrix_comparison(
         if results and results['batch_results'] is not None:
             # Топ-3 метода относительно референса
             top3 = results['batch_results'].nlargest(3, 'similarity_score')
-            logger.info(top3[['method', 'similarity_score']])
+            print(top3[['method', 'similarity_score']])
         ```
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    logger.info("\n" + "=" * 60)
-    logger.info("МАТРИЧНОЕ СРАВНЕНИЕ МЕТОДОВ")
-    logger.info("=" * 60)
+    print("\n" + "=" * 60)
+    print("МАТРИЧНОЕ СРАВНЕНИЕ МЕТОДОВ")
+    print("=" * 60)
 
     # Объединение методов
     all_segmenters: SegmenterDict = {**cv2_methods, **sklearn_methods, **torch_methods}
@@ -3275,7 +3386,7 @@ def run_matrix_comparison(
     # Референсный сегментер
     if reference_method not in all_segmenters:
         logger.error(f"❌ Референсный метод '{reference_method}' не найден")
-        logger.info(f"   Доступные: {list(all_segmenters.keys())[:10]}...")
+        print(f"   Доступные: {list(all_segmenters.keys())[:10]}...")
         return None
 
     ref_segmenter = all_segmenters[reference_method]
@@ -3299,7 +3410,7 @@ def run_matrix_comparison(
     # ЦИКЛ ПО ИЗОБРАЖЕНИЯМ
     # ──────────────────────────────────────────────────────
     for img_name, (_, img_pil, _) in tqdm(test_images.items(), desc="Matrix Comparison benchmark"):
-        logger.info(f"\n🔹 Обработка: {img_name}")
+        print(f"\n🔹 Обработка: {img_name}")
         img_array: ImageArray = np.array(img_pil)
 
         img_output_dir: Path = Path(output_dir) / f"matrix_comparison_{img_name}"
@@ -3308,7 +3419,7 @@ def run_matrix_comparison(
         # 1. ALL-VS-ALL МАТРИЧНОЕ СРАВНЕНИЕ
         # ──────────────────────────────────────────────────
         try:
-            logger.info("   🔸 All-vs-All матрица...")
+            print("   🔸 All-vs-All матрица...")
             matrix_results: Dict[str, Any] = comparator.matrix_comparison(
                 image=img_array,
                 methods_config=methods_config_list,
@@ -3323,8 +3434,8 @@ def run_matrix_comparison(
                     "n_comparisons": len(matrix_results.get("df_comparisons", [])),
                 }
             )
-            logger.info(f"   ✅ Матрица сравнения для {img_name}")
-            logger.info(f"      ✅ Сравнено пар: {len(matrix_results.get('df_comparisons', []))}")
+            print(f"   ✅ Матрица сравнения для {img_name}")
+            print(f"      ✅ Сравнено пар: {len(matrix_results.get('df_comparisons', []))}")
         except Exception as e:
             logger.error(f"      ❌ Ошибка all-vs-all: {e}")
             if os.getenv("DEBUG", "0") == "1":
@@ -3334,7 +3445,7 @@ def run_matrix_comparison(
         # 2. BATCH COMPARISON VS REFERENCE
         # ──────────────────────────────────────────────────
         try:
-            logger.info("   🔸 Batch comparison vs reference...")
+            print("   🔸 Batch comparison vs reference...")
             df_batch: pd.DataFrame = comparator.batch_comparison(
                 image=img_array,
                 methods_config=methods_config_list,
@@ -3344,8 +3455,8 @@ def run_matrix_comparison(
                 output_dir=str(Path(output_dir) / "batch_comparison"),
             )
             batch_results_list.append(df_batch)
-            logger.info("   ✅ Пакетное сравнение завершено. Топ-3 метода сохранены.")
-            logger.info(f"      ✅ Топ-3: {df_batch.nlargest(3, 'similarity_score')['method'].tolist()}")
+            print("   ✅ Пакетное сравнение завершено. Топ-3 метода сохранены.")
+            print(f"      ✅ Топ-3: {df_batch.nlargest(3, 'similarity_score')['method'].tolist()}")
         except Exception as e:
             logger.error(f"      ❌ Ошибка batch comparison: {e}")
 
@@ -3353,7 +3464,7 @@ def run_matrix_comparison(
         # 3. PAIRWISE COMPARISON (CV2 vs Sklearn Otsu)
         # ──────────────────────────────────────────────────
         try:
-            logger.info("   🔸 Pairwise comparison (CV2 vs Sklearn)...")
+            print("   🔸 Pairwise comparison (CV2 vs Sklearn)...")
             df_pairwise: Dict[str, Any] = comparator.compare_methods(
                 image=img_array,
                 segmenter1=original_segmenter,
@@ -3364,9 +3475,9 @@ def run_matrix_comparison(
                 output_path=str(Path(output_dir) / f"compare_methods_{img_name}"),
             )
             pairwise_results_list.append(df_pairwise)
-            logger.info("   ✅ Попарное сравнение сохранено.")
+            print("   ✅ Попарное сравнение сохранено.")
             n_metrics: int = len(df_pairwise.get("metrics", {}))
-            logger.info(f"✅ Сохранено: {n_metrics} метрик")
+            print(f"✅ Сохранено: {n_metrics} метрик")
         except TypeError as te:
             logger.error(f"      ⚠️  Pairwise требует старой сигнатуры: {te}")
         except Exception as e:
@@ -3375,32 +3486,32 @@ def run_matrix_comparison(
     # ──────────────────────────────────────────────────────
     # СВОДНЫЙ ОТЧЁТ
     # ──────────────────────────────────────────────────────
-    logger.info("\n" + "=" * 70)
-    logger.info("📊 СВОДКА ПО МАТРИЧНОМУ СРАВНЕНИЮ")
-    logger.info("=" * 70)
+    print("\n" + "=" * 70)
+    print("📊 СВОДКА ПО МАТРИЧНОМУ СРАВНЕНИЮ")
+    print("=" * 70)
 
     # All-vs-All статистика
     if all_vs_all_results:
         total_comparisons: int = sum(r["n_comparisons"] for r in all_vs_all_results)
-        logger.info(f"\n🔗 All-vs-All: {len(all_vs_all_results)} изображений, {total_comparisons} сравнений")
+        print(f"\n🔗 All-vs-All: {len(all_vs_all_results)} изображений, {total_comparisons} сравнений")
 
     # Batch comparison: агрегация результатов
     if batch_results_list:
         batch_summary: pd.DataFrame = pd.concat(batch_results_list, ignore_index=True)
-        logger.info(f"\n📦 Batch comparison: {len(batch_summary)} записей")
+        print(f"\n📦 Batch comparison: {len(batch_summary)} записей")
 
         # Топ-5 методов по средней схожести
         if "similarity_score" in batch_summary.columns:
             top_methods: pd.Series = batch_summary.groupby("method")["similarity_score"].mean().nlargest(5)
-            logger.info("\n🏆 Топ-5 по схожести с референсом:")
+            print("\n🏆 Топ-5 по схожести с референсом:")
             for i, (method, score) in enumerate(top_methods.items(), 1):
-                logger.info(f"   {i}. {method}: {score:.4f}")
+                print(f"   {i}. {method}: {score:.4f}")
 
     # Pairwise статистика
     if pairwise_results_list:
-        logger.info(f"\n🔍 Pairwise: {len(pairwise_results_list)} сравнений")
+        print(f"\n🔍 Pairwise: {len(pairwise_results_list)} сравнений")
 
-    logger.info(f"\n💾 Результаты: {output_dir}")
+    print(f"\n💾 Результаты: {output_dir}")
 
     return {
         "all_vs_all_results": all_vs_all_results,
@@ -3472,15 +3583,15 @@ def run_ground_truth_evaluation(
             torch_methods=torch_methods
         )
         if results:
-            logger.info(f"Обработано изображений с GT: {len(results['gt_results_summary'])}")
-            logger.info(f"Топ-3 метода: {[m for m, _ in results['top_methods']]}")
+            print(f"Обработано изображений с GT: {len(results['gt_results_summary'])}")
+            print(f"Топ-3 метода: {[m for m, _ in results['top_methods']]}")
         ```
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    logger.info("\n" + "=" * 60)
-    logger.info("ОЦЕНКА ПРОТИВ GROUND TRUTH")
-    logger.info("=" * 60)
+    print("\n" + "=" * 60)
+    print("ОЦЕНКА ПРОТИВ GROUND TRUTH")
+    print("=" * 60)
 
     all_segmenters: SegmenterDict = {**cv2_methods, **sklearn_methods, **torch_methods}
     gt_results_summary: Dict[str, Dict[str, MetricsDict]] = {}
@@ -3495,7 +3606,7 @@ def run_ground_truth_evaluation(
             continue
 
         has_gt_images = True
-        logger.info(f"\n🎯 Обработка изображения: {img_name} (GT: {gt_mask.shape})")
+        print(f"\n🎯 Обработка изображения: {img_name} (GT: {gt_mask.shape})")
 
         img_array: ImageArray = np.array(img_pil)
 
@@ -3534,9 +3645,9 @@ def run_ground_truth_evaluation(
                 # Статус
                 iou: float = metrics.get("iou", 0)
                 status: str = "✅" if iou > 0.5 else "⚠️" if iou > 0.2 else "❌"
-                logger.info(f"   {status} {name}: IoU={iou:.4f}, Dice={metrics.get('dice', 0):.4f}, t={exec_time:.3f}s")
-                logger.info(f"Mask after {name} segment: {pred_mask[:3, :3]}")
-                logger.info(segmenter.params["execution_info"])
+                print(f"   {status} {name}: IoU={iou:.4f}, Dice={metrics.get('dice', 0):.4f}, t={exec_time:.3f}s")
+                print(f"Mask after {name} segment: {pred_mask[:3, :3]}")
+                print(segmenter.params["execution_info"])
 
             except Exception as e:
                 logger.error(f"   💥 Критическая ошибка в методе {name}: {e}")
@@ -3549,7 +3660,7 @@ def run_ground_truth_evaluation(
         metrics_path: Path = Path(output_dir) / f"gt_metrics_{img_name}.json"
         with open(metrics_path, "w", encoding="utf-8") as f:
             json.dump(metrics_all, f, indent=2, ensure_ascii=False, default=str)
-        logger.info(f"   💾 Детальные метрики сохранены в {metrics_path}")
+        print(f"   💾 Детальные метрики сохранены в {metrics_path}")
 
     # ──────────────────────────────────────────────────────
     # АНАЛИЗ И ВИЗУАЛИЗАЦИИ
@@ -3558,14 +3669,14 @@ def run_ground_truth_evaluation(
         logger.warning("⚠️ Ground Truth маски не найдены ни для одного изображения. Пропускаем этап оценки качества.")
         return None
 
-    logger.info("\n📈 Генерация отчётов...")
+    print("\n📈 Генерация отчётов...")
 
     # Визуализации
-    logger.info("\n📈 Построение сводных графиков по результатам Ground Truth...")
+    print("\n📈 Построение сводных графиков по результатам Ground Truth...")
     visualize_gt_results(gt_results_summary, output_dir=output_dir)
 
     # Топ-5 методов по среднему IoU
-    logger.info("\n🏆 ТОП-5 методов по среднему IoU:")
+    print("\n🏆 ТОП-5 методов по среднему IoU:")
     flat_results: List[Dict[str, Any]] = []
     for img, methods in gt_results_summary.items():
         for method, metrics in methods.items():
@@ -3584,15 +3695,15 @@ def run_ground_truth_evaluation(
         top_series: pd.Series = df_flat.groupby("Method")["IoU"].mean().sort_values(ascending=False).head(5)
         top_methods = list(top_series.items())
 
-        logger.info("\n🏆 ТОП-5 методов по среднему IoU:")
+        print("\n🏆 ТОП-5 методов по среднему IoU:")
         for i, (method, iou) in enumerate(top_methods, 1):
-            logger.info(f"   {i}. {method}: IoU = {iou:.4f}")
+            print(f"   {i}. {method}: IoU = {iou:.4f}")
     else:
         logger.error("   Нет успешных результатов для ранжирования.")
 
-    logger.info("\n" + "=" * 60)
-    logger.info("СВОДНЫЙ ОТЧЕТ ПО GROUND TRUTH")
-    logger.info("=" * 60)
+    print("\n" + "=" * 60)
+    print("СВОДНЫЙ ОТЧЕТ ПО GROUND TRUTH")
+    print("=" * 60)
 
     # Сводная таблица
     rows: List[Dict[str, Any]] = []
@@ -3616,12 +3727,12 @@ def run_ground_truth_evaluation(
     if rows:
         summary_df = pd.DataFrame(rows)
         summary_df_sorted = summary_df.sort_values(by=["Image", "IoU"], ascending=[True, False])
-        logger.info("\nТоп методов по IoU:")
-        logger.info(summary_df_sorted[["Method", "Image", "IoU", "Dice", "Time_s"]].to_string(index=False))
+        print("\nТоп методов по IoU:")
+        print(summary_df_sorted[["Method", "Image", "IoU", "Dice", "Time_s"]].to_string(index=False))
         summary_df_sorted.to_csv("./data/gt_summary_report.csv", index=False)
         summary_path: Path = Path(output_dir) / "gt_summary_report.csv"
         summary_df_sorted.to_csv(summary_path, index=False, float_format="%.4f")
-        logger.info(f"\n💾 Сводка: {summary_path}")
+        print(f"\n💾 Сводка: {summary_path}")
         plt.figure(figsize=(12, 6))
         first_img = list(gt_results_summary.keys())[0]
         df_plot = summary_df[summary_df["Image"] == first_img].sort_values("IoU", ascending=False).head(10)
@@ -3633,7 +3744,7 @@ def run_ground_truth_evaluation(
             plt.gca().invert_yaxis()
             plt.tight_layout()
             plt.savefig("./data/gt_iu_comparison_chart.png")
-            logger.info("📊 График сохранен в ./data/gt_iu_comparison_chart.png")
+            print("📊 График сохранен в ./data/gt_iu_comparison_chart.png")
         else:
             logger.warning("⚠️ Не удалось построить график: нет данных для первого изображения.")
         plt.close()
@@ -3715,15 +3826,15 @@ def run_augmentation_training_study(
         if results:
             # Лучшая комбинация модель+аугментация
             best = results['summary_df'].nlargest(1, 'Best mIoU (%)')
-            logger.info(f"🏆 Лучшая: {best['Model'].iloc[0]} + {best['Augmentation Level'].iloc[0]}")
-            logger.info(f"   mIoU: {best['Best mIoU (%)'].iloc[0]:.2f}%")
+            print(f"🏆 Лучшая: {best['Model'].iloc[0]} + {best['Augmentation Level'].iloc[0]}")
+            print(f"   mIoU: {best['Best mIoU (%)'].iloc[0]:.2f}%")
         ```
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    logger.info("\n" + "=" * 80)
-    logger.info("ИССЛЕДОВАНИЕ: ВЛИЯНИЕ АУГМЕНТАЦИЙ НА КАЧЕСТВО ОБУЧЕНИЯ")
-    logger.info("=" * 80)
+    print("\n" + "=" * 80)
+    print("ИССЛЕДОВАНИЕ: ВЛИЯНИЕ АУГМЕНТАЦИЙ НА КАЧЕСТВО ОБУЧЕНИЯ")
+    print("=" * 80)
 
     # ──────────────────────────────────────────────────────
     # 1. ИНИЦИАЛИЗАЦИЯ ТРЕНЕРА
@@ -3755,16 +3866,16 @@ def run_augmentation_training_study(
 
     results_by_model_and_aug: Dict[str, Dict[str, Any]] = {model_type: {} for model_type in model_types}
 
-    logger.info(f"\n🔧 План: {len(model_types)} моделей × {len(augmentation_configs)} уровней аугментаций")
+    print(f"\n🔧 План: {len(model_types)} моделей × {len(augmentation_configs)} уровней аугментаций")
 
     # ──────────────────────────────────────────────────────
     # 3. ЦИКЛ ОБУЧЕНИЯ
     # ──────────────────────────────────────────────────────
     for aug_config in augmentation_configs:
         for model_type in model_types:
-            logger.info(f"\n{'=' * 60}")
-            logger.info(f"🔹 Модель: {model_type} | Аугментации: {aug_config['level']}")
-            logger.info(f"{'=' * 60}")
+            print(f"\n{'=' * 60}")
+            print(f"🔹 Модель: {model_type} | Аугментации: {aug_config['level']}")
+            print(f"{'=' * 60}")
 
             # Настройка энкодера
             encoder_name: Literal["resnet34", "resnet50", "resnet101", "mit_b5", "efficientnet-b0"]
@@ -3793,7 +3904,7 @@ def run_augmentation_training_study(
                 results_by_model_and_aug[model_type][aug_config["level"]] = result
 
                 miou_pct: float = result["best_miou"] * 100
-                logger.info(f"✅ {model_type} ({aug_config['level']}): Best mIoU = {miou_pct:.2f}%")
+                print(f"✅ {model_type} ({aug_config['level']}): Best mIoU = {miou_pct:.2f}%")
 
             except Exception as e:
                 logger.error(f"❌ Ошибка обучения {model_type} ({aug_config['level']}): {e}")
@@ -3803,25 +3914,25 @@ def run_augmentation_training_study(
     # ──────────────────────────────────────────────────────
     # 4. СРАВНЕНИЕ РЕЗУЛЬТАТОВ
     # ──────────────────────────────────────────────────────
-    logger.info("\n" + "=" * 60)
-    logger.info("📊 СРАВНЕНИЕ УРОВНЕЙ АУГМЕНТАЦИЙ")
-    logger.info("=" * 60)
+    print("\n" + "=" * 60)
+    print("📊 СРАВНЕНИЕ УРОВНЕЙ АУГМЕНТАЦИЙ")
+    print("=" * 60)
 
     for model_type in model_types:
-        logger.info(f"\n🔹 {model_type}:")
-        logger.info("-" * 60)
+        print(f"\n🔹 {model_type}:")
+        print("-" * 60)
         for level, result in results_by_model_and_aug[model_type].items():
             miou: float = result["best_miou"] * 100
-            logger.info(f"   {level:10s}: {miou:6.2f}% mIoU")
+            print(f"   {level:10s}: {miou:6.2f}% mIoU")
 
     # ──────────────────────────────────────────────────────
     # 5. ВИЗУАЛИЗАЦИИ
     # ──────────────────────────────────────────────────────
     trainer.plot_experiment_comparison(output_path="./data/augmentation_comparison.png")
 
-    logger.info("\n" + "=" * 80)
-    logger.info("🎨 ГЕНЕРАЦИЯ ВИЗУАЛИЗАЦИЙ")
-    logger.info("=" * 80)
+    print("\n" + "=" * 80)
+    print("🎨 ГЕНЕРАЦИЯ ВИЗУАЛИЗАЦИЙ")
+    print("=" * 80)
 
     _generate_augmentation_plots(
         results_by_model_and_aug=results_by_model_and_aug,
@@ -3833,10 +3944,10 @@ def run_augmentation_training_study(
     # ──────────────────────────────────────────────────────
     # 6. ОЦЕНКА НА ВАЛИДАЦИИ
     # ──────────────────────────────────────────────────────
-    logger.info("\n🔹 Оценка обученных моделей на валидации...")
+    print("\n🔹 Оценка обученных моделей на валидации...")
 
     comparison_results: Dict[str, float] = trainer.compare_trained_models(augmentation_level="medium")
-    logger.info(f"Training results: {comparison_results}")
+    print(f"Training results: {comparison_results}")
 
     # Сбор чекпоинтов с `medium` аугментациями
     checkpoints: Dict[str, str] = _collect_checkpoints(
@@ -3846,7 +3957,7 @@ def run_augmentation_training_study(
     )
 
     if checkpoints:
-        logger.info(f"   🔍 Найдено чекпоинтов: {len(checkpoints)}")
+        print(f"   🔍 Найдено чекпоинтов: {len(checkpoints)}")
 
         # Оценка
         try:
@@ -3855,14 +3966,14 @@ def run_augmentation_training_study(
                 model_type="unet_smp",
                 # val_fraction=0.05,
             )
-            logger.info(eval_results_old)
+            print(eval_results_old)
 
             eval_results: Dict[str, Any] = trainer.evaluate_trained_models_on_val(
                 checkpoints=checkpoints,
                 val_fraction=0.05,
             )
-            logger.info(eval_results)
-            logger.info("   ✅ Оценка завершена")
+            print(eval_results)
+            print("   ✅ Оценка завершена")
         except Exception as e:
             logger.warning(f"   ⚠️  Ошибка оценки: {e}")
 
@@ -3873,25 +3984,25 @@ def run_augmentation_training_study(
         results_by_model_and_aug=results_by_model_and_aug,
         model_types=model_types,
     )
-    logger.info(summary_df.to_string(index=False))
+    print(summary_df.to_string(index=False))
 
     # Сохранение сводки
     summary_path: Path = Path(output_dir) / "augmentation_impact_full_summary.csv"
     summary_df.to_csv(summary_path, index=False)
-    logger.info(f"\n💾 Сводка: {summary_path}")
+    print(f"\n💾 Сводка: {summary_path}")
 
     # Топ-3 комбинации
     top_combinations: pd.DataFrame = summary_df.nlargest(3, "Best mIoU (%)")
-    logger.info("\n🏆 ТОП-3 ЛУЧШИХ КОМБИНАЦИЙ:")
+    print("\n🏆 ТОП-3 ЛУЧШИХ КОМБИНАЦИЙ:")
     for idx, row in top_combinations.iterrows():
-        logger.info(f"\n   {idx + 1}. {row['Model']} + {row['Augmentation Level']}")
-        logger.info(f"      mIoU: {row['Best mIoU (%)']:.2f}%")
-        logger.info(f"      Epochs: {row['Epochs']}")
-        logger.info(f"   Final Val Loss: {row['Final Val Loss']}")
+        print(f"\n   {idx + 1}. {row['Model']} + {row['Augmentation Level']}")
+        print(f"      mIoU: {row['Best mIoU (%)']:.2f}%")
+        print(f"      Epochs: {row['Epochs']}")
+        print(f"   Final Val Loss: {row['Final Val Loss']}")
 
     top_path: Path = Path(output_dir) / "top_3_combinations.csv"
     top_combinations.to_csv(top_path, index=False)
-    logger.info(f"\n📊 Топ-3 сохранён: {top_path}")
+    print(f"\n📊 Топ-3 сохранён: {top_path}")
 
     # Тепловая карта
     _generate_augmentation_heatmap(summary_df, output_dir)
@@ -4001,7 +4112,7 @@ def _generate_augmentation_plots(
         bbox_inches="tight",
     )
     plt.close()
-    logger.info(f"📊 График 1: {plots_dir / 'augmentation_comparison_all_models.png'}")
+    print(f"📊 График 1: {plots_dir / 'augmentation_comparison_all_models.png'}")
 
     # График 2: Модели для каждого уровня аугментаций
     if augmentation_configs:
@@ -4052,7 +4163,7 @@ def _generate_augmentation_plots(
             bbox_inches="tight",
         )
         plt.close()
-        logger.info(f"📊 График 2: {plots_dir / 'model_comparison_by_augmentation.png'}")
+        print(f"📊 График 2: {plots_dir / 'model_comparison_by_augmentation.png'}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -4116,7 +4227,7 @@ def _collect_checkpoints(
                 latest: str = max(files, key=os.path.getctime)
                 display_name: str = f"{model_type} ({level})"
                 checkpoints[display_name] = latest
-                logger.info(f"   ✅ {display_name}: {latest}")
+                print(f"   ✅ {display_name}: {latest}")
             else:
                 logger.warning(f"   ⚠️  {model_type} ({level}): не найден")
 
@@ -4171,9 +4282,9 @@ def _create_augmentation_summary(
     """
     summary_data: List[Dict[str, Any]] = []
 
-    logger.info("\n" + "=" * 80)
-    logger.info("СВОДНАЯ ТАБЛИЦА: ВЛИЯНИЕ АУГМЕНТАЦИЙ НА КАЧЕСТВО")
-    logger.info("=" * 80)
+    print("\n" + "=" * 80)
+    print("СВОДНАЯ ТАБЛИЦА: ВЛИЯНИЕ АУГМЕНТАЦИЙ НА КАЧЕСТВО")
+    print("=" * 80)
 
     for model_type in model_types:
         for level, result in results_by_model_and_aug[model_type].items():
@@ -4234,9 +4345,9 @@ def _generate_augmentation_heatmap(summary_df: pd.DataFrame, output_dir: str) ->
     if summary_df.empty:
         return
 
-    logger.info("\n" + "=" * 80)
-    logger.info("ТЕПЛОВАЯ КАРТА: МОДЕЛИ × АУГМЕНТАЦИИ")
-    logger.info("=" * 80)
+    print("\n" + "=" * 80)
+    print("ТЕПЛОВАЯ КАРТА: МОДЕЛИ × АУГМЕНТАЦИИ")
+    print("=" * 80)
 
     plots_dir: Path = Path(output_dir) / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
@@ -4273,7 +4384,7 @@ def _generate_augmentation_heatmap(summary_df: pd.DataFrame, output_dir: str) ->
     plt.savefig(heatmap_path, dpi=300, bbox_inches="tight")
     plt.close()
 
-    logger.info(f"🔥 Тепловая карта сохранена: {heatmap_path}")
+    print(f"🔥 Тепловая карта сохранена: {heatmap_path}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -4360,7 +4471,7 @@ def visualize_gt_results(
     # Сохранение сводной таблицы
     csv_path: str = os.path.join(output_dir, "gt_summary_table.csv")
     df_avg.to_csv(csv_path, index=False, float_format="%.4f")
-    logger.info(f"💾 Сводная таблица: {csv_path}")
+    print(f"💾 Сводная таблица: {csv_path}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -4526,7 +4637,7 @@ def _plot_metrics_comparison(df_avg: pd.DataFrame, output_dir: str) -> None:
     output_path: str = os.path.join(output_dir, "metrics_comparison_bar.png")
     plt.savefig(output_path, dpi=150)
     plt.close()
-    logger.info(f"📊 График метрик: {output_path}")
+    print(f"📊 График метрик: {output_path}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -4608,7 +4719,7 @@ def _plot_speed_vs_accuracy(df_avg: pd.DataFrame, output_dir: str) -> None:
     output_path: str = os.path.join(output_dir, "speed_vs_accuracy.png")
     plt.savefig(output_path, dpi=150)
     plt.close()
-    logger.info(f"🚀 Speed vs Accuracy: {output_path}")
+    print(f"🚀 Speed vs Accuracy: {output_path}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -4669,7 +4780,7 @@ def _plot_precision_recall(df_avg: pd.DataFrame, output_dir: str) -> None:
     output_path: str = os.path.join(output_dir, "precision_recall_balance.png")
     plt.savefig(output_path, dpi=150)
     plt.close()
-    logger.info(f"⚖️ График Precision-Recall сохранен: {output_path}")
+    print(f"⚖️ График Precision-Recall сохранен: {output_path}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -4727,7 +4838,7 @@ def load_test_images(
         # Режим с GT
         images = load_test_images(use_image_with_mask=True)
         name, (path, img, gt) = next(iter(images.items()))
-        logger.info(f"{name}: {img.size}, GT shape: {gt.shape if gt is not else None}")
+        print(f"{name}: {img.size}, GT shape: {gt.shape if gt is not else None}")
 
         # Режим без GT (синтетические маски)
         images = load_test_images(use_image_with_mask=False)
@@ -4786,7 +4897,7 @@ def _load_images_with_ground_truth(
         print(f"GT shape: {gt.shape}, unique values: {np.unique(gt)}")
         ```
     """
-    logger.info(f"📥 Загрузка из репозитория {repo_id}...")
+    print(f"📥 Загрузка из репозитория {repo_id}...")
 
     img_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset")
     mask_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.png", repo_type="dataset")
@@ -4794,15 +4905,15 @@ def _load_images_with_ground_truth(
     img: Image.Image = Image.open(img_path).convert("RGB")
     gt_mask_pil: Image.Image = Image.open(mask_path)
 
-    logger.info(f"✅ Изображение загружено: {os.path.basename(img_path)}")
-    logger.info(f"✅ Ground truth загружен: {os.path.basename(mask_path)}")
-    logger.info(f"Ground Truth: {mask_path}")
-    logger.info(f"Размер изображения: {img.size}")
-    logger.info(f"Размер GT: {gt_mask_pil.size}")
+    print(f"✅ Изображение загружено: {os.path.basename(img_path)}")
+    print(f"✅ Ground truth загружен: {os.path.basename(mask_path)}")
+    print(f"Ground Truth: {mask_path}")
+    print(f"Размер изображения: {img.size}")
+    print(f"Размер GT: {gt_mask_pil.size}")
 
     # Конвертация маски в бинарную
     gt_np: npt.NDArray = np.array(gt_mask_pil)
-    logger.info(
+    print(
         f"\nДиапазон значений Ground Truth: {gt_np.min()} - {gt_np.max()}, min: {gt_np.min()}, max: {gt_np.max()}"
     )
     binary_gt: MaskArray = _convert_multiclass_to_binary(gt_np)
@@ -4811,7 +4922,7 @@ def _load_images_with_ground_truth(
     local_paths: Dict[str, str] = _save_test_artifacts(img, gt_mask_pil, binary_gt)
 
     test_images["ade20k_sample"] = (local_paths["img"], img, binary_gt)
-    logger.info(f"✅ Загружен образец: {img.size}, GT: {binary_gt.shape}")
+    print(f"✅ Загружен образец: {img.size}, GT: {binary_gt.shape}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -4833,7 +4944,7 @@ def _convert_multiclass_to_binary(gt_np: npt.NDArray) -> MaskArray:
     counts: np.ndarray
     unique, counts = np.unique(gt_np, return_counts=True)
     bg_class: np.ndarray = unique[np.argmax(counts)]
-    logger.info(f"📊 Статистика GT: Всего классов {len(unique)}. Самый частый: {bg_class} ({np.max(counts)} пикселей)")
+    print(f"📊 Статистика GT: Всего классов {len(unique)}. Самый частый: {bg_class} ({np.max(counts)} пикселей)")
 
     binary: MaskArray = (gt_np != bg_class).astype(np.uint8) * 255
 
@@ -4903,13 +5014,13 @@ def _save_test_artifacts(
     }
 
     img.save(paths["img"])
-    logger.info(f"✅ Изображение сохранено локально: {paths['img']}")
+    print(f"✅ Изображение сохранено локально: {paths['img']}")
 
     gt_raw.save(paths["mask_raw"])
-    logger.info(f"✅ Изображение сырой маски сохранено локально: {paths['mask_raw']}")
+    print(f"✅ Изображение сырой маски сохранено локально: {paths['mask_raw']}")
 
     Image.fromarray(gt_binary).save(paths["mask"])
-    logger.info(f"✅ Изображение маски сохранено локально: {paths['mask']}")
+    print(f"✅ Изображение маски сохранено локально: {paths['mask']}")
 
     return paths
 
@@ -4980,7 +5091,7 @@ def generate_precision_report(
     # Предварительная подготовка референсов для fp32
     fp32_refs: Dict[str, Any] = {}
     if compute_metrics:
-        logger.info("📦 Подготовка референсных масок (fp32)...")
+        print("📦 Подготовка референсных масок (fp32)...")
         for method in methods:
             try:
                 ref = TorchSegmenter2(
@@ -5053,13 +5164,13 @@ def generate_precision_report(
         df.to_csv(output_path, index=False)
 
         # Pivot-таблица для наглядности
-        logger.info(f"\n📊 Отчёт сохранён: {output_path}")
-        logger.info("\n⏱️  Время выполнения (мс):")
-        logger.info(df.pivot_table(index="method", columns="precision", values="mean_time_ms").round(2))
+        print(f"\n📊 Отчёт сохранён: {output_path}")
+        print("\n⏱️  Время выполнения (мс):")
+        print(df.pivot_table(index="method", columns="precision", values="mean_time_ms").round(2))
 
         if compute_metrics:
-            logger.info("\n🎯 IoU относительно fp32:")
-            logger.info(df.pivot_table(index="method", columns="precision", values="iou_vs_fp32").round(4))
+            print("\n🎯 IoU относительно fp32:")
+            print(df.pivot_table(index="method", columns="precision", values="iou_vs_fp32").round(4))
 
         return df
     else:
@@ -5136,7 +5247,7 @@ def _load_images_without_ground_truth(test_images: TestImagesDict) -> None:
                 img,
                 gt_synthetic,
             )
-            logger.info(f"✅ {name}: {img.size}")
+            print(f"✅ {name}: {img.size}")
         except Exception as e:
             logger.error(f"❌ Ошибка загрузки {name}: {e}")
 
@@ -5145,7 +5256,7 @@ def _load_images_without_ground_truth(test_images: TestImagesDict) -> None:
             img = Image.open(path)
             gt_synthetic = _generate_synthetic_mask(img.size)
             test_images[name] = (path, img, gt_synthetic)
-            logger.info(f"✅ {name}: {img.size}, ground truth: {gt_synthetic}")
+            print(f"✅ {name}: {img.size}, ground truth: {gt_synthetic}")
 
         except Exception as e:
             logger.error(f"❌ Ошибка загрузки {name}: {e}")
@@ -5292,7 +5403,7 @@ def save_metrics_report(
     with open(path_obj, "w", encoding="utf-8") as f:
         json.dump(metrics_all, f, indent=indent, ensure_ascii=ensure_ascii, default=str)
 
-    logger.info(f"💾 Отчёт сохранён: {path_obj}")
+    print(f"💾 Отчёт сохранён: {path_obj}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -5340,9 +5451,9 @@ def test_neural_segmentation_variants() -> Tuple[Optional[NeuralSegmenter], Opti
             print(f"Обнаружено классов: {details['total_classes']}")
         ```
     """
-    logger.info("\n" + "=" * 60)
-    logger.info("ТЕСТИРОВАНИЕ ВАРИАНТОВ НЕЙРОСЕТЕВОЙ СЕГМЕНТАЦИИ")
-    logger.info("=" * 60)
+    print("\n" + "=" * 60)
+    print("ТЕСТИРОВАНИЕ ВАРИАНТОВ НЕЙРОСЕТЕВОЙ СЕГМЕНТАЦИИ")
+    print("=" * 60)
 
     # Загрузка тестового изображения
     img_url: str = "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg"
@@ -5355,7 +5466,7 @@ def test_neural_segmentation_variants() -> Tuple[Optional[NeuralSegmenter], Opti
         segmenter: NeuralSegmenter = NeuralSegmenter(local_path="/home/yamshchikov/models/segformer-b5-ready")
 
         # Вариант 1: Различные значения alpha
-        logger.info("\n1. Тестирование разных значений alpha:")
+        print("\n1. Тестирование разных значений alpha:")
         alphas: List[float] = [0.3, 0.5, 0.7, 1.0]
 
         axes: np.ndarray  # type: ignore[assignment]
@@ -5376,12 +5487,12 @@ def test_neural_segmentation_variants() -> Tuple[Optional[NeuralSegmenter], Opti
         plt.show()
 
         # Вариант 2: Детальный анализ
-        logger.info("\n2. Детальный анализ сегментации:")
+        print("\n2. Детальный анализ сегментации:")
         detailed_result: Dict[str, Any] = segmenter.detailed_segmentation(test_image)
 
         # Выводим информацию о классах
-        logger.info(f"Обнаружено классов: {detailed_result['total_classes']}")
-        logger.info("\nТоп-5 классов по площади:")
+        print(f"Обнаружено классов: {detailed_result['total_classes']}")
+        print("\nТоп-5 классов по площади:")
 
         sorted_classes: List[Tuple[str, Dict[str, Any]]] = sorted(
             detailed_result["class_distribution"].items(),
@@ -5390,10 +5501,10 @@ def test_neural_segmentation_variants() -> Tuple[Optional[NeuralSegmenter], Opti
         )[:5]
 
         for class_name, info in sorted_classes:
-            logger.info(f"  {class_name}: {info['percentage']:.1f}% ({info['pixel_count']} пикселей)")
+            print(f"  {class_name}: {info['percentage']:.1f}% ({info['pixel_count']} пикселей)")
 
         # Вариант 3: segment_with_mask
-        logger.info("\n3. Тестирование segment_with_mask:")
+        print("\n3. Тестирование segment_with_mask:")
         result_np: np.ndarray
         mask: Optional[np.ndarray]
         result_np, mask = segmenter.segment_with_mask(test_image, alpha=0.5)
@@ -5417,8 +5528,8 @@ def test_neural_segmentation_variants() -> Tuple[Optional[NeuralSegmenter], Opti
         plt.show()
 
         if mask is not None:
-            logger.info(f"Размер маски: {mask.shape}")
-            logger.info(f"Площадь маски: {np.sum(mask > 0)} пикселей")
+            print(f"Размер маски: {mask.shape}")
+            print(f"Площадь маски: {np.sum(mask > 0)} пикселей")
 
         return segmenter, detailed_result
 
@@ -5473,16 +5584,16 @@ def run_cpu_cuda_benchmark(
 
         # Анализ результатов
         cuda_methods = df[df["device"] == "cuda"]
-        logger.info(f"Средний speedup: {cuda_methods['speedup'].mean():.2f}x")
+        print(f"Средний speedup: {cuda_methods['speedup'].mean():.2f}x")
         ```
     """
-    logger.info("\n" + "=" * 80)
-    logger.info("ЗАПУСК БЕНЧМАРКА: CPU vs CUDA")
-    logger.info("=" * 80)
+    print("\n" + "=" * 80)
+    print("ЗАПУСК БЕНЧМАРКА: CPU vs CUDA")
+    print("=" * 80)
 
     classical_only: SegmenterDict = _filter_classical_methods(all_benchmark_methods)
 
-    logger.info(f"Количество классических методов: {len(classical_only)}")
+    print(f"Количество классических методов: {len(classical_only)}")
 
     # Бенчмарк CPU vs CUDA для классических методов
     benchmark: CpuCudaBenchmark = CpuCudaBenchmark(
@@ -5539,9 +5650,9 @@ def _print_cpu_cuda_summary(df_results: BenchmarkResult) -> None:
         # otsu_thresholding_CV2           : CPU= 12.34ms, CUDA=  3.21ms, ⚡ Speedup=3.84x
         ```
     """
-    logger.info("\n" + "=" * 80)
-    logger.info("СВОДКА ПО БЕНЧМАРКУ CPU vs CUDA")
-    logger.info("=" * 80)
+    print("\n" + "=" * 80)
+    print("СВОДКА ПО БЕНЧМАРКУ CPU vs CUDA")
+    print("=" * 80)
 
     if not torch.cuda.is_available():
         logger.warning("⚠️  CUDA недоступен, пропуск сравнения")
@@ -5559,9 +5670,9 @@ def _print_cpu_cuda_summary(df_results: BenchmarkResult) -> None:
         cuda_time: float = cuda_data["mean_time"].values[0] * 1000
 
         speedup: float = cpu_time / cuda_time
-        logger.info(f"{method:40s}: CPU={cpu_time:7.2f}ms, CUDA={cuda_time:7.2f}ms, ⚡ Speedup={speedup:.2f}x")
+        print(f"{method:40s}: CPU={cpu_time:7.2f}ms, CUDA={cuda_time:7.2f}ms, ⚡ Speedup={speedup:.2f}x")
 
-    logger.info("=" * 80)
+    print("=" * 80)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -5836,15 +5947,15 @@ def run_optimization_benchmarks(
         ```
     """
     caps: Dict[str, Any] = get_device_capabilities()
-    logger.info(f"🖥️  System Info: {caps.get('device_name') if caps.get('cuda') else 'CPU'}")
-    logger.info(f" CUDA BF16 Support: {caps.get('bf16_support')} | INT8 Support: {caps.get('int8_support')}")
-    logger.info("=" * 80)
+    print(f"🖥️  System Info: {caps.get('device_name') if caps.get('cuda') else 'CPU'}")
+    print(f" CUDA BF16 Support: {caps.get('bf16_support')} | INT8 Support: {caps.get('int8_support')}")
+    print("=" * 80)
 
     # --- НАСТРОЙКИ ТЕСТА (МАТРИЦА) ---
     try:
         img: Image.Image = Image.open(image_path).convert("RGB")
         img_array: np.ndarray = np.array(img)
-        logger.info(f"✅ Изображение загружено: {img_array.shape}")
+        print(f"✅ Изображение загружено: {img_array.shape}")
     except Exception as e:
         logger.error(f"❌ Ошибка загрузки изображения {image_path}: {e}")
         return None
@@ -5911,13 +6022,13 @@ def run_optimization_benchmarks(
     all_results: List[Dict[str, Any]] = []
 
     for method in methods_list:
-        logger.info(f"\n🧪 Тестирование метода: {method.upper()}")
-        logger.info("-" * 40)
+        print(f"\n🧪 Тестирование метода: {method.upper()}")
+        print("-" * 40)
 
         baseline_time: Optional[float] = None
 
         for cfg in configs:
-            logger.info(f"   ▶ Запуск: {cfg['name']} ... ", end="", flush=True)
+            print(f"   ▶ Запуск: {cfg['name']} ... ", end="", flush=True)
 
             seg: Optional[TorchSegmenter2] = create_segmenter_config(method, cfg["device"], **cfg["kwargs"])
             if seg is None:
@@ -5930,7 +6041,7 @@ def run_optimization_benchmarks(
             try:
                 stats: Dict[str, Any] = seg.profile_segmentation(segmenter=seg, image=img_array, n_runs=100, warmup=20)
                 mean_time_ms: float = cast(float, stats["mean_time_s"]) * 1000
-                logger.info(f"⏱️ {stats['method']} | {mean_time_ms:.2f}ms | Device: {stats['device']}")
+                print(f"⏱️ {stats['method']} | {mean_time_ms:.2f}ms | Device: {stats['device']}")
 
                 dev_metrics: Dict[str, Any] = _get_device_metrics(cfg["device"])
 
@@ -5955,14 +6066,14 @@ def run_optimization_benchmarks(
                         "Peak_Reserv_MB": dev_metrics["Peak_Reserv_MB"],
                     }
                 )
-                logger.info(f"✅ {mean_time_ms:.2f} ms ({speedup:.2f}x) | Mem: {dev_metrics['Peak_Alloc_MB']:.1f}MB")
+                print(f"✅ {mean_time_ms:.2f} ms ({speedup:.2f}x) | Mem: {dev_metrics['Peak_Alloc_MB']:.1f}MB")
 
             except Exception as e:
                 logger.error(f"❌ Ошибка профилирования: {e}")
 
-    logger.info("\n" + "=" * 80)
-    logger.info("📊 СВОДНАЯ ТАБЛИЦА ПРОИЗВОДИТЕЛЬНОСТИ")
-    logger.info("=" * 80)
+    print("\n" + "=" * 80)
+    print("📊 СВОДНАЯ ТАБЛИЦА ПРОИЗВОДИТЕЛЬНОСТИ")
+    print("=" * 80)
 
     if all_results:
         df_summary: pd.DataFrame = pd.DataFrame(all_results)
@@ -5994,11 +6105,11 @@ def run_optimization_benchmarks(
             lambda x: f"{x[0]}.{x[1]}" if isinstance(x, tuple) else str(x)
         )
 
-        logger.info(tabulate(df_display, headers="keys", tablefmt="grid", showindex=False))
+        print(tabulate(df_display, headers="keys", tablefmt="grid", showindex=False))
 
         csv_path: str = "optimization_benchmark.csv"
         df_summary.to_csv(csv_path, index=False)
-        logger.info(f"\n💾 Таблица сохранена: {csv_path}")
+        print(f"\n💾 Таблица сохранена: {csv_path}")
         return df_summary
     else:
         logger.warning("Нет данных для отображения.")
@@ -6101,10 +6212,10 @@ def main_legacy() -> Tuple[
 # ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # Основной тест
-    logger.info("ЗАПУСК ОСНОВНОГО ТЕСТА")
-    logger.info("=" * 60)
+    print("ЗАПУСК ОСНОВНОГО ТЕСТА")
+    print("=" * 60)
     tester, results, comparator = main()
 
-    logger.info("\n\nЗАПУСК ДОПОЛНИТЕЛЬНОГО ТЕСТА НЕЙРОСЕТЕВЫХ ВАРИАНТОВ")
-    logger.info("=" * 60)
+    print("\n\nЗАПУСК ДОПОЛНИТЕЛЬНОГО ТЕСТА НЕЙРОСЕТЕВЫХ ВАРИАНТОВ")
+    print("=" * 60)
     segmenter, detailed_result = test_neural_segmentation_variants()

@@ -127,6 +127,18 @@ from segmenters.NewTorchSegmenter import TorchSegmenter2
 
 import logging
 
+from utils.backend_exporter_new import (
+    export_method_to_onnx_safe,
+    export_onnx_to_trt_via_api,
+    export_onnx_to_trt_via_trtexec,
+    export_onnx_to_trt_via_onnx_tensorrt,
+    _export_via_torch_tensorrt_jit,
+    OnnxTrtFallbackSegmenter,
+    TRT_PRESETS,
+    _build_trt_provider_options,
+    TRT_PRESET_PRODUCTION
+)
+
 # Настройка логгера
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -148,35 +160,37 @@ PrecisionType: TypeAlias = Literal["fp32", "fp16", "bf16"]
 # ──────────────────────────────────────────────────────────────────────────────
 # Списки методов для экспорта
 THRESHOLD_METHODS: List[str] = [
-    """Список пороговых методов сегментации, dtype=List[str].""" "global_thresholding",
-    "otsu_thresholding",
-    "adaptive_thresholding",
-    "threshold_niblack",
-    "threshold_sauvola",
-    "threshold_bernsen",
-    "threshold_phansalkar",
-    "threshold_percentile",
-    "threshold_kittler_illingworth",
-    "threshold_entropy_kapur",
-    "threshold_triangle",
-    "threshold_multi_otsu",
-    "threshold_local_contrast",
+    "global_thresholding",
+    # "otsu_thresholding",
+    # "adaptive_thresholding",
+    # "threshold_niblack",
+    # "threshold_sauvola",
+    # "threshold_bernsen",
+    # "threshold_phansalkar",
+    # "threshold_percentile",
+    # "threshold_kittler_illingworth",
+    # "threshold_entropy_kapur",
+    # "threshold_triangle",
+    # "threshold_multi_otsu",
+    # "threshold_local_contrast",
 ]
+"""Список пороговых методов сегментации, dtype=List[str].""" 
 
 # ──────────────────────────────────────────────────────────────────────────────
 EDGE_METHODS: List[str] = [
-    """Список граничных методов сегментации, dtype=List[str].""" "sobel_edge",
-    "canny_edge",
-    "prewitt_edge",
-    "scharr_edge",
-    "laplacian_edge",
-    "roberts_cross_edge",
-    "log_edge",
-    "dog_edge",
-    "marr_hildreth_edge",
-    "gradient_magnitude_direction",
-    "phase_congruency_edge",
+    # "sobel_edge",
+    # "canny_edge",
+    # "prewitt_edge",
+    # "scharr_edge",
+    # "laplacian_edge",
+    # "roberts_cross_edge",
+    # "log_edge",
+    # "dog_edge",
+    # "marr_hildreth_edge",
+    # "gradient_magnitude_direction",
+    # "phase_congruency_edge",
 ]
+"""Список граничных методов сегментации, dtype=List[str].""" 
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -189,6 +203,10 @@ def export_all_classical_methods(
     export_onnx: bool = True,
     export_trt: bool = True,
     trt_strategy: TRTStrategyType = "auto",
+    enable_trt_ep_fallback: bool = True,  # Гарантированный fallback через TRT EP
+    trt_ep_preset: str = "production",    # Пресет конфигурации: "production" | "debug" | "int8" | "dynamic"
+    trt_ep_custom_options: Optional[Dict[str, Any]] = None,  # Пользовательские опции (перезаписывают пресет)
+    trt_ep_cache_path: Optional[str] = None,  # Путь для кэша TRT EP
 ) -> Dict[str, Dict[str, Any]]:
     """Массовый экспорт классических методов сегментации.
 
@@ -206,9 +224,21 @@ def export_all_classical_methods(
             - "trtexec": subprocess вызов trtexec
             - "onnx_tensorrt": через onnx-tensorrt parser
             - "jit": legacy torch_tensorrt JIT
+        enable_trt_ep_fallback: Если True, создаёт ONNXSegmenter с TensorRT EP
+                               как гарантированный рабочий вариант, даже если 
+                               нативный TRT экспорт не удался.
+        trt_ep_preset: Название пресета конфигурации для TensorRT EP:
+                      - "production": баланс скорость/точность (по умолчанию)
+                      - "debug": FP32 + детальное логирование
+                      - "int8": квантование (требует calibration.table)
+                      - "dynamic": для моделей с dynamic_axes
+        trt_ep_custom_options: Словарь опций, которые перезаписывают значения пресета.
+        trt_ep_cache_path: Путь для кэширования TRT engines (по умолчанию './trt_engines_onnxrt')
 
     Returns:
         Dict с результатами: {method_name: {backend: status}}
+        Добавляются ключи:
+        - `onnxrt_trt_{precision}`: статус создания fallback с TRT EP
     """
     if precisions is None:
         precisions = ["fp32"]
@@ -222,15 +252,6 @@ def export_all_classical_methods(
 
     os.makedirs(output_base_dir, exist_ok=True)
     results: Dict[str, Dict[str, Any]] = {}
-
-    from utils.backend_exporter_new import (
-        export_method_to_onnx_safe,
-        export_onnx_to_trt_via_api,
-        export_onnx_to_trt_via_trtexec,
-        export_onnx_to_trt_via_onnx_tensorrt,
-        _export_via_torch_tensorrt_jit,
-        OnnxTrtFallbackSegmenter,
-    )
 
     for method_name in methods:
         print(f"\n🔄 Экспорт метода: {method_name}")
@@ -347,29 +368,29 @@ def export_all_classical_methods(
                     except Exception as e:
                         results[method_name][f"trt_{precision}"] = f"❌ {e}"
                         print(f"  │  └─ TRT error: {e}")
-                        try:
-                            fallback = OnnxTrtFallbackSegmenter(
-                                onnx_path=onnx_path,
-                                input_shape=input_shape,
-                                device="cuda" if torch.cuda.is_available() else "cpu",
-                            )
-                            if fallback:
-                                results[method_name][f"onnxrt_{precision}"] = "✅ Fallback ready"
-                                print(f"  │  └─ ONNX Runtime fallback готов")
-                            print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-                            print("   (нажмите Ctrl+C для отмены, если нужно)")
-                            try:
-                                time.sleep(15)  # 🔥 Задержка 15 секунд
-                            except KeyboardInterrupt:
-                                print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
-                        except Exception as e:
-                            results[method_name][f"onnxrt_{precision}"] = f"❌ Fallback: {e}"
-                            print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-                            print("   (нажмите Ctrl+C для отмены, если нужно)")
-                            try:
-                                time.sleep(15)  # 🔥 Задержка 15 секунд
-                            except KeyboardInterrupt:
-                                print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+                        # try:
+                        #     fallback = OnnxTrtFallbackSegmenter(
+                        #         onnx_path=onnx_path,
+                        #         input_shape=input_shape,
+                        #         device="cuda" if torch.cuda.is_available() else "cpu",
+                        #     )
+                        #     if fallback:
+                        #         results[method_name][f"onnxrt_{precision}"] = "✅ Fallback ready"
+                        #         print(f"  │  └─ ONNX Runtime fallback готов")
+                        #     print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+                        #     print("   (нажмите Ctrl+C для отмены, если нужно)")
+                        #     try:
+                        #         time.sleep(15)  # 🔥 Задержка 15 секунд
+                        #     except KeyboardInterrupt:
+                        #         print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+                        # except Exception as e:
+                        #     results[method_name][f"onnxrt_{precision}"] = f"❌ Fallback: {e}"
+                        #     print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+                        #     print("   (нажмите Ctrl+C для отмены, если нужно)")
+                        #     try:
+                        #         time.sleep(15)  # 🔥 Задержка 15 секунд
+                        #     except KeyboardInterrupt:
+                        #         print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
                 else:
                     results[method_name][f"trt_{precision}"] = "⏭️ Exists"
 
@@ -379,6 +400,74 @@ def export_all_classical_methods(
                 time.sleep(15)  # Задержка 15 секунд
             except KeyboardInterrupt:
                 print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+
+            if enable_trt_ep_fallback and torch.cuda.is_available():
+                # Этот блок НЕ создаёт новый файл, а гарантирует, что метод
+                # можно будет запустить через ONNX Runtime с TRT EP
+                trt_ep_status_key = f"onnxrt_trt_{precision}"
+                
+                try:
+                    # Проверяем, что onnxruntime с поддержкой TRT EP доступен
+                    import onnxruntime as ort
+                    available_providers = ort.get_available_providers()
+                    
+                    if "TensorrtExecutionProvider" in available_providers:
+                        # Проверяем, что tensorrt установлен (нужен для инициализации опций)
+                        import tensorrt  # noqa: F401
+                        
+                        # Собираем опции: пресет + кастомные переопределения
+                        base_opts = TRT_PRESETS.get(trt_ep_preset, TRT_PRESET_PRODUCTION).copy()
+                        if trt_ep_custom_options:
+                            base_opts.update(trt_ep_custom_options)
+                        
+                        cache_path = trt_ep_cache_path or f"./trt_engines_onnxrt/{precision}"
+                        
+                        # Тестовая инициализация сессии для валидации конфигурации
+                        test_opts = _build_trt_provider_options(
+                            device_id=0,
+                            trt_options=base_opts,
+                            cache_path=cache_path
+                        )
+                        
+                        # Создаём тестовую сессию (не сохраняем, только проверяем)
+                        sess_opts = ort.SessionOptions()
+                        sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                        sess_opts.log_severity_level = 3  # ERROR
+                        
+                        providers = [
+                            ('TensorrtExecutionProvider', test_opts),
+                            ('CUDAExecutionProvider', {'device_id': 0}),
+                        ]
+                        
+                        # Пробуем создать сессию — это триггерит сборку TRT engine в кэш
+                        test_session = ort.InferenceSession(
+                            onnx_path,
+                            sess_options=sess_opts,
+                            providers=providers,
+                        )
+                        
+                        # Проверяем, что TRT EP действительно активен
+                        active = test_session.get_providers()
+                        if "TensorrtExecutionProvider" in active:
+                            results[method_name][trt_ep_status_key] = "✅ TRT EP Ready"
+                            print(f"  │  └─ ONNX+TRT EP: готов (кэш: {cache_path})")
+                        else:
+                            results[method_name][trt_ep_status_key] = "⚠️ TRT EP not active"
+                            print(f"  │  └─ ONNX+TRT EP: ⚠️ fallback to CUDA EP")
+                        
+                        # Закрываем тестовую сессию
+                        del test_session
+                        
+                    else:
+                        results[method_name][trt_ep_status_key] = "⚠️ TRT EP not available"
+                        print(f"  │  └─ ONNX+TRT EP: ⚠️ провайдер не найден в ONNX Runtime")
+                        
+                except ImportError as e:
+                    results[method_name][trt_ep_status_key] = f"⚠️ Import error: {e}"
+                    print(f"  │  └─ ONNX+TRT EP: ⚠️ {e}")
+                except Exception as e:
+                    results[method_name][trt_ep_status_key] = f"⚠️ Init error: {e}"
+                    print(f"  │  └─ ONNX+TRT EP: ⚠️ {e}")
 
     # Сводный отчёт
     _print_export_summary(results)
@@ -454,8 +543,11 @@ def _print_export_summary(results: Dict[str, Dict[str, Any]]) -> None:
     print("=" * 70)
 
     for method, backends in results.items():
-        statuses: List = [v for v in backends.values()]
-        ok_count: int = sum(1 for s in statuses if s == "✅ OK")
-        print(f"{method:30s}: {ok_count}/{len(statuses)} успешных")
-        for backend, status in backends.items():
-            print(f"  ├─ {backend:15s}: {status}")
+        ok_count = sum(1 for v in backends.values() if v == "✅ OK" or "Ready" in v)
+        total = len(backends)
+        status_icon = "✅" if ok_count == total else ("⚠️" if ok_count > 0 else "❌")
+        
+        print(f"\n{status_icon} {method:35s} [{ok_count}/{total}]")
+        for backend, status in sorted(backends.items()):
+            icon = "✅" if status == "✅ OK" or "Ready" in status else ("⚠️" if "⚠️" in status else "❌")
+            print(f"     {icon} {backend:25s}: {status}")

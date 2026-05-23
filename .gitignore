@@ -100,3 +100,5 @@ profiling/
 onnx-tensorrt/
 
 *.pt
+onnx-tensorrt/
+data*/

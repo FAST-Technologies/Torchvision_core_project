@@ -64,7 +64,6 @@ import torch
 
 from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType
 from utils.palettes import ade_palette
-from utils.utils import compute_metrics
 from utils.strategies import segment_image_unified
 from transformers import PreTrainedModel
 
@@ -83,6 +82,8 @@ if not logger.handlers:
 project_root: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
+
+from metrics.SegmentationMetrics import SegmentationMetrics
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & CONSTANTS
@@ -737,7 +738,14 @@ class SegmentationBenchmark:
         print(f"gt_maske: {self.gt_mask}")
         if self.gt_mask is not None:
             gt_np: np.ndarray = np.array(self.gt_mask) if isinstance(self.gt_mask, Image.Image) else self.gt_mask
-            metrics = compute_metrics(mask, gt_np, self.num_classes, self.ignore_index)
+            metrics = SegmentationMetrics.compute_segmentation_metrics(
+                pred_mask=mask,
+                gt_mask=gt_np,
+                num_classes=self.num_classes,
+                ignore_index=self.ignore_index,
+                include_confusion_matrix=True,
+                include_hausdorff=False,
+            )
         else:
             # 🔹 Заглушка без GT — все метрики = NaN, кроме unique_classes
             metrics = {

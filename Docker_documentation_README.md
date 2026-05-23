@@ -234,6 +234,9 @@ curl -X POST http://localhost:8000/api/segment \
 # 🔹 Сборка бэкенда
 docker build -f Dockerfile.backend -t autoseg-backend:latest .
 
+# 🔹 Сборка бэкенда с очисткой кэша
+docker build --no-cache -f Dockerfile.backend -t autoseg-backend:latest .
+
 # 🔹 Проверка прав на uvicorn
 docker run --rm autoseg-backend:latest ls -la /usr/local/bin/uvicorn
 # ✅ -rwxr-xr-x 1 appuser appuser ... uvicorn

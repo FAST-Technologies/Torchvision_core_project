@@ -2091,7 +2091,6 @@ class TorchSegmenter2(BaseSegmenter):
 
         tensor = self.preprocess_image(image)
 
-        # 🔥 Мониторинг трансферов через profiler
         transfer_warnings: List[str] = []
 
         with profiler.profile(
@@ -2106,7 +2105,6 @@ class TorchSegmenter2(BaseSegmenter):
                     if self.device.type == "cuda":
                         torch.cuda.synchronize()
 
-        # 🔥 Анализ событий трансфера
         if detect_transfers and self.device.type == "cuda":
             if self.method in ["quickshift", "slic", "felzenszwalb"]:
                 transfer_warnings.append("⚠️ Метод использует numpy — трансферы ожидаемы")
@@ -3399,17 +3397,18 @@ class TorchSegmenter2(BaseSegmenter):
         """
         if self._debug_mode and not self._has_profiling_run:
             image_for_debug = Image.open(image).convert("RGB") if isinstance(image, str) else image
-            self._run_auto_debug_profiling(image_for_debug)
+            # self._run_auto_debug_profiling(image_for_debug)
             self._has_profiling_run = True
         try:
             tensor: torch.Tensor = self.preprocess_image(image)
             if self._debug_mode:
                 logger.info(f"[DEBUG] {self.method}: input dtype={tensor.dtype}, device={tensor.device}")
                 logger.info(f"[DEBUG] Expected dtype: {self.dtype}, device: {self.device}")
+            precision = kwargs.pop("precision", self.precision_manager.default_precision)
             mask_tensor = self._segment_func(
                 tensor,
-                precision=self.precision_manager.default_precision,
-                **kwargs,
+                precision=precision,
+                # **kwargs,
             )
 
             # Преобразуем маску в numpy

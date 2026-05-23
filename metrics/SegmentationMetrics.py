@@ -760,3 +760,196 @@ class SegmentationMetrics:
             "average_metrics": avg_metrics,
             "total_masks": len(pred_masks),
         }
+
+    # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def calculate_multiclass_miou(
+        pred_mask: MaskArray,
+        gt_mask: MaskArray,
+        ignore_index: int = 255,
+        num_classes: Optional[int] = None,
+        return_per_class: bool = False,
+    ) -> Union[MetricValue, Tuple[MetricValue, Dict[int, MetricValue]]]:
+        """Multi-class Mean IoU (mIoU) для семантической сегментации.
+
+        Корректно обрабатывает:
+        - Ignore index (по умолчанию 255) — исключается из расчёта
+        - Классы, присутствующие только в предсказании или только в GT
+        - Пустые классы (без пикселей в объединении)
+
+        Формула для каждого класса:
+        ```
+        IoU_c = |pred_c ∩ gt_c| / |pred_c ∪ gt_c|
+        mIoU = mean(IoU_c for all classes with union > 0)
+        ```
+
+        Args:
+            pred_mask: Предсказанная маска с целочисленными метками классов, форма (H, W).
+            gt_mask: Ground truth маска с целочисленными метками, форма (H, W).
+            ignore_index: Значение, обозначающее игнорируемые пиксели (по умолчанию 255).
+            num_classes: Опциональное количество классов. Если None — определяется автоматически.
+            return_per_class: Если True, возвращает также словарь {class_id: iou}.
+
+        Returns:
+            float | Tuple[float, Dict[int, float]]:
+            - mIoU значение в диапазоне [0, 1]
+            - Если return_per_class=True: кортеж (mIoU, {class_id: iou_per_class})
+        """
+        # Приводим к одинаковой форме и типу
+        pred = np.asarray(pred_mask, dtype=np.int32)
+        gt = np.asarray(gt_mask, dtype=np.int32)
+
+        if pred.shape != gt.shape:
+            raise ValueError(f"Shape mismatch: pred {pred.shape} vs gt {gt.shape}")
+
+        # Создаём маску валидных пикселей (исключаем ignore_index)
+        valid_mask = (gt != ignore_index) & (pred != ignore_index)
+
+        # Определяем диапазон классов
+        if num_classes is None:
+            # Автоматически: все классы, которые встречаются в валидных пикселях
+            classes = np.unique(np.concatenate([gt[valid_mask], pred[valid_mask]]))
+            classes = classes[classes != ignore_index]  # на всякий случай
+        else:
+            classes = np.arange(num_classes)
+
+        iou_per_class: Dict[int, float] = {}
+
+        for cls in classes:
+            # Бинарные маски для текущего класса (только валидные пиксели)
+            pred_cls = (pred == cls) & valid_mask
+            gt_cls = (gt == cls) & valid_mask
+
+            intersection = np.logical_and(pred_cls, gt_cls).sum()
+            union = np.logical_or(pred_cls, gt_cls).sum()
+
+            if union > 0:
+                iou_per_class[int(cls)] = float(intersection / union)
+            else:
+                # Класс есть, но нет пикселей в объединении — пропускаем в среднем
+                iou_per_class[int(cls)] = np.nan
+
+        # Считаем mIoU только по классам с валидным IoU (не NaN)
+        valid_ious = [v for v in iou_per_class.values() if not np.isnan(v)]
+
+        if not valid_ious:
+            m_iou = 0.0
+        else:
+            m_iou = float(np.mean(valid_ious))
+
+        if return_per_class:
+            return m_iou, iou_per_class
+        return m_iou
+
+     # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def compute_segmentation_metrics(
+        pred_mask: MaskArray,
+        gt_mask: MaskArray,
+        num_classes: int,
+        ignore_index: int = 255,
+        include_confusion_matrix: bool = True,
+        include_hausdorff: bool = False,
+    ) -> MetricsDict:
+        """Полный расчёт метрик для семантической сегментации (multi-class).
+
+        Объединяет:
+        - Multi-class mIoU (per-class + mean)
+        - Pixel Accuracy
+        - Weighted F1-Score
+        - Confusion Matrix (опционально)
+        - Бинарные метрики (для совместимости)
+
+        Args:
+            pred_mask: Предсказанная маска [H, W].
+            gt_mask: Ground truth маска [H, W].
+            num_classes: Общее количество классов.
+            ignore_index: Индекс игнорируемых пикселей.
+            include_confusion_matrix: Вычислять ли confusion matrix (медленно для 150 классов).
+            include_hausdorff: Вычислять ли Hausdorff distance (очень медленно!).
+
+        Returns:
+            Dict[str, Any]:
+            ```python
+            {
+                "mIoU": float,                    # Mean IoU
+                "pixel_acc": float,               # Pixel Accuracy
+                "f1_weighted": float,             # Weighted F1
+                "per_class_iou": np.ndarray,      # [num_classes]
+                "confusion_matrix": np.ndarray,   # [num_classes, num_classes] или None
+                "iou": float,                     # Binary IoU (для совместимости)
+                "dice": float,                    # Binary Dice
+                "hausdorff_distance": float,      # Если include_hausdorff=True
+            }
+            ```
+        """
+        # Валидные пиксели
+        valid_mask = (gt_mask != ignore_index)
+        if not np.any(valid_mask):
+            return {
+                "mIoU": np.nan,
+                "pixel_acc": np.nan,
+                "f1_weighted": np.nan,
+                "per_class_iou": np.array([np.nan] * num_classes),
+                "confusion_matrix": None,
+                "iou": np.nan,
+                "dice": np.nan,
+            }
+
+        pred_valid = pred_mask[valid_mask]
+        gt_valid = np.clip(gt_mask[valid_mask], 0, num_classes - 1)
+
+        # 1. Multi-class mIoU
+        m_iou, per_class_iou_dict = SegmentationMetrics.calculate_multiclass_miou(
+            pred_mask=pred_mask,
+            gt_mask=gt_mask,
+            ignore_index=ignore_index,
+            num_classes=num_classes,
+            return_per_class=True,
+        )
+
+        # Конвертируем dict → array
+        per_class_iou_array = np.array([per_class_iou_dict.get(c, np.nan) for c in range(num_classes)])
+
+        # 2. Pixel Accuracy
+        pixel_acc = accuracy_score(gt_valid, pred_valid)
+
+        # 3. Weighted F1-Score
+        f1_weighted = f1_score(
+            gt_valid,
+            pred_valid,
+            average="weighted",
+            labels=list(range(num_classes)),
+            zero_division=0,
+        )
+
+        # 4. Confusion Matrix (опционально)
+        cm = None
+        if include_confusion_matrix:
+            cm = confusion_matrix(gt_valid, pred_valid, labels=list(range(num_classes)))
+
+        # 5. Бинарные метрики (для совместимости с старым кодом)
+        pred_binary = (pred_mask > 0).astype(np.uint8)
+        gt_binary = (gt_mask > 0).astype(np.uint8)
+        
+        binary_metrics = SegmentationMetrics.calculate_all_metrics(
+            pred_mask=pred_binary,
+            gt_mask=gt_binary,
+            threshold=0.5,
+            include_hausdorff=include_hausdorff,
+        )
+
+        result: MetricsDict = {
+            "mIoU": m_iou,
+            "pixel_acc": pixel_acc,
+            "f1_weighted": f1_weighted,
+            "per_class_iou": per_class_iou_array,
+            "confusion_matrix": cm,
+            "iou": binary_metrics.get("iou", np.nan),
+            "dice": binary_metrics.get("dice", np.nan),
+        }
+
+        if include_hausdorff:
+            result["hausdorff_distance"] = binary_metrics.get("hausdorff_distance", np.nan)
+
+        return result

@@ -59,6 +59,7 @@ Note:
 # ИМПОРТЫ
 # ──────────────────────────────────────────────────────────────────────
 from __future__ import annotations  # PEP 563: отложенная оценка аннотаций
+import os
 import sys
 import time
 
@@ -95,6 +96,14 @@ if not logger.handlers:
     formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+
+
+
+project_root: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from metrics.SegmentationMetrics import SegmentationMetrics
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & CONSTANTS
@@ -1062,7 +1071,8 @@ def _log_inference_details_standalone(
     for cls in unique_classes:
         count: int = np.sum(seg_map == cls)
         if count > 0:
-            name = class_names.get(cls, f"Class_{cls}") if class_names else f"Class_{cls}"
+            name_idx = cls - 1
+            name: str = class_names.get(name_idx, class_names.get(cls, f"Class_{cls}")) if class_names else f"Class_{cls}"
             pct: float = 100 * count / total_pixels
             class_stats.append((cls, name, count, pct))
             print(f"     Class {cls:3d}: {count:6d} px ({pct:5.3f}%)")
@@ -1109,8 +1119,15 @@ def _log_inference_details_standalone(
     if gt_mask is not None:
         try:
             gt_np = np.array(gt_mask) if isinstance(gt_mask, Image.Image) else gt_mask
-            metrics = compute_metrics(seg_map, gt_np, num_classes=num_classes)
-            print(f"   ✅ Metrics computed: IoU={metrics.get('iou', 0):.4f}")
+            metrics = SegmentationMetrics.compute_segmentation_metrics(
+                pred_mask=seg_map,
+                gt_mask=gt_np,
+                num_classes=num_classes,
+                ignore_index=255,
+                include_confusion_matrix=True,
+                include_hausdorff=False,
+            )
+            print(f"   ✅ Metrics computed: mIoU={metrics.get('mIoU', 0):.4f}, binary_IoU={metrics.get('iou', 0):.4f}")
         except Exception as e:
             print(f"⚠️  Metrics computation failed: {e}")
     else:
@@ -1218,9 +1235,10 @@ def _create_overlay_standalone(
 
     # Защита от выхода за пределы палитры
     max_label: int = int(mask.max())
-    safe_max: int = min(max_label + 1, len(palette_array))
-    for label in range(safe_max):
-        color_mask[mask == label] = palette_array[label]
+    for label in range(max_label + 1):
+        palette_idx = label  # ← КЛЮЧЕВОЙ ФИКС!
+        if 0 <= palette_idx < len(palette_array):
+            color_mask[mask == label] = palette_array[palette_idx]
 
     img_arr: np.ndarray = np.array(image.convert("RGB"))
     overlay: np.ndarray = (img_arr * (1 - alpha) + color_mask * alpha).astype(np.uint8)

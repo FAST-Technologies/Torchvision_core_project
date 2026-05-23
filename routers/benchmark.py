@@ -117,6 +117,26 @@ if not logger.handlers:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
+    log_dir: Path = Path("./logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file: Path = log_dir / "benchmark.log"
+    
+    file_handler: logging.FileHandler = logging.FileHandler(
+        filename=log_file,
+        mode='a',           # 'a' = append, 'w' = overwrite
+        encoding='utf-8',   # важно для кириллицы и спецсимволов
+        delay=True          # откладывает создание файла до первой записи
+    )
+
+    file_formatter: logging.Formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    file_handler.setFormatter(file_formatter)
+    file_handler.setLevel(logging.DEBUG)
+    logger.addHandler(file_handler)
+    logger.info(f"✅ Логгер инициализирован. Логи пишутся в: {log_file.resolve()}")
+
 router: APIRouter = APIRouter(
     prefix="/api/benchmark",
     tags=["benchmark"],

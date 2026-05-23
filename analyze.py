@@ -94,6 +94,7 @@ if project_root not in sys.path:
 # Локальные импорты
 from segmenters.NeuralSegmenter import NeuralSegmenter
 from metrics.SegmentationMetrics import SegmentationMetrics
+from utils.palettes import ade_palette, get_ade_class_names
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & CONSTANTS
@@ -114,13 +115,37 @@ PathLike: TypeAlias = Union[str, Path]
 """Тип пути до файла, исходные форматы: str/Path, dtype=Union[str, Path]."""
 
 MODEL_TYPE_MAPPING: Dict[str, str] = {
-    """Маппинг имён чекпоинтов на ModelType enum, dtype=Dict[str, str].""" "unet_smp": "unet_smp",
+    "unet_smp": "unet_smp",
     "fpn_smp": "fpn_smp",
     "psp_smp": "pspnet_smp",
     "deeplab_tv": "deeplab_tv",
     "fcn_tv": "fcn_tv",
     "segnet": "segnet",
 }
+"""Маппинг имён чекпоинтов на ModelType enum, dtype=Dict[str, str].""" 
+
+def get_color_for_class(cls: int, palette: List[List[int]], offset: int = 0) -> List[int]:
+    """Получает цвет для класса с учётом сдвига и защитой от выхода за границы."""
+    cls_int = int(cls)
+    palette_idx = cls_int + offset
+    
+    # 🔧 FIX: Если индекс < 0 (например, background), возвращаем черный/прозрачный
+    # Это предотвращает доступ к palette[-1] (последний элемент) и ошибки
+    if palette_idx < 0 or palette_idx >= len(palette):
+        return [0, 0, 0] 
+    
+    return palette[palette_idx]
+
+def get_name_for_class(cls: int, class_names: Dict[int, str], offset: int = 0) -> str:
+    """Получает имя класса с учётом сдвига и защитой от отрицательных индексов."""
+    cls_int = int(cls)
+    name_idx = cls_int + offset
+    
+    # 🔧 FIX: Если индекс < 0, это Background, а не fallback на class 0
+    if name_idx < 0:
+        return "Background" 
+    
+    return class_names.get(name_idx, f"Class_{name_idx}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -189,8 +214,15 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
     img_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset")
     mask_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.png", repo_type="dataset")
 
+    output_dir: str = "./data/augmentation_analysis2"
+    os.makedirs(output_dir, exist_ok=True)
+
     test_image: Image.Image = Image.open(img_path).convert("RGB")
+    test_image.save(f"{output_dir}/test_image.jpg")
+
     gt_mask_pil: Image.Image = Image.open(mask_path)
+    gt_mask_pil.save(f"{output_dir}/test_mask.jpg")
+
     gt_mask: MaskArray = np.array(gt_mask_pil)
     if gt_mask.ndim == 3 and gt_mask.shape[2] == 3:
         # RGB маска → берём первый канал или конвертируем
@@ -233,39 +265,49 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
 
             # Ресайз предсказания под размер GT
             if gt_mask.shape != pred_mask.shape:
-                sh, sw = (
-                    gt_mask.shape[0] / pred_mask.shape[0],
-                    gt_mask.shape[1] / pred_mask.shape[1],
-                )
-                pred_mask_resized: MaskArray = zoom(pred_mask, (sh, sw), order=0)
+                # sh, sw = (
+                #     gt_mask.shape[0] / pred_mask.shape[0],
+                #     gt_mask.shape[1] / pred_mask.shape[1],
+                # )
+                # pred_mask_resized: MaskArray = zoom(pred_mask, (sh, sw), order=0)
+                pred_pil = Image.fromarray(pred_mask.astype(np.uint16))
+                pred_mask_resized = np.array(pred_pil.resize(
+                    (gt_mask.shape[1], gt_mask.shape[0]), 
+                    Image.Resampling.NEAREST
+                )).astype(np.uint8)
             else:
                 pred_mask_resized = pred_mask
+
+            print("\n🔍 Проверка ignore_index в масках:")
+            print(f"   GT mask: min={gt_mask.min()}, max={gt_mask.max()}, unique={np.unique(gt_mask)[:20]}")
+            print(f"   Count of 255 in GT: {(gt_mask == 255).sum()}")
+            print(f"   Count of 0 in GT: {(gt_mask == 0).sum()}")
+            print(f"   Pred mask: min={pred_mask_resized.min()}, max={pred_mask_resized.max()}")
+            print(f"   Count of 255 in Pred: {(pred_mask_resized == 255).sum()}")
+            print(f"   Count of 0 in Pred: {(pred_mask_resized == 0).sum()}")
 
             # ──────────────────────────────────────────────────────────────
             # Расчёт mIoU (многоклассовый)
             # ──────────────────────────────────────────────────────────────
-            classes: np.ndarray = np.unique(np.concatenate([gt_mask, pred_mask_resized]))
-            iou_per_class: List[float] = []
-
-            for cls in classes:
-                if cls == 255:  # ignore index
-                    continue
-                pred_cls: np.ndarray = (pred_mask_resized == cls).astype(np.uint8)
-                gt_cls: np.ndarray = (gt_mask == cls).astype(np.uint8)
-
-                intersection: int = int(np.logical_and(pred_cls, gt_cls).sum())
-                union: int = int(np.logical_or(pred_cls, gt_cls).sum())
-
-                if union > 0:
-                    iou_per_class.append(intersection / union)
-
-            m_iou: MetricValue = float(np.mean(iou_per_class)) if iou_per_class else 0.0
+            m_iou: MetricValue = SegmentationMetrics.calculate_multiclass_miou(
+                pred_mask=pred_mask_resized,
+                gt_mask=gt_mask,
+                ignore_index=255,
+                num_classes=150,  # ADE20K
+                return_per_class=False,
+            )
 
             # ──────────────────────────────────────────────────────────────
             # Бинарные метрики (объект vs фон)
             # ──────────────────────────────────────────────────────────────
-            pred_binary: np.ndarray = (pred_mask_resized > 0).astype(np.uint8)
-            gt_binary: np.ndarray = (gt_mask > 0).astype(np.uint8)
+            # Создаём бинарные маски: 1 = любой семантический класс (1-149), 0 = фон/игнор
+            pred_binary = np.where((pred_mask_resized != 255) & (pred_mask_resized != 0), 1, 0).astype(np.uint8)
+            gt_binary   = np.where((gt_mask != 255) & (gt_mask != 0), 1, 0).astype(np.uint8)
+
+            # Применяем valid_mask для исключения ignore-пикселей из бинарных метрик тоже
+            valid_mask = (gt_mask != 255) & (pred_mask_resized != 255)
+            pred_binary = pred_binary * valid_mask.astype(np.uint8)
+            gt_binary = gt_binary * valid_mask.astype(np.uint8)
 
             metrics: MetricsDict = SegmentationMetrics.calculate_all_metrics(
                 pred_mask=pred_binary,
@@ -275,13 +317,48 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
             )
 
             # ──────────────────────────────────────────────────────────────
+            # ДИАГНОСТИКА: СРАВНЕНИЕ РАСПРЕДЕЛЕНИЯ КЛАССОВ
+            # ──────────────────────────────────────────────────────────────
+            print("\n🔍 ДИАГНОСТИКА МАППИНГА КЛАССОВ")
+            print("=" * 60)
+
+            palette = ade_palette()
+            class_names = get_ade_class_names()
+
+            # Распределение в GT
+            gt_unique, gt_counts = np.unique(gt_mask, return_counts=True)
+            print("\n📊 Ground Truth (ADE20K стандарт):")
+            for cls, cnt in sorted(zip(gt_unique, gt_counts), key=lambda x: -x[1])[:10]:
+                name = get_name_for_class(cls, class_names, offset=-1)
+                print(f"   {cls:3d}: {name:20s} {cnt:7,} px ({100*cnt/gt_mask.size:5.2f}%)")
+
+            # Распределение в предсказании
+            pred_unique, pred_counts = np.unique(pred_mask_resized, return_counts=True)
+            print("\n📊 Prediction (твоя модель):")
+            for cls, cnt in sorted(zip(pred_unique, pred_counts), key=lambda x: -x[1])[:10]:
+                name = get_name_for_class(cls, class_names, offset=-1)
+                print(f"   {cls:3d}: {name:20s} {cnt:7,} px ({100*cnt/pred_mask_resized.size:5.2f}%)")
+
+            # Проверка на частые классы ADE20K
+            ade_frequent_classes = {
+                0: "wall", 1: "building", 2: "sky", 3: "floor", 4: "tree",
+                5: "ceiling", 10: "cabinet", 15: "road"
+            }
+            print("\n⚠️  Проверка частых классов ADE20K:")
+            for cls_id, cls_name in ade_frequent_classes.items():
+                gt_pct = 100 * (gt_mask == cls_id).sum() / gt_mask.size
+                pred_pct = 100 * (pred_mask_resized == cls_id).sum() / pred_mask_resized.size
+                status = "✓" if abs(gt_pct - pred_pct) < 10 else "✗"
+                print(f"   {status} {cls_name:12s} (#{cls_id:2d}): GT={gt_pct:5.1f}%, Pred={pred_pct:5.1f}%")
+
+            # ──────────────────────────────────────────────────────────────
             # Сохранение результатов
             # ──────────────────────────────────────────────────────────────
             result: Dict[str, Any] = {
                 "model": display_name,
                 "augmentation": aug_level,
                 "checkpoint": os.path.basename(checkpoint_path),
-                "iou": m_iou,  # mIoU для многоклассовой
+                "miou": m_iou,  # mIoU для многоклассовой
                 "binary_iou": metrics.get("iou", 0),  # Бинарный IoU для совместимости
                 "dice": metrics.get("dice", 0),
                 "f1_score": metrics.get("f1_score", 0),
@@ -301,18 +378,96 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
             )
             overlay_images[key] = overlay
 
-            output_dir: str = "./data/augmentation_analysis"
-            os.makedirs(output_dir, exist_ok=True)
             overlay_path: str = f"{output_dir}/overlay_{display_name}_{aug_level}.jpg"
             overlay.save(overlay_path)
 
-            # overlay_path: Path = output_dir / f"overlay_{display_name}_{aug_level}.jpg"
-            # overlay.save(overlay_path)
-
-            print(f"      ✅ IoU (mIoU): {m_iou:.4f}, Dice: {metrics.get('dice', 0):.4f}")
+            print(f"      ✅ IoU: {metrics.get("iou", 0):.4f}, mIoU: {m_iou:.4f}, Dice: {metrics.get('dice', 0):.4f}")
             print(f"      ✅ Время: {inference_time:.3f}s")
             print(f"      ✅ Сохранено: {overlay_path}")
 
+
+            # Создай свою визуализацию с явными подписями
+            fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+
+            axes[0].imshow(test_image)
+            axes[0].set_title("Original Image")
+
+            unique_gt: np.ndarray
+            counts_gt: np.ndarray
+            unique_gt, counts_gt = np.unique(gt_mask, return_counts=True)
+            total_pixels_gt: int = gt_mask.size
+
+            unique_pred_mask_resized: np.ndarray
+            counts_pred_mask_resized: np.ndarray
+            unique_pred_mask_resized, counts_pred_mask_resized = np.unique(pred_mask_resized, return_counts=True)
+            total_pixels_pred_mask_resized: int = pred_mask_resized.size
+
+            print("\n📊 Ground Truth Prediction Analysis")
+            print(f"   Valid pixels: {total_pixels_gt:,} / {gt_mask.size:,} ({100 * total_pixels_gt / gt_mask.size:.3f}%)")
+            print(f"   Unique classes: {len(unique_gt)}")
+
+            print("\n📊 Predicted Mask Prediction Analysis")
+            print(f"   Valid pixels: {total_pixels_pred_mask_resized:,} / {pred_mask_resized.size:,} ({100 * total_pixels_pred_mask_resized / pred_mask_resized.size:.3f}%)")
+            print(f"   Unique classes: {len(unique_pred_mask_resized)}")
+
+            # GT с палитрой ADE20K
+            gt_color = np.zeros((*gt_mask.shape, 3), dtype=np.uint8)
+            for cls in np.unique(gt_mask):
+                color = get_color_for_class(cls, palette, offset=-1)  # ← offset=-1 для фикса!
+                gt_color[gt_mask == cls] = color
+            axes[1].imshow(gt_color)
+            axes[1].set_title("Ground Truth (ADE20K)")
+
+            # Prediction с палитрой ADE20K
+            pred_color = np.zeros((*pred_mask_resized.shape, 3), dtype=np.uint8)
+            for cls in np.unique(pred_mask_resized):
+                color = get_color_for_class(cls, palette, offset=-1)  # ← Тот же offset!
+                pred_color[pred_mask_resized == cls] = color
+            axes[2].imshow(pred_color)
+            axes[2].set_title("Prediction (твоя модель)")
+
+            plt.tight_layout()
+            plt.savefig(f"{output_dir}/palette_check_{display_name}_{aug_level}.png", dpi=300)
+
+            # Выведи топ-20 классов с именами
+            print("\n🎨 Визуальная проверка (предсказано):")
+            # 🔧 Используем уже вычисленные unique_pred_mask_resized и counts_pred_mask_resized
+            sorted_indices_pred = np.argsort(counts_pred_mask_resized)[::-1][:20]  # Топ-20 по количеству
+            for idx in sorted_indices_pred:
+                cls = unique_pred_mask_resized[idx] - 1
+                cnt = counts_pred_mask_resized[idx]
+                pct: float = 100 * cnt / total_pixels_pred_mask_resized
+                name = get_name_for_class(cls, class_names, offset=0)
+                color = get_color_for_class(cls, palette, offset=0)
+                print(f"   Класс {cls:3d}: {name:20s} → RGB {color}, {cnt:7,} px ({pct:5.3f}%)")
+
+
+            # print("\n🎨 Визуальная проверка (предсказано):")
+            # # Сортируем по убыванию количества пикселей
+            # sorted_pairs = sorted(
+            #     zip(unique_pred_mask_resized, counts_pred_mask_resized),
+            #     key=lambda x: x[1],  # Сортировка по counts
+            #     reverse=True
+            # )[:20]
+
+            # for cls, cnt in sorted_pairs:
+            #     pct: float = 100 * cnt / total_pixels_pred_mask_resized
+            #     name = class_names.get(cls, f"Class_{cls}")
+            #     color = palette[cls] if cls < len(palette) else [0, 0, 0]
+            #     print(f"   Класс {cls:3d}: {name:20s} → RGB {color}, {cnt:7,} px ({pct:5.3f}%)")
+
+            print("\n🎨 Визуальная проверка (ground truth):")
+            # 🔧 Используем уже вычисленные unique_gt и counts_gt
+            sorted_indices_gt = np.argsort(counts_gt)[::-1][:20]  # Топ-20 по количеству
+            for idx in sorted_indices_gt:
+                cls = unique_gt[idx]
+                cnt = counts_gt[idx]
+                pct: float = 100 * cnt / total_pixels_gt
+                name = get_name_for_class(cls, class_names, offset=0)
+                color = get_color_for_class(cls, palette, offset=0)
+                print(f"   Класс {cls:3d}: {name:20s} → RGB {color}, {cnt:7,} px ({pct:5.3f}%)")
+
+            # Топ классы
             del segmenter, pred_mask, pred_info
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
@@ -327,6 +482,7 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
         print("\n❌ Нет результатов для анализа!")
         return None
 
+
     print("\n" + "=" * 80)
     print("РЕЗУЛЬТАТЫ ОЦЕНКИ")
     print("=" * 80)
@@ -334,28 +490,30 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
     df: pd.DataFrame = pd.DataFrame(results)
 
     # Сводная таблица
-    print("\n📊 Сводная таблица метрик (mIoU):")
+    print("\n📊 Сводная таблица метрик (mIoU многоклассовый):")
     pivot_all: pd.DataFrame = df.pivot_table(
-        values=["iou", "dice", "f1_score"],
+        values=["miou", "binary_iou", "dice", "f1_score"],
         index="model",
         columns="augmentation",
         aggfunc="mean",
     )
     print(pivot_all.round(4).to_string())
-    pivot_iou: pd.DataFrame = df.pivot_table(values="iou", index="model", columns="augmentation", aggfunc="mean")
-    print(pivot_iou.round(4).to_string())
+    pivot_miou: pd.DataFrame = df.pivot_table(values="miou", index="model", columns="augmentation", aggfunc="mean")
+    print("\n📊 mIoU (многоклассовый):")
+    print(pivot_miou.round(4).to_string())
 
     # 5. Визуализация
     print("\n📈 Построение графиков...")
-    output_dir = "./data/augmentation_analysis"
+    output_dir = "./data/augmentation_analysis2"
     os.makedirs(output_dir, exist_ok=True)
 
     # График 1: Сравнение IoU по уровням аугментаций
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    fig, axes = plt.subplots(2, 4, figsize=(18, 10))
     axes = axes.flatten()
 
     metrics_to_plot: List[str] = [
-        "iou",
+        "miou",
+        "binary_iou",
         "dice",
         "f1_score",
         "precision",
@@ -363,7 +521,8 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
         "accuracy",
     ]
     metric_names: Dict[str, str] = {
-        "iou": "IoU",
+        "miou": "mIoU (multi-class)",
+        "binary_iou": "IoU (binary)",
         "dice": "Dice",
         "f1_score": "F1-Score",
         "precision": "Precision",
@@ -405,10 +564,10 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
 
     # График 2: Сравнение mIoU по моделям и аугментациям
     plt.figure(figsize=(14, 6))
-    sns.barplot(data=df, x="model", y="iou", hue="augmentation", palette="viridis")
+    sns.barplot(data=df, x="model", y="miou", hue="augmentation", palette="viridis")
     plt.xticks(rotation=45, ha="right")
-    plt.ylabel("mIoU")
-    plt.title("Влияние аугментаций на качество сегментации (mIoU)")
+    plt.ylabel("mIoU (multi-class)")
+    plt.title("Влияние аугментаций на качество сегментации (многоклассовый mIoU)")
     plt.tight_layout()
     plt.savefig(f"{output_dir}/augmentation_impact_miou.png", dpi=300, bbox_inches="tight")
     plt.close()
@@ -416,7 +575,7 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
 
     # График 3: Heatmap прироста
     plt.figure(figsize=(10, 8))
-    pivot_gain: pd.DataFrame = pivot_iou.copy()
+    pivot_gain: pd.DataFrame = pivot_miou.copy()
     if "none" in pivot_gain.columns:
         for col in ["basic", "medium"]:
             if col in pivot_gain.columns:
@@ -433,7 +592,7 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
 
     # График 4: Heatmap прироста
     fig, ax = plt.subplots(figsize=(12, 8))
-    heatmap_data: pd.DataFrame = df.pivot_table(index="model", columns="augmentation", values="iou", aggfunc="first")
+    heatmap_data: pd.DataFrame = df.pivot_table(index="model", columns="augmentation", values="miou", aggfunc="first")
 
     sns.heatmap(
         heatmap_data,
@@ -442,16 +601,16 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
         cmap="YlOrRd",
         linewidths=0.5,
         ax=ax,
-        cbar_kws={"label": "IoU Score"},
+        cbar_kws={"label": "mIoU Score"},
     )
 
-    ax.set_title("Влияние аугментаций на IoU", fontsize=14, fontweight="bold")
+    ax.set_title("Влияние аугментаций на mIoU", fontsize=14, fontweight="bold")
     ax.set_xlabel("Уровень аугментаций")
     ax.set_ylabel("Модель")
 
     plt.tight_layout()
-    plt.savefig(f"{output_dir}/augmentation_heatmap_iou.png", dpi=300, bbox_inches="tight")
-    print(f"   ✅ Heatmap сохранен: {output_dir}/augmentation_heatmap_iou.png")
+    plt.savefig(f"{output_dir}/augmentation_heatmap_miou.png", dpi=300, bbox_inches="tight")
+    print(f"   ✅ Heatmap сохранен: {output_dir}/augmentation_heatmap_miou.png")
     plt.close()
 
     # График 5: Сравнение времени выполнения
@@ -475,9 +634,9 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
     for model in df_analysis["model"].unique():
         model_data: pd.DataFrame = df_analysis[df_analysis["model"] == model]
 
-        none_iou = model_data[model_data["augmentation"] == "none"]["iou"].values
-        basic_iou = model_data[model_data["augmentation"] == "basic"]["iou"].values
-        medium_iou = model_data[model_data["augmentation"] == "medium"]["iou"].values
+        none_iou = model_data[model_data["augmentation"] == "none"]["miou"].values
+        basic_iou = model_data[model_data["augmentation"] == "basic"]["miou"].values
+        medium_iou = model_data[model_data["augmentation"] == "medium"]["miou"].values
 
         if len(none_iou) > 0 and len(basic_iou) > 0:
             basic_gain: float = (basic_iou[0] - none_iou[0]) * 100
@@ -543,9 +702,9 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
     print("=" * 80)
 
     # Средний mIoU по уровням аугментаций
-    avg_none: float = df[df["augmentation"] == "none"]["iou"].mean()
-    avg_basic: float = df[df["augmentation"] == "basic"]["iou"].mean()
-    avg_medium: float = df[df["augmentation"] == "medium"]["iou"].mean()
+    avg_none: float = df[df["augmentation"] == "none"]["miou"].mean()
+    avg_basic: float = df[df["augmentation"] == "basic"]["miou"].mean()
+    avg_medium: float = df[df["augmentation"] == "medium"]["miou"].mean()
 
     print("\n📊 Средний mIoU по уровням аугментаций:")
     print(f"   None:   {avg_none:.4f}")
@@ -553,13 +712,13 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
     print(f"   Medium: {avg_medium:.4f} (прирост: {(avg_medium - avg_none) * 100:+.2f}%)")
 
     # Лучшая комбинация
-    best_idx = df["iou"].idxmax()
+    best_idx = df["miou"].idxmax()
     best_row: pd.Series = df.loc[best_idx]
 
     print("\n🏆 Лучшая комбинация:")
     print(f"   Модель: {best_row['model']}")
     print(f"   Аугментации: {best_row['augmentation']}")
-    print(f"   mIoU: {best_row['iou']:.4f}")
+    print(f"   mIoU (multi-class): {best_row['miou']:.4f}")
 
     # Экспорт результатов
     df.to_csv(f"{output_dir}/augmentation_impact_results.csv", index=False)
@@ -571,13 +730,13 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
         f.write("# Отчёт: Влияние аугментаций на качество сегментации\n\n")
         f.write(f"Дата: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}\n\n")
         f.write("## Сводная таблица mIoU\n\n")
-        f.write(pivot_iou.round(4).to_markdown() + "\n\n")
+        f.write(pivot_miou.round(4).to_markdown() + "\n\n")
         f.write("## Статистика\n\n")
         f.write(f"- Средний mIoU (None): {avg_none:.4f}\n")
         f.write(f"- Средний mIoU (Basic): {avg_basic:.4f}\n")
         f.write(f"- Средний mIoU (Medium): {avg_medium:.4f}\n\n")
         f.write(f"### Лучшая комбинация: `{best_row['model']}_{best_row['augmentation']}`\n")
-        f.write(f"- mIoU: **{best_row['iou']:.4f}**\n")
+        f.write(f"- mIoU: **{best_row['miou']:.4f}**\n")
 
     print(f"📄 Отчёт сохранён: {report_path}")
 
@@ -587,7 +746,7 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
 # ──────────────────────────────────────────────────────────────────────
 def save_augmentation_comparison_grid(
     overlay_images: Dict[str, Image.Image],
-    output_dir: PathLike = "./data/augmentation_analysis",
+    output_dir: PathLike = "./data/augmentation_analysis2",
     model_names: Optional[List[str]] = None,
 ) -> None:
     """Создаёт единую сетку сравнения всех моделей.
@@ -623,7 +782,7 @@ def save_augmentation_comparison_grid(
         return
 
     n_models: int = len(models)
-    fig, axes = plt.subplots(n_models, 3, figsize=(15, 5 * n_models), squeeze=False)
+    _, axes = plt.subplots(n_models, 3, figsize=(15, 5 * n_models), squeeze=False)
 
     for row, model in enumerate(models):
         for col, aug in enumerate(["none", "basic", "medium"]):
@@ -650,14 +809,12 @@ def save_augmentation_comparison_grid(
                 ax.set_title(f"{aug.upper()}", fontsize=10, fontweight="bold", color="gray")
                 ax.axis("off")
 
-        axes[row, 0].set_ylabel(
-            model.upper(),
-            rotation=0,
-            labelpad=60,
-            fontsize=11,
-            fontweight="bold",
-            ha="right",
-            va="center",
+        axes[row, 0].text(
+            -0.08, 0.5, model.upper(),
+            ha="right", va="center",
+            transform=axes[row, 0].transAxes,
+            fontsize=11, fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="gray", alpha=0.7)
         )
 
     plt.suptitle(
