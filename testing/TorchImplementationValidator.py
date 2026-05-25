@@ -169,29 +169,29 @@ class TorchImplementationValidator:
         # ──────────────────────────────────────────────────────────────
         self.threshold_methods: List[MethodConfig] = [
             ("global_thresholding", {"threshold": 0.5}),
-            # ("otsu_thresholding", {}),
-            # ("adaptive_thresholding", {"block_size": 11, "C": 2}),
-            # ("threshold_niblack", {"window_size": 15, "k": -0.2}),
-            # ("threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128}),
-            # ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
-            # (
-            #     "threshold_phansalkar",
-            #     {
-            #         "window_size": 15,
-            #         "k": 0.25,  # чувствительность
-            #         "r": 128.0,  # динамический диапазон [0, 255]
-            #         "m": 0.5,  # смещение
-            #     },
-            # ),
-            # ("threshold_kittler_illingworth", {"num_bins": 256}),
-            # ("threshold_entropy_kapur", {"num_bins": 256}),
-            # ("threshold_triangle", {"num_bins": 256}),
-            # ("threshold_multi_otsu", {"n_thresholds": 2}),
-            # ("threshold_percentile", {"percentile": 90}),
-            # (
-            #     "threshold_local_contrast",
-            #     {"window_size": 15, "contrast_factor": 0.1},
-            # ),
+            ("otsu_thresholding", {}),
+            ("adaptive_thresholding", {"block_size": 11, "C": 2}),
+            ("threshold_niblack", {"window_size": 15, "k": -0.2}),
+            ("threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128}),
+            ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
+            (
+                "threshold_phansalkar",
+                {
+                    "window_size": 15,
+                    "k": 0.25,  # чувствительность
+                    "r": 128.0,  # динамический диапазон [0, 255]
+                    "m": 0.5,  # смещение
+                },
+            ),
+            ("threshold_kittler_illingworth", {"num_bins": 256}),
+            ("threshold_entropy_kapur", {"num_bins": 256}),
+            ("threshold_triangle", {"num_bins": 256}),
+            ("threshold_multi_otsu", {"n_thresholds": 2}),
+            ("threshold_percentile", {"percentile": 90}),
+            (
+                "threshold_local_contrast",
+                {"window_size": 15, "contrast_factor": 0.1},
+            ),
         ]
 
         self.edge_methods: List[MethodConfig] = [
@@ -389,7 +389,7 @@ class TorchImplementationValidator:
             if mask.max() <= 1.0 + 1e-6:  # Нормализованная [0,1]
                 mask = (mask * 255).astype(np.uint8)
             else:
-                mask = mask.astype(np.uint8)
+                mask = np.clip(mask, 0, 255).astype(np.uint8)
         elif mask.dtype != np.uint8:
             mask = mask.astype(np.uint8)
 
@@ -442,15 +442,15 @@ class TorchImplementationValidator:
         prepared.setdefault("is_neural", False)  # Для классических методов
 
         # TRT специфичные настройки
-        if segmenter_class == TRTSegmenter:
-            prepared.setdefault(
-                "trt_config",
-                {
-                    "max_workspace_size": 1 << 30,  # 1GB
-                    "fp16_mode": (precision in ["fp16", "bf16"]),
-                    "int8_mode": False,
-                },
-            )
+        # if segmenter_class == TRTSegmenter:
+        #     prepared.setdefault(
+        #         "trt_config",
+        #         {
+        #             "max_workspace_size": 1 << 30,  # 1GB
+        #             "fp16_mode": (precision in ["fp16", "bf16"]),
+        #             "int8_mode": False,
+        #         },
+        #     )
 
         return prepared
 
@@ -502,8 +502,7 @@ class TorchImplementationValidator:
             raise FileNotFoundError(f"Модель не найдена: {model_path}")
         return model_path
 
-        # ──────────────────────────────────────────────────────────────────────
-
+    # ──────────────────────────────────────────────────────────────────────
     # НОВЫЕ МЕТОДЫ ДЛЯ ВАЛИДАЦИИ С БЭКЕНДАМИ (ONNX/TRT)
     # ──────────────────────────────────────────────────────────────────────
 
@@ -848,7 +847,6 @@ class TorchImplementationValidator:
                 try:
                     # Проверка: это бэкенд-сегментер (ONNX/TRT)?
                     if second_segmenter_class.__name__ in ("ONNXSegmenter", "TRTSegmenter"):
-                        # 🔥 Специальная инициализация для бэкендов
 
                         precision = ref_params.get("precision", "fp32")
                         backend = "onnx" if second_segmenter_class.__name__ == "ONNXSegmenter" else "tensorrt"
@@ -1148,8 +1146,15 @@ class TorchImplementationValidator:
 
             mask_a = data["first_method_mask"]
             mask_b = data["second_method_mask"]
-            mask_a_np = np.squeeze(mask_a)
-            mask_b_np = np.squeeze(mask_b)
+            # mask_a_np = np.squeeze(mask_a)
+            # mask_b_np = np.squeeze(mask_b)
+            mask_a_np = np.asarray(mask_a)      # ✅ Гарантируем тип, но не меняем форму
+            mask_b_np = np.asarray(mask_b)
+
+            logger.info(f"🔍 [{method}] Mask A: shape={mask_a.shape}, dtype={mask_a.dtype}, "
+             f"range=[{mask_a.min()}, {mask_a.max()}], unique={np.unique(mask_a)[:10]}")
+            logger.info(f"🔍 [{method}] Mask B: shape={mask_b.shape}, dtype={mask_b.dtype}, "
+                        f"range=[{mask_b.min()}, {mask_b.max()}], unique={np.unique(mask_b)[:10]}")
 
             metrics: Dict[str, Any] = data["metrics"]
             status: str = data["validation_status"]
@@ -1287,12 +1292,12 @@ class TorchImplementationValidator:
         report_lines.append("=" * 60)
         report: str = "\n".join(report_lines)
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_path: str = os.path.join(self.output_dir, f"validation_report_{timestamp}.txt")
+        report_path: str = os.path.join(self.output_dir, f"validation_report_{timestamp}.md")
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report)
         print(f"\n📄 Отчёт сохранён: {report_path}")
         print("\n" + report)
-        return report
+        return report_path
 
     # ──────────────────────────────────────────────────────────────────────
     def validate_all_methods(

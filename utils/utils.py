@@ -53,7 +53,6 @@ import torch
 import numpy as np
 import pandas as pd
 from typing import Optional, Dict, Any, Union, List, Tuple, TypeAlias
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 
 import logging
 
@@ -70,8 +69,6 @@ project_root: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from metrics.SegmentationMetrics import SegmentationMetrics
-
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES
 # ──────────────────────────────────────────────────────────────────────
@@ -83,48 +80,6 @@ LogitsTensor: TypeAlias = Union[torch.Tensor, Dict[str, torch.Tensor], Tuple[tor
 
 ClassNamesDict: TypeAlias = Optional[Dict[Union[int, str], str]]
 """Словарь `{класс: имя}` для отображения человекочитаемых названий, dtype=Optional[Dict[Union[int, str], str]]."""
-
-
-# ──────────────────────────────────────────────────────────────────────
-# def compute_metrics(
-#     pred_mask: np.ndarray,
-#     gt_mask: Optional[np.ndarray] = None,
-#     num_classes: int = 150,
-#     ignore_index: int = 255,
-#     threshold: float = 0.5,
-#     include_hausdorff: bool = False,
-# ) -> Dict[str, Any]:
-#     """Wrapper для SegmentationMetrics.compute_segmentation_metrics().
-
-#     ⚠️  DEPRECATED: Используйте напрямую SegmentationMetrics.compute_segmentation_metrics()
-
-#     Оставлен для обратной совместимости со старым кодом.
-#     """
-#     if gt_mask is None:
-#         return {
-#             "mIoU": np.nan,
-#             "pixel_acc": np.nan,
-#             "f1_weighted": np.nan,
-#             "per_class_iou": [np.nan] * num_classes,
-#             "confusion_matrix": None,
-#             "unique_pred_classes": len(np.unique(pred_mask)),
-#             "valid_pixels": 0,
-#         }
-
-#     # Делегируем SegmentationMetrics
-#     metrics = SegmentationMetrics.compute_segmentation_metrics(
-#         pred_mask=pred_mask,
-#         gt_mask=gt_mask,
-#         num_classes=num_classes,
-#         ignore_index=ignore_index,
-#         include_confusion_matrix=True,
-#         include_hausdorff=include_hausdorff,
-#     )
-
-#     # Добавляем поля для совместимости со старым API
-#     metrics["unique_pred_classes"] = len(np.unique(pred_mask))
-#     metrics["valid_pixels"] = int(np.sum(gt_mask != ignore_index))
-#     return metrics
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -205,6 +160,12 @@ def extract_logits_info(
             return {
                 "type": "SAM (instance masks)",
                 "note": "No class logits — promptable instance segmentation",
+            }
+        elif model_type in ["yolov8", "yolov8n_seg", "yolov8s_seg", "yolov8m_seg"]:
+            return {
+                "type": "YOLOv8 (instance)",
+                "note": "No class logits — instance segmentation with masks",
+                "output_structure": "list[Results] with 'masks', 'boxes', 'scores'",
             }
         elif model_type in [
             "unet_smp",

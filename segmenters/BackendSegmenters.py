@@ -72,7 +72,7 @@ if TYPE_CHECKING:
 
 # Настройка логгера
 logger: logging.Logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 if not logger.handlers:
     handler: logging.StreamHandler = logging.StreamHandler()
     formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -105,6 +105,9 @@ NormalizationType: TypeAlias = Literal["imagenet", "none", "custom"]
 
 InputShape: TypeAlias = Tuple[int, int, int, int]
 """Размер исходного изображения, dtype=Tuple[int, int, int, int]."""
+
+PrecisionType: TypeAlias = Literal["fp32", "fp16", "bf16"]
+"""Тип для указания точности вычислений, dtype=Literal["fp32", "fp16", "bf16"]."""
 
 
 def _is_neural_by_key(model_key: str) -> bool:
@@ -145,6 +148,10 @@ class ONNXSegmenter(BaseSegmenter):
         mean: Optional[List[float]] = None,
         std: Optional[List[float]] = None,
         is_neural: Optional[bool] = None,
+        use_tensorrt_ep: bool = False,
+        trt_options: Optional[Dict[str, Any]] = None,
+        trt_cache_path: Optional[str] = None,
+        precision: PrecisionType = "fp32",
         **kwargs: Any,
     ) -> None:
         """Инициализация ONNX сегментера.
@@ -159,6 +166,10 @@ class ONNXSegmenter(BaseSegmenter):
             mean: Среднее (может быть None).
             std: Среднеквадратичное отклонение (может быть None).
             is_neural: Флаг проверки на нейронную модель.
+            use_tensorrt_ep: Использовать TensorRT Execution Provider.
+            trt_options: Опции для TensorRT EP.
+            trt_cache_path: Путь для кэша TRT engine.
+            precision: Точность вычислений для TRT ("fp32", "fp16", "bf16").
             **kwargs: Дополнительные параметры.
         """
         super().__init__()
@@ -168,13 +179,46 @@ class ONNXSegmenter(BaseSegmenter):
         self.device: torch.device = torch.device(device)
         self.input_shape: InputShape = input_shape
         self.is_neural: bool = is_neural if is_neural is not None else _is_neural_by_key(model_key)
+
+        self.use_tensorrt_ep: bool = use_tensorrt_ep
+        self.trt_options: Optional[Dict[str, Any]] = trt_options
+        self.trt_cache_path: Optional[str] = trt_cache_path
+        self.precision: PrecisionType = precision
+
         try:
             import onnxruntime as ort
         except ImportError:
             raise ImportError("onnxruntime-gpu не установлен: pip install onnxruntime-gpu")
-        providers: List[OnnxProvider] = (
-            [
-                (
+        
+        # ──────────────────────────────────────────────────────────────
+        # Формирование списка провайдеров с поддержкой TRT EP
+        # ──────────────────────────────────────────────────────────────
+        providers: List[OnnxProvider] = []
+
+        if self.device.type == "cuda" and self.use_tensorrt_ep:
+            if "TensorrtExecutionProvider" in ort.get_available_providers():
+                # Базовые опции для TRT EP
+                trt_ep_opts: Dict[str, Any] = {
+                    "device_id": 0,
+                    "trt_fp16_enable": (precision in ["fp16", "bf16"]),
+                    "trt_int8_enable": False,
+                    # "trt_engine_cache_enable": True,
+                    # "trt_engine_cache_path": trt_cache_path or f"./trt_cache/{precision}/{model_key}",
+                    # "trt_timing_cache_enable": True,
+                    # "trt_timing_cache_path": trt_cache_path or f"./trt_cache/{precision}/{model_key}/timing",
+                    "trt_engine_cache_enable": False,      # ← Ключевое!
+                    "trt_timing_cache_enable": False,      # ← И это!
+                    "trt_builder_optimization_level": 5,
+                    "trt_max_workspace_size": 1 << 30,  # 1GB
+                }
+                # Объединяем с пользовательскими опциями
+                if trt_options:
+                    trt_ep_opts.update({k: v for k, v in trt_options.items() if k not in trt_ep_opts})
+                
+                providers.append(("TensorrtExecutionProvider", trt_ep_opts))
+                
+                # CUDA EP как fallback
+                providers.append((
                     "CUDAExecutionProvider",
                     {
                         "device_id": 0,
@@ -185,19 +229,60 @@ class ONNXSegmenter(BaseSegmenter):
                         # "cudnn_conv_use_max_workspace": True,
                         "do_copy_in_default_stream": True,
                     },
-                ),
-                "CPUExecutionProvider",
-            ]
-            if self.device.type == "cuda"
-            else ["CPUExecutionProvider"]
-        )
+                ))
+                logger.info(f"✅ {model_key}: активирован TensorrtExecutionProvider ({precision})")
+            else:
+                logger.warning(f"⚠️ {model_key}: TensorrtExecutionProvider не доступен, используем CUDA EP")
+                providers.append((
+                    "CUDAExecutionProvider",
+                    {
+                        "device_id": 0,
+                        "arena_extend_strategy": "kNextPowerOfTwo",
+                        "cudnn_conv_algo_search": "EXHAUSTIVE",
+                        # "do_copy_in_default_stream": False,  # ← Разрешить non-default stream
+                        # "enable_cuda_graph": True,  # ← Опционально: CUDA Graphs для ускорения
+                        # "cudnn_conv_use_max_workspace": True,
+                        "do_copy_in_default_stream": True,
+                    },
+                ))
+        elif self.device.type == "cuda":
+            # Стандартный CUDA EP без TRT
+            providers.append((
+                "CUDAExecutionProvider",
+                {
+                    "device_id": 0,
+                    "arena_extend_strategy": "kNextPowerOfTwo",
+                    "cudnn_conv_algo_search": "EXHAUSTIVE",
+                    "do_copy_in_default_stream": True,
+                },
+            ))
+        
+        # CPU как последний fallback
+        providers.append("CPUExecutionProvider")
+        
+        # ──────────────────────────────────────────────────────────────
+        # Создание сессии
+        # ──────────────────────────────────────────────────────────────
         sess_options: ort.SessionOptions = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         sess_options.enable_mem_pattern = True
 
+        self.sess_options = sess_options
+
         self.session: ONNXSession = ort.InferenceSession(onnx_path, sess_options=sess_options, providers=providers)
         self.input_name: str = self.session.get_inputs()[0].name
         self.output_name: str = self.session.get_outputs()[0].name
+
+        print(f"🔍 Available outputs: {[o.name for o in self.session.get_outputs()]}")
+        print(f"🔍 Expected output_name: {self.output_name}")
+
+        test_input = np.random.randn(*input_shape).astype(np.float32)
+        test_output = self.session.run(None, {self.input_name: test_input})
+        logger.info(f"Test run: output shape={test_output[0].shape if test_output else None}, "
+            f"has_nan={np.isnan(test_output[0]).any() if test_output else 'N/A'}")
+        
+        if not self._validate_session():
+            logger.warning(f"⚠️ {model_key}: сессия не прошла валидацию, возможны проблемы при инференсе")
 
         # Проверяем реальный output shape из модели
         out_shape: Tuple[Union[str, int], ...] = self.session.get_outputs()[0].shape
@@ -217,6 +302,21 @@ class ONNXSegmenter(BaseSegmenter):
         else:
             self.mean = None
             self.std = None
+
+    def _validate_session(self) -> bool:
+        """Проверка работоспособности сессии."""
+        try:
+            test_input = np.random.randn(*self.input_shape).astype(np.float32)
+            outputs = self.session.run(None, {self.input_name: test_input})
+            if outputs and outputs[0] is not None:
+                logger.info(f"✅ Session validation OK: {outputs[0].shape}")
+                return True
+            else:
+                logger.error(f"❌ Session validation failed: empty output")
+                return False
+        except Exception as e:
+            logger.error(f"❌ Session validation error: {e}")
+            return False
 
     def _preprocess_classic(self, image: npt.NDArray[np.uint8]) -> PreprocessedTensor:
         """Конвертирует изображение в формат (1, 3, H, W), float32, [0, 1].
@@ -298,10 +398,10 @@ class ONNXSegmenter(BaseSegmenter):
             else:
                 tensor = self._preprocess_classic(image_np)
             outputs: List[RawOutput] = self.session.run([self.output_name], {self.input_name: tensor})
-            logits: RawOutput = outputs[0]  # (1, C, H, W) или (1, H, W)
             if not outputs or outputs[0] is None:
-                logger.error(f"ONNX '{self.method}' returned None output")
+                logger.error(f"ONNX '{self.method}' returned None/empty output")
                 return np.zeros((orig_h, orig_w), dtype=np.uint8)
+            logits: RawOutput = outputs[0]  # (1, C, H, W) или (1, H, W)
 
             # 3. Интеллектуальная пост-обработка
             # Case A: Нейросеть (Batch, Channels, H, W)
@@ -415,13 +515,53 @@ class ONNXSegmenter(BaseSegmenter):
             # ──────────────────────────────────────────────────────────────
             # 3. Инференс модели
             # ──────────────────────────────────────────────────────────────
+            # outputs: List[RawOutput] = self.session.run([self.output_name], {self.input_name: tensor_np})
+
+            # if not outputs or outputs[0] is None:
+            #     logger.error(f"ONNX '{self.method}' returned None output")
+            #     return image_np.copy(), np.zeros((orig_h, orig_w), dtype=np.uint8)
+
+            # logits: RawOutput = outputs[0]
+
+            logger.debug(f"=== ONNX Inference Debug ===")
+            logger.debug(f"Input: name={self.input_name}, shape={tensor_np.shape}, dtype={tensor_np.dtype}, range=[{tensor_np.min():.3f}, {tensor_np.max():.3f}]")
+            logger.debug(f"Output expected: name={self.output_name}, shape={self.session.get_outputs()[0].shape}")
+            logger.debug(f"Active providers: {self.session.get_providers()}")
+            logger.debug(f"Session options: graph_opt={self.sess_options.graph_optimization_level}")
+
+            if not tensor_np.flags['C_CONTIGUOUS']:
+                logger.warning("⚠️ Input tensor not C-contiguous, making copy")
+                tensor_np = np.ascontiguousarray(tensor_np)
+
             outputs: List[RawOutput] = self.session.run([self.output_name], {self.input_name: tensor_np})
-
             if not outputs or outputs[0] is None:
-                logger.error(f"ONNX '{self.method}' returned None output")
-                return image_np.copy(), np.zeros((orig_h, orig_w), dtype=np.uint8)
+                logger.error(f"❌ session.run returned empty/None!")
+                logger.error(f"Available outputs: {[o.name for o in self.session.get_outputs()]}")
+                all_outputs = self.session.run(None, {self.input_name: tensor_np})
+                logger.error(f"All outputs count: {len(all_outputs) if all_outputs else 0}")
 
-            logits: RawOutput = outputs[0]
+                logger.info(f"  Input: shape={tensor_np.shape}, dtype={tensor_np.dtype}, range=[{tensor_np.min():.3f}, {tensor_np.max():.3f}]")
+                logger.info(f"  Providers: {self.session.get_providers()}")
+                
+                # 🔧 Fallback: попробовать с явным именем выхода
+                try:
+                    outputs = self.session.run([self.output_name], {self.input_name: tensor_np})
+                    logger.info(f"  Retry with explicit output name: {len(outputs) if outputs else 'None'} outputs")
+                    if outputs and outputs[0] is not None:
+                        logger.info(f"✅ Fallback succeeded for {self.method}")
+                    else:
+                        logger.warning(f"⚠️ Fallback also failed for {self.method}")
+                except Exception as e:
+                    logger.error(f"  Fallback error: {e}")
+                return image_np.copy(), np.zeros((orig_h, orig_w), dtype=np.uint8)
+            logits: RawOutput = outputs[0]  # (1, C, H, W) или (1, H, W)
+            if np.isnan(logits).any() or np.isinf(logits).any():
+                logger.warning(f"⚠️ Logits contain NaN/Inf: nan={np.isnan(logits).sum()}, inf={np.isinf(logits).sum()}")
+                logits = np.nan_to_num(logits, nan=0.0, posinf=1.0, neginf=0.0)
+
+            logger.info(f"Output: shape={logits.shape}, dtype={logits.dtype}, "
+                 f"range=[{logits.min():.3f}, {logits.max():.3f}], has_nan={np.isnan(logits).any()}")
+
 
             # ──────────────────────────────────────────────────────────────
             # 4. Интеллектуальная пост-обработка (аналогично segment)
@@ -673,31 +813,11 @@ class TRTSegmenter(BaseSegmenter):
         orig_h, orig_w = image_np.shape[:2]
         try:
             if self.is_neural:
-                # Используем _preprocess_torch с ImageNet нормализацией
-                tensor: torch.Tensor = self._preprocess_torch(image_np)
+                tensor_np = self._preprocess_neural(image_np)
             else:
-                # 2. Безопасная предобработка [0, 1]
-                # Для классики это то, что нужно.
-                # Для нейросетей: если модель обучалась на ImageNet,
-                # лучше встроить нормализацию внутрь ONNX/TRT графа при экспорте.
-                if image_np.ndim == 2:
-                    image_np = np.stack([image_np] * 3, axis=-1)
+                tensor_np = self._preprocess_classic(image_np)
 
-                h_t, w_t = self.input_shape[2], self.input_shape[3]
-                if image_np.shape[:2] != (h_t, w_t):
-                    pil: Image.Image = PILImage.fromarray(image_np.astype(np.uint8))
-                    image_np = np.array(pil.resize((w_t, h_t), PILImage.Resampling.BILINEAR))
-
-                # Нормализация
-                if getattr(self, "normalization_in_graph", False):
-                    tensor_np: npt.NDArray[np.float32] = image_np.astype(np.float32) / 255.0
-                elif self.mean is not None and self.std is not None:
-                    tensor_np = (image_np.astype(np.float32) / 255.0 - self.mean) / self.std
-                else:
-                    tensor_np = image_np.astype(np.float32) / 255.0
-
-                tensor_np = np.transpose(tensor_np, (2, 0, 1))  # HWC → CHW
-                tensor = torch.from_numpy(tensor_np).unsqueeze(0).to(self.device)
+            tensor = torch.from_numpy(tensor_np).to(self.device) if isinstance(tensor_np, np.ndarray) else tensor_np
 
             # 3. Инференс
             use_stream: bool = kwargs.get("use_cuda_stream", True)
@@ -717,31 +837,61 @@ class TRTSegmenter(BaseSegmenter):
                 with torch.no_grad():
                     out = self.model(tensor)
 
-            out_np: np.ndarray = out.cpu().float().numpy()
+            if isinstance(out, torch.Tensor):
+                out_np: np.ndarray = out.cpu().float().numpy()
+            elif isinstance(out, np.ndarray):
+                out_np = out.astype(np.float32)
+            elif isinstance(out, (list, tuple)):
+                # Если модель возвращает несколько выходов, берём первый
+                first = out[0]
+                if isinstance(first, torch.Tensor):
+                    out_np = first.cpu().float().numpy()
+                else:
+                    out_np = np.asarray(first, dtype=np.float32)
+            else:
+                # Fallback: пытаемся конвертировать в массив
+                out_np = np.asarray(out, dtype=np.float32)
+
+            # 🔧 FIX: Явное приведение типов для linter
+            out_np = cast(np.ndarray, out_np)
 
             # 4. Интеллектуальная пост-обработка (аналогично ONNX)
             if out_np.ndim == 4 and out_np.shape[1] > 1:
                 # Multi-class
+                # Case A: Нейросеть (Batch, Channels, H, W)
                 mask: np.ndarray = out_np[0].argmax(axis=0).astype(np.uint8)
-            else:
-                # Binary / Mask
-                if out_np.ndim == 4:
-                    mask = out_np[0, 0]
-                elif out_np.ndim == 3:
-                    mask = out_np[0]
+            # Case B: Бинарная нейросеть или классика (Batch, 1, H, W) или (Batch, H, W)
+            elif out_np.ndim == 4 and out_np.shape[1] == 1:
+                mask = out_np[0, 0]
+                if mask.max() <= 1.0:
+                    mask = (mask > 0.5).astype(np.uint8) * 255
                 else:
-                    mask = out_np
-
+                    mask = mask.astype(np.uint8)
+            elif out_np.ndim == 3:
+                # (1, H, W)
+                mask = out_np[0]
                 if mask.max() <= 1.0:
                     mask = (mask > 0.5).astype(np.uint8) * 255
                 else:
                     mask = mask.astype(np.uint8)
 
+            # Case C: Уже маска (H, W)
+            elif out_np.ndim == 2:
+                mask = out_np
+                if mask.max() <= 1.0:
+                    mask = (mask > 0.5).astype(np.uint8) * 255
+                else:
+                    mask = mask.astype(np.uint8)
+
+            else:
+                # Fallback
+                mask = out_np.flatten().reshape((orig_h, orig_w)).astype(np.uint8)
+
             # 5. Ресайз
             if mask.shape != (orig_h, orig_w):
                 sh, sw = orig_h / mask.shape[0], orig_w / mask.shape[1]
                 mask = zoom(mask, (sh, sw), order=0).astype(np.uint8)
-            return mask.astype(np.uint8)
+            return cast(BinaryMask, mask)
 
         except Exception as e:
             logger.error(f"TRT '{self.method}' inference error: {e}")
@@ -814,7 +964,6 @@ class TRTSegmenter(BaseSegmenter):
             # 2. Предобработка (аналогично методу segment)
             # ──────────────────────────────────────────────────────────────
             if self.is_neural:
-                # tensor: torch.Tensor = self._preprocess_torch(image_np)
                 tensor_np = self._preprocess_neural(image_np)
             else:
                 tensor_np = self._preprocess_classic(image_np)
@@ -883,13 +1032,7 @@ class TRTSegmenter(BaseSegmenter):
                         prob_mask = probs.astype(np.float32)
             else:
                 # Binary
-                if logits.ndim == 4:
-                    raw_mask = logits[0, 0]
-                elif logits.ndim == 3:
-                    raw_mask = logits[0]
-                else:
-                    raw_mask = logits
-
+                raw_mask = logits[0, 0] if logits.ndim == 4 else (logits[0] if logits.ndim == 3 else logits)
                 if raw_mask.max() <= 1.0:
                     mask = (raw_mask > prob_threshold).astype(np.uint8) * 255
                 else:
@@ -899,6 +1042,7 @@ class TRTSegmenter(BaseSegmenter):
                         prob_mask = raw_mask.astype(np.float32)
                     else:
                         prob_mask = 1.0 / (1.0 + np.exp(-np.clip(raw_mask.astype(np.float32), -50, 50)))
+
 
             # ──────────────────────────────────────────────────────────────
             # 5. Ресайз масок к оригинальному размеру изображения

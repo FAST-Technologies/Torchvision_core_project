@@ -70,6 +70,8 @@ import time
 import numpy as np
 from typing import TypedDict, List, Dict, Any, Tuple, TypeAlias
 
+import torch
+
 import logging
 
 # Настройка логгера
@@ -104,7 +106,6 @@ class WarmupMetrics(TypedDict):
     mean_ms: float
     std_ms: float
     n_runs: int
-
 
 # ──────────────────────────────────────────────────────────────────────
 class SizeResults(TypedDict):
@@ -161,6 +162,7 @@ class ThresholdWarmUp:
         image_sizes: List[Tuple[int, int]] = [(128, 128), (256, 256), (512, 512)],
         n_runs_per_size: int = 2,
         use_return_info: bool = False,
+        reset_cuda_after_method: bool = True,
     ) -> Dict[str, SizeResults]:
         """Прогрев пороговых методов на изображениях разного размера.
 
@@ -193,31 +195,31 @@ class ThresholdWarmUp:
         """
         threshold_keywords: List[str] = [
             "global_thresholding",
-            # "global_threshold",
-            # "otsu_thresholding",
-            # "otsu",
-            # "adaptive_thresholding",
-            # "adaptive_threshold",
-            # "threshold_niblack",
-            # "niblack",
-            # "threshold_sauvola",
-            # "sauvola",
-            # "threshold_bernsen",
-            # "bernsen",
-            # "threshold_phansalkar",
-            # "phansalkar",
-            # "threshold_percentile",
-            # "percentile",
-            # "threshold_kittler",
-            # "kittler",
-            # "threshold_entropy",
-            # "kapur",
-            # "threshold_triangle",
-            # "triangle",
-            # "threshold_multi_otsu",
-            # "multi_otsu",
-            # "threshold_local_contrast",
-            # "local_contrast",
+            "global_threshold",
+            "otsu_thresholding",
+            "otsu",
+            "adaptive_thresholding",
+            "adaptive_threshold",
+            "threshold_niblack",
+            "niblack",
+            "threshold_sauvola",
+            "sauvola",
+            "threshold_bernsen",
+            "bernsen",
+            "threshold_phansalkar",
+            "phansalkar",
+            "threshold_percentile",
+            "percentile",
+            "threshold_kittler",
+            "kittler",
+            "threshold_entropy",
+            "kapur",
+            "threshold_triangle",
+            "triangle",
+            "threshold_multi_otsu",
+            "multi_otsu",
+            "threshold_local_contrast",
+            "local_contrast",
         ]
 
         results: Dict[str, SizeResults] = {}
@@ -269,8 +271,22 @@ class ThresholdWarmUp:
                     std_ms=float(np.std(times) * 1000),
                     n_runs=len(times),
                 )
+                print("\n⏳ Пауза 10 секунд перед запуском бенчмарка...")
+                print("   (нажмите Ctrl+C для отмены, если нужно)")
+                try:
+                    time.sleep(10)
+                except KeyboardInterrupt:
+                    logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
             results[name] = method_results
             print(f"✅ {name}: {method_results['sizes']}")
+
+            if reset_cuda_after_method and torch.cuda.is_available():
+                try:
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                except Exception:
+                    pass
+
         return results
 
     # ──────────────────────────────────────────────────────────────────────
@@ -280,6 +296,7 @@ class ThresholdWarmUp:
         edge_patterns: List[str] = EdgePatterns,
         n_runs_per_pattern: int = 3,
         use_return_info: bool = False,
+        reset_cuda_after_method: bool = True,
     ) -> Dict[str, PatternResults]:
         """Прогрев граничных методов на различных тестовых паттернах.
 
@@ -387,6 +404,13 @@ class ThresholdWarmUp:
                     )
             results[name] = method_results
             print(f"✅ {name}: {method_results['patterns']}")
+
+            if reset_cuda_after_method and torch.cuda.is_available():
+                try:
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                except Exception:
+                    pass
 
         return results
 

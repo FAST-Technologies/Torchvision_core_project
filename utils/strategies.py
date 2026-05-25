@@ -83,7 +83,6 @@ from utils.utils import (
     export_class_report,
 )
 from utils.palettes import ade_palette
-from utils.paths import ADE20K_DIR, ensure_dirs
 
 import logging
 
@@ -95,7 +94,6 @@ if not logger.handlers:
     formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-
 
 project_root: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
@@ -145,11 +143,7 @@ ModelType: TypeAlias = Literal[
 InferFunc: TypeAlias = Callable[[Any, Any, Image.Image, str], Tuple[MaskArray, Image.Image]]
 """Общий тип функции для инференса, dtype=Callable[[Any, Any, Image.Image, str], Tuple[MaskArray, Image.Image]]."""
 
-project_root: Path = Path(__file__).resolve().parents[1]
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
-
-num_classes: int = 150
+NUM_CLASSES: int = 150
 """Общее число классов датасета, dtype=int."""
 
 
@@ -409,6 +403,9 @@ def infer_sam(model: Any, processor: Any, image: Image.Image, device: str = "cud
 
     # Инференс (без prompts=None!)
     results = model(image)
+
+    logits_info: Dict[str, Any] = extract_logits_info(results, "sam")
+    print(f"📈 SAM logits: {logits_info}")
 
     print("📈 MobileSAM: instance segmentation (no class logits)")
     if results[0].masks is not None:
@@ -742,6 +739,9 @@ def infer_yolov8(
         verbose=False,
     )
 
+    logits_info: Dict[str, Any] = extract_logits_info(results, "yolov8")
+    print(f"📈 YOLOv8 logits: {logits_info}")
+
     # Создаём семантическую карту из инстанс-масок
     semantic_map: np.ndarray = np.zeros((img_h, img_w), dtype=np.uint8)
 
@@ -766,7 +766,7 @@ class SegNet(torch.nn.Module):
     Encoder-Decoder с max pooling indices.
     """
 
-    def __init__(self, num_classes: int = num_classes) -> None:
+    def __init__(self, num_classes: int = NUM_CLASSES) -> None:
         """Инициализация модели SegNet."""
         super().__init__()
 
@@ -865,9 +865,10 @@ def segment_image_unified(
     palette: Optional[Union[List[List[int]], Callable[[], List[List[int]]]]] = None,
     device: str = "cuda",
     verbose: bool = True,
-    num_classes: int = num_classes,
+    num_classes: int = NUM_CLASSES,
     class_names: Optional[Dict[int, str]] = None,
     gt_mask: Optional[MaskArray] = None,
+    output_dir: Optional[str] = "./data/neural_benchmark",
 ) -> Tuple[Image.Image, Dict[str, Any]]:
     """Универсальная функция сегментации для любой архитектуры.
 
@@ -993,7 +994,7 @@ def segment_image_unified(
     # ──────────────────────────────────────────────────────────────
     # 4. Создание overlay-визуализации
     # ──────────────────────────────────────────────────────────────
-    overlay = _create_overlay_standalone(image, seg_map, alpha=alpha, palette=palette)
+    overlay = _create_overlay_standalone(image, seg_map, alpha=alpha, palette=palette, model_type_for_palette=model_type)
     if verbose:
         result_info = _log_inference_details_standalone(
             image=image,
@@ -1005,6 +1006,7 @@ def segment_image_unified(
             num_classes=num_classes,
             initial_time=t0,
             palette=palette,
+            output_dir=output_dir
         )
     else:
         # Минимальный result_info без verbose
@@ -1030,9 +1032,10 @@ def _log_inference_details_standalone(
     model: Any,
     class_names: Optional[Dict[int, str]] = None,
     gt_mask: Optional[MaskArray] = None,
-    num_classes: int = num_classes,
+    num_classes: int = NUM_CLASSES,
     initial_time: float = 0.0,
     palette: Optional[Union[List[List[int]], Callable[[], List[List[int]]]]] = None,
+    output_dir: Optional[str] = "./data/neural_benchmark",
 ) -> Dict[str, Any]:
     """Логирует детали инференса и рассчитывает метрики (если есть GT).
 
@@ -1056,12 +1059,16 @@ def _log_inference_details_standalone(
     print(f"\n🔍 Model: {model_type}")
     print(f"   Mask shape: {seg_map.shape}, dtype: {seg_map.dtype}")
 
-    ensure_dirs(ADE20K_DIR)
-
     unique_classes: np.ndarray = np.unique(seg_map)
     print(
         f"   Predicted classes ({len(unique_classes)}): {unique_classes[:20]}{'...' if len(unique_classes) > 20 else ''}"
     )
+
+    class_index_offset: int = 0  # По умолчанию: без сдвига (для HF-моделей)
+
+    # Наши модели: предсказывают классы 1-150, палитра/имена 0-149 → сдвиг -1
+    if model_type in ["unet_smp", "fpn_smp", "psp_smp", "deeplab_tv", "fcn_tv", "segnet"]:
+        class_index_offset = -1
 
     total_pixels: int = seg_map.size
     print("   Top 5 classes by pixel count:")
@@ -1069,14 +1076,14 @@ def _log_inference_details_standalone(
     for cls in unique_classes:
         count: int = np.sum(seg_map == cls)
         if count > 0:
-            name_idx = int(cls) - 1  # Сдвиг -1
+            name_idx: int = int(cls) + class_index_offset
             if name_idx < 0:
                 name = "Background"
             else:
                 name = class_names.get(name_idx, f"Class_{name_idx}") if class_names else f"Class_{name_idx}"
             pct: float = 100 * count / total_pixels
             class_stats.append((name_idx, name, count, pct))
-            print(f"     Class {name_idx:3d}: {count:6d} px ({pct:5.3f}%)")
+            print(f"     Class {name_idx:3d}: {name:25s} {count:6d} px ({pct:5.3f}%)")
 
     n_classes: Optional[int] = _get_num_classes_standalone(model, model_type, fallback=num_classes)
 
@@ -1107,9 +1114,10 @@ def _log_inference_details_standalone(
         report: Dict[str, Any] = generate_class_report(seg_map, class_names=class_names_fixed)
         print(f"\n📊 Coverage: {report['coverage_pct']}% valid pixels")
         print(f"🏆 Top class: {report['top_class']} ({report['top_class_pct']}%)")
+        output_path: Path = Path(output_dir) if output_dir else Path("./data/neural_benchmark")
         export_class_report(
             report,
-            str(ADE20K_DIR / f"{model_type}_prediction_report.md"),
+            str(output_path / f"{model_type}_prediction_report.md"),
             format="markdown",
         )
     except Exception as e:
@@ -1136,7 +1144,7 @@ def _log_inference_details_standalone(
 
     # Создание overlay
     alpha: float = 0.5
-    overlay: Image.Image = _create_overlay_standalone(image, seg_map, alpha=alpha, palette=palette)
+    overlay: Image.Image = _create_overlay_standalone(image, seg_map, alpha=alpha, palette=palette, model_type_for_palette=model_type)
     inference_time: float = time.perf_counter() - initial_time
 
     return {
@@ -1156,7 +1164,7 @@ def _log_inference_details_standalone(
 def _get_num_classes_standalone(
     model: Any,
     model_type: str,
-    fallback: int = num_classes,
+    fallback: int = NUM_CLASSES,
 ) -> Optional[int]:
     """Безопасно получает число выходных классов из модели.
 
@@ -1198,29 +1206,69 @@ def _get_num_classes_standalone(
 
 
 # ──────────────────────────────────────────────────────────────────────
+# def _create_overlay_standalone(
+#     image: Image.Image,
+#     mask: MaskArray,
+#     alpha: float = 0.5,
+#     palette: Optional[Union[List[List[int]], Callable[[], List[List[int]]]]] = None,
+#     model_type_for_palette: Optional[str] = None,
+# ) -> Image.Image:
+#     """Создаёт визуализацию: оригинал + цветная маска.
+
+#     Алгоритм:
+#     1. Загружает палитру (по умолчанию ADE20K).
+#     2. Для каждого класса назначает цвет из палитры.
+#     3. Блендит оригинал и цветную маску с коэффициентом `alpha`.
+
+#     Args:
+#         image: Оригинальное изображение `PIL.Image` в RGB.
+#         mask: Семантическая маска `[H, W]` с целочисленными метками классов.
+#         alpha: Коэффициент блендинга (0.0 = только фото, 1.0 = только маска).
+#         palette: Палитра цветов `[R, G, B]` для каждого класса.
+#             Если `None`, используется `ade_palette()`. Если `callable`, вызывается.
+
+#     Returns:
+#         PIL.Image: Изображение с наложенной цветной маской, режим `"RGB"`.
+#     """
+#     palette_resolved: Optional[List[List[int]]] = None
+#     if palette is None:
+#         palette_resolved = ade_palette()
+#     elif callable(palette):
+#         palette_resolved = palette()
+#     else:
+#         palette_resolved = palette
+
+#     palette_array: np.ndarray = np.array(palette_resolved, dtype=np.uint8)
+
+#     h, w = mask.shape
+#     color_mask: np.ndarray = np.zeros((h, w, 3), dtype=np.uint8)
+
+#     # Защита от выхода за пределы палитры
+#     max_label: int = int(mask.max())
+#     for label in range(max_label + 1):
+#         palette_idx = label - 1  # ← КЛЮЧЕВОЙ ФИКС!
+#         if 0 <= palette_idx < len(palette_array):
+#             color_mask[mask == label] = palette_array[palette_idx]
+
+#     img_arr: np.ndarray = np.array(image.convert("RGB"))
+#     overlay: np.ndarray = (img_arr * (1 - alpha) + color_mask * alpha).astype(np.uint8)
+
+#     return Image.fromarray(overlay)
+
 def _create_overlay_standalone(
     image: Image.Image,
     mask: MaskArray,
     alpha: float = 0.5,
     palette: Optional[Union[List[List[int]], Callable[[], List[List[int]]]]] = None,
+    model_type_for_palette: Optional[str] = None,
 ) -> Image.Image:
     """Создаёт визуализацию: оригинал + цветная маска.
-
-    Алгоритм:
-    1. Загружает палитру (по умолчанию ADE20K).
-    2. Для каждого класса назначает цвет из палитры.
-    3. Блендит оригинал и цветную маску с коэффициентом `alpha`.
-
-    Args:
-        image: Оригинальное изображение `PIL.Image` в RGB.
-        mask: Семантическая маска `[H, W]` с целочисленными метками классов.
-        alpha: Коэффициент блендинга (0.0 = только фото, 1.0 = только маска).
-        palette: Палитра цветов `[R, G, B]` для каждого класса.
-            Если `None`, используется `ade_palette()`. Если `callable`, вызывается.
-
-    Returns:
-        PIL.Image: Изображение с наложенной цветной маской, режим `"RGB"`.
+    
+    🔧 ФИКС: Универсальная логика сдвига + защита от overflow.
     """
+    # ──────────────────────────────────────────────────────────────
+    # 1. Разрешение палитры
+    # ──────────────────────────────────────────────────────────────
     palette_resolved: Optional[List[List[int]]] = None
     if palette is None:
         palette_resolved = ade_palette()
@@ -1234,13 +1282,63 @@ def _create_overlay_standalone(
     h, w = mask.shape
     color_mask: np.ndarray = np.zeros((h, w, 3), dtype=np.uint8)
 
-    # Защита от выхода за пределы палитры
-    max_label: int = int(mask.max())
-    for label in range(max_label + 1):
-        palette_idx = label - 1  # ← КЛЮЧЕВОЙ ФИКС!
-        if 0 <= palette_idx < len(palette_array):
-            color_mask[mask == label] = palette_array[palette_idx]
+    # ──────────────────────────────────────────────────────────────
+    # 2. 🔧 ОПРЕДЕЛЕНИЕ СДВИГА ПО ТИПУ МОДЕЛИ
+    # ──────────────────────────────────────────────────────────────
+    palette_offset: int = 0  # По умолчанию: без сдвига (для HF-моделей)
+    
+    # Наши обученные модели: предсказывают классы 1-150, палитра 0-149 → сдвиг -1
+    OUR_MODELS = {
+        "unet_smp", 
+        "fpn_smp", 
+        "psp_smp", 
+        "deeplab_tv", 
+        "fcn_tv", 
+        "segnet",
+        "fpn_mit",
+        "psp_mit"
+    }
+    
+    if model_type_for_palette in OUR_MODELS:
+        palette_offset = -1
+    
+    print(f"🎨 Palette offset for {model_type_for_palette}: {palette_offset}")
 
+    # ──────────────────────────────────────────────────────────────
+    # 3. 🔧 БЕЗОПАСНОЕ ПРИМЕНЕНИЕ ПАЛИТРЫ
+    # ──────────────────────────────────────────────────────────────
+    unique_labels: np.ndarray = np.unique(mask)
+    
+    for label in unique_labels:
+        label_int: int = int(label)
+        palette_idx: int = label_int + palette_offset
+        
+        # 🔧 КЛЮЧЕВОЙ ФИКС: проверка границ ДО индексации
+        if 0 <= palette_idx < len(palette_array):
+            # 🔧 Используем int-индексацию для избежания uint8 overflow
+            color_mask[mask == label_int] = palette_array[palette_idx].tolist()
+        elif palette_idx < 0:
+            # Фон/неопределённый класс → чёрный [0,0,0]
+            color_mask[mask == label_int] = [0, 0, 0]
+        # else: palette_idx >= len(palette_array) → оставляем чёрный (по умолчанию)
+
+    # ──────────────────────────────────────────────────────────────
+    # 4. 🔍 Отладочный вывод (опционально)
+    # ──────────────────────────────────────────────────────────────
+    if os.getenv("DEBUG", "0") == "1":
+        print(f"🎨 Palette mapping (offset={palette_offset}, model={model_type_for_palette}):")
+        for label in unique_labels[:10]:
+            label_int = int(label)
+            palette_idx = label_int + palette_offset
+            if 0 <= palette_idx < len(palette_array):
+                color = palette_array[palette_idx]
+                print(f"   Label {label_int} → palette[{palette_idx}] = RGB{tuple(color)}")
+            else:
+                print(f"   Label {label_int} → palette_idx={palette_idx} [SKIPPED/BLACK]")
+
+    # ──────────────────────────────────────────────────────────────
+    # 5. Блендинг
+    # ──────────────────────────────────────────────────────────────
     img_arr: np.ndarray = np.array(image.convert("RGB"))
     overlay: np.ndarray = (img_arr * (1 - alpha) + color_mask * alpha).astype(np.uint8)
 

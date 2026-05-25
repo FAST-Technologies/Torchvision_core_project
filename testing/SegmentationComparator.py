@@ -450,10 +450,13 @@ class SegmentationComparator:
                 # Сохраняем результаты
                 result: Dict[str, Any] = {
                     "method": method_name,
-                    **metrics,
-                    "test_time": test_info.get("execution_time", 0),
-                    "ref_time": ref_info.get("execution_time", 0),
+                    **{k: float(v) if isinstance(v, (np.floating, float)) else v for k, v in metrics.items()},
+                    "test_time": float(test_info.get("execution_time", 0)),
+                    "ref_time": float(ref_info.get("execution_time", 0)),
                     "parameters": str(getattr(segmenter, "params", {})),
+                    "backend": str(config.get("backend", "Unknown")),
+                    "precision": str(config.get("precision", "fp32")),
+                    "base_method": str(config.get("base_method", method_name)),
                 }
 
                 comparison_results.append(result)
@@ -507,7 +510,7 @@ class SegmentationComparator:
         if df.empty:
             return
 
-        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        _, axes = plt.subplots(2, 2, figsize=(15, 12))
 
         # График 1: Метрики качества
         metrics_to_plot: List[str] = [
@@ -520,13 +523,15 @@ class SegmentationComparator:
         available_metrics: List[str] = [m for m in metrics_to_plot if m in df.columns]
 
         if available_metrics:
-            metrics_data: pd.Series = df[metrics_to_plot].mean()
-            axes[0, 0].bar(range(len(metrics_data)), metrics_data.values)
-            axes[0, 0].set_xticks(range(len(metrics_data)))
-            axes[0, 0].set_xticklabels(metrics_data.index, rotation=45)
-            axes[0, 0].set_title("Average Metrics")
-            axes[0, 0].set_ylabel("Score")
-            axes[0, 0].set_ylim(0, 1)
+            numeric_cols = [m for m in available_metrics if pd.api.types.is_numeric_dtype(df[m])]
+            if numeric_cols:
+                metrics_data: pd.Series = df[numeric_cols].mean()
+                axes[0, 0].bar(range(len(metrics_data)), metrics_data.values)
+                axes[0, 0].set_xticks(range(len(metrics_data)))
+                axes[0, 0].set_xticklabels(metrics_data.index, rotation=45)
+                axes[0, 0].set_title("Average Metrics")
+                axes[0, 0].set_ylabel("Score")
+                axes[0, 0].set_ylim(0, 1)
 
         # График 2: Время выполнения
         if "test_time" in df.columns and "ref_time" in df.columns:
@@ -801,13 +806,16 @@ class SegmentationComparator:
                         )
 
                         if mask.any():
-                            matrix[i, j] = df_comparisons.loc[mask, metric].values[0]
-                        else:
-                            matrix[i, j] = np.nan
+                            val = df_comparisons.loc[mask, metric].values[0]
+
+                            if isinstance(val, (int, float, np.number)) and not pd.isna(val):
+                                matrix[i, j] = float(val)
+                            else:
+                                matrix[i, j] = np.nan
             if np.all(np.isnan(matrix)):
                 continue
             fig, ax = plt.subplots(figsize=(12, 10))
-            short_names: List[str] = [name[:15] + "..." if len(name) > 15 else name for name in methods]
+            short_names: List[str] = [name[:45] + "..." if len(name) > 45 else name for name in methods]
 
             im = ax.imshow(matrix, cmap="RdYlGn", vmin=0, vmax=1)
             ax.set_xticks(np.arange(n_methods))

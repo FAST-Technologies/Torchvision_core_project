@@ -104,8 +104,6 @@ from contextlib import contextmanager
 from collections import OrderedDict
 import hashlib
 
-# import json
-
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
@@ -173,6 +171,7 @@ class PrecisionManager:
         "bool": torch.bool,
     }
 
+    # ──────────────────────────────────────────────────────────────────────
     # NumPy dtype mapping for conversion
     NUMPY_TO_TORCH_MAP: Dict[str, torch.dtype] = {
         "float16": torch.float16,
@@ -189,6 +188,7 @@ class PrecisionManager:
         "bool": torch.bool,
     }
 
+    # ──────────────────────────────────────────────────────────────────────
     def __init__(self, default_precision: str = "fp32") -> None:
         """Инициализация класса PrecisionManager."""
         self.default_precision: str = default_precision
@@ -202,7 +202,6 @@ class PrecisionManager:
 
         dtype: torch.dtype = self.PRECISION_MAP.get(precision.lower(), torch.float32)
 
-        # Если тип не поддерживается в этой версии PyTorch, возвращаем fallback
         if dtype is None:
             warnings.warn(
                 f"Тип {precision} не поддерживается в этой версии PyTorch. " f"Используем fp32 как fallback.",
@@ -405,8 +404,6 @@ class PrecisionManager:
         # Используем torch.float8_e4m3fn для активаций
         try:
             # from torch._dynamo import config as dynamo_config
-
-            # В будущих версиях PyTorch будет полноценная поддержка
             with torch.autocast(device_type="cuda", dtype=torch.float16):
                 yield
         except Exception as e:
@@ -417,7 +414,7 @@ class PrecisionManager:
     # ──────────────────────────────────────────────────────────────────────
     def get_supported_precisions(self, device: torch.device) -> List[str]:
         """Получить список поддерживаемых точностей для устройства."""
-        supported = ["fp32", "fp64"]
+        supported: List[str] = ["fp32", "fp64"]
 
         if device.type == "cpu":
             supported.extend(["int8", "int16", "int32", "int64", "uint8"])
@@ -852,7 +849,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "mode": "reduce-overhead",
             },
             "threshold_triangle": {
-                "fullgraph": False,  # .item() может ломать fullgraph
+                "fullgraph": False,
                 "dynamic": True,
                 "mode": "reduce-overhead",
             },
@@ -860,12 +857,12 @@ class TorchSegmenter2(BaseSegmenter):
             "threshold_entropy_kapur": {"fullgraph": True, "dynamic": True},
             "threshold_percentile": {
                 "fullgraph": False,
-                "dynamic": False,  # ← Ключевое: отключаем dynamic
+                "dynamic": False,
                 "mode": "reduce-overhead",
             },
             "threshold_local_contrast": {
                 "fullgraph": False,
-                "dynamic": False,  # ← Ключевое
+                "dynamic": False,
                 "mode": "reduce-overhead",
             },
             # ===== ГРАНИЧНЫЕ МЕТОДЫ =====
@@ -960,10 +957,69 @@ class TorchSegmenter2(BaseSegmenter):
                 )
         if kwargs.get("use_quantization", False) and self.device.type == "cpu":
             logger.info("🔧 Применяем динамическое квантование (int8)...")
-            # Оборачиваем _segment_func, если это nn.Module
             if isinstance(self._segment_func, nn.Module):
                 self._segment_func = self._apply_dynamic_quantization(self._segment_func)
 
+    # ──────────────────────────────────────────────────────────────────────
+    # УТИЛИТЫ ДЛЯ БЕЗОПАСНОЙ СВЁРТКИ
+    # ──────────────────────────────────────────────────────────────────────
+    def _prepare_kernel_for_conv(
+        self,
+        kernel: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        target_dtype: torch.dtype,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """Безопасно конвертирует ядро(а) к целевому dtype.
+
+        Поддерживает как одиночные ядра, так и кортежи (для парных операторов).
+
+        Оптимизация: не создаёт копию, если dtype уже совпадает.
+
+        Args:
+            kernel: Ядро или кортеж ядер (например, для Sobel: (kx, ky)).
+            target_dtype: Целевой тип данных (обычно dtype входного изображения).
+
+        Returns:
+            Ядро(а) с гарантированным совпадением dtype.
+        """
+
+        def _convert_single(k: torch.Tensor) -> torch.Tensor:
+            if k.dtype == target_dtype:
+                return k
+            # Для low-precision: сначала в fp32, затем в целевой тип
+            if target_dtype in (torch.float16, torch.bfloat16):
+                return k.to(torch.float32).to(target_dtype, non_blocking=True)
+            return k.to(target_dtype, non_blocking=True)
+
+        if isinstance(kernel, tuple):
+            k1, k2 = kernel  # type: ignore[misc]
+            return _convert_single(k1), _convert_single(k2)
+        return _convert_single(kernel)
+
+    # ──────────────────────────────────────────────────────────────────────
+    def _safe_conv2d(
+        self,
+        input: torch.Tensor,
+        kernel: torch.Tensor,
+        **kwargs: Any,
+    ) -> torch.Tensor:
+        """Безопасная свёртка с автоматическим выравниванием dtype.
+
+        Решает проблему: autocast может изменить dtype input,
+        а ядро остаётся в исходном dtype → RuntimeError или silent degradation.
+
+        Args:
+            input: Входной тензор (обычно изображение в градациях серого).
+            kernel: Сверточное ядро формы (1, 1, kH, kW).
+            **kwargs: Дополнительные аргументы для F.conv2d (padding, stride, etc.).
+
+        Returns:
+            torch.Tensor: Результат свёртки.
+        """
+        if kernel.dtype != input.dtype:
+            kernel = kernel.to(input.dtype, non_blocking=True)
+        return F.conv2d(input, kernel, **kwargs)
+
+    # ──────────────────────────────────────────────────────────────────────
     @torch.jit.unused  # Игнорировать при трассировке/компиляции
     def _get_static_kernel(
         self,
@@ -996,6 +1052,7 @@ class TorchSegmenter2(BaseSegmenter):
 
         return self._static_kernels[cache_key]
 
+    # ──────────────────────────────────────────────────────────────────────
     @torch.jit.unused
     def _make_kernel_safe(
         self,
@@ -1027,49 +1084,7 @@ class TorchSegmenter2(BaseSegmenter):
 
         return kernel.view(1, 1, size, size)
 
-    def export_to_jit(
-        self,
-        method_name: Optional[str] = None,
-        output_path: str = "./exported",
-        example_input: Optional[torch.Tensor] = None,
-    ) -> bool:
-        """Экспорт метода в TorchScript."""
-        import os
-
-        os.makedirs(output_path, exist_ok=True)
-
-        method = method_name or self.method
-        if method not in self.method_map:
-            logger.error(f"❌ Метод {method} не найден")
-            return False
-
-        func = self.method_map[method]
-
-        # Создаём dummy input если не передан
-        if example_input is None:
-            example_input = torch.randn(1, 3, 256, 256, device=self.device, dtype=self.dtype)
-
-        try:
-            # Scripting для методов без динамического контроля
-            scripted = torch.jit.script(func)
-            path = os.path.join(output_path, f"{method}_scripted.pt")
-            scripted.save(path)
-            logger.info(f"✅ TorchScript сохранён: {path}")
-            return True
-        except Exception as e:
-            logger.warning(f"⚠️  torch.jit.script failed: {e}")
-
-        # Fallback: tracing
-        try:
-            traced = torch.jit.trace(func, example_input, check_trace=False)
-            path = os.path.join(output_path, f"{method}_traced.pt")
-            traced.save(path)
-            logger.info(f"✅ TorchScript (trace) сохранён: {path}")
-            return True
-        except Exception as e2:
-            logger.error(f"❌ Trace тоже не удался: {e2}")
-            return False
-
+    # ──────────────────────────────────────────────────────────────────────
     @overload
     def _get_conv_kernel(
         self,
@@ -1186,7 +1201,6 @@ class TorchSegmenter2(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     # КЭШИРУЕМЫЕ ЯДРА ДЛЯ ГРАДИЕНТНЫХ МЕТОДОВ
-    # ──────────────────────────────────────────────────────────────────────
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     @lru_cache(maxsize=32)
@@ -1330,18 +1344,7 @@ class TorchSegmenter2(BaseSegmenter):
         )
         return kernel
 
-    def _normalize_params(self, **kwargs: Any) -> Dict[str, Any]:
-        """Нормализует параметры для консистентности между GPU/CPU версиями."""
-        normalized = self.params.copy()
-        normalized.update(kwargs)
-
-        # Пример: гарантируем, что ключевые параметры всегда есть
-        normalized.setdefault("tolerance", 0.1)
-        normalized.setdefault("max_iter", 1000)
-        normalized.setdefault("connectivity", 4)
-
-        return normalized
-
+    # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
     def _local_stats_torch(
         self,
@@ -1392,178 +1395,19 @@ class TorchSegmenter2(BaseSegmenter):
         local_mean_sq_4d = F.conv2d(gray_4d**2, kernel, padding=pad, stride=1)
 
         # Дисперсия: Var[X] = E[X²] - E[X]², с защитой от отрицательных значений из-за численной нестабильности
-        # if export_mode:
-        #     local_var_4d = torch.relu(local_mean_sq_4d - local_mean_4d**2) + 1e-8
-        # else:
-        #     local_var_4d = torch.clamp(local_mean_sq_4d - local_mean_4d**2, min=1e-8)
         diff = local_mean_sq_4d - local_mean_4d**2
         if export_mode:
-            # В режиме экспорта избегаем возможных отрицательных значений из-за численной нестабильности
             # local_var_4d = torch.where(diff > 0, diff, torch.zeros_like(diff)) + 1e-8
+            #  local_var_4d = torch.relu(diff) + 1e-8
             local_var_4d = torch.maximum(diff, torch.zeros_like(diff)) + 1e-8
         else:
             local_var_4d = torch.clamp(diff, min=1e-8)
         local_std_4d = torch.sqrt(local_var_4d)
 
-        # Возвращаем в исходной размерности
         if gray.dim() == 2:
             H, W = gray.shape[-2], gray.shape[-1]
             return (local_mean_4d.view(H, W), local_std_4d.view(H, W))
         return local_mean_4d, local_std_4d
-
-    # ──────────────────────────────────────────────────────────────────────
-    def _get_mean_levels(self, bins: int, dtype: torch.dtype) -> torch.Tensor:
-        """Кэширует уровни для гистограмм."""
-        key = (bins, dtype)
-        if key not in self._hist_cache:
-            self._hist_cache[key] = torch.arange(bins, dtype=dtype, device=self.device) / (bins - 1)
-        return self._hist_cache[key]
-
-    # ──────────────────────────────────────────────────────────────────────
-    def segment_with_cache(
-        self,
-        image: Union[str, np.ndarray, Image.Image, torch.Tensor],
-        use_cache: bool = True,
-        **kwargs: Any,
-    ) -> np.ndarray:
-        """Сегментация с опциональным кэшированием результатов."""
-        if not use_cache:
-            return self.segment(image, **kwargs)
-
-        if not hasattr(self, "_result_cache"):
-            self._result_cache = OrderedDict()
-            self._cache_max_size = getattr(self, "_cache_max_size", 100)
-
-        # Создаём хэш ключа из изображения и параметров
-        if isinstance(image, (np.ndarray, torch.Tensor)):
-            img_hash = _compute_image_hash(image)
-        else:
-            # Для строк и PIL — хэшируем как строку
-            img_hash = hashlib.sha256(str(image).encode()).hexdigest()[:16]
-
-        cache_key = (img_hash, self.method, tuple(sorted(kwargs.items())))
-
-        if cache_key in self._result_cache:
-            # Перемещаем в конец (LRU: недавно использованные — в конце)
-            self._result_cache.move_to_end(cache_key)
-            return cast(np.ndarray, self._result_cache[cache_key])
-
-        # Выполняем сегментацию
-        result = self.segment(image, **kwargs)
-
-        # Кэшируем (с ограничением размера)
-        if len(self._result_cache) >= self._cache_max_size:  # LRU eviction
-            self._result_cache.popitem(last=False)
-        self._result_cache[cache_key] = result
-
-        return result
-
-    # ──────────────────────────────────────────────────────────────────────
-    def _try_export_to_tensorrt(
-        self,
-        example_input: torch.Tensor,
-        trt_path: str,
-        precision: str = "fp16",  # 'fp32', 'fp16', 'int8'
-    ) -> bool:
-        """Экспорт модели в TensorRT Engine (требует torch2trt или torch-tensorrt).
-
-        Returns:
-            bool: Успешность экспорта.
-        """
-        try:
-            import torch_tensorrt  # pip install torch-tensorrt
-
-            # Подготовка модели
-            if isinstance(self._segment_func, nn.Module):
-                self._segment_func.eval()
-            example_input = example_input.to(self.device).to(self.dtype)
-
-            # Компиляция в TensorRT
-            trt_module = torch_tensorrt.compile(
-                self._segment_func,
-                inputs=[torch_tensorrt.Input(example_input.shape, dtype=self.dtype)],
-                enabled_precisions={
-                    torch.float32 if precision == "fp32" else torch.float16 if precision == "fp16" else torch.int8
-                },
-                ir="torchscript",  # или "dynamo" для PyTorch 2.0+
-            )
-
-            # Сохранение
-            torch.jit.save(trt_module, trt_path)
-            logger.info(f"✅ TensorRT engine сохранён: {trt_path}")
-            return True
-
-        except ImportError:
-            logger.warning("⚠️  torch-tensorrt не установлен: pip install torch-tensorrt")
-            return False
-        except Exception as e:
-            logger.warning(f"⚠️  Ошибка экспорта в TensorRT: {e}")
-            return False
-
-    # ──────────────────────────────────────────────────────────────────────
-    # def export_to_tensorrt(
-    #     segmenter: TorchSegmenter,
-    #     method_name: str,
-    #     input_shape: Tuple[int, int, int],  # (C, H, W)
-    #     output_path: str,
-    #     precision: str = "fp16",
-    # ) -> bool:
-    #     """Экспортирует метод сегментации в TensorRT engine"""
-    #     try:
-    #         import tensorrt as trt
-    #         from torch2trt import torch2trt
-
-    #         # Получаем функцию метода
-    #         if method_name not in segmenter.method_map:
-    #             raise ValueError(f"Метод {method_name} не найден")
-
-    #         func = segmenter.method_map[method_name]
-
-    #         # Dummy input
-    #         dummy_input = torch.randn(1, *input_shape, device=segmenter.device)
-
-    #         # Конвертация
-    #         model_trt = torch2trt(
-    #             func,
-    #             [dummy_input],
-    #             fp16_mode=(precision == "fp16"),
-    #             max_workspace_size=1 << 25,  # 32 MB
-    #         )
-
-    #         # Сохранение
-    #         torch.save(model_trt.state_dict(), output_path)
-    #         print(f"✅ Экспортировано в {output_path}")
-    #         return True
-
-    #     except ImportError:
-    #         print("⚠️  TensorRT или torch2trt не установлен. Пропускаем экспорт.")
-    #         return False
-    #     except Exception as e:
-    #         print(f"❌ Ошибка экспорта: {e}")
-    #         return False
-
-    # # ──────────────────────────────────────────────────────────────────────
-    # def load_tensorrt_engine(
-    #     segmenter: TorchSegmenter,
-    #     method_name: str,
-    #     engine_path: str,
-    # ) -> bool:
-    #     """Загружает предкомпилированный TensorRT engine"""
-    #     try:
-    #         from torch2trt import TRTModule
-
-    #         engine = TRTModule()
-    #         engine.load_state_dict(torch.load(engine_path))
-
-    #         # Заменяем функцию на TensorRT версию
-    #         segmenter.method_map[method_name] = engine
-    #         segmenter._segment_func = engine
-
-    #         print(f"✅ Загружен TensorRT engine для {method_name}")
-    #         return True
-    #     except Exception as e:
-    #         print(f"❌ Ошибка загрузки: {e}")
-    #         return False
 
     # ──────────────────────────────────────────────────────────────────────
     def _get_intermediate_results(self) -> None:
@@ -1664,6 +1508,7 @@ class TorchSegmenter2(BaseSegmenter):
                 )
                 use_compile = False
 
+    # ──────────────────────────────────────────────────────────────────────
     @torch.jit.unused
     def _precache_kernels(self) -> None:
         """Предварительное создание ядер для методов, которые будут компилироваться."""
@@ -1694,120 +1539,6 @@ class TorchSegmenter2(BaseSegmenter):
             size = 2 if "roberts" in name else 3
             kernel = torch.tensor(data, dtype=dtype, device=device).view(1, 1, size, size)
             self._static_kernels[f"{name}_{str(dtype)}_{str(device)}"] = kernel
-
-    def profile_method(
-        self,
-        image: np.ndarray,
-        n_runs: int = 100,
-        warmup: int = 10,
-        return_trace: bool = False,
-        use_cuda_events: bool = True,  # Используем CUDA events для точности
-        test_event: bool = True,
-    ) -> Dict[str, Any]:
-        """Детальное профилирование метода сегментации."""
-        import torch.profiler as profiler
-
-        tensor = self.preprocess_image(image)
-
-        # CUDA events для точного замера времени на GPU
-        if test_event:
-            if self.device.type == "cuda" and use_cuda_events:
-                start_event = torch.cuda.Event(enable_timing=True)
-                end_event = torch.cuda.Event(enable_timing=True)
-
-        # Warmup
-        for _ in range(warmup):
-            _ = self._segment_func(tensor, precision=self.precision_manager.default_precision)
-
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
-            torch.cuda.reset_peak_memory_stats()
-
-        # Замеры
-        times = []
-
-        if test_event:
-            for _ in range(n_runs):
-                if self.device.type == "cuda" and use_cuda_events:
-                    start_event.record()
-                    _ = self._segment_func(tensor, precision=self.precision_manager.default_precision)
-                    end_event.record()
-                    torch.cuda.synchronize()
-                    times.append(start_event.elapsed_time(end_event))  # Время в мс
-                else:
-                    start = time.perf_counter()
-                    _ = self._segment_func(tensor, precision=self.precision_manager.default_precision)
-                    if self.device.type == "cuda":
-                        torch.cuda.synchronize()
-                    times.append((time.perf_counter() - start))  # Конвертируем в мс
-        else:
-            with profiler.profile(
-                activities=[
-                    profiler.ProfilerActivity.CPU,
-                    profiler.ProfilerActivity.CUDA,
-                ],
-                record_shapes=True,
-                profile_memory=True,
-                with_flops=True,
-                with_modules=True,
-                with_stack=True,
-            ) as prof:
-                with profiler.record_function(f"segment_{self.method}"):
-                    for _ in range(n_runs):
-                        start = time.perf_counter()
-                        _ = self._segment_func(tensor, precision=self.precision_manager.default_precision)
-                        if self.device.type == "cuda":
-                            torch.cuda.synchronize()
-                        times.append(time.perf_counter() - start)
-
-        result = {
-            "method": self.method,
-            "device": str(self.device),
-            "dtype": str(self.dtype),
-            "mean_time_ms": np.mean(times) * 1000,
-            "std_time_ms": np.std(times) * 1000,
-            "min_time_ms": np.min(times) * 1000,
-            "max_time_ms": np.max(times) * 1000,
-            "median_time_ms": np.median(times) * 1000,
-            "image_shape": tuple(tensor.shape),
-            "total_runs": n_runs,
-        }
-
-        if self.device.type == "cuda":
-            result["peak_memory_mb"] = torch.cuda.max_memory_allocated() / 1e6
-
-        if return_trace and not test_event:
-            result["trace"] = prof.key_averages().table(
-                sort_by=("cuda_time_total" if self.device.type == "cuda" else "cpu_time_total"),
-                row_limit=20,
-            )
-
-        return result
-
-    @torch.no_grad()
-    def segment_batch(
-        self, images: Union[List[np.ndarray], List[torch.Tensor], np.ndarray], **kwargs: Any
-    ) -> Union[List[np.ndarray], np.ndarray]:
-        """Пакетная сегментация нескольких изображений."""
-        if isinstance(images, np.ndarray) and images.ndim == 4:
-            # (B, H, W, C) или (B, C, H, W)
-            tensors = [self.preprocess_image(img) for img in images]
-        elif isinstance(images, list):
-            tensors = [self.preprocess_image(img) for img in images]
-        else:
-            raise TypeError("Unsupported batch format")
-
-        # Стек в batch dimension
-        batch = torch.cat(tensors, dim=0)  # (B, C, H, W)
-
-        # Применяем метод к каждому изображению в батче
-        # (требует модификации _segment_func для поддержки batch)
-        masks = []
-        for i in range(batch.size(0)):
-            mask = self._segment_func(batch[i : i + 1], precision=self.precision_manager.default_precision)
-            masks.append(self._tensor_to_numpy(mask))
-
-        return masks
 
     # ──────────────────────────────────────────────────────────────────────
     def preprocess_image(  # type: ignore[override]
@@ -1847,7 +1578,7 @@ class TorchSegmenter2(BaseSegmenter):
         if isinstance(dtype_arg, torch.dtype):
             return dtype_arg
 
-        dtype_map = {
+        dtype_map: Dict[str, torch.dtype] = {
             "fp32": torch.float32,
             "float32": torch.float32,
             "fp16": torch.float16,
@@ -1859,7 +1590,7 @@ class TorchSegmenter2(BaseSegmenter):
         if isinstance(dtype_arg, str):
             dtype = dtype_map.get(dtype_arg.lower(), torch.float32)
         else:
-            dtype = torch.float32  # default
+            dtype = torch.float32
 
         # Авто-коррекция для неподдерживаемых типов
         if dtype == torch.float16 and not torch.cuda.is_available():
@@ -1879,13 +1610,6 @@ class TorchSegmenter2(BaseSegmenter):
                     )
 
         return dtype
-
-    # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    def _rgb_to_gray_numpy(rgb: np.ndarray) -> np.ndarray:
-        """Конвертация RGB → Grayscale на numpy."""
-        # ITU-R BT.601 weights
-        return 0.2989 * rgb[..., 0] + 0.5870 * rgb[..., 1] + 0.1140 * rgb[..., 2]
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
@@ -1910,46 +1634,6 @@ class TorchSegmenter2(BaseSegmenter):
         return tensor.to(device=self.device, dtype=dtype, non_blocking=True)
 
     # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    def conv2d_numpy(image: np.ndarray, kernel: np.ndarray, mode: str = "reflect") -> np.ndarray:
-        """2D свёртка на numpy/scipy (эквивалент cv2.filter2D)."""
-        return cast(np.ndarray, ndimage.convolve(image, kernel, mode=mode))
-
-    # ──────────────────────────────────────────────────────────────────────
-    def _local_mean_numpy(self, image: np.ndarray, window_size: int) -> np.ndarray:
-        """Локальное среднее через свёртку на numpy."""
-        if image.ndim == 3:
-            if image.shape[2] == 1:
-                image = image.squeeze(2)  # (H, W, 1) -> (H, W)
-            else:
-                # Если многоканальное — берём среднее по каналам
-                image = np.mean(image, axis=2)
-        kernel = np.ones((window_size, window_size), dtype=np.float32) / (window_size**2)
-        return self.conv2d_numpy(image, kernel)
-
-    # ──────────────────────────────────────────────────────────────────────
-    def _local_std_numpy(self, image: np.ndarray, window_size: int) -> np.ndarray:
-        """Локальное стандартное отклонение через свёртку."""
-        if image.ndim == 3:
-            if image.shape[2] == 1:
-                image = image.squeeze(2)  # (H, W, 1) -> (H, W)
-            else:
-                # Если многоканальное — берём среднее по каналам
-                image = np.mean(image, axis=2)
-        mean = self._local_mean_numpy(image, window_size)
-        mean_sq = self._local_mean_numpy(image**2, window_size)
-        return cast(np.ndarray, np.sqrt(np.maximum(mean_sq - mean**2, 1e-8)))
-
-    # ──────────────────────────────────────────────────────────────────────
-    def sobel_numpy(self, image: np.ndarray) -> np.ndarray:
-        """Оператор Собеля на numpy."""
-        kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
-        kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
-        gx = self.conv2d_numpy(image, kernel_x)
-        gy = self.conv2d_numpy(image, kernel_y)
-        return cast(np.ndarray, np.sqrt(gx**2 + gy**2))
-
-    # ──────────────────────────────────────────────────────────────────────
     def _pil_to_tensor(self, img: Image.Image, normalize: bool = True, add_batch: bool = True) -> torch.Tensor:
         """Универсальное преобразование PIL -> Tensor.
 
@@ -1969,7 +1653,7 @@ class TorchSegmenter2(BaseSegmenter):
             if add_batch:
                 tensor = tensor.unsqueeze(0)  # (1, C, H, W)
 
-            return tensor.to(device=self.device, dtype=self.dtype, non_blocking=True)
+            return tensor.to(device=self.device, dtype=self.dtype, non_blocking=False)
         except Exception as e:
             raise ValueError(f"Ошибка преобразования PIL->Tensor: {e}")
 
@@ -2007,73 +1691,6 @@ class TorchSegmenter2(BaseSegmenter):
             raise ValueError(f"Неверная размерность тензора: {tensor.shape}")
 
         return cast(Image.Image, TF.to_pil_image(tensor))
-
-    # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    def _normalize_to_255(
-        img: Union[Image.Image, np.ndarray],
-    ) -> Union[Image.Image, np.ndarray]:
-        """Метод нормализации изображения."""
-        if isinstance(img, np.ndarray):
-            if img.dtype != np.uint8:
-                img = ((img - img.min()) / (img.max() - img.min() + 1e-8) * 255).astype(np.uint8)
-        return img
-
-    # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    def _normalize_tensor(tensor: torch.Tensor) -> torch.Tensor:
-        """Нормализация тензора к [0, 1]."""
-        min_val: torch.Tensor = tensor.min()
-        max_val: torch.Tensor = tensor.max()
-        return (tensor - min_val) / (max_val - min_val + 1e-8)
-
-    # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    def profile_segmentation(
-        segmenter: "TorchSegmenter2",
-        image: Union[np.ndarray, torch.Tensor],
-        n_runs: int = 10,
-        warmup: int = 3,
-    ) -> Dict[str, Any]:
-        """Профилирование времени выполнения метода сегментации.
-
-        Returns:
-            Dict с метриками: mean_time, std_time, min_time, max_time, device.
-        """
-        import time
-
-        # Предобработка
-        if isinstance(image, np.ndarray):
-            tensor = segmenter.preprocess_image(image)
-        else:
-            tensor = image.to(segmenter.device)
-
-        # Warmup
-        for _ in range(warmup):
-            _ = segmenter._segment_func(tensor)
-
-        if segmenter.device.type == "cuda":
-            torch.cuda.synchronize()
-
-        # Замеры
-        times: List[float] = []
-        for _ in range(n_runs):
-            start = time.perf_counter()
-            _ = segmenter._segment_func(tensor)
-            if segmenter.device.type == "cuda":
-                torch.cuda.synchronize()
-            end = time.perf_counter()
-            times.append(end - start)
-
-        return {
-            "method": segmenter.method,
-            "device": str(segmenter.device),
-            "mean_time_s": np.mean(times),
-            "std_time_s": np.std(times),
-            "min_time_s": np.min(times),
-            "max_time_s": np.max(times),
-            "image_shape": tuple(tensor.shape),
-        }
 
     # ──────────────────────────────────────────────────────────────────────
     def profile_with_transfer_detection(
@@ -2143,34 +1760,88 @@ class TorchSegmenter2(BaseSegmenter):
         }
 
     # ──────────────────────────────────────────────────────────────────────
-    @staticmethod
-    def detect_cpu_gpu_transfers(segmenter: "TorchSegmenter2", image: np.ndarray) -> List[str]:
-        """Детектирует нежелательные трансферы CPU↔GPU внутри метода.
-
-        Возвращает список предупреждений.
+    def benchmark_histc_types(self, gray: torch.Tensor, device: torch.device) -> Dict[str, float]:
+        """Сравнивает torch.histc для разных входных типов (учёт ограничений CUDA).
+        
+        Note: 
+            Используется только в 1 исследовании.
         """
-        warnings: List[str] = []
-        original_func = segmenter._segment_func
+        results: Dict[str, Any] = {}
+        # torch.histc на CUDA поддерживает ТОЛЬКО fp32/fp64.
+        # Прямой вызов с fp16/bf16 вызывает RuntimeError: HalfTensor is not supported
+        dtypes_to_test: List[Tuple[str, torch.dtype]] = [
+            ("fp32", torch.float32),
+            ("fp16 (auto-cast)", torch.float16),
+            ("bf16 (auto-cast)", torch.bfloat16),
+        ]
 
-        # Мониторим вызовы .cpu(), .numpy(), .to()
-        def make_tracked_method(original: Any, name: str) -> Any:
-            def tracked(*args: Any, **kwargs: Any) -> Any:
-                warnings.append(f"⚠️  Вызов {name}() — возможен трансфер CPU↔GPU")
-                return original(*args, **kwargs)
+        for dtype_name, dtype in dtypes_to_test:
+            gray_typed: torch.Tensor = gray.to(dtype)
+            start: float = time.perf_counter()
+            for _ in range(100):
+                # histc требует fp32/fp64. При half-precision явно кастим перед вызовом
+                inp = gray_typed.float() if dtype in (torch.float16, torch.bfloat16) else gray_typed
 
-            return tracked
+                # max=1.0, т.к. _to_grayscale уже нормализует вход к [0, 1]
+                _ = torch.histc(inp, bins=256, min=0.0, max=1.0)
 
-        # Временная замена методов (упрощённо)
-        # Для полноценного мониторинга используйте torch.profiler
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+            results[dtype_name] = (time.perf_counter() - start) / 100 * 1000  # ms
 
-        # Запускаем метод
-        try:
+        return results
+
+    # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def profile_segmentation(
+        segmenter: "TorchSegmenter2",
+        image: Union[np.ndarray, torch.Tensor],
+        n_runs: int = 10,
+        warmup: int = 3,
+    ) -> Dict[str, Any]:
+        """Профилирование времени выполнения метода сегментации.
+
+        Returns:
+            Dict с метриками: mean_time, std_time, min_time, max_time, device.
+
+        Note: 
+            Используется только в 1 исследовании.
+        """
+        import time
+
+        # Предобработка
+        if isinstance(image, np.ndarray):
             tensor = segmenter.preprocess_image(image)
-            _ = original_func(tensor)
-        except Exception as e:
-            warnings.append(f"❌ Ошибка выполнения: {e}")
+        else:
+            tensor = image.to(segmenter.device)
 
-        return warnings if warnings else ["✅ Трансферов не обнаружено"]
+        # Warmup
+        for _ in range(warmup):
+            _ = segmenter._segment_func(tensor)
+
+        if segmenter.device.type == "cuda":
+            torch.cuda.synchronize()
+
+        # Замеры
+        times: List[float] = []
+        for _ in range(n_runs):
+            start = time.perf_counter()
+            _ = segmenter._segment_func(tensor)
+            if segmenter.device.type == "cuda":
+                torch.cuda.synchronize()
+            end = time.perf_counter()
+            times.append(end - start)
+
+        return {
+            "method": segmenter.method,
+            "device": str(segmenter.device),
+            "mean_time_s": np.mean(times),
+            "std_time_s": np.std(times),
+            "min_time_s": np.min(times),
+            "max_time_s": np.max(times),
+            "image_shape": tuple(tensor.shape),
+        }
+
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
@@ -2179,7 +1850,11 @@ class TorchSegmenter2(BaseSegmenter):
         image: np.ndarray,
         output_dir: str = "./profiling",
     ) -> None:
-        """Запуск профилировщика PyTorch с экспортом trace для Chrome DevTools."""
+        """Запуск профилировщика PyTorch с экспортом trace для Chrome DevTools.
+        
+        Note: 
+            Используется только в 1 исследовании.
+        """
         import torch.profiler as profiler
 
         os.makedirs(output_dir, exist_ok=True)
@@ -2212,6 +1887,7 @@ class TorchSegmenter2(BaseSegmenter):
         logger.info(f"📊 Trace сохранён: {trace_path}")
         logger.info("💡 Откройте chrome://tracing и загрузите файл для интерактивного анализа")
 
+
     # ──────────────────────────────────────────────────────────────────────
     def _apply_dynamic_quantization(self, module: nn.Module) -> nn.Module:
         """Применяет динамическое квантование весов (int8) для совместимых слоёв.
@@ -2237,34 +1913,6 @@ class TorchSegmenter2(BaseSegmenter):
         except ImportError:
             logger.warning("⚠️  torch.ao.quantization недоступен, пропускаем квантование")
             return module
-
-    # ──────────────────────────────────────────────────────────────────────
-    def benchmark_histc_types(self, gray: torch.Tensor, device: torch.device) -> Dict[str, float]:
-        """Сравнивает torch.histc для разных входных типов (учёт ограничений CUDA)."""
-        results: Dict[str, Any] = {}
-        # torch.histc на CUDA поддерживает ТОЛЬКО fp32/fp64.
-        # Прямой вызов с fp16/bf16 вызывает RuntimeError: HalfTensor is not supported
-        dtypes_to_test: List[Tuple[str, torch.dtype]] = [
-            ("fp32", torch.float32),
-            ("fp16 (auto-cast)", torch.float16),
-            ("bf16 (auto-cast)", torch.bfloat16),
-        ]
-
-        for dtype_name, dtype in dtypes_to_test:
-            gray_typed: torch.Tensor = gray.to(dtype)
-            start: float = time.perf_counter()
-            for _ in range(100):
-                # histc требует fp32/fp64. При half-precision явно кастим перед вызовом
-                inp = gray_typed.float() if dtype in (torch.float16, torch.bfloat16) else gray_typed
-
-                # max=1.0, т.к. _to_grayscale уже нормализует вход к [0, 1]
-                _ = torch.histc(inp, bins=256, min=0.0, max=1.0)
-
-            if device.type == "cuda":
-                torch.cuda.synchronize()
-            results[dtype_name] = (time.perf_counter() - start) / 100 * 1000  # ms
-
-        return results
 
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
@@ -3444,13 +3092,12 @@ class TorchSegmenter2(BaseSegmenter):
     # ==========================================================================
     # МЕТОДЫ АВТО-ДИАГНОСТИКИ (для debug_mode=True)
     # ==========================================================================
-    # ──────────────────────────────────────────────────────────────────────
     def _run_auto_debug_profiling(self, image: Union[np.ndarray, Image.Image, torch.Tensor]) -> None:
         """Запускает диагностику при первом вызове в режиме debug."""
         logger.info(f"\n🔍 [DEBUG MODE] Запуск автоматической диагностики для метода '{self.method}'...")
         try:
             # 1. Замер времени
-            times = []
+            times: List[float] = []
             image_for_profiling: Union[np.ndarray, Image.Image, torch.Tensor]
             if isinstance(image, torch.Tensor):
                 image_for_profiling = self._tensor_to_numpy(image)
@@ -3460,7 +3107,7 @@ class TorchSegmenter2(BaseSegmenter):
                 image_for_profiling = image
             tensor = self.preprocess_image(image_for_profiling)
             for _ in range(3):  # Быстрый тест на 3 прогона
-                t0 = time.perf_counter()
+                t0: float = time.perf_counter()
                 _ = self._segment_func(tensor, precision=self.precision_manager.default_precision)
                 if self.device.type == "cuda":
                     torch.cuda.synchronize()
@@ -3674,10 +3321,6 @@ class TorchSegmenter2(BaseSegmenter):
             }
 
         return result_np, mask_out
-
-    # ──────────────────────────────────────────────────────────────────────
-    # РЕАЛИЗАЦИИ МЕТОДОВ
-    # ──────────────────────────────────────────────────────────────────────
 
     # ──────────────────────────────────────────────────────────────────────
     # ПОРОГОВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ
@@ -5499,65 +5142,6 @@ class TorchSegmenter2(BaseSegmenter):
             if self._debug_mode:
                 logger.info(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
         return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
-
-    # ──────────────────────────────────────────────────────────────────────
-    # УТИЛИТЫ ДЛЯ БЕЗОПАСНОЙ СВЁРТКИ
-    # ──────────────────────────────────────────────────────────────────────
-    def _prepare_kernel_for_conv(
-        self,
-        kernel: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
-        target_dtype: torch.dtype,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        """Безопасно конвертирует ядро(а) к целевому dtype.
-
-        Поддерживает как одиночные ядра, так и кортежи (для парных операторов).
-
-        Оптимизация: не создаёт копию, если dtype уже совпадает.
-
-        Args:
-            kernel: Ядро или кортеж ядер (например, для Sobel: (kx, ky)).
-            target_dtype: Целевой тип данных (обычно dtype входного изображения).
-
-        Returns:
-            Ядро(а) с гарантированным совпадением dtype.
-        """
-
-        def _convert_single(k: torch.Tensor) -> torch.Tensor:
-            if k.dtype == target_dtype:
-                return k
-            # Для low-precision: сначала в fp32, затем в целевой тип
-            if target_dtype in (torch.float16, torch.bfloat16):
-                return k.to(torch.float32).to(target_dtype, non_blocking=True)
-            return k.to(target_dtype, non_blocking=True)
-
-        if isinstance(kernel, tuple):
-            k1, k2 = kernel  # type: ignore[misc]
-            return _convert_single(k1), _convert_single(k2)
-        return _convert_single(kernel)
-
-    # ──────────────────────────────────────────────────────────────────────
-    def _safe_conv2d(
-        self,
-        input: torch.Tensor,
-        kernel: torch.Tensor,
-        **kwargs: Any,
-    ) -> torch.Tensor:
-        """Безопасная свёртка с автоматическим выравниванием dtype.
-
-        Решает проблему: autocast может изменить dtype input,
-        а ядро остаётся в исходном dtype → RuntimeError или silent degradation.
-
-        Args:
-            input: Входной тензор (обычно изображение в градациях серого).
-            kernel: Сверточное ядро формы (1, 1, kH, kW).
-            **kwargs: Дополнительные аргументы для F.conv2d (padding, stride, etc.).
-
-        Returns:
-            torch.Tensor: Результат свёртки.
-        """
-        if kernel.dtype != input.dtype:
-            kernel = kernel.to(input.dtype, non_blocking=True)
-        return F.conv2d(input, kernel, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     # КРАЕВЫЕ МЕТОДЫ СЕГМЕНТАЦИИ

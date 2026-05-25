@@ -219,7 +219,7 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
     img_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.jpg", repo_type="dataset")
     mask_path: str = hf_hub_download(repo_id=repo_id, filename="ADE_val_00000001.png", repo_type="dataset")
 
-    output_dir: str = "./data/augmentation_analysis2"
+    output_dir: str = "./data/augmentation_analysis4"
     os.makedirs(output_dir, exist_ok=True)
 
     test_image: Image.Image = Image.open(img_path).convert("RGB")
@@ -523,7 +523,7 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
 
     # 5. Визуализация
     print("\n📈 Построение графиков...")
-    output_dir = "./data/augmentation_analysis2"
+    output_dir = "./data/augmentation_analysis4"
     os.makedirs(output_dir, exist_ok=True)
 
     # График 1: Сравнение IoU по уровням аугментаций
@@ -765,7 +765,7 @@ def analyze_augmentation_impact() -> Optional[Tuple[Optional[pd.DataFrame], Opti
 # ──────────────────────────────────────────────────────────────────────
 def save_augmentation_comparison_grid(
     overlay_images: Dict[str, Image.Image],
-    output_dir: PathLike = "./data/augmentation_analysis2",
+    output_dir: PathLike = "./data/augmentation_analysis4",
     model_names: Optional[List[str]] = None,
 ) -> None:
     """Создаёт единую сетку сравнения всех моделей.

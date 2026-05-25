@@ -1,11 +1,11 @@
 # debug_palette.py
 from utils.palettes import ade_palette, get_ade_class_names
 import matplotlib.pyplot as plt
-import numpy as np
+from typing import List, Dict
 
 # Загрузи палитру и имена классов
-palette = ade_palette()
-class_names = get_ade_class_names()
+palette: List[List[int]] = ade_palette()
+class_names: Dict[int, str] = get_ade_class_names()
 
 print("🎨 Проверка палитры ADE20K")
 print("=" * 80)
@@ -17,13 +17,13 @@ print("-" * 80)
 
 for idx in range(150):
     if idx in class_names:
-        name = class_names[idx]
-        rgb = palette[idx]
-        hex_color = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+        name: str = class_names[idx]
+        rgb: List[int] = palette[idx]
+        hex_color: str = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
         print(f"{idx:<6} {name:<25} {str(rgb):<20} {hex_color}")
 
 # 🔍 Проверка критических классов
-critical_classes = {
+critical_classes: Dict[int, str] = {
     0: "wall",
     1: "building",
     2: "sky",
@@ -38,7 +38,7 @@ print(f"{'Index':<6} {'Class Name':<25} {'RGB':<20} {'HEX'}")
 print("-" * 80)
 
 for idx, expected_name in critical_classes.items():
-    actual_name = class_names.get(idx, "N/A")
+    actual_name: str = class_names.get(idx, "N/A")
     rgb = palette[idx]
     hex_color = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
     match = "✓" if actual_name == expected_name else "✗"
@@ -53,7 +53,7 @@ ax.axis("off")
 # Отобразим первые 50 классов
 for idx in range(min(150, len(palette))):
     rgb = palette[idx]
-    rgb_normalized = [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255]
+    rgb_normalized: List[float] = [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255]
     ax.add_patch(plt.Rectangle((idx, 0), 1, 1, color=rgb_normalized))
     ax.text(
         idx + 0.5, 0.5, str(idx), ha="center", va="center", fontsize=6, color="black" if sum(rgb) > 384 else "white"

@@ -112,7 +112,7 @@ class ADE20KDataset(Dataset):
 
     def __init__(
         self,
-        root_dir: PathLike = "./data/ade20k",
+        root_dir: PathLike = "./data1/ade20k",
         split: str = "training",
         image_size: ImageSize = (512, 512),
         augment: bool = False,

@@ -260,12 +260,11 @@ class SegmentationWarmUp:
             try:
                 result: SegmenterLike
                 if hasattr(segmenter, "segment_with_mask"):
-                    result, mask = segmenter.segment_with_mask(image)
+                    result, _ = segmenter.segment_with_mask(image)
                 elif hasattr(segmenter, "segment"):
                     result = segmenter.segment(image)
                 else:
                     raise AttributeError("Segmenter must have 'segment' or 'segment_with_mask' method")
-                print(result)
                 end_time: float = time.perf_counter()
                 warmup_times.append(end_time - start_time)
                 if verbose and i == 0:
@@ -322,22 +321,42 @@ class SegmentationWarmUp:
         if verbose:
             print("   🔥 CUDA warm-up...")
 
-        # Синхронизация перед warm-up
-        torch.cuda.synchronize()
+        try:
+            # Синхронизация перед warm-up
+            torch.cuda.synchronize()
+        except Exception as e:
+            if verbose:
+                print(f"   ⚠️  Пред-синхронизация не удалась: {e}")
+            # Продолжаем — возможно, контекст уже повреждён, но попробуем восстановиться
+            torch.cuda.empty_cache()
 
         # Несколько дополнительных прогонов для CUDA
-        for _ in range(self.n_warmup_runs):
+        for i in range(self.n_warmup_runs):
             try:
                 if hasattr(segmenter, "segment_with_mask"):
                     segmenter.segment_with_mask(image)
                 elif hasattr(segmenter, "segment"):
                     segmenter.segment(image)
-            except Exception:
-                pass
+            except (torch.AcceleratorError, RuntimeError) as e:
+                if verbose:
+                    print(f"   ⚠️  Прогон {i+1} не удался: {type(e).__name__}")
+                # 🔧 Очистка после каждой ошибки
+                try:
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                except:
+                    pass
+                break  # Прерываем warmup при сбое
 
         # Синхронизация после warm-up
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
+        try:
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+            if verbose:
+                print("   ✅ CUDA kernels warmed up")
+        except Exception as e:
+            if verbose:
+                print(f"   ⚠️  Пост-синхронизация не удалась: {e}")
 
         if verbose:
             print("   ✅ CUDA kernels warmed up")
@@ -348,6 +367,7 @@ class SegmentationWarmUp:
         segmenters_dict: Dict[str, SegmenterLike],
         image: Optional[np.ndarray] = None,
         verbose: bool = True,
+        exclude_backends: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """Прогрев всех сегментеров в словаре.
 
@@ -355,12 +375,16 @@ class SegmentationWarmUp:
             segmenters_dict: Словарь `{имя_метода: экземпляр_сегментера}`.
             image: Общее тестовое изображение для всех методов (опционально).
             verbose: Если `True`, выводит прогресс в консоль.
+            exclude_backends: Список суффиксов методов для исключения из warmup
+                         (например, ["_ONNX", "_TRT", "_ONNX_TRT_EP"]).
 
         Returns:
             Dict[str, Any]: Результаты по методам:
             - При успехе: `WarmupStats` (см. `warmup_segmenter()`).
             - При ошибке: `{"error": str}`.
         """
+        if exclude_backends is None:
+            exclude_backends = ["_ONNX", "_TRT", "_ONNX_TRT_EP"]
         all_results: Dict[str, Any] = {}
 
         print("\n" + "=" * 60)
@@ -368,12 +392,29 @@ class SegmentationWarmUp:
         print("=" * 60)
 
         for name, segmenter in segmenters_dict.items():
+            if any(suffix in name for suffix in exclude_backends):
+                if verbose:
+                    print(f"   ⏭  Пропущен бэкенд: {name}")
+                all_results[name] = {"skipped": "backend excluded from warmup"}
+                continue
             try:
                 stats: WarmupStats = self.warmup_segmenter(segmenter, name, image, verbose)
                 all_results[name] = stats
+                print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+                print("   (нажмите Ctrl+C для отмены, если нужно)")
+                try:
+                    time.sleep(15)
+                except KeyboardInterrupt:
+                    logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
             except Exception as e:
                 print(f"   ❌ {name}: {e}")
                 all_results[name] = {"error": str(e)}
+                if torch.cuda.is_available():
+                    try:
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                    except:
+                        pass
 
         print("\n" + "=" * 60)
         print("✅ WARM-UP ЗАВЕРШЁН")

@@ -101,6 +101,7 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 from huggingface_hub import hf_hub_download, list_repo_files
 import logging
+import torch.profiler as profiler
 
 # Настройка логгера
 logger: logging.Logger = logging.getLogger(__name__)
@@ -124,6 +125,7 @@ from utils.backend_exporter_new import (
     export_neural_model,
     load_trt_engine,
 )
+from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & CONSTANTS
@@ -1025,7 +1027,7 @@ class BatchNeuralTester:
             pred_mask=pred,
             gt_mask=gt,
             ignore_index=ignore_index,
-            num_classes=num_classes,  # ← Важно для ADE20K!
+            num_classes=num_classes,
             return_per_class=True,
         )
         results["m_iou"] = m_iou
@@ -1052,7 +1054,7 @@ class BatchNeuralTester:
             # ──────────────────────────────────────────────────────────────
             # 3. Per-class Precision/Recall (для анализа дисбаланса)
             # ──────────────────────────────────────────────────────────────
-            pr_results = SegmentationMetrics.calculate_per_class_precision_recall(
+            pr_results: Dict[int, Tuple[float, float]] = SegmentationMetrics.calculate_per_class_precision_recall(
                 pred_mask=pred,
                 gt_mask=gt,
                 num_classes=num_classes,
@@ -1109,22 +1111,14 @@ class BatchNeuralTester:
         overlay_key: str = f"{checkpoint.key}_{img_path.stem}"
 
         # Конвертация в PIL с обработкой всех форматов
-        # try:
-        #     overlay_pil: Image.Image = ensure_pil_compatible(overlay)
-        #     self.overlays[overlay_key] = overlay_pil
-        #     logger.debug(f"✅ Оверлей добавлен: {overlay_key}")
-        # except Exception as e:
-        #     logger.warning(f"⚠️ Не удалось сохранить оверлей {overlay_key}: {e}")
         try:
             if isinstance(overlay, Image.Image):
-                # ✅ Оверлей уже готов — сохраняем как есть
                 if overlay.mode in ["RGB", "RGBA"]:
-                    overlay_pil = overlay
+                    overlay_pil: Image.Image = overlay
                 else:
                     overlay_pil = overlay.convert("RGB")
             else:
-                # ❌ Только для numpy массивов используем конвертацию
-                overlay_pil: Image.Image = ensure_pil_compatible(overlay)
+                overlay_pil = ensure_pil_compatible(overlay)
 
             self.overlays[overlay_key] = overlay_pil
             logger.debug(f"✅ Оверлей добавлен: {overlay_key}, mode={overlay_pil.mode}")
@@ -1180,9 +1174,6 @@ class BatchNeuralTester:
             logger.info(f"🎯 Точность инференса: {actual_precision} (запрошено: {precision})")
 
         if checkpoint.is_trt:
-            # from segmenters.BackendSegmenters import ONNXSegmenter
-            from segmenters.BackendSegmenters import TRTSegmenter
-
             device_literal: DeviceType = cast(DeviceType, self.config.device)
             segmenter = TRTSegmenter(
                 model_key=checkpoint.key,
@@ -1244,7 +1235,7 @@ class BatchNeuralTester:
 
                     if cached_pred is not None:
                         pred_mask = cached_pred
-                        inference_time = 0.0  # Не считаем время для кэша
+                        inference_time = 0.0
                     else:
                         with amp_ctx, torch.no_grad():
                             start_time: float = time.perf_counter()
@@ -1254,7 +1245,6 @@ class BatchNeuralTester:
                             if isinstance(input_raw, np.ndarray):
                                 input_tensor: torch.Tensor = torch.from_numpy(input_raw).float()
                             elif isinstance(input_raw, torch.Tensor):
-                                # Если уже тензор — приводим к нужной точности
                                 input_tensor = input_raw.float() if input_raw.is_floating_point() else input_raw
                             else:
                                 raise TypeError(f"Неожиданный тип входных данных: {type(input_raw)}")
@@ -1323,7 +1313,6 @@ class BatchNeuralTester:
                     palette = NeuralSegmenter.ade_palette()
                     class_names = NeuralSegmenter.get_ade_class_names()
 
-                    # Хелперы для получения цвета/имени со смещением -1
                     def get_color_for_class(cls: int, palette: List[List[int]], offset: int = -1) -> List[int]:
                         cls_int = int(cls)
                         palette_idx = cls_int + offset
@@ -1340,10 +1329,10 @@ class BatchNeuralTester:
                             return class_names[name_idx]
                         return f"Class_{name_idx}"
 
-                    model_name, aug_level = extract_model_aug_from_key(checkpoint.key)
+                    _, aug_level = extract_model_aug_from_key(checkpoint.key)
                     display_name = checkpoint.display_name
 
-                    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+                    _, axes = plt.subplots(1, 3, figsize=(18, 6))
 
                     axes[0].imshow(test_image)
                     axes[0].set_title("Original Image")
@@ -1389,7 +1378,7 @@ class BatchNeuralTester:
                     # GT с палитрой ADE20K
                     gt_color = np.zeros((*gt_mask.shape, 3), dtype=np.uint8)
                     for cls in np.unique(gt_mask):
-                        color = get_color_for_class(cls, palette, offset=-1)  # ← offset=-1 для фикса!
+                        color = get_color_for_class(cls, palette, offset=-1)
                         gt_color[gt_mask == cls] = color
                     axes[1].imshow(gt_color)
                     axes[1].set_title("Ground Truth (ADE20K)")
@@ -1397,7 +1386,7 @@ class BatchNeuralTester:
                     # Prediction с палитрой ADE20K
                     pred_color = np.zeros((*pred_resized.shape, 3), dtype=np.uint8)
                     for cls in np.unique(pred_resized):
-                        color = get_color_for_class(cls, palette, offset=-1)  # ← Тот же offset!
+                        color = get_color_for_class(cls, palette, offset=-1)
                         pred_color[pred_resized == cls] = color
                     axes[2].imshow(pred_color)
                     axes[2].set_title("Prediction (твоя модель)")
@@ -1408,11 +1397,10 @@ class BatchNeuralTester:
 
                     plt.tight_layout()
                     plt.savefig(palette_check_path, dpi=300, bbox_inches="tight")
-                    plt.close()  # 🔧 Обязательно закрываем figure!
+                    plt.close()
 
                     logger.debug(f"✅ Palette check saved: {palette_check_path}")
 
-                    # 🔧 Дополнительно: сохраняем цветные маски отдельно для отладки
                     debug_dir: Path = Path(self.config.output_dir) / "debug_masks"
                     debug_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1424,7 +1412,6 @@ class BatchNeuralTester:
                     gt_color_pil = Image.fromarray(gt_color)
                     gt_color_pil.save(debug_dir / f"{checkpoint.key}_{img_path.stem}_gt_color.png")
 
-                # Визуализация: вынесено в отдельный метод + безопасный вызов
                 overlay: Image.Image
                 if self.config.save_visualizations:
                     try:
@@ -1529,7 +1516,7 @@ class BatchNeuralTester:
                 )
                 if validation_results:
                     # Сохраняем сводку валидации
-                    val_summary = {
+                    val_summary: Dict[str, Any] = {
                         "model": checkpoint.key,
                         "image": img_path.name,
                         "results": {
@@ -1537,7 +1524,7 @@ class BatchNeuralTester:
                             for k, v in validation_results.items()
                         },
                     }
-                    val_path = Path(self.config.output_dir) / "exports" / f"{checkpoint.key}_validation.json"
+                    val_path: Path = Path(self.config.output_dir) / "exports" / f"{checkpoint.key}_validation.json"
                     with open(val_path, "w") as f:
                         json.dump(val_summary, f, indent=2)
                     logger.info(f"✅ Валидация сохранена: {val_path}")
@@ -1619,7 +1606,6 @@ class BatchNeuralTester:
             mask_pil: Image.Image = Image.fromarray(mask_np, mode="L").convert("RGB")
 
         orig: Image.Image = image.convert("RGB")
-        # mask_pil: Image.Image = Image.fromarray(mask_np, mode="L").convert("RGB")
         # Ресайз маски если размеры не совпадают
         if mask_pil.size != orig.size:
             mask_pil = mask_pil.resize(orig.size, Image.Resampling.NEAREST)
@@ -1658,7 +1644,6 @@ class BatchNeuralTester:
                 # Проверка авторизации
                 if not wandb.api.api_key:
                     logger.warning("⚠️  WandB не авторизован. Запусти 'wandb login' в терминале")
-                #     return
                 logger.info("Entered to the function!")
                 run = wandb.init(
                     project="segmentation-aug-analysis",
@@ -1868,8 +1853,6 @@ class BatchNeuralTester:
             Экспортирует Chrome Trace JSON и текстовые стеки вызовов.
             мена файлов включают model_key для уникальности.
         """
-        import torch.profiler as profiler
-
         model.eval()
         sample_input = sample_input.to(self.config.device)
 
@@ -1977,7 +1960,7 @@ class BatchNeuralTester:
         pred_color: np.ndarray = np.zeros((h, w, 3), dtype=np.uint8)
 
         def get_color(cls_id: int) -> Tuple[int, int, int]:
-            palette_idx = cls_id - 1  # ← СДВИГ НА -1
+            palette_idx = cls_id - 1
             if palette_idx < 0:
                 return (0, 0, 0)  # Чёрный для фона/игнора
             if palette_idx < len(palette):
@@ -1987,8 +1970,6 @@ class BatchNeuralTester:
         for cls_id in range(min(len(palette), int(pred.max()) + 1)):
             mask: np.ndarray = pred == cls_id
             if mask.any():
-                # color: List[int] = palette[cls_id]
-                # pred_color[mask] = tuple(color)  # type: ignore[assignment]
                 color = get_color(cls_id)
                 pred_color[mask] = color
 
@@ -2186,7 +2167,6 @@ class BatchNeuralTester:
         num_classes: Optional[int] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """Валидация .pth/.onnx/.trt версий модели: инференс + метрики + время."""
-        from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
 
         results: Dict[str, Dict[str, Any]] = {}
 
@@ -2718,7 +2698,6 @@ class BatchNeuralTester:
             "_".join(col).strip() if isinstance(col, tuple) else col for col in aggregated.columns.values
         ]
 
-        # 🔧 Заполняем NaN для std в группах с 1 записью
         std_cols: List[str] = [c for c in aggregated.columns if c.endswith("_std")]
         for col in std_cols:
             counts = df.groupby(["model", "augmentation", "precision"]).size()

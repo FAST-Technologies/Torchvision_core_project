@@ -103,7 +103,7 @@ if not logger.handlers:
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & CONSTANTS
 # ──────────────────────────────────────────────────────────────────────
-DEFAULT_ROOT_DIR: str = "./data/ade20k"
+DEFAULT_ROOT_DIR: str = "./data1/ade20k"
 """Дефолтная директория нахождения датасета, dtype=str."""
 
 DEFAULT_CHECKPOINT_DIR: str = "./models"
@@ -124,7 +124,7 @@ EncoderName: TypeAlias = Literal["resnet34", "resnet50", "resnet101", "mit_b5", 
 AugmentationLevel: TypeAlias = Literal["none", "basic", "medium", "aggressive"]
 """Текущий уровень аугментаций, dtype=Literal["none", "basic", "medium", "aggressive"]."""
 
-device: str = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE: str = "cuda" if torch.cuda.is_available() else "cpu"
 """Текущее используемое устройство, dtype=str."""
 
 # ──────────────────────────────────────────────────────────────────────
@@ -135,13 +135,14 @@ device: str = "cuda" if torch.cuda.is_available() else "cpu"
 #   - Включение его в лосс перегружает модель предсказывать только класс 0
 # SMP-модели (U-Net, FPN, PSPNet): ignore_index=255 — стандарт ADE20K
 IGNORE_INDEX_BY_MODEL: Dict[str, int] = {
-    """Словарь игнорируемых моделями индексов для обучения, dtype=Dict[str, int].""" "deeplab_tv": 255,
+    "deeplab_tv": 255,
     "fcn_tv": 255,
     "unet_smp": 255,
     "fpn_smp": 255,
     "psp_smp": 255,
     "segnet": 255,
 }
+"""Словарь игнорируемых моделями индексов для обучения, dtype=Dict[str, int].""" 
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -190,33 +191,6 @@ class TrainingResult(TypedDict):
     checkpoint_path: str
     history: Dict[str, List[float]]
     config: "TrainingConfig"
-
-
-# @dataclass
-# class ModelConfig:
-#     model_type: str
-#     encoder_name: str
-#     variant: str
-#     lr: Optional[float] = None
-
-# # Преобразование из вашего списка:
-# model_configs: list[ModelConfig] = [ModelConfig(**cfg) for cfg in raw_configs]
-
-# from pydantic import BaseModel
-# from typing import Literal, Optional
-
-# class ModelConfig(BaseModel):
-#     model_type: Literal["unet_smp", "fpn_smp", "psp_smp", "deeplab_tv", "fcn_tv", "segnet"]
-#     encoder_name: str
-#     variant: str
-#     lr: Optional[float] = None
-
-# # Валидация и приведение типов "на лету":
-# model_configs = [ModelConfig(**cfg) for cfg in raw_configs]
-
-# # Пример: если передать "lr": "1e-5" (строку), Pydantic сам превратит её в float.
-# # Если передать неверный model_type → выбросит ValidationError.
-
 
 # ──────────────────────────────────────────────────────────────────────
 class TrainingConfig:
@@ -358,6 +332,56 @@ class ModelTrainer:
         self.root_dir: Path = Path(root_dir)
         self.device: torch.device = torch.device(device if torch.cuda.is_available() else "cpu")
         self.experiment_results: List[TrainingResult] = []
+
+    # ──────────────────────────────────────────────────────────────────────
+    def _get_backbone(self, model: nn.Module, model_type: str) -> Optional[nn.Module]:
+        """Получает backbone/encoder модели в зависимости от типа.
+        
+        Args:
+            model: Экземпляр модели.
+            model_type: Тип модели ("psp_smp", "deeplab_tv", и т.д.).
+        
+        Returns:
+            Optional[nn.Module]: Backbone/encoder или None, если не найден.
+        """
+        if model_type in ["unet_smp", "fpn_smp", "psp_smp", "segnet"]:
+            # SMP-модели: энкодер доступен через .encoder
+            backbone = getattr(model, "encoder", None)
+            if backbone is None:
+                logger.warning(f"⚠️  {model_type}: encoder not found")
+            return backbone
+        elif model_type in ["deeplab_tv", "fcn_tv"]:
+            # Torchvision-модели: бэкбон доступен через .backbone
+            backbone = getattr(model, "backbone", None)
+            if backbone is None:
+                logger.warning(f"⚠️  {model_type}: backbone not found")
+            return backbone
+        logger.warning(f"⚠️  Unknown model_type: {model_type}")
+        return None
+
+    # ──────────────────────────────────────────────────────────────────────
+    def _get_classifier_layer(self, model: nn.Module, model_type: str) -> Optional[nn.Module]:
+        """Получает classifier/сегментационный слой модели в зависимости от типа.
+        
+        Args:
+            model: Экземпляр модели.
+            model_type: Тип модели ("psp_smp", "deeplab_tv", и т.д.).
+        
+        Returns:
+            Optional[nn.Module]: Classifier/сегментационный слой или None.
+        """
+        if model_type in ["unet_smp", "fpn_smp", "psp_smp", "segnet"]:
+            # SMP-модели: сегментационный выход — обычно последний Conv2d с NUM_CLASSES каналами
+            for module in model.modules():
+                if isinstance(module, nn.Conv2d) and module.out_channels == NUM_CLASSES:
+                    return module
+            return None
+        elif model_type in ["deeplab_tv", "fcn_tv"]:
+            # Torchvision-модели: classifier[4] — последний слой
+            if hasattr(model, "classifier") and isinstance(model.classifier, nn.Sequential):
+                return model.classifier[-1] if len(model.classifier) > 0 else None
+            return None
+        return None
 
     # ──────────────────────────────────────────────────────────────────────
     def create_model(
@@ -571,7 +595,7 @@ class ModelTrainer:
             augment=is_augmented,
             augmentation_level=augmentation_level,
             hflip_prob=0.5,
-            # vflip_prob=0.1 if augmentation_level == "aggressive" else 0.0,
+            vflip_prob=0.1 if augmentation_level == "aggressive" else 0.0,
             rotation_prob=(0.3 if augmentation_level in ["medium", "aggressive"] else 0.0),
             color_jitter_prob=(0.3 if augmentation_level in ["medium", "aggressive"] else 0.0),
             scale_range=((0.9, 1.1) if augmentation_level in ["medium", "aggressive"] else (1.0, 1.0)),
@@ -681,8 +705,12 @@ class ModelTrainer:
 
         print("✅ Pre-training checks:")
         print(f"   Model training mode: {model.training}")
-        backbone: nn.Module = cast(nn.Module, model.backbone)
-        print(f"   Backbone frozen: {all(not p.requires_grad for p in backbone.parameters())}")
+        backbone = self._get_backbone(model, config.model_type)
+        if backbone is not None:
+            frozen = all(not p.requires_grad for p in backbone.parameters())
+            print(f"   Backbone frozen: {frozen}")
+        else:
+            print("   ⚠️  Backbone/encoder not found")
 
         # ── FIX 2: mask_fill_value=255 при аугментациях ──
         train_loader, val_loader = self.create_dataloaders(
@@ -774,19 +802,29 @@ class ModelTrainer:
         print(f"   Optimizer param groups: {len(trainer.optimizer.param_groups)}")
 
         checkpoint_path: str = os.path.join(self.checkpoint_dir, config.checkpoint_name)
-        print("🔍 DEBUG FCN training setup:")
+        print("🔍 DEBUG training setup:")
         print(f"   ignore_index: {ignore_index}")
         print(f"   aux_loss_weight: {trainer.aux_loss_weight}")
         print(f"   model.training: {model.training}")
-        backbone = cast(nn.Module, model.backbone)
-        print(f"   Backbone frozen: {all(not p.requires_grad for p in backbone.parameters())}")
+        backbone = self._get_backbone(model, config.model_type)
+        if backbone is not None:
+            frozen = all(not p.requires_grad for p in backbone.parameters())
+            print(f"   Backbone/encoder frozen: {frozen}")
+        else:
+            print(f"   ⚠️  Backbone/encoder not found for {config.model_type}")
         print(f"   has aux_classifier: {hasattr(model, 'aux_classifier')}")
-        if hasattr(model, "aux_classifier") and model.aux_classifier is not None:
-            aux_cls = cast(nn.Sequential, model.aux_classifier)
-            print(f"   aux_classifier[4].out_channels: {aux_cls[4].out_channels}")  # type: ignore[index, union-attr]
 
-        cls_layer = cast(nn.Sequential, model.classifier)
-        print(f"   classifier[4].out_channels: {cls_layer[4].out_channels}")  # type: ignore[index, union-attr]
+        if config.model_type in ["deeplab_tv", "fcn_tv"] and hasattr(model, "aux_classifier"):
+            if model.aux_classifier is not None:
+                aux_cls = cast(nn.Sequential, model.aux_classifier)
+                if len(aux_cls) > 0 and hasattr(aux_cls[-1], "out_channels"):
+                    print(f"   aux_classifier out_channels: {aux_cls[-1].out_channels}")
+
+        classifier = self._get_classifier_layer(model, config.model_type)
+        if classifier is not None and hasattr(classifier, "out_channels"):
+            print(f"   Classifier out_channels: {classifier.out_channels}")
+        else:
+            print(f"   ⚠️  Classifier not found or out_channels unavailable for {config.model_type}")
         print("🎯 Starting training...")
 
         # ──────────────────────────────────────────────────────────────
@@ -794,29 +832,23 @@ class ModelTrainer:
         # ──────────────────────────────────────────────────────────────
         for epoch in range(config.epochs):
             # ── FIX 3: разморозка backbone без пересоздания scheduler ──
-            if is_tv_model and epoch == 5:
-                backbone_opt: Optional[nn.Module] = getattr(model, "backbone", None)
-                if isinstance(backbone_opt, nn.Module):
-                    for param in backbone_opt.parameters():
+            if epoch == 5:
+                backbone: Optional[nn.Module] = self._get_backbone(model, config.model_type)
+                if backbone is not None:
+                    frozen_before: int = sum(1 for p in backbone.parameters() if not p.requires_grad)
+                    for param in backbone.parameters():
                         param.requires_grad = True
-                    frozen_count = sum(1 for p in backbone_opt.parameters() if not p.requires_grad)
-                    print(f"   🔓 Unfroze backbone: {frozen_count} params still frozen")
-                    # Добавляем backbone-параметры в существующий optimizer
-                    # trainer.optimizer.add_param_group({
-                    #     "params": [p for p in backbone.parameters()],
-                    #     "lr": config.lr / 10,  # в 10 раз меньше, как было раньше
-                    #     "weight_decay": 1e-4,
-                    # })
-                    # print(f"   🔓 Unfroze backbone (LR={config.lr / 10:.1e}), "
-                    #       f"scheduler continues without reset")
-                    trainer.optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr / 10, weight_decay=1e-4)
-                    remaining_epochs = config.epochs - epoch
-                    trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                        trainer.optimizer,
-                        T_max=len(train_loader) * remaining_epochs,
-                        eta_min=config.lr / 10 * 0.01,
-                    )
-                    print(f"   🔓 Unfroze backbone, new optimizer + scheduler (LR={config.lr / 10:.1e})")
+                    frozen_after: int = sum(1 for p in backbone.parameters() if not p.requires_grad)
+                    print(f"   🔓 Unfroze backbone: {frozen_before - frozen_after} params still frozen")
+                    if config.model_type in ["deeplab_tv", "fcn_tv"]:
+                        trainer.optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr / 10, weight_decay=1e-4)
+                        remaining_epochs = config.epochs - epoch
+                        trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                            trainer.optimizer,
+                            T_max=len(train_loader) * remaining_epochs,
+                            eta_min=config.lr / 10 * 0.01,
+                        )
+                        print(f"   🔓 Unfroze backbone, new optimizer + scheduler (LR={config.lr / 10:.1e})")
                 else:
                     print(f"   ⚠️  Cannot unfreeze backbone: {type(backbone)}")
 
@@ -1300,7 +1332,7 @@ class ModelTrainer:
             print("⚠️ Нужно минимум 2 эксперимента для сравнения")
             return
 
-        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        _, axes = plt.subplots(2, 2, figsize=(15, 12))
 
         # 1. mIoU по уровням аугментаций
         ax1 = axes[0, 0]

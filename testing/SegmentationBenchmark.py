@@ -62,11 +62,6 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import torch
 
-from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType
-from utils.palettes import ade_palette
-from utils.strategies import segment_image_unified
-from transformers import PreTrainedModel
-
 import logging
 
 # Настройка логгера
@@ -84,6 +79,10 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from metrics.SegmentationMetrics import SegmentationMetrics
+from segmenters.NeuralModelFactory import NeuralModelFactory, ModelType
+from utils.palettes import ade_palette
+from utils.strategies import segment_image_unified
+from transformers import PreTrainedModel
 
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES & CONSTANTS
@@ -918,7 +917,7 @@ class SegmentationBenchmark:
         title: Optional[str] = None,
         figsize: Tuple[int, int] = (12, 6),
         show_values: bool = True,
-        path: str = "./data/ade20k_test_trained/plot_comparison_chart.jpg",
+        path: str = "./data/neural_benchmark/plot_comparison_chart.jpg",
     ) -> None:
         """Строит бар-чарт сравнения одной метрики с автоформатированием.
 
@@ -1022,7 +1021,7 @@ class SegmentationBenchmark:
         figsize: Tuple[int, int] = (14, 8),
         cmap: str = "RdYlGn",
         show_only_present_classes: bool = True,
-        path: str = "./data/ade20k_test_trained/plot_per_class_iou.jpg",
+        path: str = "./data/neural_benchmark/plot_per_class_iou.jpg",
     ) -> None:
         """Строит heatmap per-class IoU только для классов, присутствующих в GT."""
         data: List[np.ndarray] = []
@@ -1098,7 +1097,7 @@ class SegmentationBenchmark:
         normalize: str = "true",
         figsize: Tuple[int, int] = (10, 8),
         show_values: bool = True,
-        path: str = "./data/ade20k_test_trained/plot_confusion_matrix.jpg",
+        path: str = "./data/neural_benchmark/plot_confusion_matrix.jpg",
     ) -> None:
         """Визуализация матрицы ошибок с нормализацией."""
         if model_key not in self.results:
@@ -1156,7 +1155,7 @@ class SegmentationBenchmark:
     def plot_all_metrics(
         self,
         figsize: Tuple[int, int] = (15, 5),
-        path: str = "./data/ade20k_test_trained/plot_all_metrix.jpg",
+        path: str = "./data/neural_benchmark/plot_all_metrix.jpg",
     ) -> None:
         """Строит сводные графики по всем основным метрикам.
 
@@ -1199,8 +1198,17 @@ class SegmentationBenchmark:
             print("⚠️ No valid metrics to plot")
             return
         n_plots: int = len(valid_metrics)
-        fig, axes = plt.subplots(1, n_plots, figsize=(figsize[0] * n_plots / 3, figsize[1]))
-        axes_list: List[Any] = [axes] if n_plots == 1 else axes  # type: ignore[assignment]
+        fig = plt.figure(figsize=(figsize[0] * n_plots / 3, figsize[1]))
+        
+        # Создаём подплоты на этой фигуре
+        if n_plots == 1:
+            axes = fig.add_subplot(1, 1, 1)
+            axes_list: List[Any] = [axes]
+        else:
+            axes_list = []
+            for i in range(n_plots):
+                ax = fig.add_subplot(1, n_plots, i + 1)
+                axes_list.append(ax)
 
         cmap = plt.get_cmap("Set2")
         colors = cmap(np.linspace(0, 1, len(summary)))
@@ -1267,17 +1275,17 @@ class SegmentationBenchmark:
                 ax.set_xticks([])
                 ax.set_yticks([])
 
-        plt.suptitle("Model Comparison Summary", fontsize=14, fontweight="bold", y=1.02)
-        plt.tight_layout(rect=(0, 0, 1, 0.95))
-        plt.savefig(path, dpi=300, bbox_inches="tight", facecolor="white", format="png")
-        plt.show()
-        plt.close()
+        fig.suptitle("Model Comparison Summary", fontsize=14, fontweight="bold", y=1.02)
+        fig.tight_layout(rect=(0, 0, 1, 0.95))
+        fig.savefig(path, dpi=300, bbox_inches="tight", facecolor="white", format="png")
+        plt.close(fig)
+        print(f"✅ График сохранён: {path}")
 
     # ──────────────────────────────────────────────────────────────────────
     def plot_summary(
         self,
         metrics: List[str] = ["mIoU", "pixel_acc", "time_ms"],
-        path: str = "./data/ade20k_test_trained/plot_summary.jpg",
+        path: str = "./data/neural_benchmark/plot_summary.jpg",
     ) -> None:
         """Визуализация сводных результатов."""
         summary: Dict[str, Dict[str, Any]] = self.get_summary()

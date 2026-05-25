@@ -161,18 +161,18 @@ PrecisionType: TypeAlias = Literal["fp32", "fp16", "bf16"]
 # Списки методов для экспорта
 THRESHOLD_METHODS: List[str] = [
     "global_thresholding",
-    # "otsu_thresholding",
-    # "adaptive_thresholding",
-    # "threshold_niblack",
-    # "threshold_sauvola",
-    # "threshold_bernsen",
-    # "threshold_phansalkar",
-    # "threshold_percentile",
-    # "threshold_kittler_illingworth",
-    # "threshold_entropy_kapur",
-    # "threshold_triangle",
-    # "threshold_multi_otsu",
-    # "threshold_local_contrast",
+    "otsu_thresholding",
+    "adaptive_thresholding",
+    "threshold_niblack",
+    "threshold_sauvola",
+    "threshold_bernsen",
+    "threshold_phansalkar",
+    "threshold_percentile",
+    "threshold_kittler_illingworth",
+    "threshold_entropy_kapur",
+    "threshold_triangle",
+    "threshold_multi_otsu",
+    "threshold_local_contrast",
 ]
 """Список пороговых методов сегментации, dtype=List[str]."""
 
@@ -368,29 +368,6 @@ def export_all_classical_methods(
                     except Exception as e:
                         results[method_name][f"trt_{precision}"] = f"❌ {e}"
                         print(f"  │  └─ TRT error: {e}")
-                        # try:
-                        #     fallback = OnnxTrtFallbackSegmenter(
-                        #         onnx_path=onnx_path,
-                        #         input_shape=input_shape,
-                        #         device="cuda" if torch.cuda.is_available() else "cpu",
-                        #     )
-                        #     if fallback:
-                        #         results[method_name][f"onnxrt_{precision}"] = "✅ Fallback ready"
-                        #         print(f"  │  └─ ONNX Runtime fallback готов")
-                        #     print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-                        #     print("   (нажмите Ctrl+C для отмены, если нужно)")
-                        #     try:
-                        #         time.sleep(15)  # 🔥 Задержка 15 секунд
-                        #     except KeyboardInterrupt:
-                        #         print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
-                        # except Exception as e:
-                        #     results[method_name][f"onnxrt_{precision}"] = f"❌ Fallback: {e}"
-                        #     print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-                        #     print("   (нажмите Ctrl+C для отмены, если нужно)")
-                        #     try:
-                        #         time.sleep(15)  # 🔥 Задержка 15 секунд
-                        #     except KeyboardInterrupt:
-                        #         print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
                 else:
                     results[method_name][f"trt_{precision}"] = "⏭️ Exists"
 

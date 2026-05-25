@@ -42,11 +42,13 @@ project_root: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
 from segmenters.OpenCVSegmenter import OpenCVSegmenter
 from segmenters.SklearnSegmenter import SklearnSegmenter
 from segmenters.TorchSegmenter import TorchSegmenter
 from segmenters.NewTorchSegmenter import TorchSegmenter2
 from metrics.SegmentationMetrics import SegmentationMetrics, MetricsDict
+from utils.backend_exporter_new import load_trt_engine, PrecisionType
 import gc
 
 import logging
@@ -116,6 +118,11 @@ class BatchClassicTester:
         save_results: bool = True,  # Сохранять ли результаты (маски + изображения)
         refresh_masks: bool = False,  # Пересоздавать маски даже для протестированных
         torch_segmenter_version: TorchSegmenterVersion = "v2",
+        include_backends: bool = True,
+        onnx_dir: str = "./exported_models/onnx",
+        trt_dir: str = "./exported_models/tensorrt",
+        supported_precisions: Optional[List[PrecisionType]] = None,
+        **kwargs,
     ) -> None:
         """Инициализация тестера согласованности для массового сравнения реализаций.
 
@@ -267,21 +274,21 @@ class BatchClassicTester:
         # ──────────────────────────────────────────────────────────────
         self.all_threshold_methods: List[MethodConfig] = [
             ("global_thresholding", {"threshold": 0.5}),
-            # ("adaptive_thresholding", {"block_size": 11, "C": 2}),
-            # ("otsu_thresholding", {}),
-            # ("threshold_niblack", {"window_size": 15, "k": -0.2}),
-            # ("threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128.0}),
-            # ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
-            # (
-            #     "threshold_phansalkar",
-            #     {"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
-            # ),
-            # ("threshold_kittler_illingworth", {"num_bins": 256}),
-            # ("threshold_entropy_kapur", {"num_bins": 256}),
-            # ("threshold_triangle", {"num_bins": 256}),
-            # ("threshold_multi_otsu", {"n_thresholds": 2}),
-            # ("threshold_percentile", {"percentile": 90}),
-            # ("threshold_local_contrast", {"window_size": 15, "contrast_factor": 0.1}),
+            ("adaptive_thresholding", {"block_size": 11, "C": 2}),
+            ("otsu_thresholding", {}),
+            ("threshold_niblack", {"window_size": 15, "k": -0.2}),
+            ("threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128.0}),
+            ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
+            (
+                "threshold_phansalkar",
+                {"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
+            ),
+            ("threshold_kittler_illingworth", {"num_bins": 256}),
+            ("threshold_entropy_kapur", {"num_bins": 256}),
+            ("threshold_triangle", {"num_bins": 256}),
+            ("threshold_multi_otsu", {"n_thresholds": 2}),
+            ("threshold_percentile", {"percentile": 90}),
+            ("threshold_local_contrast", {"window_size": 15, "contrast_factor": 0.1}),
         ]
 
         self.all_edge_methods: List[MethodConfig] = [
@@ -348,14 +355,216 @@ class BatchClassicTester:
         self.validation_status: Dict[str, Dict[str, List[ValidationStatus]]] = defaultdict(lambda: defaultdict(list))
         self.torch_segmenter_version: TorchSegmenterVersion = torch_segmenter_version
 
+        self.include_backends: bool = include_backends  # Флаг включения бэкендов
+        self.onnx_dir: str = onnx_dir
+        self.trt_dir: str = trt_dir
+        self.supported_precisions: List[PrecisionType] = (
+            supported_precisions or ["fp32", "fp16", "bf16"]
+        )
+        self.input_shape: Tuple[int, int, int, int] = (1, 3, *self.image_size)  # (1, 3, 512, 512)
+
+        self._backend_cache: Dict[Tuple[str, str, str], Any] = {}
+
         # Пути для автосохранения
         self.progress_file: Path = self.output_dir / ".progress.json"
         self.temp_results_file: Path = self.output_dir / ".results_temp.csv"
+
+        if self.include_backends:
+            self.library_pairs.extend([
+                ("torch", "onnx"),
+                ("torch", "trt"),
+                ("opencv", "onnx"),
+                ("sklearn", "onnx"),
+            ])
 
         # Загрузка прогресса если нужно
         if resume and self.progress_file.exists():
             self._load_progress()
             print(f"📥 Восстановлен прогресс: {self._processed_count}/{self._total_tests} тестов")
+
+    # ──────────────────────────────────────────────────────────────────────
+    def _get_available_precisions(self) -> List[PrecisionType]:
+        """Определяет доступные точности на основе устройства и возможностей GPU."""
+        if not self.include_backends or self.device.type != "cuda" or not torch.cuda.is_available():
+            return ["fp32"]
+        
+        cap = torch.cuda.get_device_capability(0)
+        if cap[0] >= 8:  # Ampere+
+            return ["fp32", "fp16", "bf16"]
+        elif cap[0] >= 6:  # Pascal+
+            return ["fp32", "fp16"]
+        return ["fp32"]
+
+    # ──────────────────────────────────────────────────────────────────────
+    def _find_backend_model(
+        self,
+        method_name: str,
+        backend: Literal["onnx", "trt"],
+        precision: PrecisionType = "fp32",
+    ) -> Optional[str]:
+        """Поиск экспортированной модели в директориях бэкендов.
+        
+        Структура путей:
+        - ONNX: {onnx_dir}/{precision}/{method_name}.onnx
+        - TRT:  {trt_dir}/{precision}/{method_name}.trt
+        
+        Args:
+            method_name: Имя метода (например, "otsu_thresholding").
+            backend: Тип бэкенда ("onnx" или "trt").
+            precision: Точность вычислений ("fp32", "fp16", "bf16").
+        
+        Returns:
+            Optional[str]: Путь к файлу модели или None, если не найдена.
+        """
+        base_dir = self.onnx_dir if backend == "onnx" else self.trt_dir
+        ext = ".onnx" if backend == "onnx" else ".trt"
+        model_path = os.path.join(base_dir, precision, f"{method_name}{ext}")
+        
+        if os.path.exists(model_path):
+            return model_path
+        return None
+
+    # ──────────────────────────────────────────────────────────────────────
+    def _prepare_backend_params(
+        self,
+        method_name: str,
+        params: Dict[str, Any],
+        backend: Literal["onnx", "trt"],
+        precision: PrecisionType,
+    ) -> Dict[str, Any]:
+        """Подготовка параметров для инициализации бэкенд-сегментера.
+        
+        Args:
+            method_name: Имя метода.
+            params: Исходные параметры метода.
+            backend: Тип бэкенда.
+            precision: Точность вычислений.
+        
+        Returns:
+            Dict[str, Any]: Отфильтрованные параметры для бэкенда.
+        """
+        prepared = params.copy()
+        
+        # Общие параметры для всех бэкендов
+        prepared.setdefault("input_shape", self.input_shape)
+        prepared.setdefault("device", str(self.device))
+        prepared.setdefault("precision", precision)
+        prepared.setdefault("is_neural", False)  # Классические методы
+        
+        # Специфичные параметры для TensorRT
+        if backend == "trt":
+            prepared.setdefault(
+                "trt_config",
+                {
+                    "max_workspace_size": 1 << 30,  # 1GB
+                    "fp16_mode": (precision in ["fp16", "bf16"]),
+                    "int8_mode": False,
+                },
+            )
+        
+        return prepared
+
+    # ──────────────────────────────────────────────────────────────────────
+    def _get_backend_segmenter(
+        self,
+        method_name: str,
+        backend: Literal["onnx", "trt"],
+        precision: PrecisionType,
+        params: Dict[str, Any],
+    ) -> Optional[Union[ONNXSegmenter, TRTSegmenter]]:
+        """Создание или получение из кэша сегментера для бэкенда.
+        
+        Args:
+            method_name: Имя метода.
+            backend: Тип бэкенда.
+            precision: Точность вычислений.
+            params: Параметры метода.
+        
+        Returns:
+            Optional[Union[ONNXSegmenter, TRTSegmenter]]: Экземпляр сегментера или None.
+        """
+        cache_key = (method_name, backend, precision, json.dumps(params, sort_keys=True))
+        
+        # Проверка кэша
+        if cache_key in self._backend_cache:
+            return self._backend_cache[cache_key]
+        
+        # Поиск модели
+        model_path = self._find_backend_model(method_name, backend, precision)
+        if not model_path:
+            logger.warning(f"⚠️ Модель не найдена: {method_name}_{backend}_{precision}")
+            return None
+        
+        # Подготовка параметров
+        backend_params = self._prepare_backend_params(method_name, params, backend, precision)
+        
+        try:
+            if backend == "onnx":
+                segmenter = ONNXSegmenter(
+                    model_key=method_name,
+                    onnx_path=model_path,
+                    **backend_params,
+                )
+            else:  # trt
+                trt_model = load_trt_engine(model_path, device=str(self.device))
+                if trt_model is None:
+                    logger.error(f"❌ Не удалось загрузить TRT engine: {model_path}")
+                    return None
+                segmenter = TRTSegmenter(
+                    model_key=method_name,
+                    trt_model_or_path=trt_model,
+                    **backend_params,
+                )
+            
+            # Кэширование
+            self._backend_cache[cache_key] = segmenter
+            return segmenter
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка создания {backend} сегментера: {e}")
+            return None
+
+    # ──────────────────────────────────────────────────────────────────────
+    def _normalize_mask_for_comparison(self, mask: Any) -> np.ndarray:
+        """Приведение маски от любого бэкенда к единому формату.
+        
+        Обрабатывает:
+        - torch.Tensor → numpy
+        - Разные размерности: (1,1,H,W), (1,H,W), (H,W,1) → (H,W)
+        - Нормализованные значения [0,1] → [0,255]
+        - Булевы массивы → uint8
+        
+        Args:
+            mask: Входная маска (Tensor, ndarray или список).
+        
+        Returns:
+            np.ndarray: Нормализованная бинарная маска формы (H, W), dtype=uint8.
+        """
+        # Конвертация Tensor → numpy
+        if isinstance(mask, torch.Tensor):
+            mask = mask.squeeze().detach().cpu().numpy()
+        elif isinstance(mask, (list, tuple)):
+            mask = np.array(mask)
+        
+        # Удаление лишних измерений
+        if mask.ndim == 3:
+            if mask.shape[-1] == 1:
+                mask = mask.squeeze(-1)
+            elif mask.shape[0] == 1:
+                mask = mask.squeeze(0)
+        
+        # Конвертация в uint8
+        if mask.dtype == bool:
+            mask = mask.astype(np.uint8) * 255
+        elif mask.dtype in [np.float32, np.float64]:
+            if mask.max() <= 1.0 + 1e-6:  # Нормализованная [0,1]
+                mask = (mask * 255).astype(np.uint8)
+            else:
+                mask = mask.astype(np.uint8)
+        elif mask.dtype != np.uint8:
+            mask = mask.astype(np.uint8)
+        
+        return mask
 
     # ──────────────────────────────────────────────────────────────────────
     def _setup_signal_handlers(self) -> None:
@@ -426,11 +635,12 @@ class BatchClassicTester:
         self,
         method_name: str,
         params: Dict[str, Any],
-        lib_a: LibraryName,
-        lib_b: LibraryName,
+        lib_a: Union[LibraryName, Literal["onnx", "trt"]],
+        lib_b: Union[LibraryName, Literal["onnx", "trt"]],
         image: np.ndarray,
         img_name: str,
         pair_key: str,
+        precision: PrecisionType = "fp32",
     ) -> Tuple[
         Optional[Dict[str, float]],
         Optional[Tuple[float, float]],
@@ -510,8 +720,13 @@ class BatchClassicTester:
             # ──────────────────────────────────────────────────────
             # Запуск первой реализации
             # ──────────────────────────────────────────────────────
-            seg_a_class = self._get_segmenter_class(lib_a)
-            seg_a = seg_a_class(method=method_name, **params)
+            if lib_a in ["onnx", "trt"]:
+                seg_a = self._get_backend_segmenter(method_name, lib_a, precision, params)
+                if seg_a is None:
+                    return None, None, f"Backend {lib_a} not found", None
+            else:
+                seg_a_class = self._get_segmenter_class(lib_a)  # type: ignore[arg-type]
+                seg_a = seg_a_class(method=method_name, **params)
 
             if str(self.device) == "cuda":
                 torch.cuda.synchronize()
@@ -524,11 +739,18 @@ class BatchClassicTester:
             # ──────────────────────────────────────────────────────
             # Запуск второй реализации (без постобработки для честного сравнения)
             # ──────────────────────────────────────────────────────
-            seg_b_class = self._get_segmenter_class(lib_b)
-            params_b: Dict[str, Any] = params.copy()
-            params_b["postprocess"] = False
+            if lib_b in ["onnx", "trt"]:
+                seg_b = self._get_backend_segmenter(method_name, lib_b, precision, params)
+                if seg_b is None:
+                    return None, None, f"Backend {lib_b} not found", None
+                # Для бэкендов postprocess обычно не нужен
+                params_b = params.copy()
+            else:
+                seg_b_class = self._get_segmenter_class(lib_b)  # type: ignore[arg-type]
+                params_b = params.copy()
+                params_b["postprocess"] = False  # Честное сравнение
+                seg_b = seg_b_class(method=method_name, **params_b)
 
-            seg_b = seg_b_class(method=method_name, **params_b)
             if str(self.device) == "cuda":
                 torch.cuda.synchronize()
             start_b: float = time.perf_counter()
@@ -540,33 +762,29 @@ class BatchClassicTester:
             # ──────────────────────────────────────────────────────
             # Приведение масок к одному формату и размеру
             # ──────────────────────────────────────────────────────
-            def normalize_mask(mask: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray:
-                """Приводит маску к бинарному uint8 и нужному размеру."""
-                if mask.shape != target_shape:
-                    from skimage.transform import resize
-
-                    mask = resize(mask, target_shape, order=0, preserve_range=True)
-                if mask.dtype != np.uint8:
-                    if mask.max() <= 1.0:
-                        mask = (mask * 255).astype(np.uint8)
-                    else:
-                        mask = mask.astype(np.uint8)
-                return mask
-
+            mask_a_norm = self._normalize_mask_for_comparison(mask_a)
+            mask_b_norm = self._normalize_mask_for_comparison(mask_b)
+            
+            # Ресайз к целевому размеру если нужно
             target_shape = image.shape[:2]
-            mask_a_norm: np.ndarray = normalize_mask(mask_a, target_shape)
-            mask_b_norm: np.ndarray = normalize_mask(mask_b, target_shape)
+            if mask_a_norm.shape != target_shape:
+                from skimage.transform import resize
+                mask_a_norm = resize(mask_a_norm, target_shape, order=0, preserve_range=True).astype(np.uint8)
+            if mask_b_norm.shape != target_shape:
+                from skimage.transform import resize
+                mask_b_norm = resize(mask_b_norm, target_shape, order=0, preserve_range=True).astype(np.uint8)
 
             # ──────────────────────────────────────────────────────
             # Расчёт метрик соответствия
             # ──────────────────────────────────────────────────────
             metrics: MetricsDict = SegmentationMetrics.calculate_all_metrics(
                 pred_mask=mask_a_norm,
-                gt_mask=mask_b_norm,  # 🔁 Сравниваем две маски между собой!
+                gt_mask=mask_b_norm,
                 threshold=0.5,
                 include_hausdorff=True,
             )
             metrics["time_diff"] = abs(time_a - time_b)
+            metrics["compute_precision"] = precision
 
             masks_to_save: Optional[Tuple[np.ndarray, np.ndarray]] = None
             if self.save_masks and self._should_save_mask(pair_key, method_name):
@@ -938,9 +1156,12 @@ class BatchClassicTester:
 
         for metric, op, threshold in checks:
             if metric in metrics:
-                if op == ">=" and metrics[metric] >= threshold:
+                value = metrics[metric]
+                if not isinstance(value, (int, float, np.number)):
+                    continue
+                if op == ">=" and value >= threshold:
                     passed += 1
-                elif op == "<=" and metrics[metric] <= threshold:
+                elif op == "<=" and value <= threshold:
                     passed += 1
 
         if passed == total:
@@ -1100,7 +1321,9 @@ class BatchClassicTester:
         self._total_images: int = total_images
         self._total_methods: int = total_methods
         self._total_pairs: int = total_pairs
-        self._total_tests: int = total_images * total_methods * total_pairs
+        precisions_count = len(self._get_available_precisions()) if self.include_backends else 1
+        self._total_tests = total_images * total_methods * total_pairs * precisions_count
+        # self._total_tests: int = total_images * total_methods * total_pairs
         self._processed_count: int = getattr(self, "_processed_count", 0)
         self._start_time: float = time.time()
         self._last_save_time: float = time.time()
@@ -1292,7 +1515,7 @@ class BatchClassicTester:
                 self.temp_results_file.replace(final_path)
 
             self._last_save_time = now
-            print(f"\n💾 Автосохранение: {self._processed_count}/{self._total_tests} ✅")
+            print(f"\n💾 Автосохранение: {self._total_tests}/{self._total_tests} ✅")
 
         except Exception as e:
             print(f"\n⚠️  Ошибка автосохранения: {e}")
@@ -1495,111 +1718,121 @@ class BatchClassicTester:
             unit="тест",
             leave=True,
             dynamic_ncols=True,
-            mininterval=0.5,
+            mininterval=0.01,
+            file=sys.stdout,
         ) as pbar:
 
             if self.resume and self._processed_count > 0:
                 pbar.update(self._processed_count)
                 print(f"⏭️  Пропущено {self._processed_count} выполненных тестов")
 
+            precisions_to_test: List[PrecisionType]  = self._get_available_precisions()
+            total_precisions: int = len(precisions_to_test)
             for img_idx, (img_name, image) in enumerate(test_data):
                 for method_name, params in self.all_methods:
-                    for lib_a, lib_b in self.library_pairs:
-                        pair_key: str = f"{lib_a}_vs_{lib_b}"
 
-                        # Пропуск выполненных тестов при resume
-                        # 🔧 O(1) доступ вместо O(n) поиска
-                        if self.resume and self._processed_count > 0 and not self.refresh_masks:
-                            method_key: Tuple[str, str] = (
+                    for precision_idx, precision in enumerate(precisions_to_test):
+                        if precision not in precisions_to_test:
+                            continue
+                        for lib_a, lib_b in self.library_pairs:
+                            pair_key: str = f"{lib_a}_vs_{lib_b}"
+
+                            # Пропуск выполненных тестов при resume
+                            # 🔧 O(1) доступ вместо O(n) поиска
+                            if self.resume and self._processed_count > 0 and not self.refresh_masks:
+                                method_key: Tuple[str, str] = (
+                                    method_name,
+                                    json.dumps(params, sort_keys=True),
+                                )
+                                method_idx: Optional[int] = self._method_index_cache.get(method_key)
+                                pair_idx: Optional[int] = self._pair_index_cache.get((lib_a, lib_b))
+
+                                if method_idx is None or pair_idx is None:
+                                    # Если кэш не найден (маловероятно), вычисляем как fallback
+                                    method_idx = self.all_methods.index((method_name, params))
+                                    pair_idx = self.library_pairs.index((lib_a, lib_b))
+
+                                test_index: int = (
+                                    img_idx * total_methods * total_pairs * total_precisions +
+                                        method_idx * total_pairs * total_precisions +
+                                        pair_idx * total_precisions +
+                                        precision_idx + 1
+                                )
+
+                                if self._processed_count >= test_index:
+                                    continue
+
+                            # Запуск теста согласованности
+                            metrics, exec_times, error, masks = self._run_consistency_test(
+                                method_name, params, lib_a, lib_b, image, img_name, pair_key, precision=precision
+                            )
+
+                            # Обработка результатов
+                            if error:
+                                self.errors[pair_key][method_name].append(f"{img_name}: {error}")
+                            elif metrics:
+                                for metric_name in self.metrics_to_aggregate:
+                                    if metric_name in metrics:
+                                        self.results[pair_key][method_name][metric_name].append(metrics[metric_name])
+                                if exec_times:
+                                    self.execution_times[pair_key][method_name].append(exec_times)
+                                if masks is not None:
+                                    mask_a, mask_b = masks
+                                    save_dir = self.masks_dir / pair_key / method_name / img_name.replace(".", "_")
+                                    # 1. Сохраняем маски и изображение
+                                    if self.refresh_masks or not save_dir.exists():
+                                        self._save_segmentation_results(
+                                            method_name=method_name,
+                                            pair_key=pair_key,
+                                            img_name=img_name,
+                                            image=image,
+                                            mask_a=mask_a,
+                                            mask_b=mask_b,
+                                            metrics=metrics,
+                                            lib_a=lib_a,
+                                            lib_b=lib_b,
+                                        )
+
+                                        # 2. Создаём визуализацию сравнения
+                                        self._create_comparison_visualization(
+                                            method_name=method_name,
+                                            pair_key=pair_key,
+                                            img_name=img_name,
+                                            image=image,
+                                            mask_a=mask_a,
+                                            mask_b=mask_b,
+                                            metrics=metrics,
+                                            lib_a=lib_a,
+                                            lib_b=lib_b,
+                                        )
+                                        self._save_masks(
+                                            pair_key=pair_key,
+                                            method_name=method_name,
+                                            img_name=img_name,
+                                            mask_a=mask_a,
+                                            mask_b=mask_b,
+                                            metrics=metrics,
+                                            image=image,
+                                        )
+
+                                # Статус валидации
+                                status = self._check_validation_status(metrics)
+                                self.validation_status[pair_key][method_name].append(status)
+
+                            # Обновление прогресса
+                            self._processed_count += 1
+                            pbar.update(1)
+                            self._update_progress_bar(
+                                pbar,
+                                self._processed_count,
+                                (lib_a, lib_b),
                                 method_name,
-                                json.dumps(params, sort_keys=True),
-                            )
-                            method_idx: Optional[int] = self._method_index_cache.get(method_key)
-                            pair_idx: Optional[int] = self._pair_index_cache.get((lib_a, lib_b))
-
-                            if method_idx is None or pair_idx is None:
-                                # Если кэш не найден (маловероятно), вычисляем как fallback
-                                method_idx = self.all_methods.index((method_name, params))
-                                pair_idx = self.library_pairs.index((lib_a, lib_b))
-
-                            test_index: int = (
-                                img_idx * total_methods * total_pairs + method_idx * total_pairs + pair_idx + 1
+                                img_name,
                             )
 
-                            if self._processed_count >= test_index:
-                                continue
-
-                        # Запуск теста согласованности
-                        metrics, exec_times, error, masks = self._run_consistency_test(
-                            method_name, params, lib_a, lib_b, image, img_name, pair_key
-                        )
-
-                        # Обработка результатов
-                        if error:
-                            self.errors[pair_key][method_name].append(f"{img_name}: {error}")
-                        elif metrics:
-                            for metric_name in self.metrics_to_aggregate:
-                                if metric_name in metrics:
-                                    self.results[pair_key][method_name][metric_name].append(metrics[metric_name])
-                            if exec_times:
-                                self.execution_times[pair_key][method_name].append(exec_times)
-                            if masks is not None:
-                                mask_a, mask_b = masks
-                                save_dir = self.masks_dir / pair_key / method_name / img_name.replace(".", "_")
-                                # 1. Сохраняем маски и изображение
-                                if self.refresh_masks or not save_dir.exists():
-                                    self._save_segmentation_results(
-                                        method_name=method_name,
-                                        pair_key=pair_key,
-                                        img_name=img_name,
-                                        image=image,
-                                        mask_a=mask_a,
-                                        mask_b=mask_b,
-                                        metrics=metrics,
-                                        lib_a=lib_a,
-                                        lib_b=lib_b,
-                                    )
-
-                                    # 2. Создаём визуализацию сравнения
-                                    self._create_comparison_visualization(
-                                        method_name=method_name,
-                                        pair_key=pair_key,
-                                        img_name=img_name,
-                                        image=image,
-                                        mask_a=mask_a,
-                                        mask_b=mask_b,
-                                        metrics=metrics,
-                                        lib_a=lib_a,
-                                        lib_b=lib_b,
-                                    )
-                                    self._save_masks(
-                                        pair_key=pair_key,
-                                        method_name=method_name,
-                                        img_name=img_name,
-                                        mask_a=mask_a,
-                                        mask_b=mask_b,
-                                        metrics=metrics,
-                                        image=image,
-                                    )
-
-                            # Статус валидации
-                            status = self._check_validation_status(metrics)
-                            self.validation_status[pair_key][method_name].append(status)
-
-                        # Обновление прогресса
-                        self._processed_count += 1
-                        pbar.update(1)
-                        self._update_progress_bar(
-                            pbar,
-                            self._processed_count,
-                            (lib_a, lib_b),
-                            method_name,
-                            img_name,
-                        )
-
-                        # Автосохранение
-                        if img_idx % self.autosave_interval == 0 and img_idx > 0:
-                            self._save_progress()
+                            # Автосохранение
+                            if img_idx % self.autosave_interval == 0 and img_idx > 0:
+                                self._save_progress()
 
                 # Очистка памяти
                 if torch.cuda.is_available():
@@ -1608,7 +1841,6 @@ class BatchClassicTester:
                 gc.collect()
 
         # Финальное сохранение
-        print("\n🏁 Завершение тестирования...")
         print("\n🏁 Завершение тестирования...")
         self._save_progress(force=True)
 
@@ -1639,70 +1871,101 @@ class BatchClassicTester:
 
     # ──────────────────────────────────────────────────────────────────────
     def _aggregate_results(self) -> pd.DataFrame:
-        """Агрегирует накопленные результаты в сводную таблицу.
-
-        Для каждого метода рассчитывает среднее, стандартное отклонение, min и max
-        по каждой метрике, а также среднее время выполнения и долю ошибок.
-        Сортирует таблицу по убыванию `iou_mean`.
-
-        Returns:
-            `pd.DataFrame` со столбцами `Method`, `{metric}_{stat}`, `time_mean_s`,
-            `error_count`, `error_rate` и `Images_Tested`.
-        """
+        """Агрегирует накопленные результаты в сводную таблицу."""
         rows: List[Dict[str, Any]] = []
-
+        
         for pair_key in self.results:
             for method_name in self.results[pair_key]:
-                images_tested: int = len(self.results[pair_key][method_name].get("iou", []))
+                # 🔧 Новая логика: self.results[pair_key][method_name] может содержать
+                # либо список значений, либо dict с метаданными (compute_precision)
+                
+                metrics_data = self.results[pair_key][method_name]
+                
+                # Определяем уникальные значения точности
+                precisions = {"fp32"}  # default
+                if isinstance(metrics_data, dict):
+                    for metric_name, values in metrics_data.items():
+                        if isinstance(values, list) and values and isinstance(values[0], dict):
+                            for item in values:
+                                if isinstance(item, dict) and "compute_precision" in item:
+                                    precisions.add(item["compute_precision"])
+                
+                for precision in precisions:
+                    # Сбор метрик для данной точности
+                    collected_metrics: Dict[str, List[float]] = defaultdict(list)
+                    
+                    for metric_name in self.metrics_to_aggregate:
+                        values = metrics_data.get(metric_name, [])
+                        if isinstance(values, list):
+                            for v in values:
+                                if isinstance(v, dict):
+                                    if v.get("compute_precision") == precision and metric_name in v:
+                                        collected_metrics[metric_name].append(v[metric_name])
+                                elif isinstance(v, (int, float)):
+                                    # Старый формат без compute_precision
+                                    collected_metrics[metric_name].append(v)
+                    
+                    if not any(collected_metrics.values()):
+                        continue  # Нет данных для этой комбинации
+                    
+                    images_tested = len(collected_metrics.get("iou", []))
+                    if images_tested == 0:
+                        continue
+                    
+                    row: Dict[str, Any] = {
+                        "Method": method_name,
+                        "Library_Pair": pair_key,  # ← Ключевая колонка!
+                        "Precision": precision,
+                        "Torch_Version": "v2" if "torch_v2" in pair_key or self.torch_segmenter_version == "v2" else "v1",
+                        "Images_Tested": images_tested,
+                    }
+                    
+                    # Агрегация метрик
+                    for metric_name in self.metrics_to_aggregate:
+                        values = collected_metrics.get(metric_name, [])
+                        if values:
+                            row[f"{metric_name}_mean"] = np.mean(values)
+                            row[f"{metric_name}_std"] = np.std(values)
+                            row[f"{metric_name}_min"] = np.min(values)
+                            row[f"{metric_name}_max"] = np.max(values)
+                        else:
+                            row[f"{metric_name}_mean"] = np.nan
+                    
+                    # Время выполнения
+                    times = self.execution_times[pair_key][method_name]
+                    if times:
+                        times_a = [t[0] for t in times]
+                        times_b = [t[1] for t in times]
+                        row["time_a_mean"] = np.mean(times_a)
+                        row["time_b_mean"] = np.mean(times_b)
+                        row["time_diff_mean"] = np.mean([abs(a - b) for a, b in zip(times_a, times_b)])
+                    
+                    # Статусы валидации
+                    statuses = self.validation_status[pair_key][method_name]
+                    if statuses:
+                        status_counts = pd.Series(statuses).value_counts()
+                        total = len(statuses)
+                        row["pass_rate"] = status_counts.get("PASS", 0) / total
+                        row["warning_rate"] = status_counts.get("WARNING", 0) / total
+                        row["fail_rate"] = status_counts.get("FAIL", 0) / total
+                    
+                    error_msgs = self.errors[pair_key][method_name]
+                    row["error_count"] = len(error_msgs)
+                    row["error_rate"] = len(error_msgs) / images_tested if images_tested > 0 else 0.0
 
-                row: Dict[str, Any] = {
-                    "Method": method_name,
-                    "Library_Pair": pair_key,
-                    "Torch_Version": ("v2" if "torch_v2" in pair_key or self.torch_segmenter_version == "v2" else "v1"),
-                    "Images_Tested": images_tested,
-                }
-
-                # Средние значения метрик
-                for metric_name in self.metrics_to_aggregate:
-                    values: List[float] = self.results[pair_key][method_name].get(metric_name, [])
-                    if values:
-                        row[f"{metric_name}_mean"] = np.mean(values)
-                        row[f"{metric_name}_std"] = np.std(values)
-                        row[f"{metric_name}_min"] = np.min(values)
-                        row[f"{metric_name}_max"] = np.max(values)
-                    else:
-                        row[f"{metric_name}_mean"] = np.nan
-
-                # Время выполнения
-                times: List[Tuple[float, float]] = self.execution_times[pair_key][method_name]
-                if times:
-                    times_a: List[float] = [t[0] for t in times]
-                    times_b: List[float] = [t[1] for t in times]
-                    row["time_a_mean"] = np.mean(times_a)
-                    row["time_b_mean"] = np.mean(times_b)
-                    row["time_diff_mean"] = np.mean([abs(a - b) for a, b in zip(times_a, times_b)])
-
-                # Ошибки и статус
-                errors: List[str] = self.errors[pair_key][method_name]
-                statuses: List[ValidationStatus] = self.validation_status[pair_key][method_name]
-
-                row["error_count"] = len(errors)
-                row["error_rate"] = len(errors) / max(images_tested, 1)
-
-                if statuses:
-                    status_counts: pd.Series = pd.Series(statuses).value_counts()
-                    row["pass_rate"] = status_counts.get("PASS", 0) / len(statuses)
-                    row["warning_rate"] = status_counts.get("WARNING", 0) / len(statuses)
-                    row["fail_rate"] = status_counts.get("FAIL", 0) / len(statuses)
-
-                rows.append(row)
-
-        df: pd.DataFrame = pd.DataFrame(rows)
-
-        # Сортировка по IoU для каждой пары
-        if "iou_mean" in df.columns:
-            df = df.sort_values(["Library_Pair", "iou_mean"], ascending=[True, False])
-
+                    rows.append(row)
+        
+        if not rows:
+            logger.warning("⚠️ Нет данных для агрегации! Проверьте self.results")
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(rows)
+        
+        # Сортировка
+        if "iou_mean" in df.columns and "Library_Pair" in df.columns:
+            sort_cols = ["Library_Pair", "Precision", "iou_mean"] if "Precision" in df.columns else ["Library_Pair", "iou_mean"]
+            df = df.sort_values(sort_cols, ascending=[True, True, False] if "Precision" in df.columns else [True, False])
+        
         return df
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1770,12 +2033,12 @@ class BatchClassicTester:
             f.write(df[cols].to_markdown(index=False, floatfmt=".4f") + "\n\n")
 
             # Статистика ошибок
-            if df["error_count"].sum() > 0:
-                f.write("## ⚠️ Статистика ошибок\n\n")
+            if "error_count" in df.columns and df["error_count"].sum() > 0:
+                f.write("## ⚠️ Статистика ошибок\n")
                 err_df: pd.DataFrame = df[df["error_count"] > 0][
                     ["Method", "Library_Pair", "error_count", "error_rate"]
                 ]
-                f.write(err_df.to_markdown(index=False) + "\n\n")
+                f.write(err_df.to_markdown(index=False) + "\n")
 
     # ──────────────────────────────────────────────────────────────────────
     def plot_results(self, df: pd.DataFrame, output_dir: Optional[Path] = None) -> None:
@@ -1981,11 +2244,12 @@ class BatchClassicTester:
             for _, row in fast.iterrows():
                 print(f"      • {row['Method']}: Δt={row['time_diff_mean'] * 1000:.1f}мс")
 
-            if df_pair["error_count"].sum() > 0:
+            if "error_count" in df.columns and df_pair["error_count"].sum() > 0:
                 print("   ❌ Методы с ошибками:")
                 err = df_pair[df_pair["error_count"] > 0].sort_values("error_count", ascending=False).head(3)
                 for _, row in err.iterrows():
-                    print(f"      • {row['Method']}: {row['error_count']} ошибок")
+                    err_pct = row.get("error_rate", 0) * 100
+                    print(f"      • {row['Method']}: {int(row['error_count'])} ошибок ({err_pct:.1f}%)")
 
         # Общая статистика
         print(f"\n💾 Все результаты: {self.output_dir}")
@@ -2488,6 +2752,11 @@ class BatchClassicTester:
             - Общее время генерации зависит от количества пар и методов; для >100 методов
             рассмотрите уменьшение `max_images` или увеличение `autosave_interval`.
         """
+        if df.empty or "Library_Pair" not in df.columns:
+            logger.warning("⚠️ DataFrame пуст или не содержит колонку 'Library_Pair', пропускаем генерацию графиков")
+            logger.warning(f"   Доступные колонки: {list(df.columns) if not df.empty else 'N/A'}")
+            return
+        
         for pair_key in df["Library_Pair"].unique():
             self._create_summary_comparison_chart(df, pair_key)
 

@@ -106,6 +106,29 @@ ImageFormat = Literal[".png", ".jpg", ".jpeg", ".bmp"]
 ImageFormats: Tuple[ImageFormat, ImageFormat, ImageFormat, ImageFormat] = (".png", ".jpg", ".jpeg", ".bmp")
 """Форматы изображений, dtype=Tuple[ImageFormat, ImageFormat, ImageFormat, ImageFormat]."""
 
+def _safe_trt_inference(segmenter: Any, image: Any, method_name: str) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """Безопасный инференс для TRT-сегментеров с обработкой ошибок."""
+    try:
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()  # Синхронизация ПЕРЕД инференсом
+        
+        result_opt, mask_opt = segmenter.segment_with_mask(image)
+        
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()  # Синхронизация ПОСЛЕ инференса
+        
+        return result_opt, mask_opt
+    except (torch.AcceleratorError, RuntimeError) as e:
+        logger.error(f"❌ TRT инференс сбой для {method_name}: {e}")
+        # 🔧 Критически важно: очистить контекст после ошибки
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.empty_cache()
+                torch.cuda.reset_peak_memory_stats()
+            except:
+                pass
+        return None, None
+
 
 # ──────────────────────────────────────────────────────────────────────
 class SegmentationTester:
@@ -1350,6 +1373,21 @@ class SegmentationTester:
         Path(bench_dir, "images").mkdir(parents=True, exist_ok=True)
         Path(bench_dir, "masks").mkdir(parents=True, exist_ok=True)
 
+        if torch.cuda.is_available():
+            try:
+                # 🔧 Проверка здоровья CUDA перед запуском
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                # Тестовая операция
+                _ = torch.zeros(1, device=self.device)
+                print("✅ CUDA контекст в порядке")
+            except Exception as e:
+                logger.error(f"❌ CUDA контекст повреждён: {e}")
+                # Попытка восстановления
+                torch.cuda.empty_cache()
+                torch.cuda.reset_peak_memory_stats()
+                time.sleep(1)
+
         # Сохраняем оригинальное изображение
         orig_path: str = os.path.join(bench_dir, "images", "original.jpg")
         original_img.save(orig_path)
@@ -1423,7 +1461,15 @@ class SegmentationTester:
                 try:
                     result_opt: BinaryMask
                     mask_opt: Optional[ProbabilityMask]
-                    result_opt, mask_opt = self.methods[method_name].segment_with_mask(input_arg_for_method)
+                    is_trt_backend = method_name.endswith("_TRT") or "_TRT_" in method_name
+                    if is_trt_backend:
+                        result_opt, mask_opt = _safe_trt_inference(
+                            self.methods[method_name], 
+                            input_arg_for_method, 
+                            method_name
+                        )
+                    else:
+                        result_opt, mask_opt = self.methods[method_name].segment_with_mask(input_arg_for_method)
                     is_backend = method_name.endswith("_ONNX") or method_name.endswith("_TRT")
                     if result_opt is None:
                         logger.warning(f"    ⚠️  {method_name} returned None result (run {run + 1})")
@@ -1715,9 +1761,11 @@ class SegmentationTester:
                     method,
                     (x, y),
                     textcoords="offset points",
-                    xytext=(0, 10),
-                    ha="center",
+                    xytext=(10, 0),
+                    ha="left",
+                    va="center",
                     fontsize=9,
+                    rotation=-90,
                 )
 
             plt.xlabel("Время выполнения (секунды)")
@@ -1744,12 +1792,15 @@ class SegmentationTester:
 
             for i, row in df.iterrows():
                 plt.annotate(
-                    row["Method"][:15],
+                    row["Method"],
                     (row["Mean_Time_s"], row["IoU"]),
                     textcoords="offset points",
-                    xytext=(0, 10),
-                    ha="center",
+                    xytext=(10, 0),
+                    ha="left",
+                    va="center",
                     fontsize=8,
+                    rotation=-90,
+                    rotation_mode="anchor",
                 )
 
             plt.xlabel("Время выполнения (секунды)")
@@ -1966,7 +2017,7 @@ class SegmentationTester:
                 print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
                 print("   (нажмите Ctrl+C для отмены, если нужно)")
                 try:
-                    time.sleep(15)  # 🔥 Задержка 15 секунд
+                    time.sleep(15)
                 except KeyboardInterrupt:
                     print("\n⚠️  Бенчмарк пропущен по запросу пользователя")
 
