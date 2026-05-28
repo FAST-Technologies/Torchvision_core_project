@@ -211,6 +211,16 @@ class ONNXSegmenter(BaseSegmenter):
                     "trt_builder_optimization_level": 5,
                     "trt_max_workspace_size": 1 << 30,  # 1GB
                 }
+                if precision == "bf16":
+                    # Проверяем версию ONNX Runtime
+                    import onnxruntime as ort
+                    ort_version = tuple(map(int, ort.__version__.split(".")[:2]))
+                    if ort_version >= (1, 16):
+                        trt_ep_opts["trt_bf16_enable"] = True
+                        logger.info(f"✅ {model_key}: активирован TRT EP с bf16 (ORT {'.'.join(map(str, ort_version))})")
+                    else:
+                        logger.warning(f"⚠️ {model_key}: bf16 требует ORT ≥1.16, используется fp16 fallback")
+                        trt_ep_opts["trt_fp16_enable"] = True 
                 # Объединяем с пользовательскими опциями
                 if trt_options:
                     trt_ep_opts.update({k: v for k, v in trt_options.items() if k not in trt_ep_opts})
@@ -266,12 +276,17 @@ class ONNXSegmenter(BaseSegmenter):
         sess_options: ort.SessionOptions = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         sess_options.enable_mem_pattern = True
+        
 
         self.sess_options = sess_options
 
         self.session: ONNXSession = ort.InferenceSession(onnx_path, sess_options=sess_options, providers=providers)
         self.input_name: str = self.session.get_inputs()[0].name
         self.output_name: str = self.session.get_outputs()[0].name
+
+        if precision != "fp32":
+            logger.debug(f"🔧 [{self.method}] Запрошена точность: {precision}. "
+                        f"Модель: {onnx_path}, EP: {self.session.get_providers()}")
 
         print(f"🔍 Available outputs: {[o.name for o in self.session.get_outputs()]}")
         print(f"🔍 Expected output_name: {self.output_name}")
@@ -302,6 +317,13 @@ class ONNXSegmenter(BaseSegmenter):
         else:
             self.mean = None
             self.std = None
+
+    def _apply_precision(self, tensor: torch.Tensor, precision: PrecisionType) -> torch.Tensor:
+        if precision == "fp16":
+            return tensor.half()
+        elif precision == "bf16" and hasattr(torch, "bfloat16"):
+            return tensor.bfloat16()
+        return tensor.float()
 
     def _validate_session(self) -> bool:
         """Проверка работоспособности сессии."""
@@ -668,6 +690,7 @@ class TRTSegmenter(BaseSegmenter):
         mean: Optional[List[float]] = None,
         std: Optional[List[float]] = None,
         is_neural: Optional[bool] = None,
+        precision: PrecisionType = "fp32",
         **kwargs: Any,
     ) -> None:
         """Инициализация TensorRT сегментера.
@@ -693,6 +716,11 @@ class TRTSegmenter(BaseSegmenter):
         self.normalization_in_graph: bool = normalization_in_graph
         self.device: torch.device = torch.device(device)
         self.is_neural: bool = is_neural if is_neural is not None else _is_neural_by_key(model_key)
+        self.precision: PrecisionType = precision
+
+        if precision != "fp32":
+            logger.debug(f"🔧 [{self.method}] Запрошена точность: {precision}. "
+                        f"Модель: {trt_model_or_path}")
         if isinstance(trt_model_or_path, str):
             from utils.backend_exporter_new import load_trt_model
 
@@ -713,6 +741,13 @@ class TRTSegmenter(BaseSegmenter):
         else:
             self.mean = None
             self.std = None
+
+    def _apply_precision(self, tensor: torch.Tensor, precision: PrecisionType) -> torch.Tensor:
+        if precision == "fp16":
+            return tensor.half()
+        elif precision == "bf16" and hasattr(torch, "bfloat16"):
+            return tensor.bfloat16()
+        return tensor.float()
 
     def _preprocess_torch(self, image: np.ndarray) -> torch.Tensor:
         """Imagenet нормализация → torch.Tensor (1, 3, H, W) на GPU."""
@@ -818,6 +853,7 @@ class TRTSegmenter(BaseSegmenter):
                 tensor_np = self._preprocess_classic(image_np)
 
             tensor = torch.from_numpy(tensor_np).to(self.device) if isinstance(tensor_np, np.ndarray) else tensor_np
+            tensor = self._apply_precision(tensor, self.precision)
 
             # 3. Инференс
             use_stream: bool = kwargs.get("use_cuda_stream", True)
@@ -972,6 +1008,7 @@ class TRTSegmenter(BaseSegmenter):
             # 3. Инференс модели
             # ──────────────────────────────────────────────────────────────
             tensor = torch.from_numpy(tensor_np).to(self.device) if isinstance(tensor_np, np.ndarray) else tensor_np
+            tensor = self._apply_precision(tensor, self.precision)
             use_stream = kwargs.get("use_cuda_stream", True)
 
             if use_stream and self.device.type == "cuda":

@@ -286,7 +286,7 @@ class SegmentationComparator:
             method2_name: Подписи методов 2.
             output_path: Если указан, сохраняет фигуру в файл.
         """
-        fig, axes = plt.subplots(2, 4, figsize=(20, 10))
+        _, axes = plt.subplots(2, 4, figsize=(20, 10))
 
         if len(image.shape) == 2:
             axes[0, 0].imshow(image, cmap="gray")
@@ -462,8 +462,9 @@ class SegmentationComparator:
                 comparison_results.append(result)
 
                 # Сохраняем визуализацию
+                timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
                 if save_results:
-                    output_path: str = os.path.join(output_dir, f"comparison_{method_name}.jpg")
+                    output_path: str = os.path.join(output_dir, f"comparison_{method_name}_{timestamp}.jpg")
                     self.visualize_comparison(
                         image,
                         ref_mask,
@@ -507,6 +508,7 @@ class SegmentationComparator:
             df: DataFrame с результатами `batch_comparison()`.
             output_dir: Директория для сохранения `comparison_summary.png`.
         """
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         if df.empty:
             return
 
@@ -575,7 +577,7 @@ class SegmentationComparator:
 
         plt.suptitle("Segmentation Methods Comparison Summary", fontsize=16)
         plt.tight_layout()
-        summary_path: str = os.path.join(output_dir, "comparison_summary.jpg")
+        summary_path: str = os.path.join(output_dir, f"comparison_summary_{timestamp}.jpg")
         plt.savefig(summary_path, dpi=150, bbox_inches="tight")
         plt.close()
         print(f"📈 Сводная визуализация сохранена: {summary_path}")
@@ -614,8 +616,8 @@ class SegmentationComparator:
             - `execution_times`: Dict `{method_name: float}`.
             - `method_infos`: Доп. информация о методах.
         """
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         if save_results:
-            timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_dir = os.path.join(output_dir, f"comparison_{timestamp}")
             os.makedirs(output_dir, exist_ok=True)
 
@@ -700,7 +702,7 @@ class SegmentationComparator:
             masks_dir: str = os.path.join(output_dir, "masks")
             os.makedirs(masks_dir, exist_ok=True)
             for name, mask in masks.items():
-                mask_path: str = os.path.join(masks_dir, f"{name}_mask.png")
+                mask_path: str = os.path.join(masks_dir, f"{name}_mask_{timestamp}.png")
                 plt.imsave(mask_path, mask, cmap="gray")
             images_dir: str = os.path.join(output_dir, "images")
             os.makedirs(images_dir, exist_ok=True)
@@ -716,7 +718,7 @@ class SegmentationComparator:
                 else:
                     overlay = image.copy()
                 overlay[mask > 127] = [255, 0, 0]
-                overlay_path = os.path.join(images_dir, f"{name}_overlay.png")
+                overlay_path = os.path.join(images_dir, f"{name}_overlay_{timestamp}.png")
                 plt.imsave(overlay_path, overlay)
 
             self._save_matrix_results(
@@ -755,7 +757,8 @@ class SegmentationComparator:
             reference_method: Имя референса (если применимо).
         """
         # 1. CSV с попарными сравнениями
-        csv_path: str = os.path.join(output_dir, "comparisons.csv")
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_path: str = os.path.join(output_dir, f"comparisons_{timestamp}.csv")
         df_comparisons.to_csv(csv_path, index=False)
         print(f"📊 CSV с результатами: {csv_path}")
 
@@ -780,7 +783,7 @@ class SegmentationComparator:
                 summary_df = summary_df.rename(columns={"method2": "method"})
                 summary_df = summary_df.sort_values("f1_score", ascending=False)
 
-                summary_path: str = os.path.join(output_dir, "summary_vs_ref.csv")
+                summary_path: str = os.path.join(output_dir, f"summary_vs_ref_{timestamp}.csv")
                 summary_df.to_csv(summary_path, index=False)
 
                 print(f"📋 Сводная таблица (vs {reference_method}): {summary_path}")
@@ -840,7 +843,7 @@ class SegmentationComparator:
             plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
             plt.tight_layout()
 
-            matrix_path: str = os.path.join(output_dir, f"{metric}_matrix.png")
+            matrix_path: str = os.path.join(output_dir, f"{metric}_matrix_{timestamp}.png")
             plt.savefig(matrix_path, dpi=150, bbox_inches="tight")
             plt.close()
 
@@ -867,12 +870,13 @@ class SegmentationComparator:
             masks: Dict `{method_name: MaskArray}`.
             output_dir: Директория для сохранения `all_masks.png`.
         """
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         methods: List[str] = list(masks.keys())
         n_methods: int = len(methods)
         n_cols: int = 4
         n_rows: int = (n_methods + n_cols - 1) // n_cols
 
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, n_rows * 5))
+        _, axes = plt.subplots(n_rows, n_cols, figsize=(20, n_rows * 5))
         axes = axes.flatten()
 
         for i, (name, mask) in enumerate(masks.items()):
@@ -887,7 +891,7 @@ class SegmentationComparator:
         plt.suptitle("Все маски сегментации", fontsize=16)
         plt.tight_layout(rect=(0, 0.03, 1, 0.95))
 
-        all_masks_path: str = os.path.join(output_dir, "all_masks.png")
+        all_masks_path: str = os.path.join(output_dir, f"all_masks_{timestamp}.png")
         plt.savefig(all_masks_path, dpi=150, bbox_inches="tight")
         plt.close()
 
@@ -919,7 +923,8 @@ class SegmentationComparator:
             comparison_type: Режим сравнения.
             reference_method: Имя референса.
         """
-        html_path: str = os.path.join(output_dir, "report.html")
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        html_path: str = os.path.join(output_dir, f"report_{timestamp}.html")
         methods_stats: List[Dict[str, Any]] = []
         for name, mask in masks.items():
             mask_binary: np.ndarray = mask > 127

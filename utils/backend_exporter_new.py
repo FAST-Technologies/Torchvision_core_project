@@ -268,6 +268,8 @@ class SegmenterMethodWrapper(nn.Module):
                           Гарантированно 4D даже если исходный метод возвращает 2D/3D.
         """
         result: torch.Tensor = self.func(self.segmenter, x, precision=self.precision, export_mode=True)
+        if self.precision != "fp32" and result.dtype == torch.float32:
+            logger.warning(f"⚠️ Метод '{self.method_name}' игнорирует precision={self.precision}, выход: {result.dtype}")
         # Гарантируем (1,1,H,W) через view — без dim()-зависимых веток
         if result.dim() == 2:
             result = result.unsqueeze(0).unsqueeze(0)
@@ -477,6 +479,7 @@ def export_onnx_to_trt_via_api(
     input_shape: InputShape = (1, 3, 512, 512),
     workspace_gb: float = 4.0,
     verbose: bool = False,
+    verify_precision: bool = True,
 ) -> bool:
     """Конвертирует ONNX → TensorRT engine через официальный Python API.
 
@@ -622,6 +625,16 @@ def export_onnx_to_trt_via_api(
 
         engine_size_mb: float = trt_p.stat().st_size / 1e6
         logger.info(f"✅ TRT via tensorrt API engine saved: {trt_p} ({engine_size_mb:.1f} MB)")
+
+        if verify_precision:  # или добавьте отдельный флаг `verify_precision: bool = False`
+            logger.info(f"🔍 Verifying precision for {trt_p.name}...")
+            success, details = _verify_trt_precision(trt_p, precision, verbose=verbose)
+            if not success:
+                logger.warning(f"⚠️ Precision verification failed: {details.get('error', 'unknown')}")
+            elif details.get("warning"):
+                logger.info(f"ℹ️  {details['warning']}")
+            else:
+                logger.info(f"✅ Precision verified: {precision}")
         return True
 
     except Exception as e:
@@ -1859,6 +1872,115 @@ def diagnose_trt_ep_compatibility() -> Dict[str, Any]:
         result["compatible"] = False
     
     return result
+
+# ──────────────────────────────────────────────────────────────────────
+def _verify_trt_precision(
+    trt_path: PathLike,
+    expected_precision: PrecisionType,
+    verbose: bool = False,
+) -> Tuple[bool, Dict[str, Any]]:
+    """Проверяет реальную точность тензоров в собранном TensorRT engine.
+
+    Args:
+        trt_path: Путь к .trt файлу.
+        expected_precision: Ожидаемая точность: "fp32", "fp16", "bf16".
+        verbose: Включить детальное логирование.
+
+    Returns:
+        Tuple[bool, Dict[str, Any]]:
+            - bool: True если точность соответствует ожидаемой (или fallback корректен).
+            - Dict: Детали проверки: {
+                "found_fp32": bool,
+                "found_fp16": bool,
+                "found_bf16": bool,
+                "total_tensors": int,
+                "warning": Optional[str]
+            }
+    """
+    import tensorrt as trt
+
+    trt_p = Path(trt_path)
+    if not trt_p.exists():
+        return False, {"error": f"File not found: {trt_path}"}
+
+    TRT_LOGGER = trt.Logger(trt.Logger.ERROR if not verbose else trt.Logger.WARNING)
+    
+    try:
+        runtime = trt.Runtime(TRT_LOGGER)
+        with open(trt_p, "rb") as f:
+            engine = runtime.deserialize_cuda_engine(f.read())
+        
+        if engine is None:
+            return False, {"error": "Failed to deserialize engine"}
+
+        found_fp32 = False
+        found_fp16 = False
+        found_bf16 = False
+        total_tensors = 0
+
+        # 🔹 TensorRT >= 8.0: используем tensor API вместо layer API
+        for i in range(engine.num_io_tensors):
+            total_tensors += 1
+            tensor_name = engine.get_tensor_name(i)
+            tensor_dtype = engine.get_tensor_dtype(tensor_name)
+            
+            if tensor_dtype == trt.DataType.FLOAT:  # fp32
+                found_fp32 = True
+                if verbose:
+                    logger.info(f"  ✓ {tensor_name}: FLOAT (fp32)")
+            elif tensor_dtype == trt.DataType.HALF:  # fp16
+                found_fp16 = True
+                if verbose:
+                    logger.info(f"  ✓ {tensor_name}: HALF (fp16)")
+            elif hasattr(trt.DataType, 'BF16') and tensor_dtype == trt.DataType.BF16:
+                found_bf16 = True
+                if verbose:
+                    logger.info(f"  ✓ {tensor_name}: BF16")
+            else:
+                if verbose:
+                    logger.info(f"  ? {tensor_name}: {tensor_dtype} (other)")
+
+        result = {
+            "found_fp32": found_fp32,
+            "found_fp16": found_fp16,
+            "found_bf16": found_bf16,
+            "total_tensors": total_tensors,
+            "warning": None,
+        }
+
+        # Логика проверки с учётом fallback
+        if expected_precision == "bf16":
+            if found_bf16:
+                if verbose:
+                    logger.info(f"✅ {trt_p.name}: BF16 confirmed in {total_tensors} tensors")
+                return True, result
+            elif found_fp16:
+                result["warning"] = "BF16 requested, but FP16 found in engine (fallback)"
+                logger.warning(f"⚠️ {trt_p.name}: BF16 not found, fallback to FP16")
+                return True, result
+            else:
+                result["warning"] = "BF16 requested, but only FP32 found"
+                logger.warning(f"⚠️ {trt_p.name}: BF16 not found, fallback to FP32")
+                return True, result
+
+        elif expected_precision == "fp16":
+            if found_fp16 or found_bf16:
+                if verbose:
+                    logger.info(f"✅ {trt_p.name}: FP16/BF16 confirmed")
+                return True, result
+            else:
+                result["warning"] = "FP16 requested, but only FP32 found"
+                logger.warning(f"⚠️ {trt_p.name}: FP16 not found, fallback to FP32")
+                return True, result
+
+        else:  # fp32
+            if verbose:
+                logger.info(f"✅ {trt_p.name}: FP32 engine verified")
+            return True, result
+
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to verify TRT precision for {trt_path}: {e}")
+        return False, {"error": str(e)}
 
 
 # ─────────────────────────────────────────────────────────────────────

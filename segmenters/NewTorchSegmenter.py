@@ -3053,6 +3053,7 @@ class TorchSegmenter2(BaseSegmenter):
                 logger.info(f"[DEBUG] {self.method}: input dtype={tensor.dtype}, device={tensor.device}")
                 logger.info(f"[DEBUG] Expected dtype: {self.dtype}, device: {self.device}")
             precision = kwargs.pop("precision", self.precision_manager.default_precision)
+            print(f"Current precision: {precision}")
             mask_tensor = self._segment_func(
                 tensor,
                 precision=precision,
@@ -3601,7 +3602,8 @@ class TorchSegmenter2(BaseSegmenter):
         precision_val = precision if precision is not None else "fp32"
 
         if export_mode:
-            hist = torch.histc(gray, bins=256, min=0, max=1)
+            gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
+            hist = torch.histc(gray_for_hist, bins=256, min=0.0, max=1.0)
 
             total = hist.sum()
 
@@ -3635,7 +3637,8 @@ class TorchSegmenter2(BaseSegmenter):
         else:
             start_time = None  # type: ignore[assignment]
 
-        hist = torch.histc(gray, bins=256, min=0, max=1)
+        gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
+        hist = torch.histc(gray_for_hist, bins=256, min=0.0, max=1.0)
 
         total = hist.sum()
 
@@ -4407,7 +4410,8 @@ class TorchSegmenter2(BaseSegmenter):
 
         if export_mode:
             # === ГИСТОГРАММА ===
-            hist = torch.histc(gray, bins=bins, min=0, max=1)
+            gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
+            hist = torch.histc(gray_for_hist, bins=256, min=0.0, max=1.0)
             total = hist.sum()
             pdf = hist / (total + 1e-8)
             bin_levels = torch.arange(bins, dtype=dtype, device=self.device) / max(bins - 1, 1)
@@ -4451,7 +4455,8 @@ class TorchSegmenter2(BaseSegmenter):
             return mask.to(torch.float32).view(1, 1, H, W)
 
         # === ГИСТОГРАММА ===
-        hist = torch.histc(gray, bins=bins, min=0, max=1)
+        gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
+        hist = torch.histc(gray_for_hist, bins=256, min=0.0, max=1.0)
         total = hist.sum()
         if total < 1e-8:
             return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
@@ -4574,7 +4579,8 @@ class TorchSegmenter2(BaseSegmenter):
 
         if export_mode:
             # === ГИСТОГРАММА ===
-            hist = torch.histc(gray, bins=bins, min=0, max=1)
+            gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
+            hist = torch.histc(gray_for_hist, bins=256, min=0.0, max=1.0)
             total = hist.sum()
             pdf = hist / (total + 1e-8)
 
@@ -4605,7 +4611,8 @@ class TorchSegmenter2(BaseSegmenter):
             return mask.to(torch.float32).view(1, 1, H, W)
 
         # === ГИСТОГРАММА ===
-        hist = torch.histc(gray, bins=bins, min=0, max=1)
+        gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
+        hist = torch.histc(gray_for_hist, bins=256, min=0.0, max=1.0)
         total = hist.sum()
         if total < 1e-8:
             return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
@@ -4724,7 +4731,8 @@ class TorchSegmenter2(BaseSegmenter):
 
         if export_mode:
             # === ГИСТОГРАММА И ПИК ===
-            hist = torch.histc(gray, bins=bins, min=0.0, max=1.0)
+            gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
+            hist = torch.histc(gray_for_hist, bins=bins, min=0.0, max=1.0)
             hist_2d = hist.unsqueeze(0)  # [1, 256]
             peak_idx = hist_2d.argmax(dim=1)  # [1]
 
@@ -4773,7 +4781,8 @@ class TorchSegmenter2(BaseSegmenter):
             return mask.to(torch.float32).view(1, 1, gray.shape[-2], gray.shape[-1])
 
         # === ГИСТОГРАММА И ПИК ===
-        hist = torch.histc(gray, bins=bins, min=0, max=1)
+        gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
+        hist = torch.histc(gray_for_hist, bins=bins, min=0.0, max=1.0)
         peak_idx_int: int = int(torch.argmax(hist).item())
 
         # === НАПРАВЛЕНИЕ ПОИСКА ===
@@ -4893,7 +4902,8 @@ class TorchSegmenter2(BaseSegmenter):
 
         if export_mode:
             # === ГИСТОГРАММА ===
-            hist = torch.histc(gray, bins=bins, min=0, max=1)
+            gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
+            hist = torch.histc(gray_for_hist, bins=bins, min=0.0, max=1.0)
             total = hist.sum()
 
             pdf = hist / (total + 1e-8)
@@ -4941,7 +4951,8 @@ class TorchSegmenter2(BaseSegmenter):
             return mask.to(torch.float32).view(1, 1, gray.shape[-2], gray.shape[-1])
 
         # === ГИСТОГРАММА ===
-        hist = torch.histc(gray, bins=bins, min=0, max=1)
+        gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
+        hist = torch.histc(gray_for_hist, bins=bins, min=0.0, max=1.0)
         total = hist.sum()
         if total < 1e-8:
             return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)

@@ -69,6 +69,7 @@ from typing import (
 )
 from matplotlib import colormaps
 from tqdm import tqdm
+from datetime import datetime
 
 # import re
 
@@ -108,6 +109,7 @@ from utils.backend_exporter_new import TRT_PRESETS, TRT_PRESET_PRODUCTION
 from utils.backend_exporter_new import PrecisionType, create_onnx_trt_ep_segmenter
 
 import logging
+from collections import Counter
 
 # Настройка логгера
 logger: logging.Logger = logging.getLogger(__name__)
@@ -121,7 +123,6 @@ if not logger.handlers:
 # ──────────────────────────────────────────────────────────────────────
 # TYPE ALIASES И КОНСТАНТЫ
 # ──────────────────────────────────────────────────────────────────────
-# Типы для изображений
 ImageArray = npt.NDArray[np.uint8]
 """Тип для входного изображения: (H, W) или (H, W, 3), dtype=uint8."""
 
@@ -160,19 +161,19 @@ DEFAULT_IMAGE_SIZE: Tuple[int, int] = (512, 512)
 """Размер по умолчанию для ресайза изображений, dtype=Tuple[int, int]."""
 
 TARGET_METHODS_FOR_RESEARCH: List[str] = [
-    "global_thresholding",
-    "adaptive_thresholding",
-    "otsu_thresholding",
-    "threshold_niblack",
-    "threshold_sauvola",
-    "threshold_bernsen",
-    "threshold_phansalkar",
-    "threshold_percentile",
-    "threshold_kittler_illingworth",
-    "threshold_entropy_kapur",
+    # "global_thresholding",
+    # "adaptive_thresholding",
+    # "otsu_thresholding",
+    # "threshold_niblack",
+    # "threshold_sauvola",
+    # "threshold_bernsen",
+    # "threshold_phansalkar",
+    # "threshold_percentile",
+    # "threshold_kittler_illingworth",
+    # "threshold_entropy_kapur",
     "threshold_triangle",
-    "threshold_multi_otsu",
-    "threshold_local_contrast",
+    # "threshold_multi_otsu",
+    # "threshold_local_contrast",
     # "sobel_edge",
     # "canny_edge",
     # "prewitt_edge",
@@ -531,82 +532,82 @@ def main(use_optimizations: bool = True) -> Tuple[
         if precision_benchmark_result is not None:
             print(precision_benchmark_result)
 
-    print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
-    print("   (нажмите Ctrl+C для отмены, если нужно)")
-    try:
-        time.sleep(15)
-    except KeyboardInterrupt:
-        logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
-        return tester, None, None
+    # print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    # print("   (нажмите Ctrl+C для отмены, если нужно)")
+    # try:
+    #     time.sleep(15)
+    # except KeyboardInterrupt:
+    #     logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+    #     return tester, None, None
 
-    # 4.1 Профилирование выбранных методов
-    if enable_profiling and test_classic_logic and use_torch_v2:
-        _run_profiling_demo(tester, test_images, device)
+    # # 4.1 Профилирование выбранных методов
+    # if enable_profiling and test_classic_logic and use_torch_v2:
+    #     _run_profiling_demo(tester, test_images, device)
 
-    # 4.2 Бенчмарк точностей (опционально, медленно)
-    if enable_benchmark_precision and test_classic_logic and use_torch_v2:
-        _run_precision_benchmark_demo(tester, test_images)
+    # # 4.2 Бенчмарк точностей (опционально, медленно)
+    # if enable_benchmark_precision and test_classic_logic and use_torch_v2:
+    #     _run_precision_benchmark_demo(tester, test_images)
 
-        print("\n" + "=" * 60)
-        print("⚡ БЕНЧМАРК ТОЧНОСТЕЙ: fp32 / fp16 / bf16")
-        print("=" * 60)
+    #     print("\n" + "=" * 60)
+    #     print("⚡ БЕНЧМАРК ТОЧНОСТЕЙ: fp32 / fp16 / bf16")
+    #     print("=" * 60)
 
-        # Берём первое тестовое изображение в формате numpy
-        _, (_, first_img_pil, _) = next(iter(test_images.items()))
-        test_img_np = np.array(first_img_pil)
+    #     # Берём первое тестовое изображение в формате numpy
+    #     _, (_, first_img_pil, _) = next(iter(test_images.items()))
+    #     test_img_np = np.array(first_img_pil)
 
-        # Выбираем методы для теста (например, только оптимизированные Torch v2)
-        target_methods = []
-        for name, seg in torch_methods.items():
-            if name.endswith("_v2"):
-                if hasattr(seg, "method"):
-                    target_methods.append(seg.method)
-                else:
-                    # Fallback на случай, если атрибута method нет
-                    target_methods.append(name.replace("_Torch_v2", "").lower())
+    #     # Выбираем методы для теста (например, только оптимизированные Torch v2)
+    #     target_methods = []
+    #     for name, seg in torch_methods.items():
+    #         if name.endswith("_v2"):
+    #             if hasattr(seg, "method"):
+    #                 target_methods.append(seg.method)
+    #             else:
+    #                 # Fallback на случай, если атрибута method нет
+    #                 target_methods.append(name.replace("_Torch_v2", "").lower())
 
-        print(f"🧪 Выбрано методов для бенчмарка: {len(target_methods)}")
-        print(f"📋 Список методов: {target_methods}")
+    #     print(f"🧪 Выбрано методов для бенчмарка: {len(target_methods)}")
+    #     print(f"📋 Список методов: {target_methods}")
 
-        if target_methods:
-            try:
-                os.makedirs("./data/reports/precision", exist_ok=True)
-                generate_precision_report(
-                    methods=target_methods,
-                    image=test_img_np,
-                    output_path="./data/reports/precision/precision_benchmark.csv",
-                    n_warmup=3,
-                    n_runs=10,
-                    compute_metrics=True,  # Сравнивает IoU относительно fp32
-                )
-                print("✅ Бенчмарк точностей завершён. CSV-отчёт: ./data/reports/precision/precision_benchmark.csv")
-            except Exception as e:
-                logger.warning(f"⚠️ Ошибка при запуске бенчмарка точностей: {e}")
-                traceback.print_exc()
-        else:
-            logger.warning("⚠️ Методы Torch v2 не найдены. Пропускаем бенчмарк точностей.")
+    #     if target_methods:
+    #         try:
+    #             os.makedirs("./data/reports/precision", exist_ok=True)
+    #             generate_precision_report(
+    #                 methods=target_methods,
+    #                 image=test_img_np,
+    #                 output_path="./data/reports/precision/precision_benchmark.csv",
+    #                 n_warmup=3,
+    #                 n_runs=10,
+    #                 compute_metrics=True,  # Сравнивает IoU относительно fp32
+    #             )
+    #             print("✅ Бенчмарк точностей завершён. CSV-отчёт: ./data/reports/precision/precision_benchmark.csv")
+    #         except Exception as e:
+    #             logger.warning(f"⚠️ Ошибка при запуске бенчмарка точностей: {e}")
+    #             traceback.print_exc()
+    #     else:
+    #         logger.warning("⚠️ Методы Torch v2 не найдены. Пропускаем бенчмарк точностей.")
 
     # 4.3 Бенчмарк производительности (cold/hot)
-    if test_classic_logic:
-        perf_results: Optional[pd.DataFrame] = run_performance_benchmark(
-            tester=tester,
-            test_images=test_images,
-            n_runs=10,
-            warmup_runs=10,
-        )
-        print(perf_results)
+    # if test_classic_logic:
+    #     perf_results: Optional[pd.DataFrame] = run_performance_benchmark(
+    #         tester=tester,
+    #         test_images=test_images,
+    #         n_runs=10,
+    #         warmup_runs=10,
+    #     )
+    #     print(perf_results)
 
     # 4.4 Запускает тестирование нейросетевых методов сегментации.
-    if test_neural_logic:
-        _run_neural_segmentation_tests(tester, device)
+    # if test_neural_logic:
+    #     _run_neural_segmentation_tests(tester, device)
 
-    # 4.5 Нейросетевой бенчмарк
-    if test_neural_logic:
-        neural_results: Optional[Dict[str, Any]] = run_neural_segmentation_benchmark(
-            device=device,
-            num_classes=NUM_CLASSES_ADE20K,
-        )
-        print(neural_results)
+    # # 4.5 Нейросетевой бенчмарк
+    # if test_neural_logic:
+    #     neural_results: Optional[Dict[str, Any]] = run_neural_segmentation_benchmark(
+    #         device=device,
+    #         num_classes=NUM_CLASSES_ADE20K,
+    #     )
+    #     print(neural_results)
 
     #  4.6 Валидация реализаций
     if test_classic_logic:
@@ -615,27 +616,28 @@ def main(use_optimizations: bool = True) -> Tuple[
             test_images=test_images,
             output_dir="./data/validation_with_backends",
             image_name="countryside",
-            include_backends=True,  # 🔹 Включаем ONNX/TRT
+            include_backends=True,  # Включаем ONNX/TRT
             onnx_dir="./exported_models/onnx",
             trt_dir="./exported_models/tensorrt",
             input_shape=(1, 3, 512, 512),
+            torch2_precisions=["bf16", "fp16", "fp32"]
         )
         if validation_results:
             print(f"✅ Валидация завершена: {len(validation_results['all_results'])} конфигураций")
             print(validation_results)
 
     # 4.7 Матричное сравнение
-    if test_classic_logic:
-        matrix_results: Optional[Dict[str, Any]] = run_matrix_comparison(
-            test_images=test_images,
-            cv2_methods=cv2_methods,
-            sklearn_methods=sklearn_methods,
-            torch_methods=torch_methods,
-            reference_method="global_thresholding_CV2",
-            include_backends=True,
-            tester=tester
-        )
-        print(matrix_results)
+    # if test_classic_logic:
+    #     matrix_results: Optional[Dict[str, Any]] = run_matrix_comparison(
+    #         test_images=test_images,
+    #         cv2_methods=cv2_methods,
+    #         sklearn_methods=sklearn_methods,
+    #         torch_methods=torch_methods,
+    #         reference_method="global_thresholding_CV2",
+    #         include_backends=True,
+    #         tester=tester
+    #     )
+    #     print(matrix_results)
 
     # 4.8 Оценка против GT (опционально)
     # if test_classic_logic:
@@ -648,53 +650,53 @@ def main(use_optimizations: bool = True) -> Tuple[
     #     print(gt_results)
 
     # 4.9 Обучение с аугментациями
-    if test_neural_logic:
-        aug_results: Optional[Dict[str, Any]] = run_augmentation_training_study(
-            root_dir="./data1/ade20k",
-            checkpoint_dir="./models",
-            device="cuda",
-        )
-        print(aug_results)
+    # if test_neural_logic:
+    #     aug_results: Optional[Dict[str, Any]] = run_augmentation_training_study(
+    #         root_dir="./data1/ade20k",
+    #         checkpoint_dir="./models",
+    #         device="cuda",
+    #     )
+    #     print(aug_results)
 
-    # 4.10 Тестирование CPU/CUDA бенчмарка
-    if test_classic_logic:
-        print("\n" + "=" * 80)
-        print("🧪 ЗАПУСК MULTI-BACKEND CPU/CUDA БЕНЧМАРКА")
-        print("=" * 80)
+    # # 4.10 Тестирование CPU/CUDA бенчмарка
+    # if test_classic_logic:
+    #     print("\n" + "=" * 80)
+    #     print("🧪 ЗАПУСК MULTI-BACKEND CPU/CUDA БЕНЧМАРКА")
+    #     print("=" * 80)
 
-        # 1. Собираем все методы в один словарь
-        all_benchmark_methods: SegmenterDict = {}
-        all_benchmark_methods.update(cv2_methods)
-        all_benchmark_methods.update(sklearn_methods)
-        all_benchmark_methods.update(torch_methods)
+    #     # 1. Собираем все методы в один словарь
+    #     all_benchmark_methods: SegmenterDict = {}
+    #     all_benchmark_methods.update(cv2_methods)
+    #     all_benchmark_methods.update(sklearn_methods)
+    #     all_benchmark_methods.update(torch_methods)
 
-        # 2. Добавляем экспортированные ONNX/TRT методы (если они уже зарегистрированы в tester)
-        # Можно взять их из tester.methods или создать напрямую
-        for name, seg in tester.methods.items():
-            if "ONNX" in name or "TRT" in name:
-                all_benchmark_methods[name] = seg  # type: ignore[assignment]
+    #     # 2. Добавляем экспортированные ONNX/TRT методы (если они уже зарегистрированы в tester)
+    #     # Можно взять их из tester.methods или создать напрямую
+    #     for name, seg in tester.methods.items():
+    #         if "ONNX" in name or "TRT" in name:
+    #             all_benchmark_methods[name] = seg  # type: ignore[assignment]
 
-        # 3. Выбираем изображение
-        test_image = None
-        for img_name, (_, img_pil, _) in tqdm(test_images.items(), desc="CUDA/CPU benchmark (Выбор изображения)"):
-            test_image = np.array(img_pil)
-            print(f"✅ Используем изображение: {img_name} ({test_image.shape})")
-            break
+    #     # 3. Выбираем изображение
+    #     test_image = None
+    #     for img_name, (_, img_pil, _) in tqdm(test_images.items(), desc="CUDA/CPU benchmark (Выбор изображения)"):
+    #         test_image = np.array(img_pil)
+    #         print(f"✅ Используем изображение: {img_name} ({test_image.shape})")
+    #         break
 
-        if test_image is not None:
-            cpu_cuda_results: BenchmarkResult = run_cpu_cuda_benchmark(
-                all_benchmark_methods=all_benchmark_methods,
-                test_image=test_image,
-                n_runs=10,  # Увеличил прогонов для стабильности
-                warmup_runs=5,
-            )
-            print(cpu_cuda_results.sort_values("mean_time"))
+    #     if test_image is not None:
+    #         cpu_cuda_results: BenchmarkResult = run_cpu_cuda_benchmark(
+    #             all_benchmark_methods=all_benchmark_methods,
+    #             test_image=test_image,
+    #             n_runs=10,  # Увеличил прогонов для стабильности
+    #             warmup_runs=5,
+    #         )
+    #         print(cpu_cuda_results.sort_values("mean_time"))
 
-            # Сортировка и вывод топ-10 по времени
-            top10: BenchmarkResult = (
-                cpu_cuda_results[cpu_cuda_results["error"].isna()].sort_values("mean_time").head(10)
-            )
-            print(top10[["method", "device", "mean_time", "backend", "precision"]])
+    #         # Сортировка и вывод топ-10 по времени
+    #         top10: BenchmarkResult = (
+    #             cpu_cuda_results[cpu_cuda_results["error"].isna()].sort_values("mean_time").head(10)
+    #         )
+    #         print(top10[["method", "device", "mean_time", "backend", "precision"]])
 
     # ──────────────────────────────────────────────────────────────
     # 5. МАССОВОЕ ТЕСТИРОВАНИЕ КЛАССИЧЕСКИХ МЕТОДОВ
@@ -873,6 +875,10 @@ def _run_multi_backend_precision_benchmark(
         logger.warning("⚠️ Пропуск сравнения бэкендов: нет тестового изображения")
         return None
 
+    # run_optimization_benchmarks(
+    #     "test_images/animals.jpg", TARGET_METHODS_FOR_RESEARCH
+    # )
+
     real_h, real_w = first_img_pil.size[1], first_img_pil.size[0] # PIL: (W, H)
     print(f"📐 Размер изображения: {real_w}x{real_h}")
 
@@ -886,7 +892,7 @@ def _run_multi_backend_precision_benchmark(
         return None
 
     exported_methods = export_all_classical_methods(
-        output_base_dir="./exported_models1",
+        output_base_dir="./exported_models",
         precisions=AVAILABLE_PRECISIONS,
         methods=TARGET_METHODS_FOR_RESEARCH,
         input_shape=(1, 3, real_h, real_w),
@@ -899,7 +905,7 @@ def _run_multi_backend_precision_benchmark(
     backend_registration = _register_backend_methods_with_precision(
         tester=tester,
         target_methods=TARGET_METHODS_FOR_RESEARCH,
-        output_base_dir="./exported_models1",
+        output_base_dir="./exported_models",
         precisions=["fp32", "fp16", "bf16"],
         input_shape=(1, 3, real_h, real_w),
         trt_strategy="auto",
@@ -1079,35 +1085,35 @@ def _register_backend_methods_with_precision(
                 logger.error(f"   ❌ Не загружен {method_key}: {e}")
 
         # ───────── 2.1. ONNX с TensorRT EP (опционально) ─────────
-        if torch.cuda.is_available() and enable_trt_ep:
-            for precision in precisions:
-                onnx_path = f"{output_base_dir}/onnx/{precision}/{method_name}.onnx"
-                if not os.path.exists(onnx_path):
-                    continue
+        # if torch.cuda.is_available() and enable_trt_ep:
+        #     for precision in precisions:
+        #         onnx_path = f"{output_base_dir}/onnx/{precision}/{method_name}.onnx"
+        #         if not os.path.exists(onnx_path):
+        #             continue
                     
-                method_key = f"{method_name}_ONNX_TRT_EP_{precision}"
+        #         method_key = f"{method_name}_ONNX_TRT_EP_{precision}"
                 
-                trt_seg = create_onnx_trt_ep_segmenter(
-                    method_name=method_name,
-                    onnx_path=onnx_path,
-                    precision=precision,
-                    input_shape=input_shape,
-                    device="cuda",
-                    trt_preset=trt_ep_preset,
-                    cache_path=trt_ep_cache_path,
-                    is_neural=False,
-                    num_classes=1,    # Для бинарных классических методов
-                    normalization="none",  # Классика не требует ImageNet нормализации
-                )
+        #         trt_seg = create_onnx_trt_ep_segmenter(
+        #             method_name=method_name,
+        #             onnx_path=onnx_path,
+        #             precision=precision,
+        #             input_shape=input_shape,
+        #             device="cuda",
+        #             trt_preset=trt_ep_preset,
+        #             cache_path=trt_ep_cache_path,
+        #             is_neural=False,
+        #             num_classes=1,    # Для бинарных классических методов
+        #             normalization="none",  # Классика не требует ImageNet нормализации
+        #         )
                 
-                if trt_seg is not None:
-                    tester.add_method(method_key, trt_seg)
-                    registered["success"].append(method_key)
-                    print(f"   ✅ {method_key} (TensorRT EP, preset='{trt_ep_preset}')")
-                else:
-                    # Fallback: обычный ONNX уже зарегистрирован выше
-                    registered["skipped"].append(f"{method_key} (TRT EP unavailable)")
-                    logger.warning(f"⚠️ TRT EP не доступен в ONNX Runtime для {method_name}")
+        #         if trt_seg is not None:
+        #             tester.add_method(method_key, trt_seg)
+        #             registered["success"].append(method_key)
+        #             print(f"   ✅ {method_key} (TensorRT EP, preset='{trt_ep_preset}')")
+        #         else:
+        #             # Fallback: обычный ONNX уже зарегистрирован выше
+        #             registered["skipped"].append(f"{method_key} (TRT EP unavailable)")
+        #             logger.warning(f"⚠️ TRT EP не доступен в ONNX Runtime для {method_name}")
 
 
         # ──────────────────────────────────────────────────
@@ -1189,21 +1195,21 @@ def _create_cv2_methods() -> SegmenterDict:
     """
     return {
         # --- Пороговые методы (Threshold) ---
-        "global_thresholding_CV2": OpenCVSegmenter("global_thresholding", threshold=0.5),
-        "otsu_thresholding_CV2": OpenCVSegmenter("otsu_thresholding"),
-        "adaptive_thresholding_CV2": OpenCVSegmenter("adaptive_thresholding", block_size=11, C=2),
-        "threshold_niblack_CV2": OpenCVSegmenter("threshold_niblack", window_size=15, k=-0.2),
-        "threshold_sauvola_CV2": OpenCVSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
-        "threshold_bernsen_CV2": OpenCVSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
-        "threshold_phansalkar_CV2": OpenCVSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
-        "threshold_kittler_illingworth_CV2": OpenCVSegmenter("threshold_kittler_illingworth", num_bins=256),
-        "threshold_entropy_kapur_CV2": OpenCVSegmenter("threshold_entropy_kapur", num_bins=256),
+        # "global_thresholding_CV2": OpenCVSegmenter("global_thresholding", threshold=0.5),
+        # "otsu_thresholding_CV2": OpenCVSegmenter("otsu_thresholding"),
+        # "adaptive_thresholding_CV2": OpenCVSegmenter("adaptive_thresholding", block_size=11, C=2),
+        # "threshold_niblack_CV2": OpenCVSegmenter("threshold_niblack", window_size=15, k=-0.2),
+        # "threshold_sauvola_CV2": OpenCVSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
+        # "threshold_bernsen_CV2": OpenCVSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
+        # "threshold_phansalkar_CV2": OpenCVSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
+        # "threshold_kittler_illingworth_CV2": OpenCVSegmenter("threshold_kittler_illingworth", num_bins=256),
+        # "threshold_entropy_kapur_CV2": OpenCVSegmenter("threshold_entropy_kapur", num_bins=256),
         "threshold_triangle_CV2": OpenCVSegmenter("threshold_triangle", num_bins=256),
-        "threshold_multi_otsu_CV2": OpenCVSegmenter("threshold_multi_otsu", n_thresholds=2),
-        "threshold_percentile_CV2": OpenCVSegmenter("threshold_percentile", percentile=90),
-        "threshold_local_contrast_CV2": OpenCVSegmenter(
-            "threshold_local_contrast", window_size=15, contrast_factor=0.1
-        ),
+        # "threshold_multi_otsu_CV2": OpenCVSegmenter("threshold_multi_otsu", n_thresholds=2),
+        # "threshold_percentile_CV2": OpenCVSegmenter("threshold_percentile", percentile=90),
+        # "threshold_local_contrast_CV2": OpenCVSegmenter(
+        #     "threshold_local_contrast", window_size=15, contrast_factor=0.1
+        # ),
         # # --- Граничные методы (Edge) ---
         # "sobel_edge_CV2": OpenCVSegmenter("sobel_edge", threshold=0.1),
         # "canny_edge_CV2": OpenCVSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
@@ -1255,31 +1261,31 @@ def _create_sklearn_methods() -> SegmenterDict:
     """
     return {
         # --- Пороговые методы (Threshold) ---
-        "global_thresholding_Sklearn": SklearnSegmenter("global_thresholding", threshold=0.5, postprocess=False),
-        "otsu_thresholding_Sklearn": SklearnSegmenter("otsu_thresholding", postprocess=False),
-        "adaptive_thresholding_Sklearn": SklearnSegmenter(
-            "adaptive_thresholding", block_size=11, C=2, postprocess=False
-        ),
-        "threshold_niblack_Sklearn": SklearnSegmenter("threshold_niblack", window_size=15, k=-0.2, postprocess=False),
-        "threshold_sauvola_Sklearn": SklearnSegmenter(
-            "threshold_sauvola", window_size=15, k=0.5, r=128, postprocess=False
-        ),
-        "threshold_bernsen_Sklearn": SklearnSegmenter(
-            "threshold_bernsen", window_size=15, contrast_threshold=0.15, postprocess=False
-        ),
-        "threshold_phansalkar_Sklearn": SklearnSegmenter(
-            "threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5, postprocess=False
-        ),
-        "threshold_kittler_illingworth_Sklearn": SklearnSegmenter(
-            "threshold_kittler_illingworth", num_bins=256, postprocess=False
-        ),
-        "threshold_entropy_kapur_Sklearn": SklearnSegmenter("threshold_entropy_kapur", num_bins=256, postprocess=False),
+        # "global_thresholding_Sklearn": SklearnSegmenter("global_thresholding", threshold=0.5, postprocess=False),
+        # "otsu_thresholding_Sklearn": SklearnSegmenter("otsu_thresholding", postprocess=False),
+        # "adaptive_thresholding_Sklearn": SklearnSegmenter(
+        #     "adaptive_thresholding", block_size=11, C=2, postprocess=False
+        # ),
+        # "threshold_niblack_Sklearn": SklearnSegmenter("threshold_niblack", window_size=15, k=-0.2, postprocess=False),
+        # "threshold_sauvola_Sklearn": SklearnSegmenter(
+        #     "threshold_sauvola", window_size=15, k=0.5, r=128, postprocess=False
+        # ),
+        # "threshold_bernsen_Sklearn": SklearnSegmenter(
+        #     "threshold_bernsen", window_size=15, contrast_threshold=0.15, postprocess=False
+        # ),
+        # "threshold_phansalkar_Sklearn": SklearnSegmenter(
+        #     "threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5, postprocess=False
+        # ),
+        # "threshold_kittler_illingworth_Sklearn": SklearnSegmenter(
+        #     "threshold_kittler_illingworth", num_bins=256, postprocess=False
+        # ),
+        # "threshold_entropy_kapur_Sklearn": SklearnSegmenter("threshold_entropy_kapur", num_bins=256, postprocess=False),
         "threshold_triangle_Sklearn": SklearnSegmenter("threshold_triangle", num_bins=256, postprocess=False),
-        "threshold_multi_otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2, postprocess=False),
-        "threshold_percentile_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90, postprocess=False),
-        "threshold_local_contrast_Sklearn": SklearnSegmenter(
-            "threshold_local_contrast", window_size=15, contrast_factor=0.1, postprocess=False
-        ),
+        # "threshold_multi_otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2, postprocess=False),
+        # "threshold_percentile_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90, postprocess=False),
+        # "threshold_local_contrast_Sklearn": SklearnSegmenter(
+        #     "threshold_local_contrast", window_size=15, contrast_factor=0.1, postprocess=False
+        # ),
         # # --- Граничные методы (Edge) ---
         # "sobel_edge_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1, postprocess=False),
         # "canny_edge_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0, postprocess=False),
@@ -1389,47 +1395,47 @@ def _create_torch_methods_factory(
 
     # Базовые списки методов
     threshold_methods: List[Tuple[str, str, Dict[str, Any]]] = [
-        ("global_thresholding_Torch", "global_thresholding", {"threshold": 0.5}),
-        ("otsu_thresholding_Torch", "otsu_thresholding", {}),
-        (
-            "adaptive_thresholding_Torch",
-            "adaptive_thresholding",
-            {"block_size": 11, "C": 2},
-        ),
-        (
-            "threshold_niblack_Torch",
-            "threshold_niblack",
-            {"window_size": 15, "k": -0.2},
-        ),
-        (
-            "threshold_sauvola_Torch",
-            "threshold_sauvola",
-            {"window_size": 15, "k": 0.5, "r": 128},
-        ),
-        (
-            "threshold_bernsen_Torch",
-            "threshold_bernsen",
-            {"window_size": 15, "contrast_threshold": 0.15},
-        ),
-        (
-            "threshold_phansalkar_Torch",
-            "threshold_phansalkar",
-            {"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
-        ),
-        (
-            "threshold_kittler_illingworth_Torch",
-            "threshold_kittler_illingworth",
-            {"num_bins": 256},
-        ),
-        ("threshold_entropy_kapur_Torch", "threshold_entropy_kapur", {"num_bins": 256}),
+        # ("global_thresholding_Torch", "global_thresholding", {"threshold": 0.5}),
+        # ("otsu_thresholding_Torch", "otsu_thresholding", {}),
+        # (
+        #     "adaptive_thresholding_Torch",
+        #     "adaptive_thresholding",
+        #     {"block_size": 11, "C": 2},
+        # ),
+        # (
+        #     "threshold_niblack_Torch",
+        #     "threshold_niblack",
+        #     {"window_size": 15, "k": -0.2},
+        # ),
+        # (
+        #     "threshold_sauvola_Torch",
+        #     "threshold_sauvola",
+        #     {"window_size": 15, "k": 0.5, "r": 128},
+        # ),
+        # (
+        #     "threshold_bernsen_Torch",
+        #     "threshold_bernsen",
+        #     {"window_size": 15, "contrast_threshold": 0.15},
+        # ),
+        # (
+        #     "threshold_phansalkar_Torch",
+        #     "threshold_phansalkar",
+        #     {"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
+        # ),
+        # (
+        #     "threshold_kittler_illingworth_Torch",
+        #     "threshold_kittler_illingworth",
+        #     {"num_bins": 256},
+        # ),
+        # ("threshold_entropy_kapur_Torch", "threshold_entropy_kapur", {"num_bins": 256}),
         ("threshold_triangle_Torch", "threshold_triangle", {"num_bins": 256}),
-        ("threshold_multi_otsu_Torch", "threshold_multi_otsu", {"n_thresholds": 2}),
-        ("threshold_percentile_Torch", "threshold_percentile", {"percentile": 90}),
-        (
-            "threshold_local_contrast_Torch",
-            "threshold_local_contrast",
-            {"window_size": 15, "contrast_factor": 0.1},
-        ),
+        # ("threshold_multi_otsu_Torch", "threshold_multi_otsu", {"n_thresholds": 2}),
+        # ("threshold_percentile_Torch", "threshold_percentile", {"percentile": 90}),
+        # (
+        #     "threshold_local_contrast_Torch",
+        #     "threshold_local_contrast",
+        #     {"window_size": 15, "contrast_factor": 0.1},
+        # ),
     ]
 
     edge_methods: List[Tuple[str, str, Dict[str, Any]]] = [
@@ -1504,20 +1510,20 @@ def _create_torch_methods() -> SegmenterDict:
     """
     return {
         # --- Пороговые методы (Threshold) ---
-        "Global_Threshold_Torch": TorchSegmenter("global_thresholding", threshold=0.5),
-        "Otsu_Thresholding_Torch": TorchSegmenter("otsu_thresholding"),
-        "Adaptive_Threshold_Torch": TorchSegmenter("adaptive_thresholding", block_size=11, C=2),
-        "Niblack_Thresholding_Torch": TorchSegmenter("threshold_niblack", window_size=15, k=-0.2),
-        "Sauvola_Thresholding_Torch": TorchSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
-        "Bernsen_Thresholding_Torch": TorchSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
-        "Phansalkar_Thresholding_Torch": TorchSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
-        "Kittler_Illingworth_Torch": TorchSegmenter("threshold_kittler_illingworth", num_bins=256),
-        "Kapur_Entropy_Torch": TorchSegmenter("threshold_entropy_kapur", num_bins=256),
+        # "Global_Threshold_Torch": TorchSegmenter("global_thresholding", threshold=0.5),
+        # "Otsu_Thresholding_Torch": TorchSegmenter("otsu_thresholding"),
+        # "Adaptive_Threshold_Torch": TorchSegmenter("adaptive_thresholding", block_size=11, C=2),
+        # "Niblack_Thresholding_Torch": TorchSegmenter("threshold_niblack", window_size=15, k=-0.2),
+        # "Sauvola_Thresholding_Torch": TorchSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
+        # "Bernsen_Thresholding_Torch": TorchSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
+        # "Phansalkar_Thresholding_Torch": TorchSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
+        # "Kittler_Illingworth_Torch": TorchSegmenter("threshold_kittler_illingworth", num_bins=256),
+        # "Kapur_Entropy_Torch": TorchSegmenter("threshold_entropy_kapur", num_bins=256),
         "Triangle_Threshold_Torch": TorchSegmenter("threshold_triangle", num_bins=256),
-        "Multi_Otsu_Torch": TorchSegmenter("threshold_multi_otsu", n_thresholds=2),
-        "Percentile_Threshold_Torch": TorchSegmenter("threshold_percentile", percentile=90),
-        "Local_Contrast_Torch": TorchSegmenter("threshold_local_contrast", window_size=15, contrast_factor=0.1),
-        # # --- Граничные методы (Edge) ---
+        # "Multi_Otsu_Torch": TorchSegmenter("threshold_multi_otsu", n_thresholds=2),
+        # "Percentile_Threshold_Torch": TorchSegmenter("threshold_percentile", percentile=90),
+        # "Local_Contrast_Torch": TorchSegmenter("threshold_local_contrast", window_size=15, contrast_factor=0.1),
+        # # # --- Граничные методы (Edge) ---
         # "Sobel_Torch": TorchSegmenter("sobel_edge", threshold=0.1),
         # "Canny_Torch": TorchSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
         # "Prewitt_Torch": TorchSegmenter("prewitt_edge", threshold=0.1),
@@ -3073,6 +3079,7 @@ def run_implementation_validation(
     onnx_dir: Optional[str] = None,
     trt_dir: Optional[str] = None,
     input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
+    torch2_precisions: Optional[List[PrecisionType]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Валидация согласованности реализаций методов через TorchImplementationValidator (Torch vs OpenCV/Sklearn).
 
@@ -3134,6 +3141,8 @@ def run_implementation_validation(
             print(f"Статусы: {Counter(statuses)}")
         ```
     """
+    if torch2_precisions is None:
+        torch2_precisions = AVAILABLE_PRECISIONS 
     os.makedirs(output_dir, exist_ok=True)
 
     print("\n" + "=" * 60)
@@ -3165,30 +3174,51 @@ def run_implementation_validation(
     # ──────────────────────────────────────────────────────
     print("\n🔹 Запуск валидации методов...")
 
-    try:
-        # test_images['ade20k_sample'][0]
-        # test_images['countryside'][0]
-        # all_results = validator.validate_all_methods(test_images["mountain"][0])
-        if include_backends:
-            # 🔥 Расширенная валидация с поддержкой бэкендов
-            all_results: Dict[str, Any] = validator.validate_all_methods_with_backends(
-                image_path=img_array,
-                use_torch2=True,
-                torch2_precision="bf16",
-                validate_onnx=True,
-                validate_trt=torch.cuda.is_available(),
-                onnx_dir=onnx_dir,
-                trt_dir=trt_dir,
-                input_shape=input_shape,
-            )
-        else:
-            # Базовая валидация (Torch vs CPU-бэкенды)
-            all_results = validator.validate_all_methods(image_path=img_array, use_torch2=True, torch2_precision="bf16")
-        print(f"   ✅ Валидировано: {len(all_results)} методов")
-    except Exception as e:
-        logger.error(f"❌ Ошибка валидации: {e}")
-        traceback.print_exc()
+    all_results: Dict[str, Any] = {}
+
+    for precision in torch2_precisions:
+        print(f"\n   ▶️  Точность: {precision.upper()}")
+        try:
+            # test_images['ade20k_sample'][0]
+            # test_images['countryside'][0]
+            # all_results = validator.validate_all_methods(test_images["mountain"][0])
+            if include_backends:
+                precision_results: Dict[str, Any] = validator.validate_all_methods_with_backends(
+                    image_path=img_array,
+                    use_torch2=True,
+                    torch2_precision=precision, 
+                    validate_onnx=True,
+                    validate_trt=torch.cuda.is_available(),
+                    onnx_dir=onnx_dir,
+                    trt_dir=trt_dir,
+                    input_shape=input_shape,
+                )
+            else:
+                # Базовая валидация (Torch vs CPU-бэкенды)
+                precision_results = validator.validate_all_methods(
+                    image_path=img_array,
+                    use_torch2=True,
+                    torch2_precision=precision,
+                )
+            for key, value in precision_results.items():
+                # Добавляем суффикс точности, если его ещё нет
+                if not any(key.endswith(f"_{p}") for p in AVAILABLE_PRECISIONS):
+                    new_key = f"{key}_{precision}"
+                else:
+                    new_key = key  # уже есть суффикс (например, от ONNX/TRT)
+                all_results[new_key] = value
+            print(f"   ✅ Валидировано: {len(precision_results)} методов")
+        except Exception as e:
+            logger.error(f"❌ Ошибка валидации ({precision}): {e}")
+            traceback.print_exc()
+            continue
+
+    
+    if not all_results:
+        logger.error("❌ Не удалось выполнить валидацию ни для одной точности")
         return None
+    
+    print(f"\n   ✅ Всего валидировано: {len(all_results)} конфигураций")
 
     # ──────────────────────────────────────────────────────
     # 3. ГЕНЕРАЦИЯ ОТЧЁТА
@@ -3222,45 +3252,65 @@ def run_implementation_validation(
 
     if all_results:
         # Статистика по статусам (агрегируем по всем конфигурациям)
-        statuses: List[str] = []
-        for config_results in all_results.values():
+        precision_stats: Dict[str, Counter] = {}
+        for key, config_results in all_results.items():
+            # Извлекаем точность из ключа: ..._fp16, ..._fp32, ..._bf16
+            precision = None
+            for p in AVAILABLE_PRECISIONS:
+                if key.endswith(f"_{p}"):
+                    precision = p
+                    break
+            if precision is None:
+                precision = "unknown"
+                
+            if precision not in precision_stats:
+                precision_stats[precision] = Counter()
+                
             if isinstance(config_results, dict):
                 for result in config_results.values():
                     if isinstance(result, dict) and "validation_status" in result:
-                        statuses.append(result["validation_status"])
+                        precision_stats[precision][result["validation_status"]] += 1
 
-        if statuses:
-            from collections import Counter
 
-            status_counts: Counter = Counter(statuses)
+        print("\n📈 Распределение статусов:")
+        for precision in AVAILABLE_PRECISIONS:
+            if precision in precision_stats:
+                counts = precision_stats[precision]
+                total = sum(counts.values())
+                print(f"\n   🔹 {precision.upper()} ({total} конфигураций):")
+                for status, count in counts.most_common():
+                    emoji = {"PASS": "✅", "WARNING": "⚠️", "FAIL": "❌"}.get(status, "❓")
+                    percentage = (count / total * 100) if total > 0 else 0.0
+                    print(f"      {emoji} {status}: {count} ({percentage:.1f}%)")
+            elif precision in precision_stats:
+                # Ключ есть, но статусов нет (пустой Counter)
+                print(f"\n   🔹 {precision.upper()}: ⚪ нет данных")
+            else:
+                continue
 
-            print("\n📈 Распределение статусов:")
-            for status, count in status_counts.most_common():
-                emoji = {"PASS": "✅", "WARNING": "⚠️", "FAIL": "❌"}.get(status, "❓")
-                print(f"   {emoji} {status}: {count} методов ({count / len(statuses) * 100:.1f}%)")
+        # Топ-5 по согласованности (IoU) — агрегируем по всем конфигурациям
+        all_iou_results: List[Tuple[str, float, str]] = []
+        for config_name, config_results in all_results.items():
+            if isinstance(config_results, dict):
+                for method_name, result in config_results.items():
+                    if isinstance(result, dict) and result.get("success") and "metrics" in result:
+                        iou = result["metrics"].get("iou", 0)
+                        all_iou_results.append((f"{config_name}/{method_name}", iou, result["validation_status"]))
 
-            # Топ-5 по согласованности (IoU) — агрегируем по всем конфигурациям
-            all_iou_results: List[Tuple[str, float, str]] = []
-            for config_name, config_results in all_results.items():
-                if isinstance(config_results, dict):
-                    for method_name, result in config_results.items():
-                        if isinstance(result, dict) and result.get("success") and "metrics" in result:
-                            iou = result["metrics"].get("iou", 0)
-                            all_iou_results.append((f"{config_name}/{method_name}", iou, result["validation_status"]))
-
-            if all_iou_results:
-                sorted_results = sorted(all_iou_results, key=lambda x: x[1], reverse=True)[:5]
-                print("\n🏆 Топ-5 по IoU (согласованность):")
-                for i, (full_name, iou, status) in enumerate(sorted_results, 1):
-                    status_icon = {"PASS": "✅", "WARNING": "⚠️", "FAIL": "❌"}.get(status, "❓")
-                    print(f"   {i}. {full_name}: IoU = {iou:.4f} {status_icon}")
+        if all_iou_results:
+            sorted_results = sorted(all_iou_results, key=lambda x: x[1], reverse=True)[:5]
+            print("\n🏆 Топ-5 по IoU (согласованность):")
+            for i, (full_name, iou, status) in enumerate(sorted_results, 1):
+                status_icon = {"PASS": "✅", "WARNING": "⚠️", "FAIL": "❌"}.get(status, "❓")
+                print(f"   {i}. {full_name}: IoU = {iou:.4f} {status_icon}")
 
     print(f"\n💾✅ Все результаты сохранены в: {output_dir}")
 
     return {
-        "all_results": all_results,
+        "all_results": all_results,  # Dict с ключами вида "method_precision"
         "benchmark_df": benchmark_df,
         "validator": validator,
+        "precisions_tested": torch2_precisions,
     }
 
 
@@ -3430,8 +3480,8 @@ def run_matrix_comparison(
     for img_name, (_, img_pil, _) in tqdm(test_images.items(), desc="Matrix Comparison benchmark"):
         print(f"\n🔹 Обработка: {img_name}")
         img_array: ImageArray = np.array(img_pil)
-
-        img_output_dir: Path = Path(output_dir) / f"matrix_comparison_{img_name}"
+        timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        img_output_dir: Path = Path(output_dir) / f"matrix_comparison_{img_name}_{timestamp}"
 
         # ──────────────────────────────────────────────────
         # 1. ALL-VS-ALL МАТРИЧНОЕ СРАВНЕНИЕ
@@ -3470,7 +3520,7 @@ def run_matrix_comparison(
                 reference_segmenter=ref_segmenter,
                 reference_name=f"Reference_{reference_method}",
                 save_results=True,
-                output_dir=str(Path(output_dir) / "batch_comparison"),
+                output_dir=str(Path(output_dir) / f"batch_comparison_{timestamp}"),
             )
             batch_results_list.append(df_batch)
             print("   ✅ Пакетное сравнение завершено. Топ-5 метода сохранены.")
@@ -3493,7 +3543,7 @@ def run_matrix_comparison(
                 name1="Original_CV2_Global",
                 name2=f"Reference_{reference_method}",
                 save_comparison=True,
-                output_path=str(Path(output_dir) / f"compare_methods_{img_name}.jpg"),
+                output_path=str(Path(output_dir) / f"compare_methods_{img_name}_{timestamp}.jpg"),
             )
             pairwise_results_list.append(df_pairwise)
             print("   ✅ Попарное сравнение сохранено.")
