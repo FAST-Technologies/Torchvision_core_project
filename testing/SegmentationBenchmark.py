@@ -1199,7 +1199,7 @@ class SegmentationBenchmark:
             return
         n_plots: int = len(valid_metrics)
         fig = plt.figure(figsize=(figsize[0] * n_plots / 3, figsize[1]))
-        
+
         # Создаём подплоты на этой фигуре
         if n_plots == 1:
             axes = fig.add_subplot(1, 1, 1)

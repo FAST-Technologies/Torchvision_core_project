@@ -142,7 +142,7 @@ IGNORE_INDEX_BY_MODEL: Dict[str, int] = {
     "psp_smp": 255,
     "segnet": 255,
 }
-"""Словарь игнорируемых моделями индексов для обучения, dtype=Dict[str, int].""" 
+"""Словарь игнорируемых моделями индексов для обучения, dtype=Dict[str, int]."""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -191,6 +191,7 @@ class TrainingResult(TypedDict):
     checkpoint_path: str
     history: Dict[str, List[float]]
     config: "TrainingConfig"
+
 
 # ──────────────────────────────────────────────────────────────────────
 class TrainingConfig:
@@ -336,11 +337,11 @@ class ModelTrainer:
     # ──────────────────────────────────────────────────────────────────────
     def _get_backbone(self, model: nn.Module, model_type: str) -> Optional[nn.Module]:
         """Получает backbone/encoder модели в зависимости от типа.
-        
+
         Args:
             model: Экземпляр модели.
             model_type: Тип модели ("psp_smp", "deeplab_tv", и т.д.).
-        
+
         Returns:
             Optional[nn.Module]: Backbone/encoder или None, если не найден.
         """
@@ -362,11 +363,11 @@ class ModelTrainer:
     # ──────────────────────────────────────────────────────────────────────
     def _get_classifier_layer(self, model: nn.Module, model_type: str) -> Optional[nn.Module]:
         """Получает classifier/сегментационный слой модели в зависимости от типа.
-        
+
         Args:
             model: Экземпляр модели.
             model_type: Тип модели ("psp_smp", "deeplab_tv", и т.д.).
-        
+
         Returns:
             Optional[nn.Module]: Classifier/сегментационный слой или None.
         """

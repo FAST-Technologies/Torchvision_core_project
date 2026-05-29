@@ -367,7 +367,7 @@ class SegmentationWarmUp:
         segmenters_dict: Dict[str, SegmenterLike],
         image: Optional[np.ndarray] = None,
         verbose: bool = True,
-        exclude_backends: Optional[List[str]] = None
+        exclude_backends: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Прогрев всех сегментеров в словаре.
 

@@ -167,10 +167,10 @@ THRESHOLD_METHODS: List[str] = [
     # "threshold_sauvola",
     # "threshold_bernsen",
     # "threshold_phansalkar",
-    # "threshold_percentile",
+    "threshold_percentile",
     # "threshold_kittler_illingworth",
     # "threshold_entropy_kapur",
-    "threshold_triangle",
+    # "threshold_triangle",
     # "threshold_multi_otsu",
     # "threshold_local_contrast",
 ]

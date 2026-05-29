@@ -979,17 +979,10 @@ class OnnxTrtFallbackSegmenter:
         except Exception as e:
             logger.warning(f"⚠️ Не удалось создать сессию с TRT EP: {e}")
             logger.info("🔄 Fallback: повторная инициализация без TRT EP...")
-            
+
             # Fallback: CUDA + CPU без TRT
-            fallback_providers = [
-                ("CUDAExecutionProvider", {"device_id": 0}),
-                "CPUExecutionProvider"
-            ]
-            self.session = ort.InferenceSession(
-                onnx_path, 
-                sess_options=sess_options, 
-                providers=fallback_providers
-            )
+            fallback_providers = [("CUDAExecutionProvider", {"device_id": 0}), "CPUExecutionProvider"]
+            self.session = ort.InferenceSession(onnx_path, sess_options=sess_options, providers=fallback_providers)
             self.use_tensorrt_ep = False
 
         self.input_name: str = self.session.get_inputs()[0].name
@@ -1628,6 +1621,7 @@ def load_trt_model(path: PathLike, device: str = "cuda", **kwargs: Any) -> Optio
     """
     return load_trt_engine(path, device=device, **kwargs)
 
+
 # ─────────────────────────────────────────────────────────────────────
 def _build_trt_provider_options(
     device_id: int, trt_options: Optional[Dict[str, Any]] = None, cache_path: Optional[str] = None
@@ -1649,7 +1643,7 @@ def _build_trt_provider_options(
     # VALID_TRT_KEYS: Set[str] = {
     #     "device_id",
     #     "trt_max_workspace_size",
-    #     "trt_max_partition_iterations", 
+    #     "trt_max_partition_iterations",
     #     "trt_min_subgraph_size",
     #     "trt_fp16_enable",
     #     "trt_int8_enable",
@@ -1669,7 +1663,7 @@ def _build_trt_provider_options(
     #     "trt_tactic_sources",
     #     "trt_extra_plugin_lib_paths",
     #     "trt_profile_min_shapes",
-    #     "trt_profile_opt_shapes", 
+    #     "trt_profile_opt_shapes",
     #     "trt_profile_max_shapes",
     #     "trt_engine_hw_compatible",
     #     "trt_dump_ep_context_model",
@@ -1693,7 +1687,7 @@ def _build_trt_provider_options(
     VALID_TRT_KEYS: Set[str] = {
         "device_id",
         "trt_max_workspace_size",
-        "trt_max_partition_iterations", 
+        "trt_max_partition_iterations",
         "trt_min_subgraph_size",
         "trt_fp16_enable",
         "trt_int8_enable",
@@ -1713,7 +1707,7 @@ def _build_trt_provider_options(
         # Опционально (проверка через hasattr):
         # "trt_profile_min_shapes", "trt_profile_opt_shapes", "trt_profile_max_shapes",
     }
-    
+
     cache_dir: str = cache_path or "./trt_engines_onnxrt"
     # Базовые опции для продакшена
     base_opts: Dict[str, Any] = {
@@ -1747,17 +1741,15 @@ def _build_trt_provider_options(
     if trt_options:
         base_opts.update(trt_options)
 
-    filtered_opts: Dict[str, Any] = {
-        k: v for k, v in base_opts.items() 
-        if k in VALID_TRT_KEYS
-    }
-    
+    filtered_opts: Dict[str, Any] = {k: v for k, v in base_opts.items() if k in VALID_TRT_KEYS}
+
     # Логируем отфильтрованные ключи для отладки
     invalid_keys = set(base_opts.keys()) - VALID_TRT_KEYS
     if invalid_keys:
         logger.warning(f"⚠️ Отфильтрованы недопустимые TRT EP опции: {invalid_keys}")
 
     return filtered_opts
+
 
 # ─────────────────────────────────────────────────────────────────────
 def create_onnx_trt_ep_segmenter(
@@ -1774,7 +1766,7 @@ def create_onnx_trt_ep_segmenter(
     normalization: NormalizationType = "none",
 ) -> Optional[ONNXSegmenter]:
     """Создаёт ONNXSegmenter с TensorRT Execution Provider.
-    
+
     Returns:
         ONNXSegmenter или None, если создание не удалось.
     """
@@ -1783,20 +1775,16 @@ def create_onnx_trt_ep_segmenter(
         if "TensorrtExecutionProvider" not in ort.get_available_providers():
             logger.warning(f"⚠️ TRT EP не доступен в ONNX Runtime")
             return None
-        
+
         # Сборка опций
         base_opts = TRT_PRESETS.get(trt_preset, TRT_PRESET_PRODUCTION).copy()
         if trt_custom_opts:
             base_opts.update(trt_custom_opts)
-        
+
         ep_cache = cache_path or f"./trt_engines_onnxrt/{precision}/{method_name}"
-        
-        provider_options = _build_trt_provider_options(
-            device_id=0,
-            trt_options=base_opts,
-            cache_path=ep_cache
-        )
-            
+
+        provider_options = _build_trt_provider_options(device_id=0, trt_options=base_opts, cache_path=ep_cache)
+
         segmenter = ONNXSegmenter(
             model_key=method_name,
             onnx_path=onnx_path,
@@ -1812,7 +1800,7 @@ def create_onnx_trt_ep_segmenter(
         )
         logger.info(f"✅ Создан {method_name}_ONNX_TRT_EP_{precision}")
         return segmenter
-        
+
     except ImportError as e:
         logger.warning(f"⚠️ Зависимости для TRT EP не установлены: {e}")
         logger.warning(f"⚠️ Не создан {method_name}_ONNX_TRT_EP (ImportError): {e}")
@@ -1821,33 +1809,34 @@ def create_onnx_trt_ep_segmenter(
         logger.warning(f"⚠️ Не создан {method_name}_ONNX_TRT_EP: {e}", exc_info=True)
         logger.error(f"❌ Ошибка создания TRT EP сегментера: {e}")
         return None
-    
+
+
 def diagnose_trt_ep_compatibility() -> Dict[str, Any]:
     """Проверяет совместимость версий для TRT EP."""
     result = {"compatible": True, "warnings": [], "errors": []}
-    
+
     try:
         import onnxruntime as ort
         import tensorrt as trt
-        
+
         result["onnxruntime_version"] = ort.__version__
         result["tensorrt_version"] = trt.__version__
-        
+
         # Проверка доступных провайдеров
         providers = ort.get_available_providers()
         result["available_providers"] = providers
-        
+
         if "TensorrtExecutionProvider" not in providers:
             result["errors"].append("TensorrtExecutionProvider не доступен")
             result["compatible"] = False
-        
+
         # Проверка опций (через пробную сессию)
         test_opts = {
             "device_id": 0,
             "trt_engine_cache_enable": True,
             "trt_engine_cache_path": "./test_cache",
         }
-        
+
         # Пробуем создать минимальную сессию для проверки опций
         try:
             sess_opts = ort.SessionOptions()
@@ -1855,23 +1844,25 @@ def diagnose_trt_ep_compatibility() -> Dict[str, Any]:
             ort.InferenceSession(
                 "./dummy.onnx" if os.path.exists("./dummy.onnx") else None,
                 sess_options=sess_opts,
-                providers=[("TensorrtExecutionProvider", test_opts)]
+                providers=[("TensorrtExecutionProvider", test_opts)],
             )
         except Exception as e:
             error_msg = str(e)
             if "Invalid TensorRT EP option" in error_msg:
                 # Извлекаем имя проблемной опции
                 import re
+
                 match = re.search(r"option: (\w+)", error_msg)
                 if match:
                     bad_opt = match.group(1)
                     result["warnings"].append(f"Опция '{bad_opt}' не поддерживается в этой версии ORT")
-        
+
     except ImportError as e:
         result["errors"].append(f"Missing dependency: {e}")
         result["compatible"] = False
-    
+
     return result
+
 
 # ──────────────────────────────────────────────────────────────────────
 def _verify_trt_precision(
@@ -1904,12 +1895,12 @@ def _verify_trt_precision(
         return False, {"error": f"File not found: {trt_path}"}
 
     TRT_LOGGER = trt.Logger(trt.Logger.ERROR if not verbose else trt.Logger.WARNING)
-    
+
     try:
         runtime = trt.Runtime(TRT_LOGGER)
         with open(trt_p, "rb") as f:
             engine = runtime.deserialize_cuda_engine(f.read())
-        
+
         if engine is None:
             return False, {"error": "Failed to deserialize engine"}
 
@@ -1923,7 +1914,7 @@ def _verify_trt_precision(
             total_tensors += 1
             tensor_name = engine.get_tensor_name(i)
             tensor_dtype = engine.get_tensor_dtype(tensor_name)
-            
+
             if tensor_dtype == trt.DataType.FLOAT:  # fp32
                 found_fp32 = True
                 if verbose:
@@ -1932,7 +1923,7 @@ def _verify_trt_precision(
                 found_fp16 = True
                 if verbose:
                     logger.info(f"  ✓ {tensor_name}: HALF (fp16)")
-            elif hasattr(trt.DataType, 'BF16') and tensor_dtype == trt.DataType.BF16:
+            elif hasattr(trt.DataType, "BF16") and tensor_dtype == trt.DataType.BF16:
                 found_bf16 = True
                 if verbose:
                     logger.info(f"  ✓ {tensor_name}: BF16")

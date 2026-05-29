@@ -189,7 +189,7 @@ class ONNXSegmenter(BaseSegmenter):
             import onnxruntime as ort
         except ImportError:
             raise ImportError("onnxruntime-gpu не установлен: pip install onnxruntime-gpu")
-        
+
         # ──────────────────────────────────────────────────────────────
         # Формирование списка провайдеров с поддержкой TRT EP
         # ──────────────────────────────────────────────────────────────
@@ -206,77 +206,85 @@ class ONNXSegmenter(BaseSegmenter):
                     # "trt_engine_cache_path": trt_cache_path or f"./trt_cache/{precision}/{model_key}",
                     # "trt_timing_cache_enable": True,
                     # "trt_timing_cache_path": trt_cache_path or f"./trt_cache/{precision}/{model_key}/timing",
-                    "trt_engine_cache_enable": False,      # ← Ключевое!
-                    "trt_timing_cache_enable": False,      # ← И это!
+                    "trt_engine_cache_enable": False,  # ← Ключевое!
+                    "trt_timing_cache_enable": False,  # ← И это!
                     "trt_builder_optimization_level": 5,
                     "trt_max_workspace_size": 1 << 30,  # 1GB
                 }
                 if precision == "bf16":
                     # Проверяем версию ONNX Runtime
                     import onnxruntime as ort
+
                     ort_version = tuple(map(int, ort.__version__.split(".")[:2]))
                     if ort_version >= (1, 16):
                         trt_ep_opts["trt_bf16_enable"] = True
-                        logger.info(f"✅ {model_key}: активирован TRT EP с bf16 (ORT {'.'.join(map(str, ort_version))})")
+                        logger.info(
+                            f"✅ {model_key}: активирован TRT EP с bf16 (ORT {'.'.join(map(str, ort_version))})"
+                        )
                     else:
                         logger.warning(f"⚠️ {model_key}: bf16 требует ORT ≥1.16, используется fp16 fallback")
-                        trt_ep_opts["trt_fp16_enable"] = True 
+                        trt_ep_opts["trt_fp16_enable"] = True
                 # Объединяем с пользовательскими опциями
                 if trt_options:
                     trt_ep_opts.update({k: v for k, v in trt_options.items() if k not in trt_ep_opts})
-                
+
                 providers.append(("TensorrtExecutionProvider", trt_ep_opts))
-                
+
                 # CUDA EP как fallback
-                providers.append((
-                    "CUDAExecutionProvider",
-                    {
-                        "device_id": 0,
-                        "arena_extend_strategy": "kNextPowerOfTwo",
-                        "cudnn_conv_algo_search": "EXHAUSTIVE",
-                        # "do_copy_in_default_stream": False,  # ← Разрешить non-default stream
-                        # "enable_cuda_graph": True,  # ← Опционально: CUDA Graphs для ускорения
-                        # "cudnn_conv_use_max_workspace": True,
-                        "do_copy_in_default_stream": True,
-                    },
-                ))
+                providers.append(
+                    (
+                        "CUDAExecutionProvider",
+                        {
+                            "device_id": 0,
+                            "arena_extend_strategy": "kNextPowerOfTwo",
+                            "cudnn_conv_algo_search": "EXHAUSTIVE",
+                            # "do_copy_in_default_stream": False,  # ← Разрешить non-default stream
+                            # "enable_cuda_graph": True,  # ← Опционально: CUDA Graphs для ускорения
+                            # "cudnn_conv_use_max_workspace": True,
+                            "do_copy_in_default_stream": True,
+                        },
+                    )
+                )
                 logger.info(f"✅ {model_key}: активирован TensorrtExecutionProvider ({precision})")
             else:
                 logger.warning(f"⚠️ {model_key}: TensorrtExecutionProvider не доступен, используем CUDA EP")
-                providers.append((
+                providers.append(
+                    (
+                        "CUDAExecutionProvider",
+                        {
+                            "device_id": 0,
+                            "arena_extend_strategy": "kNextPowerOfTwo",
+                            "cudnn_conv_algo_search": "EXHAUSTIVE",
+                            # "do_copy_in_default_stream": False,  # ← Разрешить non-default stream
+                            # "enable_cuda_graph": True,  # ← Опционально: CUDA Graphs для ускорения
+                            # "cudnn_conv_use_max_workspace": True,
+                            "do_copy_in_default_stream": True,
+                        },
+                    )
+                )
+        elif self.device.type == "cuda":
+            # Стандартный CUDA EP без TRT
+            providers.append(
+                (
                     "CUDAExecutionProvider",
                     {
                         "device_id": 0,
                         "arena_extend_strategy": "kNextPowerOfTwo",
                         "cudnn_conv_algo_search": "EXHAUSTIVE",
-                        # "do_copy_in_default_stream": False,  # ← Разрешить non-default stream
-                        # "enable_cuda_graph": True,  # ← Опционально: CUDA Graphs для ускорения
-                        # "cudnn_conv_use_max_workspace": True,
                         "do_copy_in_default_stream": True,
                     },
-                ))
-        elif self.device.type == "cuda":
-            # Стандартный CUDA EP без TRT
-            providers.append((
-                "CUDAExecutionProvider",
-                {
-                    "device_id": 0,
-                    "arena_extend_strategy": "kNextPowerOfTwo",
-                    "cudnn_conv_algo_search": "EXHAUSTIVE",
-                    "do_copy_in_default_stream": True,
-                },
-            ))
-        
+                )
+            )
+
         # CPU как последний fallback
         providers.append("CPUExecutionProvider")
-        
+
         # ──────────────────────────────────────────────────────────────
         # Создание сессии
         # ──────────────────────────────────────────────────────────────
         sess_options: ort.SessionOptions = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         sess_options.enable_mem_pattern = True
-        
 
         self.sess_options = sess_options
 
@@ -285,17 +293,21 @@ class ONNXSegmenter(BaseSegmenter):
         self.output_name: str = self.session.get_outputs()[0].name
 
         if precision != "fp32":
-            logger.debug(f"🔧 [{self.method}] Запрошена точность: {precision}. "
-                        f"Модель: {onnx_path}, EP: {self.session.get_providers()}")
+            logger.debug(
+                f"🔧 [{self.method}] Запрошена точность: {precision}. "
+                f"Модель: {onnx_path}, EP: {self.session.get_providers()}"
+            )
 
         print(f"🔍 Available outputs: {[o.name for o in self.session.get_outputs()]}")
         print(f"🔍 Expected output_name: {self.output_name}")
 
         test_input = np.random.randn(*input_shape).astype(np.float32)
         test_output = self.session.run(None, {self.input_name: test_input})
-        logger.info(f"Test run: output shape={test_output[0].shape if test_output else None}, "
-            f"has_nan={np.isnan(test_output[0]).any() if test_output else 'N/A'}")
-        
+        logger.info(
+            f"Test run: output shape={test_output[0].shape if test_output else None}, "
+            f"has_nan={np.isnan(test_output[0]).any() if test_output else 'N/A'}"
+        )
+
         if not self._validate_session():
             logger.warning(f"⚠️ {model_key}: сессия не прошла валидацию, возможны проблемы при инференсе")
 
@@ -546,12 +558,14 @@ class ONNXSegmenter(BaseSegmenter):
             # logits: RawOutput = outputs[0]
 
             logger.debug(f"=== ONNX Inference Debug ===")
-            logger.debug(f"Input: name={self.input_name}, shape={tensor_np.shape}, dtype={tensor_np.dtype}, range=[{tensor_np.min():.3f}, {tensor_np.max():.3f}]")
+            logger.debug(
+                f"Input: name={self.input_name}, shape={tensor_np.shape}, dtype={tensor_np.dtype}, range=[{tensor_np.min():.3f}, {tensor_np.max():.3f}]"
+            )
             logger.debug(f"Output expected: name={self.output_name}, shape={self.session.get_outputs()[0].shape}")
             logger.debug(f"Active providers: {self.session.get_providers()}")
             logger.debug(f"Session options: graph_opt={self.sess_options.graph_optimization_level}")
 
-            if not tensor_np.flags['C_CONTIGUOUS']:
+            if not tensor_np.flags["C_CONTIGUOUS"]:
                 logger.warning("⚠️ Input tensor not C-contiguous, making copy")
                 tensor_np = np.ascontiguousarray(tensor_np)
 
@@ -562,9 +576,11 @@ class ONNXSegmenter(BaseSegmenter):
                 all_outputs = self.session.run(None, {self.input_name: tensor_np})
                 logger.error(f"All outputs count: {len(all_outputs) if all_outputs else 0}")
 
-                logger.info(f"  Input: shape={tensor_np.shape}, dtype={tensor_np.dtype}, range=[{tensor_np.min():.3f}, {tensor_np.max():.3f}]")
+                logger.info(
+                    f"  Input: shape={tensor_np.shape}, dtype={tensor_np.dtype}, range=[{tensor_np.min():.3f}, {tensor_np.max():.3f}]"
+                )
                 logger.info(f"  Providers: {self.session.get_providers()}")
-                
+
                 # 🔧 Fallback: попробовать с явным именем выхода
                 try:
                     outputs = self.session.run([self.output_name], {self.input_name: tensor_np})
@@ -581,9 +597,10 @@ class ONNXSegmenter(BaseSegmenter):
                 logger.warning(f"⚠️ Logits contain NaN/Inf: nan={np.isnan(logits).sum()}, inf={np.isinf(logits).sum()}")
                 logits = np.nan_to_num(logits, nan=0.0, posinf=1.0, neginf=0.0)
 
-            logger.info(f"Output: shape={logits.shape}, dtype={logits.dtype}, "
-                 f"range=[{logits.min():.3f}, {logits.max():.3f}], has_nan={np.isnan(logits).any()}")
-
+            logger.info(
+                f"Output: shape={logits.shape}, dtype={logits.dtype}, "
+                f"range=[{logits.min():.3f}, {logits.max():.3f}], has_nan={np.isnan(logits).any()}"
+            )
 
             # ──────────────────────────────────────────────────────────────
             # 4. Интеллектуальная пост-обработка (аналогично segment)
@@ -719,8 +736,7 @@ class TRTSegmenter(BaseSegmenter):
         self.precision: PrecisionType = precision
 
         if precision != "fp32":
-            logger.debug(f"🔧 [{self.method}] Запрошена точность: {precision}. "
-                        f"Модель: {trt_model_or_path}")
+            logger.debug(f"🔧 [{self.method}] Запрошена точность: {precision}. " f"Модель: {trt_model_or_path}")
         if isinstance(trt_model_or_path, str):
             from utils.backend_exporter_new import load_trt_model
 
@@ -1079,7 +1095,6 @@ class TRTSegmenter(BaseSegmenter):
                         prob_mask = raw_mask.astype(np.float32)
                     else:
                         prob_mask = 1.0 / (1.0 + np.exp(-np.clip(raw_mask.astype(np.float32), -50, 50)))
-
 
             # ──────────────────────────────────────────────────────────────
             # 5. Ресайз масок к оригинальному размеру изображения

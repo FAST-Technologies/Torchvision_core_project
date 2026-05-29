@@ -106,17 +106,20 @@ ImageFormat = Literal[".png", ".jpg", ".jpeg", ".bmp"]
 ImageFormats: Tuple[ImageFormat, ImageFormat, ImageFormat, ImageFormat] = (".png", ".jpg", ".jpeg", ".bmp")
 """Форматы изображений, dtype=Tuple[ImageFormat, ImageFormat, ImageFormat, ImageFormat]."""
 
-def _safe_trt_inference(segmenter: Any, image: Any, method_name: str) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+
+def _safe_trt_inference(
+    segmenter: Any, image: Any, method_name: str
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Безопасный инференс для TRT-сегментеров с обработкой ошибок."""
     try:
         if torch.cuda.is_available():
             torch.cuda.synchronize()  # Синхронизация ПЕРЕД инференсом
-        
+
         result_opt, mask_opt = segmenter.segment_with_mask(image)
-        
+
         if torch.cuda.is_available():
             torch.cuda.synchronize()  # Синхронизация ПОСЛЕ инференса
-        
+
         return result_opt, mask_opt
     except (torch.AcceleratorError, RuntimeError) as e:
         logger.error(f"❌ TRT инференс сбой для {method_name}: {e}")
@@ -1464,9 +1467,7 @@ class SegmentationTester:
                     is_trt_backend = method_name.endswith("_TRT") or "_TRT_" in method_name
                     if is_trt_backend:
                         result_opt, mask_opt = _safe_trt_inference(
-                            self.methods[method_name], 
-                            input_arg_for_method, 
-                            method_name
+                            self.methods[method_name], input_arg_for_method, method_name
                         )
                     else:
                         result_opt, mask_opt = self.methods[method_name].segment_with_mask(input_arg_for_method)

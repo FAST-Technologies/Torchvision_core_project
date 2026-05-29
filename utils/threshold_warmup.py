@@ -107,6 +107,7 @@ class WarmupMetrics(TypedDict):
     std_ms: float
     n_runs: int
 
+
 # ──────────────────────────────────────────────────────────────────────
 class SizeResults(TypedDict):
     """Результаты warm-up по различным размерам изображений.

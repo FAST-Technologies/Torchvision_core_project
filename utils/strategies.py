@@ -994,7 +994,9 @@ def segment_image_unified(
     # ──────────────────────────────────────────────────────────────
     # 4. Создание overlay-визуализации
     # ──────────────────────────────────────────────────────────────
-    overlay = _create_overlay_standalone(image, seg_map, alpha=alpha, palette=palette, model_type_for_palette=model_type)
+    overlay = _create_overlay_standalone(
+        image, seg_map, alpha=alpha, palette=palette, model_type_for_palette=model_type
+    )
     if verbose:
         result_info = _log_inference_details_standalone(
             image=image,
@@ -1006,7 +1008,7 @@ def segment_image_unified(
             num_classes=num_classes,
             initial_time=t0,
             palette=palette,
-            output_dir=output_dir
+            output_dir=output_dir,
         )
     else:
         # Минимальный result_info без verbose
@@ -1144,7 +1146,9 @@ def _log_inference_details_standalone(
 
     # Создание overlay
     alpha: float = 0.5
-    overlay: Image.Image = _create_overlay_standalone(image, seg_map, alpha=alpha, palette=palette, model_type_for_palette=model_type)
+    overlay: Image.Image = _create_overlay_standalone(
+        image, seg_map, alpha=alpha, palette=palette, model_type_for_palette=model_type
+    )
     inference_time: float = time.perf_counter() - initial_time
 
     return {
@@ -1255,6 +1259,7 @@ def _get_num_classes_standalone(
 
 #     return Image.fromarray(overlay)
 
+
 def _create_overlay_standalone(
     image: Image.Image,
     mask: MaskArray,
@@ -1263,7 +1268,7 @@ def _create_overlay_standalone(
     model_type_for_palette: Optional[str] = None,
 ) -> Image.Image:
     """Создаёт визуализацию: оригинал + цветная маска.
-    
+
     🔧 ФИКС: Универсальная логика сдвига + защита от overflow.
     """
     # ──────────────────────────────────────────────────────────────
@@ -1286,33 +1291,24 @@ def _create_overlay_standalone(
     # 2. 🔧 ОПРЕДЕЛЕНИЕ СДВИГА ПО ТИПУ МОДЕЛИ
     # ──────────────────────────────────────────────────────────────
     palette_offset: int = 0  # По умолчанию: без сдвига (для HF-моделей)
-    
+
     # Наши обученные модели: предсказывают классы 1-150, палитра 0-149 → сдвиг -1
-    OUR_MODELS = {
-        "unet_smp", 
-        "fpn_smp", 
-        "psp_smp", 
-        "deeplab_tv", 
-        "fcn_tv", 
-        "segnet",
-        "fpn_mit",
-        "psp_mit"
-    }
-    
+    OUR_MODELS = {"unet_smp", "fpn_smp", "psp_smp", "deeplab_tv", "fcn_tv", "segnet", "fpn_mit", "psp_mit"}
+
     if model_type_for_palette in OUR_MODELS:
         palette_offset = -1
-    
+
     print(f"🎨 Palette offset for {model_type_for_palette}: {palette_offset}")
 
     # ──────────────────────────────────────────────────────────────
     # 3. 🔧 БЕЗОПАСНОЕ ПРИМЕНЕНИЕ ПАЛИТРЫ
     # ──────────────────────────────────────────────────────────────
     unique_labels: np.ndarray = np.unique(mask)
-    
+
     for label in unique_labels:
         label_int: int = int(label)
         palette_idx: int = label_int + palette_offset
-        
+
         # 🔧 КЛЮЧЕВОЙ ФИКС: проверка границ ДО индексации
         if 0 <= palette_idx < len(palette_array):
             # 🔧 Используем int-индексацию для избежания uint8 overflow

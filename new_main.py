@@ -93,7 +93,9 @@ from segmenters.NewTorchSegmenter import TorchSegmenter2
 from segmenters.ModelTrainer import ModelTrainer, TrainingConfig, TrainingResult
 from segmenters.NeuralModelFactory import NeuralModelFactory
 from segmenters.BackendSegmenters import ONNXSegmenter, TRTSegmenter
-from utils.backend_exporter_new import (load_trt_engine,)
+from utils.backend_exporter_new import (
+    load_trt_engine,
+)
 from testing.SegmentationTester import SegmentationTester
 from testing.SegmentationComparator import SegmentationComparator
 from testing.SegmentationBenchmark import SegmentationBenchmark, export_comparison_table
@@ -168,10 +170,10 @@ TARGET_METHODS_FOR_RESEARCH: List[str] = [
     # "threshold_sauvola",
     # "threshold_bernsen",
     # "threshold_phansalkar",
-    # "threshold_percentile",
+    "threshold_percentile",
     # "threshold_kittler_illingworth",
     # "threshold_entropy_kapur",
-    "threshold_triangle",
+    # "threshold_triangle",
     # "threshold_multi_otsu",
     # "threshold_local_contrast",
     # "sobel_edge",
@@ -620,7 +622,7 @@ def main(use_optimizations: bool = True) -> Tuple[
             onnx_dir="./exported_models/onnx",
             trt_dir="./exported_models/tensorrt",
             input_shape=(1, 3, 512, 512),
-            torch2_precisions=["bf16", "fp16", "fp32"]
+            torch2_precisions=["bf16", "fp16", "fp32"],
         )
         if validation_results:
             print(f"✅ Валидация завершена: {len(validation_results['all_results'])} конфигураций")
@@ -719,23 +721,24 @@ def main(use_optimizations: bool = True) -> Tuple[
 
     return tester, results_df, None
 
-def _extract_base_method(parts: List[str], backend: str, 
-                        backends: Set[str], composite_backends: Set[str], 
-                        precisions: Set[str]) -> str:
+
+def _extract_base_method(
+    parts: List[str], backend: str, backends: Set[str], composite_backends: Set[str], precisions: Set[str]
+) -> str:
     """Извлекает BaseMethod с поддержкой составных бэкендов."""
-    
+
     # 1. Составной бэкенд: ищем последовательность частей
     if backend in composite_backends:
         backend_parts = backend.split("_")
         for start_idx in range(len(parts) - len(backend_parts) + 1):
-            if parts[start_idx:start_idx + len(backend_parts)] == backend_parts:
+            if parts[start_idx : start_idx + len(backend_parts)] == backend_parts:
                 return "_".join(parts[:start_idx])
-    
+
     # 2. Простой бэкенд
     elif backend in backends and backend in parts:
         backend_idx = parts.index(backend)
         return "_".join(parts[:backend_idx])
-    
+
     # 3. Fallback: удаляем известные суффиксы с конца
     all_suffixes = backends | precisions | composite_backends
     base_parts = parts[:]
@@ -788,7 +791,7 @@ def parse_method_name(method_name: str) -> Dict[str, str]:
     # 🔥 Известные значения — ключ к надёжному парсингу
     BACKENDS: Set[str] = {"Torch", "ONNX", "TRT", "CV2", "Sklearn"}
     PRECISIONS: Set[str] = {"fp32", "fp16", "bf16", "v1", "v2"}
-    COMPOSITE_BACKENDS = {"ONNX_TRT_EP"} 
+    COMPOSITE_BACKENDS = {"ONNX_TRT_EP"}
 
     parts: List[str] = method_name.split("_")
 
@@ -799,26 +802,24 @@ def parse_method_name(method_name: str) -> Dict[str, str]:
     # Проверяем последние 1-2 части
     for i in range(len(parts) - 1, max(-1, len(parts) - 3), -1):
         part = parts[i]
-        
+
         if part in PRECISIONS:
             precision = part
             continue
-            
+
         # Проверка составного бэкенда (3 части: X_Y_Z)
         if i >= 2:
             composite = f"{parts[i-2]}_{parts[i-1]}_{part}"
             if composite in COMPOSITE_BACKENDS:
                 backend = composite
                 break
-        
+
         # Проверка простого бэкенда
         if part in BACKENDS:
             backend = part
             break
 
-    base_method = _extract_base_method(
-        parts, backend, BACKENDS, COMPOSITE_BACKENDS, PRECISIONS
-    )
+    base_method = _extract_base_method(parts, backend, BACKENDS, COMPOSITE_BACKENDS, PRECISIONS)
 
     return {"BaseMethod": base_method, "Backend": backend, "Precision": precision}
 
@@ -879,7 +880,7 @@ def _run_multi_backend_precision_benchmark(
     #     "test_images/animals.jpg", TARGET_METHODS_FOR_RESEARCH
     # )
 
-    real_h, real_w = first_img_pil.size[1], first_img_pil.size[0] # PIL: (W, H)
+    real_h, real_w = first_img_pil.size[1], first_img_pil.size[0]  # PIL: (W, H)
     print(f"📐 Размер изображения: {real_w}x{real_h}")
 
     # Пауза перед экспортом/регистрацией
@@ -959,6 +960,7 @@ def _run_multi_backend_precision_benchmark(
 
     print("✅ Сравнение бэкендов завершено. Результаты сохранены.")
     return backend_results
+
 
 # ──────────────────────────────────────────────────────────────────────
 def _register_backend_methods_with_precision(
@@ -1090,9 +1092,9 @@ def _register_backend_methods_with_precision(
         #         onnx_path = f"{output_base_dir}/onnx/{precision}/{method_name}.onnx"
         #         if not os.path.exists(onnx_path):
         #             continue
-                    
+
         #         method_key = f"{method_name}_ONNX_TRT_EP_{precision}"
-                
+
         #         trt_seg = create_onnx_trt_ep_segmenter(
         #             method_name=method_name,
         #             onnx_path=onnx_path,
@@ -1105,7 +1107,7 @@ def _register_backend_methods_with_precision(
         #             num_classes=1,    # Для бинарных классических методов
         #             normalization="none",  # Классика не требует ImageNet нормализации
         #         )
-                
+
         #         if trt_seg is not None:
         #             tester.add_method(method_key, trt_seg)
         #             registered["success"].append(method_key)
@@ -1114,7 +1116,6 @@ def _register_backend_methods_with_precision(
         #             # Fallback: обычный ONNX уже зарегистрирован выше
         #             registered["skipped"].append(f"{method_key} (TRT EP unavailable)")
         #             logger.warning(f"⚠️ TRT EP не доступен в ONNX Runtime для {method_name}")
-
 
         # ──────────────────────────────────────────────────
         # 3. TensorRT для каждой доступной точности (только CUDA)
@@ -1204,9 +1205,9 @@ def _create_cv2_methods() -> SegmenterDict:
         # "threshold_phansalkar_CV2": OpenCVSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
         # "threshold_kittler_illingworth_CV2": OpenCVSegmenter("threshold_kittler_illingworth", num_bins=256),
         # "threshold_entropy_kapur_CV2": OpenCVSegmenter("threshold_entropy_kapur", num_bins=256),
-        "threshold_triangle_CV2": OpenCVSegmenter("threshold_triangle", num_bins=256),
+        # "threshold_triangle_CV2": OpenCVSegmenter("threshold_triangle", num_bins=256),
         # "threshold_multi_otsu_CV2": OpenCVSegmenter("threshold_multi_otsu", n_thresholds=2),
-        # "threshold_percentile_CV2": OpenCVSegmenter("threshold_percentile", percentile=90),
+        "threshold_percentile_CV2": OpenCVSegmenter("threshold_percentile", percentile=90),
         # "threshold_local_contrast_CV2": OpenCVSegmenter(
         #     "threshold_local_contrast", window_size=15, contrast_factor=0.1
         # ),
@@ -1280,9 +1281,9 @@ def _create_sklearn_methods() -> SegmenterDict:
         #     "threshold_kittler_illingworth", num_bins=256, postprocess=False
         # ),
         # "threshold_entropy_kapur_Sklearn": SklearnSegmenter("threshold_entropy_kapur", num_bins=256, postprocess=False),
-        "threshold_triangle_Sklearn": SklearnSegmenter("threshold_triangle", num_bins=256, postprocess=False),
+        # "threshold_triangle_Sklearn": SklearnSegmenter("threshold_triangle", num_bins=256, postprocess=False),
         # "threshold_multi_otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2, postprocess=False),
-        # "threshold_percentile_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90, postprocess=False),
+        "threshold_percentile_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90, postprocess=False),
         # "threshold_local_contrast_Sklearn": SklearnSegmenter(
         #     "threshold_local_contrast", window_size=15, contrast_factor=0.1, postprocess=False
         # ),
@@ -1428,9 +1429,9 @@ def _create_torch_methods_factory(
         #     {"num_bins": 256},
         # ),
         # ("threshold_entropy_kapur_Torch", "threshold_entropy_kapur", {"num_bins": 256}),
-        ("threshold_triangle_Torch", "threshold_triangle", {"num_bins": 256}),
+        # ("threshold_triangle_Torch", "threshold_triangle", {"num_bins": 256}),
         # ("threshold_multi_otsu_Torch", "threshold_multi_otsu", {"n_thresholds": 2}),
-        # ("threshold_percentile_Torch", "threshold_percentile", {"percentile": 90}),
+        ("threshold_percentile_Torch", "threshold_percentile", {"percentile": 90}),
         # (
         #     "threshold_local_contrast_Torch",
         #     "threshold_local_contrast",
@@ -1519,9 +1520,9 @@ def _create_torch_methods() -> SegmenterDict:
         # "Phansalkar_Thresholding_Torch": TorchSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
         # "Kittler_Illingworth_Torch": TorchSegmenter("threshold_kittler_illingworth", num_bins=256),
         # "Kapur_Entropy_Torch": TorchSegmenter("threshold_entropy_kapur", num_bins=256),
-        "Triangle_Threshold_Torch": TorchSegmenter("threshold_triangle", num_bins=256),
+        # "Triangle_Threshold_Torch": TorchSegmenter("threshold_triangle", num_bins=256),
         # "Multi_Otsu_Torch": TorchSegmenter("threshold_multi_otsu", n_thresholds=2),
-        # "Percentile_Threshold_Torch": TorchSegmenter("threshold_percentile", percentile=90),
+        "Percentile_Threshold_Torch": TorchSegmenter("threshold_percentile", percentile=90),
         # "Local_Contrast_Torch": TorchSegmenter("threshold_local_contrast", window_size=15, contrast_factor=0.1),
         # # # --- Граничные методы (Edge) ---
         # "Sobel_Torch": TorchSegmenter("sobel_edge", threshold=0.1),
@@ -1575,7 +1576,8 @@ def _run_profiling_demo(
 
     Выполняет:
     1. **Фильтрация**: Выбор только методов `_v2` (TorchSegmenter2).
-    2. **Профилирование**: Запуск `profile_with_transfer_detection` с замером времени и памяти.
+    2. **Профилирование**: Запуск `profile_with_transfer_detection` с замером времени и памяти.]
+
     3. **Анализ трансферов**: Вывод предупреждений о неоптимальных перемещениях данных.
     4. **Трассировка**: Генерация детальных трейсов через `profile_with_tracing`.
 
@@ -2170,7 +2172,7 @@ def prepare_mask_for_overlay(mask_input: Union[Image.Image, npt.NDArray]) -> Mas
 
 def _safe_cuda_synchronize() -> bool:
     """Безопасная синхронизация CUDA с обработкой ошибок.
-    
+
     Returns:
         bool: True если синхронизация успешна, False если была ошибка.
     """
@@ -2600,7 +2602,7 @@ def run_neural_segmentation_benchmark(
         num_classes=num_classes,
         class_names=class_names_val,
         gt_mask=gt_mask_2d,
-        output_dir=output_dir
+        output_dir=output_dir,
     )
     result_mf_ade.save("./data/neural_benchmark/segmented_maskformer_ade.jpg")
 
@@ -2973,7 +2975,7 @@ def _generate_neural_benchmark_plots(benchmark: SegmentationBenchmark, output_di
     """
     plots_dir: Path = Path(output_dir) / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # 🔧 Проверка: есть ли данные для отрисовки?
     summary = benchmark.get_summary()
     if not summary:
@@ -2983,14 +2985,14 @@ def _generate_neural_benchmark_plots(benchmark: SegmentationBenchmark, output_di
     print("\n🔍 Debug: Available metrics for plotting:")
     for model, metrics in summary.items():
         print(f"   {model}: mIoU={metrics.get('mIoU', 'N/A')}, time={metrics.get('time_ms', 'N/A')}ms")
-    
+
     valid_models = [k for k, v in summary.items() if not np.isnan(v.get("mIoU", np.nan))]
     if not valid_models:
         logger.warning("⚠️ Все метрики mIoU = NaN. Пропускаем визуализацию.")
         return
-    
+
     print("\n📊 Generating visualizations...")
-    
+
     # ──────────────────────────────────────────────────────────────
     # 1. Все метрики (с проверкой)
     # ──────────────────────────────────────────────────────────────
@@ -3003,7 +3005,7 @@ def _generate_neural_benchmark_plots(benchmark: SegmentationBenchmark, output_di
         print(f"✅ all_metrics.png")
     except Exception as e:
         logger.error(f"❌ Ошибка при сохранении all_metrics.png: {e}")
-    
+
     # ──────────────────────────────────────────────────────────────
     # 2. Сравнение по mIoU
     # ──────────────────────────────────────────────────────────────
@@ -3015,7 +3017,7 @@ def _generate_neural_benchmark_plots(benchmark: SegmentationBenchmark, output_di
         print(f"✅ miou_comparison.png")
     except Exception as e:
         logger.error(f"❌ Ошибка при сохранении miou_comparison.png: {e}")
-    
+
     # ──────────────────────────────────────────────────────────────
     # 3. Сравнение по времени
     # ──────────────────────────────────────────────────────────────
@@ -3027,7 +3029,7 @@ def _generate_neural_benchmark_plots(benchmark: SegmentationBenchmark, output_di
         print(f"✅ time_comparison.png")
     except Exception as e:
         logger.error(f"❌ Ошибка при сохранении time_comparison.png: {e}")
-    
+
     # ──────────────────────────────────────────────────────────────
     # 4. Per-class IoU (топ-20 классов)
     # ──────────────────────────────────────────────────────────────
@@ -3039,7 +3041,7 @@ def _generate_neural_benchmark_plots(benchmark: SegmentationBenchmark, output_di
         print(f"✅ per_class_iou.png")
     except Exception as e:
         logger.error(f"❌ Ошибка при сохранении per_class_iou.png: {e}")
-    
+
     # ──────────────────────────────────────────────────────────────
     # 5. Confusion matrix для лучшей модели
     # ──────────────────────────────────────────────────────────────
@@ -3049,12 +3051,14 @@ def _generate_neural_benchmark_plots(benchmark: SegmentationBenchmark, output_di
             best_model: str = summary_df.sort_values("mIoU", ascending=False).index[0]
             fig = plt.figure(figsize=(10, 8))
             benchmark.plot_confusion_matrix(best_model, normalize="true")
-            plt.savefig(plots_dir / f"confusion_matrix_{best_model}.png", dpi=150, bbox_inches="tight", facecolor="white")
+            plt.savefig(
+                plots_dir / f"confusion_matrix_{best_model}.png", dpi=150, bbox_inches="tight", facecolor="white"
+            )
             plt.close(fig)
             print(f"✅ confusion_matrix_{best_model}.png")
     except Exception as e:
         logger.error(f"❌ Ошибка при сохранении confusion matrix: {e}")
-    
+
     # ──────────────────────────────────────────────────────────────
     # 6. Сводный график
     # ──────────────────────────────────────────────────────────────
@@ -3066,7 +3070,7 @@ def _generate_neural_benchmark_plots(benchmark: SegmentationBenchmark, output_di
         print(f"✅ summary.png")
     except Exception as e:
         logger.error(f"❌ Ошибка при сохранении summary.png: {e}")
-    
+
     print(f"📊 Графики сохранены в: {plots_dir}")
 
 
@@ -3142,7 +3146,7 @@ def run_implementation_validation(
         ```
     """
     if torch2_precisions is None:
-        torch2_precisions = AVAILABLE_PRECISIONS 
+        torch2_precisions = AVAILABLE_PRECISIONS
     os.makedirs(output_dir, exist_ok=True)
 
     print("\n" + "=" * 60)
@@ -3186,7 +3190,7 @@ def run_implementation_validation(
                 precision_results: Dict[str, Any] = validator.validate_all_methods_with_backends(
                     image_path=img_array,
                     use_torch2=True,
-                    torch2_precision=precision, 
+                    torch2_precision=precision,
                     validate_onnx=True,
                     validate_trt=torch.cuda.is_available(),
                     onnx_dir=onnx_dir,
@@ -3213,11 +3217,10 @@ def run_implementation_validation(
             traceback.print_exc()
             continue
 
-    
     if not all_results:
         logger.error("❌ Не удалось выполнить валидацию ни для одной точности")
         return None
-    
+
     print(f"\n   ✅ Всего валидировано: {len(all_results)} конфигураций")
 
     # ──────────────────────────────────────────────────────
@@ -3262,15 +3265,14 @@ def run_implementation_validation(
                     break
             if precision is None:
                 precision = "unknown"
-                
+
             if precision not in precision_stats:
                 precision_stats[precision] = Counter()
-                
+
             if isinstance(config_results, dict):
                 for result in config_results.values():
                     if isinstance(result, dict) and "validation_status" in result:
                         precision_stats[precision][result["validation_status"]] += 1
-
 
         print("\n📈 Распределение статусов:")
         for precision in AVAILABLE_PRECISIONS:
@@ -3323,7 +3325,7 @@ def run_matrix_comparison(
     output_dir: str = "./data/matrix_comparison",
     reference_method: str = "global_thresholding_Sklearn",
     include_backends: bool = False,
-    tester: Optional[SegmentationTester] = None
+    tester: Optional[SegmentationTester] = None,
 ) -> Optional[Dict[str, Any]]:
     """Матричное и пакетное сравнение методов сегментации.
 
@@ -3411,13 +3413,13 @@ def run_matrix_comparison(
                 base_method = parsed["BaseMethod"]
                 backend = parsed["Backend"]
                 precision = parsed["Precision"]
-                
+
                 # Проверяем что базовый метод есть в основных методах
                 if any(base_method in m for m in all_segmenters.keys()):
                     all_segmenters[name] = segmenter
                     backend_count += 1
                     print(f"   ✅ {name} ({backend}/{precision})")
-        
+
         print(f"   📦 Всего бэкенд-методов добавлено: {backend_count}")
 
     # Подготовка конфигурации для сравнения
@@ -3425,13 +3427,15 @@ def run_matrix_comparison(
     for name, segmenter in all_segmenters.items():
         # Парсим имя метода для извлечения метаданных
         parsed = parse_method_name(name)
-        methods_config_list.append({
-            "name": name,
-            "segmenter": segmenter,
-            "base_method": parsed["BaseMethod"],
-            "backend": parsed["Backend"],
-            "precision": parsed["Precision"],
-        })
+        methods_config_list.append(
+            {
+                "name": name,
+                "segmenter": segmenter,
+                "base_method": parsed["BaseMethod"],
+                "backend": parsed["Backend"],
+                "precision": parsed["Precision"],
+            }
+        )
 
     # Референсный сегментер
     if reference_method not in all_segmenters:
@@ -3603,16 +3607,18 @@ def run_matrix_comparison(
         metric_col = "jaccard" if "jaccard" in batch_summary.columns else "f1_score"
         if metric_col in batch_summary.columns and pd.api.types.is_numeric_dtype(batch_summary[metric_col]):
             # Конвертация к числовому типу с обработкой ошибок
-            batch_summary[metric_col] = pd.to_numeric(batch_summary[metric_col], errors='coerce')
+            batch_summary[metric_col] = pd.to_numeric(batch_summary[metric_col], errors="coerce")
             valid_top = batch_summary[[metric_col, "method"]].dropna(subset=[metric_col])
-            
+
             if not valid_top.empty:
                 top_methods: pd.Series = valid_top.groupby("method")[metric_col].mean().nlargest(5)
                 print(f"\n🏆 Топ-5 по схожести с референсом ({metric_col}):")
                 for i, (method, score) in enumerate(top_methods.items(), 1):
                     if pd.notna(score):  # Дополнительная проверка на NaN
                         parsed = parse_method_name(method)
-                        backend_info = f" [{parsed['Backend']}/{parsed['Precision']}]" if parsed['Backend'] != "Unknown" else ""
+                        backend_info = (
+                            f" [{parsed['Backend']}/{parsed['Precision']}]" if parsed["Backend"] != "Unknown" else ""
+                        )
                         print(f"   {i}. {method}{backend_info}: {score:.4f}")
             else:
                 print(f"\n⚠️  Нет валидных данных для ранжирования по {metric_col}")

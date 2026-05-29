@@ -189,9 +189,9 @@ class TorchImplementationValidator:
             # ),
             # ("threshold_kittler_illingworth", {"num_bins": 256}),
             # ("threshold_entropy_kapur", {"num_bins": 256}),
-            ("threshold_triangle", {"num_bins": 256}),
+            # ("threshold_triangle", {"num_bins": 256}),
             # ("threshold_multi_otsu", {"n_thresholds": 2}),
-            # ("threshold_percentile", {"percentile": 90}),
+            ("threshold_percentile", {"percentile": 90}),
             # (
             #     "threshold_local_contrast",
             #     {"window_size": 15, "contrast_factor": 0.1},
@@ -400,7 +400,9 @@ class TorchImplementationValidator:
         return mask
 
     @staticmethod
-    def _prepare_torch_params(params: Dict[str, Any], use_torch2: bool = False, precision: str = "fp32") -> Dict[str, Any]:
+    def _prepare_torch_params(
+        params: Dict[str, Any], use_torch2: bool = False, precision: str = "fp32"
+    ) -> Dict[str, Any]:
         """Подготавливает параметры для TorchSegmenter/TorchSegmenter2.
 
         Для TorchSegmenter2:
@@ -562,18 +564,18 @@ class TorchImplementationValidator:
         # ──────────────────────────────────────────────────────
         logger.info("\n🔹 [1/3] Запуск базовой валидации (Torch vs CPU-бэкенды)...")
         logger.info(f"\nТестируемая точность: {torch2_precision}...")
-        base_results = self.validate_all_methods(
-            image_path=image_path,
-            use_torch2=use_torch2,
-            torch2_precision=torch2_precision,
-        )
-        base_results_with_precision: Dict[str, Any] = {}
-        for key, value in base_results.items():
-            if not any(key.endswith(f"_{p}") for p in AVAILABLE_PRECISIONS):
-                base_results_with_precision[f"{key}_{torch2_precision}"] = value
-            else:
-                base_results_with_precision[key] = value
-        all_results.update(base_results_with_precision)
+        # base_results = self.validate_all_methods(
+        #     image_path=image_path,
+        #     use_torch2=use_torch2,
+        #     torch2_precision=torch2_precision,
+        # )
+        # base_results_with_precision: Dict[str, Any] = {}
+        # for key, value in base_results.items():
+        #     if not any(key.endswith(f"_{p}") for p in AVAILABLE_PRECISIONS):
+        #         base_results_with_precision[f"{key}_{torch2_precision}"] = value
+        #     else:
+        #         base_results_with_precision[key] = value
+        # all_results.update(base_results_with_precision)
 
         # ──────────────────────────────────────────────────────
         # 2. ВАЛИДАЦИЯ ПРОТИВ ONNX
@@ -727,7 +729,7 @@ class TorchImplementationValidator:
                     onnx_model_dir=model_dir if backend_name == "ONNX" else None,
                     trt_model_dir=model_dir if backend_name == "TRT" else None,
                     input_shape=input_shape,
-                    precision=precision
+                    precision=precision,
                 )
 
                 logger.info(f"   ✅ {key}: {len([r for r in results[key].values() if r.get('success')])} методов")
@@ -773,7 +775,7 @@ class TorchImplementationValidator:
         onnx_model_dir: Optional[str] = None,
         trt_model_dir: Optional[str] = None,
         input_shape: Tuple[int, int, int, int] = (1, 3, 512, 512),
-        precision: Optional[str] = "fp32"
+        precision: Optional[str] = "fp32",
     ) -> Dict[str, Any]:
         """Универсальная функция валидации методов сегментации против эталонной реализации.
 
@@ -961,7 +963,9 @@ class TorchImplementationValidator:
                 # ──────────────────────────────────────────────────────
                 # Статус валидации
                 # ──────────────────────────────────────────────────────
-                validation_status: ValidationStatus = self._check_validation_status(metrics, first_method_name, second_method_name)
+                validation_status: ValidationStatus = self._check_validation_status(
+                    metrics, first_method_name, second_method_name
+                )
 
                 results[method_name] = {
                     "first_method_mask": mask1,
@@ -1018,7 +1022,7 @@ class TorchImplementationValidator:
             second_method_name,
             first_method_name=first_method_name,
             second_method_name=second_method_name,
-            precision=precision
+            precision=precision,
         )
         self._visualize_validation(
             results,
@@ -1026,13 +1030,14 @@ class TorchImplementationValidator:
             validation_type,
             first_method_name=first_method_name,
             second_method_name=second_method_name,
-            precision=precision
+            precision=precision,
         )
         return results
 
     # ──────────────────────────────────────────────────────────────────────
-    def _check_validation_status(self, metrics: MetricDict, first_method_name: str = "", 
-                            second_method_name: str = "") -> ValidationStatus:
+    def _check_validation_status(
+        self, metrics: MetricDict, first_method_name: str = "", second_method_name: str = ""
+    ) -> ValidationStatus:
         """Определяет статус валидации на основе пороговых значений метрик.
 
         Логика:
@@ -1047,9 +1052,8 @@ class TorchImplementationValidator:
         Returns:
             ValidationStatus: Один из "PASS", "WARNING", "FAIL".
         """
-        is_cross_platform = any(lib in second_method_name.lower() 
-                           for lib in ["sklearn", "opencv", "onnx", "trt"])
-    
+        is_cross_platform = any(lib in second_method_name.lower() for lib in ["sklearn", "opencv", "onnx", "trt"])
+
         thresholds = self.success_thresholds.copy()
         if is_cross_platform:
             # Ослабляем пороги на 5% для кросс-платформенных сравнений
@@ -1088,7 +1092,7 @@ class TorchImplementationValidator:
         reference: str,
         first_method_name: str = "Torch",
         second_method_name: str = "Reference",
-        precision: Optional[str] = "fp32"
+        precision: Optional[str] = "fp32",
     ) -> None:
         """Сохраняет результаты валидации: маски (.npy) и метрики (.txt).
 
@@ -1155,7 +1159,7 @@ class TorchImplementationValidator:
         validation_type: str,
         first_method_name: str = "Method A",
         second_method_name: str = "Method B",
-        precision: Optional[str] = "fp32"
+        precision: Optional[str] = "fp32",
     ) -> None:
         """Строит визуализацию сравнения: оригинал, две маски, heatmap разности.
 
@@ -1191,10 +1195,14 @@ class TorchImplementationValidator:
             mask_a_np = np.asarray(mask_a)
             mask_b_np = np.asarray(mask_b)
 
-            logger.info(f"🔍 [{method}] Mask A: shape={mask_a.shape}, dtype={mask_a.dtype}, "
-             f"range=[{mask_a.min()}, {mask_a.max()}], unique={np.unique(mask_a)[:10]}")
-            logger.info(f"🔍 [{method}] Mask B: shape={mask_b.shape}, dtype={mask_b.dtype}, "
-                        f"range=[{mask_b.min()}, {mask_b.max()}], unique={np.unique(mask_b)[:10]}")
+            logger.info(
+                f"🔍 [{method}] Mask A: shape={mask_a.shape}, dtype={mask_a.dtype}, "
+                f"range=[{mask_a.min()}, {mask_a.max()}], unique={np.unique(mask_a)[:10]}"
+            )
+            logger.info(
+                f"🔍 [{method}] Mask B: shape={mask_b.shape}, dtype={mask_b.dtype}, "
+                f"range=[{mask_b.min()}, {mask_b.max()}], unique={np.unique(mask_b)[:10]}"
+            )
 
             metrics: Dict[str, Any] = data["metrics"]
             status: str = data["validation_status"]
@@ -1583,7 +1591,7 @@ class TorchImplementationValidator:
                 prefix=f"{v_type}_validation_{torch2_precision}",
                 validation_type=v_type,
                 use_first_method_features=(use_torch2 and base_class == TorchSegmenter2),
-                precision=torch2_precision
+                precision=torch2_precision,
             )
         return all_results
 

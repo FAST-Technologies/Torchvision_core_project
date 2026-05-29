@@ -107,6 +107,7 @@ import hashlib
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
+import math
 
 from torchvision.transforms import functional as TF
 
@@ -1762,8 +1763,8 @@ class TorchSegmenter2(BaseSegmenter):
     # ──────────────────────────────────────────────────────────────────────
     def benchmark_histc_types(self, gray: torch.Tensor, device: torch.device) -> Dict[str, float]:
         """Сравнивает torch.histc для разных входных типов (учёт ограничений CUDA).
-        
-        Note: 
+
+        Note:
             Используется только в 1 исследовании.
         """
         results: Dict[str, Any] = {}
@@ -1804,7 +1805,7 @@ class TorchSegmenter2(BaseSegmenter):
         Returns:
             Dict с метриками: mean_time, std_time, min_time, max_time, device.
 
-        Note: 
+        Note:
             Используется только в 1 исследовании.
         """
         import time
@@ -1842,7 +1843,6 @@ class TorchSegmenter2(BaseSegmenter):
             "image_shape": tuple(tensor.shape),
         }
 
-
     # ──────────────────────────────────────────────────────────────────────
     @staticmethod
     def profile_with_tracing(
@@ -1851,8 +1851,8 @@ class TorchSegmenter2(BaseSegmenter):
         output_dir: str = "./profiling",
     ) -> None:
         """Запуск профилировщика PyTorch с экспортом trace для Chrome DevTools.
-        
-        Note: 
+
+        Note:
             Используется только в 1 исследовании.
         """
         import torch.profiler as profiler
@@ -1886,7 +1886,6 @@ class TorchSegmenter2(BaseSegmenter):
         prof.export_chrome_trace(trace_path)
         logger.info(f"📊 Trace сохранён: {trace_path}")
         logger.info("💡 Откройте chrome://tracing и загрузите файл для интерактивного анализа")
-
 
     # ──────────────────────────────────────────────────────────────────────
     def _apply_dynamic_quantization(self, module: nn.Module) -> nn.Module:
@@ -3597,13 +3596,15 @@ class TorchSegmenter2(BaseSegmenter):
 
         # === ПАРАМЕТРЫ ===
         bins = num_bins if num_bins is not None else self.params.get("num_bins", 256)
-        mean_levels = (torch.arange(bins, dtype=dtype, device=self.device) / (bins - 1)).clone()
+        bins = max(2, bins)
+        mean_levels = torch.arange(bins, dtype=dtype, device=self.device) / (bins - 1)
 
         precision_val = precision if precision is not None else "fp32"
 
         if export_mode:
+            # Гистограмма — используем тот же bins, что и в параметрах
             gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
-            hist = torch.histc(gray_for_hist, bins=256, min=0.0, max=1.0)
+            hist = torch.histc(gray_for_hist, bins=bins, min=0.0, max=1.0)
 
             total = hist.sum()
 
@@ -3619,18 +3620,25 @@ class TorchSegmenter2(BaseSegmenter):
             var_between = w0 * w1 * (m0 - m1) ** 2
             # best_threshold_idx = var_between.argmax()
             var_between_2d = var_between.unsqueeze(0)  # [1, 256]
-            best_threshold_idx = var_between_2d.argmax(dim=1)  # скаляр [0]
+            best_idx_rel = var_between_2d.argmax(dim=1)  # скаляр [0]
 
             # Конвертируем в float и нормализуем к [0, 1]
-            best_threshold = best_threshold_idx.float() / 255.0
+            # best_threshold = best_threshold_idx.float() / 255.0
+
+            # bin_levels = torch.arange(bins, dtype=torch.float32, device=self.device) / (bins - 1)
+            # best_threshold = torch.gather(bin_levels, 0, best_threshold_idx)
+            best_idx = best_idx_rel.squeeze(0)
+            best_threshold = best_idx.float() / max(bins - 1, 1)
 
             # === БИНАРИЗАЦИЯ ===
             with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
                 mask = (gray > best_threshold).to(dtype)
-                empty_mask = torch.zeros_like(mask)
-                mask = torch.where(total < 1e-8, empty_mask, mask)
-            H, W = gray.shape[-2], gray.shape[-1]
-            return mask.to(torch.float32).view(1, 1, H, W)
+                mask = torch.where(total < 1e-8, torch.zeros_like(mask), mask)
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
+            return mask.to(torch.float32)
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -3638,7 +3646,7 @@ class TorchSegmenter2(BaseSegmenter):
             start_time = None  # type: ignore[assignment]
 
         gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
-        hist = torch.histc(gray_for_hist, bins=256, min=0.0, max=1.0)
+        hist = torch.histc(gray_for_hist, bins=bins, min=0.0, max=1.0)
 
         total = hist.sum()
 
@@ -4231,6 +4239,7 @@ class TorchSegmenter2(BaseSegmenter):
         percentile: Optional[float] = None,
         precision: Optional[str] = None,
         export_mode: bool = False,
+        shift: Optional[float] = None,
     ) -> torch.Tensor:
         """Процентильная пороговая обработка.
 
@@ -4269,6 +4278,12 @@ class TorchSegmenter2(BaseSegmenter):
         # === ПРЕДПОДГОТОВКА ===
         gray = self._to_grayscale(tensor)
 
+        # === ПАРАМЕТРЫ ===
+        bins = 256
+        p = percentile if percentile is not None else self.params.get("percentile", 90.0)
+        precision_val = precision if precision is not None else "fp32"
+        shift_val: float = shift if shift is not None else 0.0
+
         # 🔧 FIX: Безопасное приведение к 2D без цикла
         if export_mode:
             if gray.dim() == 4:
@@ -4287,37 +4302,61 @@ class TorchSegmenter2(BaseSegmenter):
         else:
             start_time = None
 
-        # === ПАРАМЕТРЫ ===
-        p = percentile if percentile is not None else self.params.get("percentile", 90.0)
-        precision_val = precision if precision is not None else "fp32"
-
         if export_mode:
-            # 🔧 MAXIMAL SIMPLIFICATION для export_mode
+            # 🔧 MAXIMAL SIMPLIFICATION + внешняя коррекция (вычисляется ДО вызова модели)
             device = gray.device
-            bins = 256
+            gray_flat = gray.flatten()
 
-            # 1. Гистограмма
-            gray_flat = gray.reshape(-1)
-            hist = torch.histc(gray_flat, bins=bins, min=0.0, max=1.0)
+            t_sorted = torch.sort(gray_flat)[0]
+            # n = t_sorted.numel()
+            # REF_NUMEL = 512 * 512
 
-            # 2. 🔧 FIX: Используем фиксированный порог для экспорта
-            # Вычисление процентиля через гистограмму создаёт сложные зависимости,
-            # которые приводят к segfault при трассировке.
-            # Вместо этого используем приближённый порог из фиксированной сетки.
+            # p_norm_tensor = torch.tensor(p / 100.0, dtype=torch.float32, device=device)
 
-            # Фиксированная сетка порогов
-            bin_levels = torch.arange(bins, dtype=torch.float32, device=device) / (bins - 1)
+            # # pos будет 0-D тензором (скалярным тензором)
+            # pos = p_norm_tensor * (REF_NUMEL - 1)
+            # j = torch.floor(pos).to(torch.int64)
+            # g = pos - j.to(torch.float32)
 
-            # 🔧 FIX: Используем фиксированный индекс вместо вычисления через cumsum
-            # Для 90-го процентиля ≈ индекс 230 из 256 (0.9 * 255)
-            fixed_idx = int(round(p / 100.0 * (bins - 1)))
-            fixed_idx = max(0, min(fixed_idx, bins - 1))  # clamp к [0, bins-1]
+            # max_idx = max(0, REF_NUMEL - 2)
+            # j = torch.clamp(j, min=0, max=max_idx)
+            # j_plus_1 = j + 1
+            # # Интерполяция: (1-g) * y[j] + g * y[j+1]
+            # val_low = t_sorted[j]
+            # val_high = t_sorted[j_plus_1]
+            # threshold = (1.0 - g) * val_low + g * val_high
+            REF_NUMEL = 670 * 670  # ~262k элементов
 
-            # Порог из фиксированной сетки
-            threshold = bin_levels[fixed_idx].to(dtype)
+            # 3. Вычисляем позицию квантиля ОТНОСИТЕЛЬНО референсного размера
+            p_norm = p / 100.0
+            # pos — float, но вычисляется из констант → экспортёр видит константу
+            pos_val: float = p_norm * (REF_NUMEL - 1)
 
-            # 3. Бинаризация
+            # 4. Индексы — вычисляем на уровне Python (не в графе!)
+            j_int = int(pos_val)  # Python int
+            g_float = pos_val - j_int  # Python float
+
+            # Clamp к допустимому диапазону (на уровне Python)
+            # Важно: используем МИНИМУМ из реального размера и референсного
+            actual_n = t_sorted.numel()
+            max_safe_idx = min(REF_NUMEL - 2, actual_n - 2) if actual_n > 1 else 0
+            j_int = max(0, min(j_int, max_safe_idx))
+            jp1_int = j_int + 1
+
+            # 5. Создаём 1D тензор индексов для index_select (ONNX-friendly)
+            indices = torch.tensor([j_int, jp1_int], dtype=torch.int64, device=device)  # [2]
+
+            # 6. Извлекаем значения через index_select (Gather в ONNX)
+            values = torch.index_select(t_sorted, dim=0, index=indices)  # [2]
+
+            # 7. 🔧 ЛИНЕЙНАЯ ИНТЕРПОЛЯЦИЯ (всё в тензорах, но индексы — константы)
+            g = torch.tensor(g_float, dtype=torch.float32, device=device)  # 0-D const
+            threshold = (1.0 - g) * values[0] + g * values[1]  # scalar
+
+            # 5. Бинаризация
+            threshold = threshold.to(dtype)
             mask = (gray > threshold).to(dtype)
+
             H, W = gray.shape[-2], gray.shape[-1]
             return mask.to(torch.float32).reshape(1, 1, H, W)
 
@@ -4411,13 +4450,13 @@ class TorchSegmenter2(BaseSegmenter):
         if export_mode:
             # === ГИСТОГРАММА ===
             gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
-            hist = torch.histc(gray_for_hist, bins=256, min=0.0, max=1.0)
+            hist = torch.histc(gray_for_hist, bins=bins, min=0.0, max=1.0)
             total = hist.sum()
-            pdf = hist / (total + 1e-8)
-            bin_levels = torch.arange(bins, dtype=dtype, device=self.device) / max(bins - 1, 1)
 
             # === ВЕКТОРИЗОВАННЫЙ КРИТЕРИЙ (без цикла) ===
             with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
+                pdf = hist.float() / (total + 1e-8)
+                bin_levels = torch.arange(bins, dtype=torch.float32, device=self.device) / max(bins - 1, 1)
                 # Кумулятивные суммы
                 cum_pdf = torch.cumsum(pdf, dim=0)
                 cum_mean = torch.cumsum(pdf * bin_levels, dim=0)
@@ -4425,21 +4464,29 @@ class TorchSegmenter2(BaseSegmenter):
                 # Векторизованный критерий Киттлера-Иллингворта
                 cum_sq = torch.cumsum(pdf * bin_levels**2, dim=0)
 
-                t_idx = torch.arange(1, bins - 1, device=self.device)
-                w0 = cum_pdf[t_idx].clamp(min=1e-8)
-                w1 = (1.0 - cum_pdf[t_idx]).clamp(min=1e-8)
+                t_idx = torch.arange(1, bins - 1, device=self.device, dtype=torch.int64)
+
+                eps_w = 1e-3 if dtype == torch.float16 else (1e-4 if dtype == torch.bfloat16 else 1e-8)
+                eps_var = 1e-3 if dtype == torch.float16 else (1e-6 if dtype == torch.bfloat16 else 1e-8)
+
+                w0 = cum_pdf[t_idx].clamp(min=eps_w)
+                w1 = (1.0 - cum_pdf[t_idx]).clamp(min=eps_w)
 
                 mu0 = cum_mean[t_idx] / w0
                 mu1 = (cum_mean[-1] - cum_mean[t_idx]) / w1
 
-                var0 = (cum_sq[t_idx] / w0 - mu0**2).clamp(min=1e-6)
-                var1 = ((cum_sq[-1] - cum_sq[t_idx]) / w1 - mu1**2).clamp(min=1e-6)
+                var0_raw = cum_sq[t_idx] / w0 - mu0**2
+                var1_raw = (cum_sq[-1] - cum_sq[t_idx]) / w1 - mu1**2
 
-                criterion = (
-                    1.0
-                    + 2.0 * (w0 * 0.5 * torch.log(var0) + w1 * 0.5 * torch.log(var1))
-                    - 2.0 * (w0 * torch.log(w0) + w1 * torch.log(w1))
-                )
+                var0 = var0_raw.clamp(min=eps_var)  # float32
+                var1 = var1_raw.clamp(min=eps_var)  # float32
+
+                log_w0 = torch.log(w0 + eps_w)
+                log_w1 = torch.log(w1 + eps_w)
+                log_var0 = torch.log(var0 + eps_var)
+                log_var1 = torch.log(var1 + eps_var)
+
+                criterion = 1.0 + 2.0 * (w0 * 0.5 * log_var0 + w1 * 0.5 * log_var1) - 2.0 * (w0 * log_w0 + w1 * log_w1)
 
                 # 🔧 FIX для TensorRT: добавляем фиктивное измерение перед argmin
                 criterion_2d = criterion.unsqueeze(0)  # [1, bins-2]
@@ -4447,7 +4494,9 @@ class TorchSegmenter2(BaseSegmenter):
                 best_idx = best_idx_rel + 1  # сдвиг к исходным биным [1, bins-2]
 
                 # 🔧 FIX: используем gather для безопасной индексации
-                threshold = torch.index_select(bin_levels, dim=0, index=best_idx)
+                threshold_val = best_idx.float() / max(bins - 1, 1)
+                threshold = threshold_val.to(dtype)
+                # threshold = torch.index_select(bin_levels, dim=0, index=best_idx)
 
             mask = (gray > threshold).to(dtype)
 
@@ -4556,14 +4605,16 @@ class TorchSegmenter2(BaseSegmenter):
         """
         # === ПРЕДПОДГОТОВКА ===
         if export_mode:
-            gray = self._to_grayscale(tensor)
-            if gray.dim() == 4:
-                gray = gray.squeeze(0).squeeze(0)  # (1, 1, H, W) → (H, W)
-            elif gray.dim() == 3 and gray.size(0) == 1:
-                gray = gray.squeeze(0)  # (1, H, W) → (H, W)
+            gray = self._to_grayscale(tensor)  # (H, W)
+            if gray.dim() == 4 and gray.shape[1] == 1:
+                gray = gray.view(-1, gray.shape[-2], gray.shape[-1])  # (B, H, W)
+            elif gray.dim() == 3 and gray.shape[0] == 1:
+                gray = gray.view(gray.shape[-2], gray.shape[-1])  # (H, W)
             H, W = gray.shape[-2], gray.shape[-1]
         else:
             gray = self._to_grayscale(tensor).squeeze()  # (H, W)
+            if gray.dim() == 3 and gray.shape[0] == 1:
+                gray = gray.squeeze(0)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
@@ -4578,36 +4629,53 @@ class TorchSegmenter2(BaseSegmenter):
         eps = 1e-10
 
         if export_mode:
-            # === ГИСТОГРАММА ===
+            # === ГИСТОГРАММА — всегда в float32 для стабильности ===
             gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
-            hist = torch.histc(gray_for_hist, bins=256, min=0.0, max=1.0)
+            hist = torch.histc(gray_for_hist, bins=bins, min=0.0, max=1.0)  # всегда float32
             total = hist.sum()
-            pdf = hist / (total + 1e-8)
 
-            # === ВЕКТОРИЗОВАННАЯ ЭНТРОПИЯ КАПУРА ===
+            # === ВЕКТОРИЗОВАННАЯ ЭНТРОПИЯ КАПУРА — всё в float32 ===
             with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
-                pdf_log = pdf * torch.log(pdf + eps)  # pdf[i]*log(pdf[i]), shape (256,)
-                cum_pdf = torch.cumsum(pdf, dim=0)
+                # 🔧 Все вычисления в float32
+                pdf_fp32 = hist.float() / (total + 1e-8)
+
+                pdf_log = pdf_fp32 * torch.log(pdf_fp32 + eps)
+                cum_pdf = torch.cumsum(pdf_fp32, dim=0)
                 cum_pdflog = torch.cumsum(pdf_log, dim=0)
                 total_pdflog = cum_pdflog[-1]
 
-                t_idx = torch.arange(1, bins - 1, device=self.device)
-                w0 = cum_pdf[t_idx].clamp(min=eps)
-                w1 = (1.0 - cum_pdf[t_idx]).clamp(min=eps)
+                # 🔧 Индексы — явно int64
+                t_idx = torch.arange(1, bins - 1, device=self.device, dtype=torch.int64)
 
-                # H(C0) = log(w0) - (1/w0) * sum_{i<=t}(pdf[i]*log(pdf[i]))
-                H0 = torch.log(w0) - cum_pdflog[t_idx] / w0
+                w0 = cum_pdf[t_idx].clamp(min=eps)  # float32
+                w1 = (1.0 - cum_pdf[t_idx]).clamp(min=eps)  # float32
 
-                # H(C1) = log(w1) - (1/w1) * sum_{i>t}(pdf[i]*log(pdf[i]))
-                H1 = torch.log(w1) - (total_pdflog - cum_pdflog[t_idx]) / w1
+                H0 = torch.log(w0) - cum_pdflog[t_idx] / w0  # float32
+                H1 = torch.log(w1) - (total_pdflog - cum_pdflog[t_idx]) / w1  # float32
 
-                total_entropy = H0 + H1
+                total_entropy = H0 + H1  # float32
+
+                # 🔧 Поиск лучшего порога
                 entropy_2d = total_entropy.unsqueeze(0)  # [1, bins-2]
                 best_t_rel = entropy_2d.argmax(dim=1)  # скаляр [0]
-                best_t = best_t_rel + 1
-                bin_levels = torch.arange(bins, dtype=dtype, device=self.device) / max(bins - 1, 1)
-                threshold = torch.index_select(bin_levels, dim=0, index=best_t)
+                best_t = best_t_rel + 1  # scalar int64
+
+                # # 🔧 bin_levels всегда в float32 для точности
+                bin_levels_fp32 = torch.arange(bins, dtype=torch.float32, device=self.device) / max(bins - 1, 1)
+
+                # 🔧 FIX: прямая индексация вместо index_select
+                # threshold_fp32 = bin_levels_fp32[best_t]  # float32 scalar
+                threshold_fp32 = bin_levels_fp32.gather(0, best_t)
+
+                # 🔧 FIX: конвертация в целевой dtype только перед сравнением
+                threshold = threshold_fp32.to(dtype)
+
+                # threshold_val = best_t.float() / max(bins - 1, 1)  # float32 scalar
+                # threshold = threshold_val.to(dtype)
+
+                # Сравнение: gray уже в целевом dtype
                 mask = (gray > threshold).to(dtype)
+
             return mask.to(torch.float32).view(1, 1, H, W)
 
         # === ГИСТОГРАММА ===
@@ -4731,51 +4799,75 @@ class TorchSegmenter2(BaseSegmenter):
 
         if export_mode:
             # === ГИСТОГРАММА И ПИК ===
-            gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
-            hist = torch.histc(gray_for_hist, bins=bins, min=0.0, max=1.0)
+            gray_fp32 = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
+            hist = torch.histc(gray_fp32, bins=bins, min=0.0, max=1.0)
             hist_2d = hist.unsqueeze(0)  # [1, 256]
             peak_idx = hist_2d.argmax(dim=1)  # [1]
 
-            zero_tensor = torch.zeros_like(peak_idx)  # same dtype/device as peak_idx
-            max_tensor = torch.full_like(peak_idx, bins - 1)  # same dtype/device
+            # zero_tensor = torch.zeros_like(peak_idx)  # same dtype/device as peak_idx
+            # max_tensor = torch.full_like(peak_idx, bins - 1)  # same dtype/device
 
             # === НАПРАВЛЕНИЕ ПОИСКА ===
             mid = bins // 2
             peak_left = peak_idx < mid
 
             # Вычисляем start_idx и end_idx векторизованно
-            start_idx = torch.where(peak_left, peak_idx, zero_tensor)
-            end_idx = torch.where(peak_left, max_tensor, peak_idx)
+            start_idx = torch.where(peak_left, peak_idx, torch.tensor(0, device=peak_idx.device))
+            end_idx = torch.where(peak_left, torch.tensor(bins - 1, device=peak_idx.device), peak_idx)
 
             # === ВЕКТОРИЗОВАННЫЙ ТРЕУГОЛЬНЫЙ МЕТОД ===
             with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
+                if dtype == torch.bfloat16:
+                    t_range = torch.arange(bins, device=self.device, dtype=torch.float32)
+                    # hist_max = hist.amax(dim=0, keepdim=False)
+                    # # Нормализуем гистограмму
+                    # hist_norm = hist.float() / (hist_max + 1e-8)
+                else:
+                    t_range = torch.arange(bins, device=self.device, dtype=dtype)
                 hist_max = hist.amax(dim=0, keepdim=False)
                 # Нормализуем гистограмму
-                hist_norm = hist.float() / (hist_max + 1e-8)
+                hist_norm = hist.to(dtype) / (hist_max + 1e-8)
 
                 # Линия от пика до конца
-                peak_val = torch.gather(hist_norm, 0, peak_idx).squeeze(0)  # [1] → scalar
-                end_val = torch.gather(hist_norm, 0, end_idx).squeeze(0)
+                # peak_val = torch.gather(hist_norm, 0, peak_idx).squeeze(0)  # [1] → scalar
+                # end_val = torch.gather(hist_norm, 0, end_idx).squeeze(0)
+
+                peak_val = hist_norm[peak_idx]
+                end_val = hist_norm[end_idx]
 
                 # Векторизованный треугольный метод
-                t_range = torch.arange(bins, device=self.device, dtype=dtype)
-                range_mask = (t_range >= start_idx) & (t_range <= end_idx)
+                # range_mask = (t_range >= start_idx) & (t_range <= end_idx)
+                # if dtype == torch.bfloat16:
+                #     range_mask = (t_range >= start_idx.float()) & (t_range <= end_idx.float())
+                # else:
+                range_mask = (t_range >= start_idx.to(dtype)) & (t_range <= end_idx.to(dtype))
 
                 # Вычисляем линейную интерполяцию
                 denom = (end_idx - start_idx + 1).clamp(min=1).to(dtype)
                 slope = (end_val - peak_val) / denom
-                line_vals = peak_val + slope * (t_range - peak_idx).to(dtype)
+                # line_vals = peak_val + slope * (t_range - peak_idx).to(dtype)
+                line_vals = peak_val + slope * (t_range - peak_idx.to(dtype))
 
                 # 🔧 FIX: расстояния с маской (вне диапазона = -inf)
+                # neg_inf_val = torch.finfo(dtype).min if dtype.is_floating_point else -1e4
+                # if dtype == torch.bfloat16:
+                #     distances = torch.where(
+                #         range_mask, torch.abs(hist_norm - line_vals), torch.full_like(hist_norm, -1e10, dtype=dtype)
+                #     )
+                # else:
                 distances = torch.where(
-                    range_mask, torch.abs(hist_norm - line_vals), torch.tensor(-1e10, dtype=dtype, device=self.device)
+                    range_mask,
+                    torch.abs(hist_norm - line_vals),
+                    torch.tensor(-1e10, dtype=dtype, device=self.device),
+                    # torch.full_like(hist_norm, neg_inf_val, dtype=dtype, device=self.device)
                 )
 
                 distances_2d = distances.unsqueeze(0)  # [1, bins]
                 best_idx = distances_2d.argmax(dim=1)  # [1]
 
                 # 🔧 FIX: порог как тензорная операция
-                threshold = best_idx.to(dtype).squeeze(0) / float(max(bins - 1, 1))
+                threshold = best_idx.to(dtype) / max(bins - 1, 1)
+                threshold = threshold.to(dtype)
 
                 mask = (gray > threshold).to(dtype)
             return mask.to(torch.float32).view(1, 1, gray.shape[-2], gray.shape[-1])
@@ -4925,13 +5017,14 @@ class TorchSegmenter2(BaseSegmenter):
 
                     # Межклассовая дисперсия
                     var_between = w0 * w1 * (mu0 - mu1) ** 2
+                    var_between_2d = var_between.unsqueeze(0)
 
                     # Найти лучший порог
-                    best_idx_rel = var_between.argmax()  # индекс относительно t_range
+                    best_idx_rel = var_between_2d.argmax(dim=1)  # индекс относительно t_range
                     best_idx = best_idx_rel + 1  # сдвиг к исходным бинам
 
                     # 🔧 ЗАМЕНА: вместо bin_levels[best_idx] используем torch.gather
-                    final_threshold = torch.gather(bin_levels, 0, best_idx.unsqueeze(0))
+                    final_threshold = torch.gather(bin_levels, 0, best_idx)
 
                 # 🔧 Вариант 2: Для n_thresh > 1 — использовать фиксированные квантили
                 # (приближённый, но export-friendly подход)

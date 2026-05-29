@@ -358,9 +358,7 @@ class BatchClassicTester:
         self.include_backends: bool = include_backends  # Флаг включения бэкендов
         self.onnx_dir: str = onnx_dir
         self.trt_dir: str = trt_dir
-        self.supported_precisions: List[PrecisionType] = (
-            supported_precisions or ["fp32", "fp16", "bf16"]
-        )
+        self.supported_precisions: List[PrecisionType] = supported_precisions or ["fp32", "fp16", "bf16"]
         self.input_shape: Tuple[int, int, int, int] = (1, 3, *self.image_size)  # (1, 3, 512, 512)
 
         self._backend_cache: Dict[Tuple[str, str, str], Any] = {}
@@ -370,12 +368,14 @@ class BatchClassicTester:
         self.temp_results_file: Path = self.output_dir / ".results_temp.csv"
 
         if self.include_backends:
-            self.library_pairs.extend([
-                ("torch", "onnx"),
-                ("torch", "trt"),
-                ("opencv", "onnx"),
-                ("sklearn", "onnx"),
-            ])
+            self.library_pairs.extend(
+                [
+                    ("torch", "onnx"),
+                    ("torch", "trt"),
+                    ("opencv", "onnx"),
+                    ("sklearn", "onnx"),
+                ]
+            )
 
         # Загрузка прогресса если нужно
         if resume and self.progress_file.exists():
@@ -387,7 +387,7 @@ class BatchClassicTester:
         """Определяет доступные точности на основе устройства и возможностей GPU."""
         if not self.include_backends or self.device.type != "cuda" or not torch.cuda.is_available():
             return ["fp32"]
-        
+
         cap = torch.cuda.get_device_capability(0)
         if cap[0] >= 8:  # Ampere+
             return ["fp32", "fp16", "bf16"]
@@ -403,23 +403,23 @@ class BatchClassicTester:
         precision: PrecisionType = "fp32",
     ) -> Optional[str]:
         """Поиск экспортированной модели в директориях бэкендов.
-        
+
         Структура путей:
         - ONNX: {onnx_dir}/{precision}/{method_name}.onnx
         - TRT:  {trt_dir}/{precision}/{method_name}.trt
-        
+
         Args:
             method_name: Имя метода (например, "otsu_thresholding").
             backend: Тип бэкенда ("onnx" или "trt").
             precision: Точность вычислений ("fp32", "fp16", "bf16").
-        
+
         Returns:
             Optional[str]: Путь к файлу модели или None, если не найдена.
         """
         base_dir = self.onnx_dir if backend == "onnx" else self.trt_dir
         ext = ".onnx" if backend == "onnx" else ".trt"
         model_path = os.path.join(base_dir, precision, f"{method_name}{ext}")
-        
+
         if os.path.exists(model_path):
             return model_path
         return None
@@ -433,24 +433,24 @@ class BatchClassicTester:
         precision: PrecisionType,
     ) -> Dict[str, Any]:
         """Подготовка параметров для инициализации бэкенд-сегментера.
-        
+
         Args:
             method_name: Имя метода.
             params: Исходные параметры метода.
             backend: Тип бэкенда.
             precision: Точность вычислений.
-        
+
         Returns:
             Dict[str, Any]: Отфильтрованные параметры для бэкенда.
         """
         prepared = params.copy()
-        
+
         # Общие параметры для всех бэкендов
         prepared.setdefault("input_shape", self.input_shape)
         prepared.setdefault("device", str(self.device))
         prepared.setdefault("precision", precision)
         prepared.setdefault("is_neural", False)  # Классические методы
-        
+
         # Специфичные параметры для TensorRT
         if backend == "trt":
             prepared.setdefault(
@@ -461,7 +461,7 @@ class BatchClassicTester:
                     "int8_mode": False,
                 },
             )
-        
+
         return prepared
 
     # ──────────────────────────────────────────────────────────────────────
@@ -473,31 +473,31 @@ class BatchClassicTester:
         params: Dict[str, Any],
     ) -> Optional[Union[ONNXSegmenter, TRTSegmenter]]:
         """Создание или получение из кэша сегментера для бэкенда.
-        
+
         Args:
             method_name: Имя метода.
             backend: Тип бэкенда.
             precision: Точность вычислений.
             params: Параметры метода.
-        
+
         Returns:
             Optional[Union[ONNXSegmenter, TRTSegmenter]]: Экземпляр сегментера или None.
         """
         cache_key = (method_name, backend, precision, json.dumps(params, sort_keys=True))
-        
+
         # Проверка кэша
         if cache_key in self._backend_cache:
             return self._backend_cache[cache_key]
-        
+
         # Поиск модели
         model_path = self._find_backend_model(method_name, backend, precision)
         if not model_path:
             logger.warning(f"⚠️ Модель не найдена: {method_name}_{backend}_{precision}")
             return None
-        
+
         # Подготовка параметров
         backend_params = self._prepare_backend_params(method_name, params, backend, precision)
-        
+
         try:
             if backend == "onnx":
                 segmenter = ONNXSegmenter(
@@ -515,11 +515,11 @@ class BatchClassicTester:
                     trt_model_or_path=trt_model,
                     **backend_params,
                 )
-            
+
             # Кэширование
             self._backend_cache[cache_key] = segmenter
             return segmenter
-            
+
         except Exception as e:
             logger.error(f"❌ Ошибка создания {backend} сегментера: {e}")
             return None
@@ -527,16 +527,16 @@ class BatchClassicTester:
     # ──────────────────────────────────────────────────────────────────────
     def _normalize_mask_for_comparison(self, mask: Any) -> np.ndarray:
         """Приведение маски от любого бэкенда к единому формату.
-        
+
         Обрабатывает:
         - torch.Tensor → numpy
         - Разные размерности: (1,1,H,W), (1,H,W), (H,W,1) → (H,W)
         - Нормализованные значения [0,1] → [0,255]
         - Булевы массивы → uint8
-        
+
         Args:
             mask: Входная маска (Tensor, ndarray или список).
-        
+
         Returns:
             np.ndarray: Нормализованная бинарная маска формы (H, W), dtype=uint8.
         """
@@ -545,14 +545,14 @@ class BatchClassicTester:
             mask = mask.squeeze().detach().cpu().numpy()
         elif isinstance(mask, (list, tuple)):
             mask = np.array(mask)
-        
+
         # Удаление лишних измерений
         if mask.ndim == 3:
             if mask.shape[-1] == 1:
                 mask = mask.squeeze(-1)
             elif mask.shape[0] == 1:
                 mask = mask.squeeze(0)
-        
+
         # Конвертация в uint8
         if mask.dtype == bool:
             mask = mask.astype(np.uint8) * 255
@@ -563,7 +563,7 @@ class BatchClassicTester:
                 mask = mask.astype(np.uint8)
         elif mask.dtype != np.uint8:
             mask = mask.astype(np.uint8)
-        
+
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -764,14 +764,16 @@ class BatchClassicTester:
             # ──────────────────────────────────────────────────────
             mask_a_norm = self._normalize_mask_for_comparison(mask_a)
             mask_b_norm = self._normalize_mask_for_comparison(mask_b)
-            
+
             # Ресайз к целевому размеру если нужно
             target_shape = image.shape[:2]
             if mask_a_norm.shape != target_shape:
                 from skimage.transform import resize
+
                 mask_a_norm = resize(mask_a_norm, target_shape, order=0, preserve_range=True).astype(np.uint8)
             if mask_b_norm.shape != target_shape:
                 from skimage.transform import resize
+
                 mask_b_norm = resize(mask_b_norm, target_shape, order=0, preserve_range=True).astype(np.uint8)
 
             # ──────────────────────────────────────────────────────
@@ -1726,7 +1728,7 @@ class BatchClassicTester:
                 pbar.update(self._processed_count)
                 print(f"⏭️  Пропущено {self._processed_count} выполненных тестов")
 
-            precisions_to_test: List[PrecisionType]  = self._get_available_precisions()
+            precisions_to_test: List[PrecisionType] = self._get_available_precisions()
             total_precisions: int = len(precisions_to_test)
             for img_idx, (img_name, image) in enumerate(test_data):
                 for method_name, params in self.all_methods:
@@ -1753,10 +1755,11 @@ class BatchClassicTester:
                                     pair_idx = self.library_pairs.index((lib_a, lib_b))
 
                                 test_index: int = (
-                                    img_idx * total_methods * total_pairs * total_precisions +
-                                        method_idx * total_pairs * total_precisions +
-                                        pair_idx * total_precisions +
-                                        precision_idx + 1
+                                    img_idx * total_methods * total_pairs * total_precisions
+                                    + method_idx * total_pairs * total_precisions
+                                    + pair_idx * total_precisions
+                                    + precision_idx
+                                    + 1
                                 )
 
                                 if self._processed_count >= test_index:
@@ -1873,14 +1876,14 @@ class BatchClassicTester:
     def _aggregate_results(self) -> pd.DataFrame:
         """Агрегирует накопленные результаты в сводную таблицу."""
         rows: List[Dict[str, Any]] = []
-        
+
         for pair_key in self.results:
             for method_name in self.results[pair_key]:
                 # 🔧 Новая логика: self.results[pair_key][method_name] может содержать
                 # либо список значений, либо dict с метаданными (compute_precision)
-                
+
                 metrics_data = self.results[pair_key][method_name]
-                
+
                 # Определяем уникальные значения точности
                 precisions = {"fp32"}  # default
                 if isinstance(metrics_data, dict):
@@ -1889,11 +1892,11 @@ class BatchClassicTester:
                             for item in values:
                                 if isinstance(item, dict) and "compute_precision" in item:
                                     precisions.add(item["compute_precision"])
-                
+
                 for precision in precisions:
                     # Сбор метрик для данной точности
                     collected_metrics: Dict[str, List[float]] = defaultdict(list)
-                    
+
                     for metric_name in self.metrics_to_aggregate:
                         values = metrics_data.get(metric_name, [])
                         if isinstance(values, list):
@@ -1904,22 +1907,24 @@ class BatchClassicTester:
                                 elif isinstance(v, (int, float)):
                                     # Старый формат без compute_precision
                                     collected_metrics[metric_name].append(v)
-                    
+
                     if not any(collected_metrics.values()):
                         continue  # Нет данных для этой комбинации
-                    
+
                     images_tested = len(collected_metrics.get("iou", []))
                     if images_tested == 0:
                         continue
-                    
+
                     row: Dict[str, Any] = {
                         "Method": method_name,
                         "Library_Pair": pair_key,  # ← Ключевая колонка!
                         "Precision": precision,
-                        "Torch_Version": "v2" if "torch_v2" in pair_key or self.torch_segmenter_version == "v2" else "v1",
+                        "Torch_Version": (
+                            "v2" if "torch_v2" in pair_key or self.torch_segmenter_version == "v2" else "v1"
+                        ),
                         "Images_Tested": images_tested,
                     }
-                    
+
                     # Агрегация метрик
                     for metric_name in self.metrics_to_aggregate:
                         values = collected_metrics.get(metric_name, [])
@@ -1930,7 +1935,7 @@ class BatchClassicTester:
                             row[f"{metric_name}_max"] = np.max(values)
                         else:
                             row[f"{metric_name}_mean"] = np.nan
-                    
+
                     # Время выполнения
                     times = self.execution_times[pair_key][method_name]
                     if times:
@@ -1939,7 +1944,7 @@ class BatchClassicTester:
                         row["time_a_mean"] = np.mean(times_a)
                         row["time_b_mean"] = np.mean(times_b)
                         row["time_diff_mean"] = np.mean([abs(a - b) for a, b in zip(times_a, times_b)])
-                    
+
                     # Статусы валидации
                     statuses = self.validation_status[pair_key][method_name]
                     if statuses:
@@ -1948,24 +1953,28 @@ class BatchClassicTester:
                         row["pass_rate"] = status_counts.get("PASS", 0) / total
                         row["warning_rate"] = status_counts.get("WARNING", 0) / total
                         row["fail_rate"] = status_counts.get("FAIL", 0) / total
-                    
+
                     error_msgs = self.errors[pair_key][method_name]
                     row["error_count"] = len(error_msgs)
                     row["error_rate"] = len(error_msgs) / images_tested if images_tested > 0 else 0.0
 
                     rows.append(row)
-        
+
         if not rows:
             logger.warning("⚠️ Нет данных для агрегации! Проверьте self.results")
             return pd.DataFrame()
-        
+
         df = pd.DataFrame(rows)
-        
+
         # Сортировка
         if "iou_mean" in df.columns and "Library_Pair" in df.columns:
-            sort_cols = ["Library_Pair", "Precision", "iou_mean"] if "Precision" in df.columns else ["Library_Pair", "iou_mean"]
-            df = df.sort_values(sort_cols, ascending=[True, True, False] if "Precision" in df.columns else [True, False])
-        
+            sort_cols = (
+                ["Library_Pair", "Precision", "iou_mean"] if "Precision" in df.columns else ["Library_Pair", "iou_mean"]
+            )
+            df = df.sort_values(
+                sort_cols, ascending=[True, True, False] if "Precision" in df.columns else [True, False]
+            )
+
         return df
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2756,7 +2765,7 @@ class BatchClassicTester:
             logger.warning("⚠️ DataFrame пуст или не содержит колонку 'Library_Pair', пропускаем генерацию графиков")
             logger.warning(f"   Доступные колонки: {list(df.columns) if not df.empty else 'N/A'}")
             return
-        
+
         for pair_key in df["Library_Pair"].unique():
             self._create_summary_comparison_chart(df, pair_key)
 
