@@ -2946,7 +2946,7 @@ class TorchSegmenter(BaseSegmenter):
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def _gradient_magnitude_direction(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
+    def _gradient_magnitude_direction(self, tensor: torch.Tensor, angle_range: Optional[Tuple[float, float]] = None, normalize: bool = True, use_nms: bool = False, **kwargs: Any) -> torch.Tensor:
         """Вычисление градиента с магнитудой и направлением.
 
         Возвращает маску границ на основе магнитуды градиента.
@@ -2955,6 +2955,8 @@ class TorchSegmenter(BaseSegmenter):
 
         start_time = time.time()
         threshold = self.params.get("threshold", 0.1)
+
+        angle_rng = angle_range if angle_range is not None else self.params.get("angle_range", None)
 
         # Градиенты Собеля
         sobel_x = torch.tensor(
@@ -2972,25 +2974,34 @@ class TorchSegmenter(BaseSegmenter):
         gy = F.conv2d(gray, sobel_y, padding=1)
 
         # Магнитуда и направление
-        magnitude = torch.sqrt(gx**2 + gy**2 + 1e-8)
-        direction = torch.atan2(gy, gx)  # Радианы от -π до π
+        magnitude = torch.sqrt(gx.square() + gy.square())
+        direction_rad = torch.atan2(gy, gx)  # Радианы для внутренних вычислений
+        direction_deg = direction_rad * 180.0 / torch.pi  # Градусы для фильтрации по углу
 
         # Нормализация магнитуды
-        if magnitude.max() > 0:
-            magnitude = magnitude / magnitude.max()
+        if normalize and magnitude.max() > 1e-8:
+            mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
+            magnitude = magnitude / (mag_max + 1e-8)
 
         # Non-maximum suppression по направлению
-        suppressed = self._suppress_non_max(magnitude, direction)
+        if use_nms:
+            magnitude = self._suppress_non_max(magnitude, direction_rad)
+
+        if angle_rng is not None:
+            angle_mask = ((direction_deg >= angle_rng[0]) & (direction_deg <= angle_rng[1])) | \
+                                    ((direction_deg + 180.0 >= angle_rng[0]) & (direction_deg + 180.0 <= angle_rng[1]))
+            magnitude = magnitude * angle_mask.to(magnitude.dtype)
 
         # Пороговая обработка
-        mask = (suppressed > threshold).float()
+        thresh_t = torch.tensor(threshold, dtype=magnitude.dtype, device=magnitude.device)
+        mask = (magnitude > thresh_t).float()
         exec_time = time.time() - start_time
         info = self._log_info(
             "gradient_magnitude_direction_torch",
             exec_time,
             {"threshold": threshold, **kwargs},
             magnitude=magnitude,
-            direction=direction,
+            direction=direction_deg,
         )
         if self._debug_mode:
             logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
@@ -3012,7 +3023,6 @@ class TorchSegmenter(BaseSegmenter):
         sectors[(angle > 112.5) & (angle <= 157.5)] = 3  # 135°
 
         suppressed = torch.zeros_like(magnitude)
-        _, _ = magnitude.shape[2], magnitude.shape[3]
 
         # Паддинг для доступа к соседям
         mag_padded = F.pad(magnitude, (1, 1, 1, 1), mode="reflect")
@@ -3023,7 +3033,6 @@ class TorchSegmenter(BaseSegmenter):
                 continue
 
             if s == 0:  # Горизонталь: сравниваем лево/право
-                _ = mag_padded[:, :, 1:-1, :-2] + mag_padded[:, :, 1:-1, 2:]
                 is_max = (magnitude >= mag_padded[:, :, 1:-1, :-2]) & (magnitude >= mag_padded[:, :, 1:-1, 2:])
             elif s == 1:  # 45°: сравниваем UL/DR
                 is_max = (magnitude >= mag_padded[:, :, :-2, :-2]) & (magnitude >= mag_padded[:, :, 2:, 2:])

@@ -167,7 +167,7 @@ THRESHOLD_METHODS: List[str] = [
     # "threshold_sauvola",
     # "threshold_bernsen",
     # "threshold_phansalkar",
-    "threshold_percentile",
+    # "threshold_percentile",
     # "threshold_kittler_illingworth",
     # "threshold_entropy_kapur",
     # "threshold_triangle",
@@ -179,7 +179,7 @@ THRESHOLD_METHODS: List[str] = [
 # ──────────────────────────────────────────────────────────────────────────────
 EDGE_METHODS: List[str] = [
     # "sobel_edge",
-    # "canny_edge",
+    "canny_edge",
     # "prewitt_edge",
     # "scharr_edge",
     # "laplacian_edge",

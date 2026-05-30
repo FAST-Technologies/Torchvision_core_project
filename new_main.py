@@ -170,14 +170,14 @@ TARGET_METHODS_FOR_RESEARCH: List[str] = [
     # "threshold_sauvola",
     # "threshold_bernsen",
     # "threshold_phansalkar",
-    "threshold_percentile",
+    # "threshold_percentile",
     # "threshold_kittler_illingworth",
     # "threshold_entropy_kapur",
     # "threshold_triangle",
     # "threshold_multi_otsu",
     # "threshold_local_contrast",
     # "sobel_edge",
-    # "canny_edge",
+    "canny_edge",
     # "prewitt_edge",
     # "scharr_edge",
     # "laplacian_edge",
@@ -1207,13 +1207,13 @@ def _create_cv2_methods() -> SegmenterDict:
         # "threshold_entropy_kapur_CV2": OpenCVSegmenter("threshold_entropy_kapur", num_bins=256),
         # "threshold_triangle_CV2": OpenCVSegmenter("threshold_triangle", num_bins=256),
         # "threshold_multi_otsu_CV2": OpenCVSegmenter("threshold_multi_otsu", n_thresholds=2),
-        "threshold_percentile_CV2": OpenCVSegmenter("threshold_percentile", percentile=90),
+        # "threshold_percentile_CV2": OpenCVSegmenter("threshold_percentile", percentile=90),
         # "threshold_local_contrast_CV2": OpenCVSegmenter(
         #     "threshold_local_contrast", window_size=15, contrast_factor=0.1
         # ),
         # # --- Граничные методы (Edge) ---
         # "sobel_edge_CV2": OpenCVSegmenter("sobel_edge", threshold=0.1),
-        # "canny_edge_CV2": OpenCVSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
+        "canny_edge_CV2": OpenCVSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
         # "prewitt_edge_CV2": OpenCVSegmenter("prewitt_edge", threshold=0.1),
         # "scharr_edge_CV2": OpenCVSegmenter("scharr_edge", threshold=0.1),
         # "roberts_cross_edge_CV2": OpenCVSegmenter("roberts_cross_edge", threshold=0.1),
@@ -1222,7 +1222,7 @@ def _create_cv2_methods() -> SegmenterDict:
         # ),
         # "log_edge_CV2": OpenCVSegmenter("log_edge", sigma=1.0, threshold=0.01),
         # "dog_edge_CV2": OpenCVSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
-        # "marr_hildreth_edge_CV2": OpenCVSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
+        # "marr_hildreth_edge_CV2": OpenCVSegmenter("marr_hildreth_edge", sigma=1.0, threshold=0.01),
         # "gradient_magnitude_direction_CV2": OpenCVSegmenter("gradient_magnitude_direction", threshold=0.1),
         # "phase_congruency_edge_CV2": OpenCVSegmenter(
         #     "phase_congruency_edge",
@@ -1283,13 +1283,13 @@ def _create_sklearn_methods() -> SegmenterDict:
         # "threshold_entropy_kapur_Sklearn": SklearnSegmenter("threshold_entropy_kapur", num_bins=256, postprocess=False),
         # "threshold_triangle_Sklearn": SklearnSegmenter("threshold_triangle", num_bins=256, postprocess=False),
         # "threshold_multi_otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2, postprocess=False),
-        "threshold_percentile_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90, postprocess=False),
+        # "threshold_percentile_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90, postprocess=False),
         # "threshold_local_contrast_Sklearn": SklearnSegmenter(
         #     "threshold_local_contrast", window_size=15, contrast_factor=0.1, postprocess=False
         # ),
         # # --- Граничные методы (Edge) ---
         # "sobel_edge_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1, postprocess=False),
-        # "canny_edge_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0, postprocess=False),
+        "canny_edge_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0, postprocess=False),
         # "prewitt_edge_Sklearn": SklearnSegmenter("prewitt_edge", threshold=0.1, postprocess=False),
         # "scharr_edge_Sklearn": SklearnSegmenter("scharr_edge", threshold=0.1, postprocess=False),
         # "roberts_cross_edge_Sklearn": SklearnSegmenter("roberts_cross_edge", threshold=0.1, postprocess=False),
@@ -1299,7 +1299,7 @@ def _create_sklearn_methods() -> SegmenterDict:
         # "log_edge_Sklearn": SklearnSegmenter("log_edge", sigma=1.0, threshold=0.01, postprocess=False),
         # "dog_edge_Sklearn": SklearnSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01, postprocess=False),
         # "marr_hildreth_edge_Sklearn": SklearnSegmenter(
-        #     "marr_hildreth_edge", sigma=1.5, threshold=0.01, postprocess=False
+        #     "marr_hildreth_edge", sigma=1.0, threshold=0.01, postprocess=False
         # ),
         # "gradient_magnitude_direction_Sklearn": SklearnSegmenter(
         #     "gradient_magnitude_direction", threshold=0.1, postprocess=False
@@ -1431,7 +1431,7 @@ def _create_torch_methods_factory(
         # ("threshold_entropy_kapur_Torch", "threshold_entropy_kapur", {"num_bins": 256}),
         # ("threshold_triangle_Torch", "threshold_triangle", {"num_bins": 256}),
         # ("threshold_multi_otsu_Torch", "threshold_multi_otsu", {"n_thresholds": 2}),
-        ("threshold_percentile_Torch", "threshold_percentile", {"percentile": 90}),
+        # ("threshold_percentile_Torch", "threshold_percentile", {"percentile": 90}),
         # (
         #     "threshold_local_contrast_Torch",
         #     "threshold_local_contrast",
@@ -1441,7 +1441,7 @@ def _create_torch_methods_factory(
 
     edge_methods: List[Tuple[str, str, Dict[str, Any]]] = [
         # ("sobel_edge_Torch", "sobel_edge", {"threshold": 0.1}),
-        # ("canny_edge_Torch", "canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
+        ("canny_edge_Torch", "canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
         # ("prewitt_edge_Torch", "prewitt_edge", {"threshold": 0.1}),
         # ("scharr_edge_Torch", "scharr_edge", {"threshold": 0.1}),
         # ("roberts_cross_edge_Torch", "roberts_cross_edge", {"threshold": 0.1}),
@@ -1455,7 +1455,7 @@ def _create_torch_methods_factory(
         # (
         #     "marr_hildreth_edge_Torch",
         #     "marr_hildreth_edge",
-        #     {"sigma": 1.5, "threshold": 0.01},
+        #     {"sigma": 1.0, "threshold": 0.01},
         # ),
         # (
         #     "gradient_magnitude_direction_Torch",
@@ -1522,18 +1522,18 @@ def _create_torch_methods() -> SegmenterDict:
         # "Kapur_Entropy_Torch": TorchSegmenter("threshold_entropy_kapur", num_bins=256),
         # "Triangle_Threshold_Torch": TorchSegmenter("threshold_triangle", num_bins=256),
         # "Multi_Otsu_Torch": TorchSegmenter("threshold_multi_otsu", n_thresholds=2),
-        "Percentile_Threshold_Torch": TorchSegmenter("threshold_percentile", percentile=90),
+        # "Percentile_Threshold_Torch": TorchSegmenter("threshold_percentile", percentile=90),
         # "Local_Contrast_Torch": TorchSegmenter("threshold_local_contrast", window_size=15, contrast_factor=0.1),
         # # # --- Граничные методы (Edge) ---
         # "Sobel_Torch": TorchSegmenter("sobel_edge", threshold=0.1),
-        # "Canny_Torch": TorchSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
+        "Canny_Torch": TorchSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
         # "Prewitt_Torch": TorchSegmenter("prewitt_edge", threshold=0.1),
         # "Scharr_Torch": TorchSegmenter("scharr_edge", threshold=0.1),
         # "Roberts_Cross_Torch": TorchSegmenter("roberts_cross_edge", threshold=0.1),
         # "LoG_Torch": TorchSegmenter("log_edge", sigma=1.0, threshold=0.01),
         # "DoG_Torch": TorchSegmenter("dog_edge", sigma1=1.0, sigma2=2.0, threshold=0.01),
         # "Laplacian_Torch": TorchSegmenter("laplacian_edge", sigma=1.0, threshold=0.1),
-        # "Marr_Hildreth_Torch": TorchSegmenter("marr_hildreth_edge", sigma=1.5, threshold=0.01),
+        # "Marr_Hildreth_Torch": TorchSegmenter("marr_hildreth_edge", sigma=1.0, threshold=0.01),
         # "Gradient_Mag_Dir_Torch": TorchSegmenter("gradient_magnitude_direction", threshold=0.1),
         # "Phase_Congruency_Torch": TorchSegmenter(
         #     "phase_congruency_edge",

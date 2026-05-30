@@ -259,6 +259,7 @@ class OpenCVSegmenter(BaseSegmenter):
         self._setup_methods()
 
     # ──────────────────────────────────────────────────────────────────────
+ 
     def _adapt_params(self, params: ParamsDict) -> ParamsDict:
         """Адаптация параметров: конвертация диапазонов и переименование ключей.
 
@@ -288,36 +289,37 @@ class OpenCVSegmenter(BaseSegmenter):
             ```
         """
         adapted: ParamsDict = params.copy()
-
-        # Конвертация значений (0.0-1.0 -> 0-255) ---
-        # Параметры, которые точно являются порогами яркости
-        intensity_params: List[str] = [
-            "threshold",
-            "low",
-            "high",
-            "t1",
-            "t2",
-            "contrast_threshold",
+        
+        # 🔧 ИСКЛЮЧАЕМ ГРАНИЧНЫЕ МЕТОДЫ из конвертации интенсивности
+        # Градиенты работают в относительных единицах [0,1], не в [0,255]
+        edge_methods = [
+            "sobel_edge", "canny_edge", "prewitt_edge", "scharr_edge", "gradient_magnitude_direction", 
+            "roberts_cross_edge",
+            "laplacian_edge", "log_edge", "dog_edge",
+            "marr_hildreth_edge", 
+            # "phase_congruency_edge"
         ]
-        for key in intensity_params:
-            if key in adapted:
-                val = adapted[key]
-                if isinstance(val, (int, float)) and 0.0 <= val <= 1.0:
-                    adapted[key] = int(val * 255)
-
-        # Параметры, зависящие от интенсивности (смещения)
-        offset_params: List[str] = [
-            "C",
-            "tolerance",
-            "c",
-            #  "k"
-        ]
-        for key in offset_params:
-            if key in adapted:
-                val = adapted[key]
-                if isinstance(val, (int, float)) and 0.0 <= abs(val) <= 1.0:
-                    adapted[key] = int(val * 255)
-
+        
+        # Конвертируем пороги интенсивности ТОЛЬКО для не-граничных методов
+        if self.method not in edge_methods:
+            # Параметры, которые точно являются порогами яркости
+            intensity_params: List[str] = [
+                "threshold", "low", "high", "t1", "t2", "contrast_threshold"]
+            for key in intensity_params:
+                if key in adapted:
+                    val = adapted[key]
+                    if isinstance(val, (int, float)) and 0.0 <= val <= 1.0:
+                        adapted[key] = int(val * 255)
+            
+            # Параметры-смещения
+            offset_params: List[str] = ["C", "tolerance", "c"]
+            for key in offset_params:
+                if key in adapted:
+                    val = adapted[key]
+                    if isinstance(val, (int, float)) and 0.0 <= abs(val) <= 1.0:
+                        adapted[key] = int(val * 255)
+        
+        # Переименование ключей (без изменений)
         mapping: Dict[str, str] = {}
         if self.method == "grabcut":
             mapping = {"n_iterations": "iterations"}
@@ -325,14 +327,12 @@ class OpenCVSegmenter(BaseSegmenter):
             mapping = {"epsilon": "eps", "min_points": "min_samples"}
         elif self.method == "kmeans_segmentation":
             mapping = {"n_clusters": "k"}
-        elif self.method == "adaptive_thresholding":
-            pass
-
+        
         final_params: ParamsDict = {}
         for key, value in adapted.items():
             new_key: str = mapping.get(key, key)
             final_params[new_key] = value
-
+        
         return final_params
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1992,7 +1992,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         start_time: float = time.time()
 
-        threshold: float = float(self.params.get("threshold", 50))
+        threshold: float = float(self.params.get("threshold", 0.1))
 
         # Вычисление градиентов Собеля с глубиной CV_64F для точности
         sobel_x: npt.NDArray[np.float64] = cv2.Sobel(gray, cv2.CV_64F, dx=1, dy=0, ksize=3).astype(np.float64)
@@ -2002,7 +2002,7 @@ class OpenCVSegmenter(BaseSegmenter):
         magnitude: npt.NDArray[np.float64] = np.sqrt(sobel_x**2 + sobel_y**2).astype(np.float64)
 
         # Нормализация к [0, 255] для визуализации
-        magnitude_norm: FloatArray = (255 * magnitude / (np.max(magnitude) + 1e-8)).astype(np.float32)
+        magnitude_norm: FloatArray = (magnitude / (np.max(magnitude) + 1e-8)).astype(np.float32)
 
         # Или
         # magnitude = cv2.magnitude(sobelx, sobely)
@@ -2022,7 +2022,13 @@ class OpenCVSegmenter(BaseSegmenter):
             {"threshold": threshold, **kwargs},
         )
 
-        logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
+        logger.info(f"{info['method']}: {info['execution_time']:.4f}s")
+        logger.info(
+            f"SOBEL OpenCV: threshold={threshold:.4f}, "
+            f"magnitude_raw=[{magnitude.min():.4f}, {magnitude.max():.4f}], "
+            f"magnitude_norm=[{magnitude_norm.min():.4f}, {magnitude_norm.max():.4f}], "
+            f"mask_area={(mask > 0).sum()}"
+        )
         return mask.astype(np.uint8)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2065,28 +2071,46 @@ class OpenCVSegmenter(BaseSegmenter):
             gray = img
         start_time: float = time.time()
 
-        low_raw = self.params.get("low", 50)
-        high_raw = self.params.get("high", 150)
+        sigma: float = float(self.params.get("sigma", 1.0))
+        low_raw = self.params.get("low", 0.1)
+        high_raw = self.params.get("high", 0.3)
 
         # FIX: поддержка обоих диапазонов — [0,1] (Torch-совместимый) и [0,255] (OpenCV)
         # Если пороги заданы в [0,1] — конвертируем в [0,255] для cv2.Canny
-        if isinstance(low_raw, float) and low_raw <= 1.0:
-            low = int(low_raw * 255)
-        else:
-            low = int(low_raw)
-        if isinstance(high_raw, float) and high_raw <= 1.0:
-            high = int(high_raw * 255)
-        else:
-            high = int(high_raw)
+        low = int(low_raw * 255) if isinstance(low_raw, float) and low_raw <= 1.0 else int(low_raw)
+        high = int(high_raw * 255) if isinstance(high_raw, float) and high_raw <= 1.0 else int(high_raw)
 
-        mask: MaskArray = cv2.Canny(gray, low, high).astype(np.uint8)
+        # if sigma > 0:
+        #     ks = int(2 * round(3 * sigma) + 1)
+        #     ks = ks if ks % 2 == 1 else ks + 1
+        #     gray = cv2.GaussianBlur(gray, (ks, ks), sigmaX=sigma)
+        gray_float: FloatArray = gray.astype(np.float32) / 255.0
+    
+        # 🔧 FIX: Гауссово размытие на float32 (как в skimage)
+        if sigma > 0:
+            # Используем scipy для полной совместимости со skimage
+            from scipy.ndimage import gaussian_filter
+            gray_float = gaussian_filter(gray_float, sigma=sigma)
+            # Конвертация обратно к uint8 [0, 255] для cv2.Canny
+            gray_canny = np.clip(gray_float * 255.0, 0, 255).astype(np.uint8)
+        else:
+            gray_canny = gray  # Используем оригинал без размытия
+
+        gray_padded = cv2.copyMakeBorder(
+            gray_canny,
+            top=1, bottom=1, left=1, right=1,
+            borderType=cv2.BORDER_REFLECT  # Эквивалент 'reflect' в scipy/skimage
+        )
+
+        mask_padded: MaskArray = cv2.Canny(gray_padded, low, high).astype(np.uint8)
+        mask: MaskArray = mask_padded[1:-1, 1:-1]
 
         exec_time: float = time.time() - start_time
 
         info = self._log_info(
             "canny_edge_opencv",
             exec_time,
-            {"low": low, "high": high, **kwargs},
+            {"low": low, "high": high, "sigma": sigma, **kwargs},
         )
         logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
         return mask
@@ -2169,7 +2193,7 @@ class OpenCVSegmenter(BaseSegmenter):
         start_time: float = time.time()
 
         # Получение параметров
-        threshold: float = float(self.params.get("threshold", 50))
+        threshold: float = float(self.params.get("threshold", 0.1))
         direction: str = str(self.params.get("direction", "both"))
 
         # Ядра Превитта 3×3
@@ -2192,7 +2216,7 @@ class OpenCVSegmenter(BaseSegmenter):
         magnitude: FloatArray = np.sqrt(grad_x**2 + grad_y**2)
 
         # Нормализация к [0, 255] для визуализации и бинаризации
-        magnitude_norm: FloatArray = (255 * magnitude / (np.max(magnitude) + 1e-8)).astype(np.float32)
+        magnitude_norm: FloatArray = (magnitude / (np.max(magnitude) + 1e-8)).astype(np.float32)
 
         # Пороговая бинаризация
         mask: MaskArray
@@ -2292,7 +2316,7 @@ class OpenCVSegmenter(BaseSegmenter):
         start_time: float = time.time()
 
         # Получение параметров
-        threshold: float = float(self.params.get("threshold", 50))
+        threshold: float = float(self.params.get("threshold", 0.1))
         direction: str = str(self.params.get("direction", "both"))
 
         # Вычисление градиентов Шара в зависимости от направления
@@ -2312,7 +2336,7 @@ class OpenCVSegmenter(BaseSegmenter):
         # Магнитуда градиента
         magnitude: npt.NDArray[np.float64] = np.sqrt(grad_x**2 + grad_y**2)
         # Нормализация к [0, 255] для визуализации и бинаризации
-        magnitude_norm: FloatArray = (255 * magnitude / (np.max(magnitude) + 1e-8)).astype(np.float32)
+        magnitude_norm: FloatArray = (magnitude / (np.max(magnitude) + 1e-8)).astype(np.float32)
 
         # Пороговая бинаризация
         mask: MaskArray
@@ -2398,30 +2422,37 @@ class OpenCVSegmenter(BaseSegmenter):
         start_time: float = time.time()
 
         # Получение параметров
-        threshold: float = float(self.params.get("threshold", 50))
+        threshold: float = float(self.params.get("threshold", 0.1))
+        direction: str = str(self.params.get("direction", "both"))
 
         # Ядра Робертса 2×2
         kernel_x: npt.NDArray[np.float32] = np.array([[1, 0], [0, -1]], dtype=np.float32)
         kernel_y: npt.NDArray[np.float32] = np.array([[0, 1], [-1, 0]], dtype=np.float32)
 
         # Вычисление диагональных градиентов
-        grad_x = cv2.filter2D(gray, cv2.CV_32F, kernel_x, borderType=cv2.BORDER_REFLECT)  # type: ignore[assignment]
-        grad_y = cv2.filter2D(gray, cv2.CV_32F, kernel_y, borderType=cv2.BORDER_REFLECT)  # type: ignore[assignment]
+        # grad_x: npt.NDArray[np.float64]
+        # grad_y: npt.NDArray[np.float64]
+
+        if direction in ["x", "both"]:
+            grad_x = cv2.filter2D(gray, cv2.CV_32F, kernel_x, anchor=(0, 0), borderType=cv2.BORDER_REFLECT).astype(np.float32)
+        else:
+            grad_x = np.zeros_like(gray, dtype=np.float32)
+
+        if direction in ["y", "both"]:
+            grad_y = cv2.filter2D(gray, cv2.CV_32F, kernel_y, anchor=(0, 0), borderType=cv2.BORDER_REFLECT).astype(np.float32)
+        else:
+            grad_y = np.zeros_like(gray, dtype=np.float32)
+
 
         # Магнитуда градиента
         magnitude: FloatArray = np.sqrt(grad_x**2 + grad_y**2)
 
-        # Нормализация к [0, 255]
-        if magnitude.max() > magnitude.min():
-            magnitude_norm = ((magnitude - magnitude.min()) / (magnitude.max() - magnitude.min()) * 255).astype(
-                np.uint8
-            )
-        else:
-            magnitude_norm = np.zeros_like(magnitude, dtype=np.uint8)
+        magnitude_norm: FloatArray = (magnitude / (np.max(magnitude) + 1e-8)).astype(np.float32)
 
-        # Пороговая бинаризация
+        # 🔧 FIX: Бинаризация через cv2.threshold КАК В PREWITT/SCHARR!
+        mask: MaskArray
         _, mask_raw = cv2.threshold(magnitude_norm.astype(np.float32), threshold, 255.0, cv2.THRESH_BINARY)
-        mask: MaskArray = mask_raw.astype(np.uint8)
+        mask = mask_raw.astype(np.uint8)
 
         exec_time: float = time.time() - start_time
 
@@ -2432,7 +2463,7 @@ class OpenCVSegmenter(BaseSegmenter):
         )
         logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
 
-        return mask.astype(np.uint8)
+        return mask
 
     # ──────────────────────────────────────────────────────────────────────
     def _opencv_laplacian_edge(self, img: ImageArray, **kwargs: Any) -> MaskArray:
@@ -2506,8 +2537,7 @@ class OpenCVSegmenter(BaseSegmenter):
         """
         # Конвертация в grayscale при необходимости
         if len(img.shape) == 3:
-            gray_raw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            gray: GrayImage = gray_raw.astype(np.uint8)  # type: ignore[assignment]
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.uint8)
         else:
             gray = img.copy()
 
@@ -2516,7 +2546,7 @@ class OpenCVSegmenter(BaseSegmenter):
         # Получение параметров с типизацией и значениями по умолчанию
         sigma: float = float(self.params.get("sigma", 0.0))
         ksize: int = int(self.params.get("ksize", 1))  # 1 → 3×3 ядро в OpenCV
-        threshold: int = int(self.params.get("threshold", 30))
+        threshold: int = int(self.params.get("threshold", 0.01))
         use_zero_crossing: bool = bool(self.params.get("use_zero_crossing", False))
 
         # Опциональное Гауссово сглаживание для подавления шума
@@ -2529,7 +2559,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Применение Лапласиана через OpenCV
         # ddepth=cv2.CV_64F для точности, затем конвертация в uint8
-        laplacian_raw = cv2.Laplacian(gray, ddepth=cv2.CV_64F, ksize=ksize if ksize > 0 else 3)
+        laplacian_raw = cv2.Laplacian(gray, ddepth=cv2.CV_64F, ksize=3)
         laplacian: npt.NDArray[np.float64] = laplacian_raw.astype(np.float64)  # type: ignore[assignment]
 
         if use_zero_crossing:
@@ -2661,12 +2691,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Получение параметров
         sigma: float = float(self.params.get("sigma", 1.0))
-        kernel_size: int = int(self.params.get("kernel_size", 5))
         threshold: int = int(self.params.get("threshold", 10))
-
-        # Коррекция чётного kernel_size
-        if kernel_size % 2 == 0:
-            kernel_size += 1
 
         # Гауссово размытие
         blurred: FloatArray = gaussian_filter(gray.astype(np.float32), sigma=sigma)
@@ -2697,7 +2722,6 @@ class OpenCVSegmenter(BaseSegmenter):
             exec_time,
             {
                 "sigma": sigma,
-                "kernel_size": kernel_size,
                 "threshold": threshold,
                 **kwargs,
             },
@@ -2781,7 +2805,7 @@ class OpenCVSegmenter(BaseSegmenter):
 
         sigma1: float = float(self.params.get("sigma1", 1.0))
         sigma2: float = float(self.params.get("sigma2", 2.0))
-        threshold: float = float(self.params.get("threshold", 10))
+        threshold: float = float(self.params.get("threshold", 0.01))
 
         # Применяем два Гауссовых фильтра
         g1: FloatArray = gaussian_filter(gray.astype(np.float32), sigma=sigma1)
@@ -2888,10 +2912,11 @@ class OpenCVSegmenter(BaseSegmenter):
         start_time: float = time.time()
 
         sigma: float = float(self.params.get("sigma", 1.0))
-        threshold: float = float(self.params.get("threshold", 10))
+        threshold: float = float(self.params.get("threshold", 0.01))
 
         # Лапласиан Гауссиана через OpenCV
-        laplacian: npt.NDArray[np.float64] = cv2.Laplacian(cv2.GaussianBlur(gray, (0, 0), sigma), cv2.CV_64F).astype(
+        blurred = cv2.GaussianBlur(gray, (0, 0), sigmaX=sigma)
+        laplacian: npt.NDArray[np.float64] = cv2.Laplacian(blurred, cv2.CV_64F).astype(
             np.float64
         )
         magnitude: npt.NDArray[np.float64] = np.abs(laplacian)
@@ -2990,9 +3015,9 @@ class OpenCVSegmenter(BaseSegmenter):
 
         start_time: float = time.time()
 
-        threshold: float = float(self.params.get("threshold", 50))
-        if threshold > 1.0:  # Если порог в [0,255]
-            threshold = threshold / 255.0
+        threshold: float = float(self.params.get("threshold", 0.1))
+        # if threshold > 1.0:  # Если порог в [0,255]
+        #     threshold = threshold / 255.0
         angle_range: Optional[Tuple[float, float]] = self.params.get("angle_range", None)
 
         # Градиенты Собеля
@@ -3006,7 +3031,7 @@ class OpenCVSegmenter(BaseSegmenter):
         direction: npt.NDArray[np.float64] = np.arctan2(grad_y, grad_x) * 180 / np.pi  # В градусах
 
         # Фильтрация по магнитуде
-        mask: MaskArray = (magnitude > threshold).astype(np.uint8) * 255
+        mask: MaskArray = (magnitude > threshold).astype(np.uint8)
 
         # Опциональная фильтрация по направлению
         if angle_range is not None:
