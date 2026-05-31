@@ -259,7 +259,7 @@ class OpenCVSegmenter(BaseSegmenter):
         self._setup_methods()
 
     # ──────────────────────────────────────────────────────────────────────
- 
+
     def _adapt_params(self, params: ParamsDict) -> ParamsDict:
         """Адаптация параметров: конвертация диапазонов и переименование ключей.
 
@@ -289,28 +289,33 @@ class OpenCVSegmenter(BaseSegmenter):
             ```
         """
         adapted: ParamsDict = params.copy()
-        
+
         # 🔧 ИСКЛЮЧАЕМ ГРАНИЧНЫЕ МЕТОДЫ из конвертации интенсивности
         # Градиенты работают в относительных единицах [0,1], не в [0,255]
         edge_methods = [
-            "sobel_edge", "canny_edge", "prewitt_edge", "scharr_edge", "gradient_magnitude_direction", 
+            "sobel_edge",
+            "canny_edge",
+            "prewitt_edge",
+            "scharr_edge",
+            "gradient_magnitude_direction",
             "roberts_cross_edge",
-            "laplacian_edge", "log_edge", "dog_edge",
-            "marr_hildreth_edge", 
+            "laplacian_edge",
+            "log_edge",
+            "dog_edge",
+            "marr_hildreth_edge",
             # "phase_congruency_edge"
         ]
-        
+
         # Конвертируем пороги интенсивности ТОЛЬКО для не-граничных методов
         if self.method not in edge_methods:
             # Параметры, которые точно являются порогами яркости
-            intensity_params: List[str] = [
-                "threshold", "low", "high", "t1", "t2", "contrast_threshold"]
+            intensity_params: List[str] = ["threshold", "low", "high", "t1", "t2", "contrast_threshold"]
             for key in intensity_params:
                 if key in adapted:
                     val = adapted[key]
                     if isinstance(val, (int, float)) and 0.0 <= val <= 1.0:
                         adapted[key] = int(val * 255)
-            
+
             # Параметры-смещения
             offset_params: List[str] = ["C", "tolerance", "c"]
             for key in offset_params:
@@ -318,7 +323,7 @@ class OpenCVSegmenter(BaseSegmenter):
                     val = adapted[key]
                     if isinstance(val, (int, float)) and 0.0 <= abs(val) <= 1.0:
                         adapted[key] = int(val * 255)
-        
+
         # Переименование ключей (без изменений)
         mapping: Dict[str, str] = {}
         if self.method == "grabcut":
@@ -327,12 +332,12 @@ class OpenCVSegmenter(BaseSegmenter):
             mapping = {"epsilon": "eps", "min_points": "min_samples"}
         elif self.method == "kmeans_segmentation":
             mapping = {"n_clusters": "k"}
-        
+
         final_params: ParamsDict = {}
         for key, value in adapted.items():
             new_key: str = mapping.get(key, key)
             final_params[new_key] = value
-        
+
         return final_params
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2085,11 +2090,12 @@ class OpenCVSegmenter(BaseSegmenter):
         #     ks = ks if ks % 2 == 1 else ks + 1
         #     gray = cv2.GaussianBlur(gray, (ks, ks), sigmaX=sigma)
         gray_float: FloatArray = gray.astype(np.float32) / 255.0
-    
+
         # 🔧 FIX: Гауссово размытие на float32 (как в skimage)
         if sigma > 0:
             # Используем scipy для полной совместимости со skimage
             from scipy.ndimage import gaussian_filter
+
             gray_float = gaussian_filter(gray_float, sigma=sigma)
             # Конвертация обратно к uint8 [0, 255] для cv2.Canny
             gray_canny = np.clip(gray_float * 255.0, 0, 255).astype(np.uint8)
@@ -2098,8 +2104,11 @@ class OpenCVSegmenter(BaseSegmenter):
 
         gray_padded = cv2.copyMakeBorder(
             gray_canny,
-            top=1, bottom=1, left=1, right=1,
-            borderType=cv2.BORDER_REFLECT  # Эквивалент 'reflect' в scipy/skimage
+            top=1,
+            bottom=1,
+            left=1,
+            right=1,
+            borderType=cv2.BORDER_REFLECT,  # Эквивалент 'reflect' в scipy/skimage
         )
 
         mask_padded: MaskArray = cv2.Canny(gray_padded, low, high).astype(np.uint8)
@@ -2434,15 +2443,18 @@ class OpenCVSegmenter(BaseSegmenter):
         # grad_y: npt.NDArray[np.float64]
 
         if direction in ["x", "both"]:
-            grad_x = cv2.filter2D(gray, cv2.CV_32F, kernel_x, anchor=(0, 0), borderType=cv2.BORDER_REFLECT).astype(np.float32)
+            grad_x = cv2.filter2D(gray, cv2.CV_32F, kernel_x, anchor=(0, 0), borderType=cv2.BORDER_REFLECT).astype(
+                np.float32
+            )
         else:
             grad_x = np.zeros_like(gray, dtype=np.float32)
 
         if direction in ["y", "both"]:
-            grad_y = cv2.filter2D(gray, cv2.CV_32F, kernel_y, anchor=(0, 0), borderType=cv2.BORDER_REFLECT).astype(np.float32)
+            grad_y = cv2.filter2D(gray, cv2.CV_32F, kernel_y, anchor=(0, 0), borderType=cv2.BORDER_REFLECT).astype(
+                np.float32
+            )
         else:
             grad_y = np.zeros_like(gray, dtype=np.float32)
-
 
         # Магнитуда градиента
         magnitude: FloatArray = np.sqrt(grad_x**2 + grad_y**2)
@@ -2544,10 +2556,17 @@ class OpenCVSegmenter(BaseSegmenter):
         start_time: float = time.time()
 
         # Получение параметров с типизацией и значениями по умолчанию
-        sigma: float = float(self.params.get("sigma", 0.0))
-        ksize: int = int(self.params.get("ksize", 1))  # 1 → 3×3 ядро в OpenCV
-        threshold: int = int(self.params.get("threshold", 0.01))
+        sigma: float = float(self.params.get("sigma", 1.0))
+        ksize: int = int(self.params.get("ksize", 3))
+        threshold_raw = float(self.params.get("threshold", 0.1))
+        if threshold_raw > 1.0:
+            threshold = threshold_raw / 255.0
+        else:
+            threshold = threshold_raw
+
         use_zero_crossing: bool = bool(self.params.get("use_zero_crossing", False))
+
+        gray_norm = gray.astype(np.float32) / 255.0
 
         # Опциональное Гауссово сглаживание для подавления шума
         if sigma > 0:
@@ -2555,42 +2574,47 @@ class OpenCVSegmenter(BaseSegmenter):
             blur_ksize = int(2 * round(3 * sigma) + 1)
             if blur_ksize % 2 == 0:
                 blur_ksize += 1
-            gray = cv2.GaussianBlur(gray, (blur_ksize, blur_ksize), sigmaX=sigma).astype(np.uint8)
+            # gray = cv2.GaussianBlur((gray_norm * 255).astype(np.uint8), (blur_ksize, blur_ksize), sigmaX=sigma).astype(np.uint8)
+            gray_norm = gaussian_filter(gray_norm, sigma=sigma)
 
         # Применение Лапласиана через OpenCV
         # ddepth=cv2.CV_64F для точности, затем конвертация в uint8
-        laplacian_raw = cv2.Laplacian(gray, ddepth=cv2.CV_64F, ksize=3)
-        laplacian: npt.NDArray[np.float64] = laplacian_raw.astype(np.float64)  # type: ignore[assignment]
+        # laplacian_raw = cv2.Laplacian(gray, ddepth=cv2.CV_64F, ksize=ksize)
+        # laplacian: npt.NDArray[np.float64] = laplacian_raw.astype(np.float64)  # type: ignore[assignment]
+
+        from scipy.ndimage import convolve
+
+        laplacian_kernel = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=np.float64)
+        laplacian = convolve(gray_norm, laplacian_kernel, mode="reflect")
 
         if use_zero_crossing:
             # Zero-crossing detection: поиск смены знака
             sign: npt.NDArray[np.float64] = np.sign(laplacian)
 
             # Векторизованная проверка соседей (горизонталь + вертикаль)
-            zc_h: npt.NDArray[np.bool_] = sign[:, :-1] * sign[:, 1:] < 0
-            zc_v: npt.NDArray[np.bool_] = sign[:-1, :] * sign[1:, :] < 0
-
-            zero_crossing_bool: npt.NDArray[np.bool_] = np.zeros_like(laplacian, dtype=bool)
-            zero_crossing_bool[:, :-1] |= zc_h
-            zero_crossing_bool[:-1, :] |= zc_v
+            zc_0 = (sign > 0) & (np.roll(sign, 1, axis=0) < 0) | (sign < 0) & (np.roll(sign, 1, axis=0) > 0)
+            zc_1 = (sign > 0) & (np.roll(sign, 1, axis=1) < 0) | (sign < 0) & (np.roll(sign, 1, axis=1) > 0)
+            zero_crossing_bool = zc_0 | zc_1
 
             # Фильтрация слабых пересечений по амплитуде
-            magnitude: npt.NDArray[np.float64] = np.abs(laplacian)
-            mask: MaskArray = (zero_crossing_bool & (magnitude > threshold)).astype(np.uint8) * 255
+            magnitude = np.abs(laplacian)
+            if magnitude.max() > magnitude.min():
+                magnitude_norm = (magnitude - magnitude.min()) / (magnitude.max() - magnitude.min() + 1e-8)
+            else:
+                magnitude_norm = np.zeros_like(magnitude)
+
+            mask: MaskArray = (zero_crossing_bool & (magnitude_norm > threshold)).astype(np.uint8) * 255
         else:
             # Пороговая обработка по абсолютной величине лапласиана
             magnitude = np.abs(laplacian)
-            # Нормализация к [0, 255] для удобства подбора порога
             if magnitude.max() > magnitude.min():
-                magnitude_norm: FloatArray = (
-                    255 * (magnitude - magnitude.min()) / (magnitude.max() - magnitude.min() + 1e-8)
-                ).astype(np.float32)
+                magnitude_norm = (magnitude - magnitude.min()) / (magnitude.max() - magnitude.min() + 1e-8)
             else:
-                magnitude_norm = np.zeros_like(magnitude, dtype=np.float32)
+                magnitude_norm = np.zeros_like(magnitude)
 
             # Бинаризация
-            _, mask_raw = cv2.threshold(magnitude_norm.astype(np.float32), float(threshold), 255.0, cv2.THRESH_BINARY)
-            mask = mask_raw.astype(np.uint8)
+            mask_bool = magnitude_norm > threshold
+            mask = (mask_bool * 255).astype(np.uint8)
 
         exec_time: float = time.time() - start_time
 
@@ -2680,54 +2704,47 @@ class OpenCVSegmenter(BaseSegmenter):
             edges = segmenter.segment(noisy_image)
             ```
         """
-        # Конвертация в grayscale при необходимости
+        # Конвертация в grayscale
         if len(img.shape) == 3:
-            gray_raw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            gray: GrayImage = gray_raw.astype(np.uint8)  # type: ignore[assignment]
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.uint8)
         else:
             gray = img.copy()
 
-        start_time: float = time.time()
+        start_time = time.time()
 
-        # Получение параметров
-        sigma: float = float(self.params.get("sigma", 1.0))
-        threshold: int = int(self.params.get("threshold", 10))
+        # === ПАРАМЕТРЫ ===
+        sigma = float(self.params.get("sigma", 1.0))
+        threshold_raw = float(self.params.get("threshold", 0.01))
+        if threshold_raw > 1.0:
+            threshold = threshold_raw / 255.0
+        else:
+            threshold = threshold_raw
 
         # Гауссово размытие
-        blurred: FloatArray = gaussian_filter(gray.astype(np.float32), sigma=sigma)
+        gray_norm = gray.astype(np.float32) / 255.0
+        blurred = gaussian_filter(gray_norm, sigma=sigma)
 
-        # Лапласиан
-        laplacian: npt.NDArray[np.float64] = laplace(blurred)
+        laplacian = laplace(blurred)
 
-        # Векторизованное zero-crossing detection
-        magnitude: npt.NDArray[np.float64] = np.abs(laplacian)
-        sign: npt.NDArray[np.float64] = np.sign(laplacian)
+        # Zero-crossing detection
+        sign = np.sign(laplacian)
+        # zc_h = sign[:, :-1] * sign[:, 1:] < 0
+        # zc_v = sign[:-1, :] * sign[1:, :] < 0
 
-        # Горизонтальные и вертикальные пересечения
-        zc_h: npt.NDArray[np.bool_] = sign[:, :-1] * sign[:, 1:] < 0
-        zc_v: npt.NDArray[np.bool_] = sign[:-1, :] * sign[1:, :] < 0
+        # zero_crossing_bool = np.zeros_like(laplacian, dtype=bool)
+        # zero_crossing_bool[:, :-1] |= zc_h
+        # zero_crossing_bool[:-1, :] |= zc_v
+        zc_0 = (sign > 0) & (np.roll(sign, 1, axis=0) < 0) | (sign < 0) & (np.roll(sign, 1, axis=0) > 0)
+        zc_1 = (sign > 0) & (np.roll(sign, 1, axis=1) < 0) | (sign < 0) & (np.roll(sign, 1, axis=1) > 0)
+        zero_crossing_bool = zc_0 | zc_1
 
-        # Объединение пересечений
-        zero_crossing_bool: npt.NDArray[np.bool_] = np.zeros_like(laplacian, dtype=bool)
-        zero_crossing_bool[:, :-1] |= zc_h
-        zero_crossing_bool[:-1, :] |= zc_v
+        # Применяем порог к абсолютным значениям
+        magnitude = np.abs(laplacian)
+        zero_crossing = (zero_crossing_bool & (magnitude > threshold)).astype(np.uint8) * 255
 
-        # Фильтрация по амплитуде (отсечение слабых пересечений)
-        zero_crossing: MaskArray = (zero_crossing_bool & (magnitude > threshold)).astype(np.uint8) * 255
-
-        exec_time: float = time.time() - start_time
-
-        info = self._log_info(
-            "log_edge_opencv",
-            exec_time,
-            {
-                "sigma": sigma,
-                "threshold": threshold,
-                **kwargs,
-            },
-        )
+        exec_time = time.time() - start_time
+        info = self._log_info("log_edge_opencv", exec_time, {"sigma": sigma, "threshold": threshold, **kwargs})
         logger.debug(f"{info['method']}: {info['execution_time']:.4f}s")
-
         return zero_crossing
 
     # ──────────────────────────────────────────────────────────────────────
@@ -2805,11 +2822,16 @@ class OpenCVSegmenter(BaseSegmenter):
 
         sigma1: float = float(self.params.get("sigma1", 1.0))
         sigma2: float = float(self.params.get("sigma2", 2.0))
-        threshold: float = float(self.params.get("threshold", 0.01))
+        threshold_raw = float(self.params.get("threshold", 0.01))
+        if threshold_raw > 1.0:
+            threshold = threshold_raw / 255.0
+        else:
+            threshold = threshold_raw
 
         # Применяем два Гауссовых фильтра
-        g1: FloatArray = gaussian_filter(gray.astype(np.float32), sigma=sigma1)
-        g2: FloatArray = gaussian_filter(gray.astype(np.float32), sigma=sigma2)
+        gray_norm = gray.astype(np.float32) / 255.0
+        g1: FloatArray = gaussian_filter(gray_norm, sigma=sigma1)
+        g2: FloatArray = gaussian_filter(gray_norm, sigma=sigma2)
 
         # Разность Гауссианов
         dog: FloatArray = g1 - g2
@@ -2817,12 +2839,19 @@ class OpenCVSegmenter(BaseSegmenter):
         # Векторизованное zero-crossing
         magnitude: FloatArray = np.abs(dog)
         sign: npt.NDArray[np.float64] = np.sign(dog)
-        zc_h: npt.NDArray[np.bool_] = sign[:, :-1] * sign[:, 1:] < 0
-        zc_v: npt.NDArray[np.bool_] = sign[:-1, :] * sign[1:, :] < 0
-        zero_crossing_bool: npt.NDArray[np.bool_] = np.zeros_like(dog, dtype=bool)
-        zero_crossing_bool[:, :-1] |= zc_h
-        zero_crossing_bool[:-1, :] |= zc_v
+        # zc_h: npt.NDArray[np.bool_] = sign[:, :-1] * sign[:, 1:] < 0
+        # zc_v: npt.NDArray[np.bool_] = sign[:-1, :] * sign[1:, :] < 0
+        # zero_crossing_bool: npt.NDArray[np.bool_] = np.zeros_like(dog, dtype=bool)
+        # zero_crossing_bool[:, :-1] |= zc_h
+        # zero_crossing_bool[:-1, :] |= zc_v
 
+        # zero_crossing: MaskArray = (zero_crossing_bool & (magnitude > threshold)).astype(np.uint8) * 255
+
+        zc_0 = (sign > 0) & (np.roll(sign, 1, axis=0) < 0) | (sign < 0) & (np.roll(sign, 1, axis=0) > 0)
+        zc_1 = (sign > 0) & (np.roll(sign, 1, axis=1) < 0) | (sign < 0) & (np.roll(sign, 1, axis=1) > 0)
+        zero_crossing_bool = zc_0 | zc_1
+
+        # Применяем порог к абсолютным значениям
         zero_crossing: MaskArray = (zero_crossing_bool & (magnitude > threshold)).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
@@ -2904,30 +2933,59 @@ class OpenCVSegmenter(BaseSegmenter):
             ```
         """
         if len(img.shape) == 3:
-            gray_raw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            gray: GrayImage = gray_raw.astype(np.uint8)  # type: ignore[assignment]
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.uint8)
         else:
             gray = img.copy()
 
         start_time: float = time.time()
 
-        sigma: float = float(self.params.get("sigma", 1.0))
-        threshold: float = float(self.params.get("threshold", 0.01))
+        sigma: float = float(self.params.get("sigma", 1.5))
+        threshold_raw: float = float(self.params.get("threshold", 0.01))
+        if threshold_raw > 1.0:
+            threshold = threshold_raw / 255.0
+        else:
+            threshold = threshold_raw
 
         # Лапласиан Гауссиана через OpenCV
-        blurred = cv2.GaussianBlur(gray, (0, 0), sigmaX=sigma)
-        laplacian: npt.NDArray[np.float64] = cv2.Laplacian(blurred, cv2.CV_64F).astype(
-            np.float64
-        )
-        magnitude: npt.NDArray[np.float64] = np.abs(laplacian)
+        gray_norm = gray.astype(np.float32) / 255.0
+        # blurred = cv2.GaussianBlur(gray_norm, (0, 0), sigmaX=sigma)
+        # laplacian: npt.NDArray[np.float64] = cv2.Laplacian(blurred, cv2.CV_64F, ksize=5).astype(
+        #     np.float64
+        # )
+        blurred = gaussian_filter(gray_norm, sigma=sigma)
 
-        # Векторизованное zero-crossing
+        from scipy.ndimage import convolve
+
+        laplacian_5x5_kernel = (
+            np.array(
+                [
+                    [0, 0, -1, 0, 0],
+                    [0, -1, -2, -1, 0],
+                    [-1, -2, 16, -2, -1],  # Центр: 16 = 4*4 (нормализация через /8)
+                    [0, -1, -2, -1, 0],
+                    [0, 0, -1, 0, 0],
+                ],
+                dtype=np.float64,
+            )
+            / 8.0
+        )  # 🔧 Нормализация как в Torch-реализации
+
+        laplacian = convolve(blurred, laplacian_5x5_kernel, mode="reflect")
+
+        # === ZERO-CROSSING ===
         sign: npt.NDArray[np.float64] = np.sign(laplacian)
-        zc_h: npt.NDArray[np.bool_] = sign[:, :-1] * sign[:, 1:] < 0
-        zc_v: npt.NDArray[np.bool_] = sign[:-1, :] * sign[1:, :] < 0
-        zero_crossing_bool: npt.NDArray[np.bool_] = np.zeros_like(laplacian, dtype=bool)
-        zero_crossing_bool[:, :-1] |= zc_h
-        zero_crossing_bool[:-1, :] |= zc_v
+        zc_0 = (sign > 0) & (np.roll(sign, 1, axis=0) < 0) | (sign < 0) & (np.roll(sign, 1, axis=0) > 0)
+        zc_1 = (sign > 0) & (np.roll(sign, 1, axis=1) < 0) | (sign < 0) & (np.roll(sign, 1, axis=1) > 0)
+        zero_crossing_bool = zc_0 | zc_1
+
+        magnitude = np.abs(laplacian)
+
+        # mag_shifted_0 = np.roll(magnitude, 1, axis=0)
+        # mag_shifted_1 = np.roll(magnitude, 1, axis=1)
+
+        # mag_condition_0 = (magnitude > threshold) | (mag_shifted_0 > threshold)
+        # mag_condition_1 = (magnitude > threshold) | (mag_shifted_1 > threshold)
+        # zero_crossing: MaskArray = (zero_crossing_bool & (mag_condition_0 | mag_condition_1)).astype(np.uint8) * 255
         zero_crossing: MaskArray = (zero_crossing_bool & (magnitude > threshold)).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time

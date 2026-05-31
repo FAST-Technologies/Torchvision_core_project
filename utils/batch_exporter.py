@@ -178,7 +178,7 @@ THRESHOLD_METHODS: List[str] = [
 
 # ──────────────────────────────────────────────────────────────────────────────
 EDGE_METHODS: List[str] = [
-    # "sobel_edge",
+    "sobel_edge",
     "canny_edge",
     # "prewitt_edge",
     # "scharr_edge",

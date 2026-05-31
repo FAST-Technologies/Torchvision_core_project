@@ -2613,6 +2613,7 @@ class TorchSegmenter(BaseSegmenter):
         start_time = time.time()
         threshold = kwargs.get("threshold", self.params.get("threshold", 0.1))
         sigma = kwargs.get("sigma", self.params.get("sigma", 1.0))
+        use_zero_crossing: bool = bool(self.params.get("use_zero_crossing", False))
 
         # Предварительное сглаживание для уменьшения шума
         if sigma > 0:
@@ -2625,12 +2626,6 @@ class TorchSegmenter(BaseSegmenter):
                 sigma=[sigma, sigma],
             )
 
-        if gray.dim() == 2:  # (H, W)
-            gray = gray.unsqueeze(0).unsqueeze(0)  # → (1, 1, H, W)
-        elif gray.dim() == 3:  # (C, H, W) или (1, H, W)
-            if gray.size(0) in [1, 3]:
-                gray = gray.unsqueeze(0)  # → (1, C, H, W)
-
         # Ядро Лапласа (4-связность)
         laplacian_kernel = torch.tensor([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=gray.dtype, device=self.device).view(
             1, 1, 3, 3
@@ -2638,26 +2633,46 @@ class TorchSegmenter(BaseSegmenter):
         if laplacian_kernel.dtype != gray.dtype:
             laplacian_kernel = laplacian_kernel.to(gray.dtype, non_blocking=True)
 
-        # Или 8-связность (более чувствительное):
-        # laplacian_kernel = torch.tensor([[1, 1, 1],
-        #                                  [1, -8, 1],
-        #                                  [1, 1, 1]],
-        #                                dtype=torch.float32, device=self.device).view(1, 1, 3, 3)
+        gray_padded = F.pad(gray, pad=(1, 1, 1, 1), mode="reflect")  # (left, right, top, bottom)
+        laplacian = F.conv2d(gray_padded, laplacian_kernel, padding=0)
 
-        laplacian = F.conv2d(gray, laplacian_kernel, padding=1)
+        if use_zero_crossing:
+            # 🔧 FIX: Zero-crossing detection (как в Sklearn/OpenCV)
+            sign = torch.sign(laplacian)
+            zc_0 = (sign > 0) & (torch.roll(sign, shifts=1, dims=2) < 0) | (sign < 0) & (
+                torch.roll(sign, shifts=1, dims=2) > 0
+            )
+            zc_1 = (sign > 0) & (torch.roll(sign, shifts=1, dims=3) < 0) | (sign < 0) & (
+                torch.roll(sign, shifts=1, dims=3) > 0
+            )
+            zero_crossing = zc_0 | zc_1
 
-        # Абсолютное значение для обнаружения границ
-        magnitude = torch.abs(laplacian)
-
-        if magnitude.max() > 1e-8:
+            magnitude = torch.abs(laplacian)
+            mag_min = magnitude.amin(dim=(2, 3), keepdim=True)
             mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
-            magnitude = magnitude / (mag_max + 1e-8)
+            range_val = mag_max - mag_min
+            magnitude_norm = torch.where(
+                range_val > 1e-6, (magnitude - mag_min) / (range_val + 1e-8), torch.zeros_like(magnitude)
+            )
 
-        thresh_t = torch.tensor(threshold, dtype=torch.float32, device=self.device)
-        mask = (magnitude > thresh_t).float()
+            thresh_t = torch.tensor(threshold, dtype=torch.float32, device=self.device)
+            mask = (zero_crossing & (magnitude_norm > thresh_t)).to(torch.float32)
+        else:
+            # 🔧 FIX: Пороговая обработка с мин-макс нормализацией (как в Sklearn/OpenCV)
+            magnitude = torch.abs(laplacian)
+            mag_min = magnitude.amin(dim=(2, 3), keepdim=True)
+            mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
+            range_val = mag_max - mag_min
+            magnitude_norm = torch.where(
+                range_val > 1e-6, (magnitude - mag_min) / (range_val + 1e-8), torch.zeros_like(magnitude)
+            )
 
-        if mask.dim() == 4 and mask.size(0) == 1 and mask.size(1) == 1:
-            mask = mask.squeeze(0).squeeze(0)
+            thresh_t = torch.tensor(threshold, dtype=torch.float32, device=self.device)
+            mask = (magnitude_norm > thresh_t).to(torch.float32)
+        if mask.dim() == 2:
+            mask = mask.unsqueeze(0).unsqueeze(0)
+        elif mask.dim() == 3:
+            mask = mask.unsqueeze(0)
 
         exec_time = time.time() - start_time
         info = self._log_info(
@@ -2716,65 +2731,83 @@ class TorchSegmenter(BaseSegmenter):
         return cast(torch.Tensor, mask)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _log_edge(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
+    def _log_edge(
+        self,
+        tensor: torch.Tensor,
+        kernel_size: int = 3,
+        sigma: Optional[float] = 1.0,
+        threshold: Optional[float] = None,
+        precision: Optional[str] = None,
+        **kwargs: Any,
+    ) -> torch.Tensor:
         """Детектор границ Laplacian of Gaussian.
 
         Применяет гауссово размытие, затем лапласиан, ищет пересечения нуля.
         """
         gray = self._to_grayscale(tensor)
-        if gray.dim() == 2:
-            gray = gray.unsqueeze(0).unsqueeze(0)  # (H, W) -> (1, 1, H, W)
-        elif gray.dim() == 3:
-            if gray.shape[0] == 1:
-                gray = gray.unsqueeze(0)  # (1, H, W) -> (1, 1, H, W)
 
         start_time = time.time()
 
-        sigma = self.params.get("sigma", 1.0)
-        threshold = self.params.get("threshold", 0.1)
+        sigma = sigma if sigma is not None else self.params.get("sigma", 1.0)
+        threshold = threshold if threshold is not None else self.params.get("threshold", 0.01)
+        kernel_size = kernel_size if kernel_size is not None else self.params.get("kernel_size", 3)
+        padding_val: int = 2 if kernel_size == 5 else 1
 
         # 1. Gaussian blur
         if sigma > 0:
-            kernel_size = int(2 * round(3 * sigma) + 1)
-            if kernel_size % 2 == 0:
-                kernel_size += 1
+            ks = int(2 * round(3 * sigma) + 1)
+            ks = ks if ks % 2 == 1 else ks + 1
             try:
-                # 🔥 Передаём уже 4D тензор, без лишнего unsqueeze
-                gray = tv_gaussian_blur(
-                    gray,
-                    kernel_size=[kernel_size, kernel_size],
-                    sigma=[sigma, sigma],
-                )
+                gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sigma, sigma])
             except (AttributeError, NotImplementedError, RuntimeError) as e:
                 print(f"⚠️ Gaussian blur failed: {e}. Skipping blur step.")
 
         # 2. Laplacian kernel
-        laplacian_kernel = torch.tensor(
-            [[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=torch.float32, device=self.device
-        ).view(1, 1, 3, 3)
+        if kernel_size == 3:
+            laplacian_kernel = torch.tensor(
+                [[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=torch.float32, device=self.device
+            ).view(1, 1, 3, 3)
+        else:
+            laplacian_kernel = (
+                torch.tensor(
+                    [
+                        [0, 0, -1, 0, 0],
+                        [0, -1, -2, -1, 0],
+                        [-1, -2, 16, -2, -1],  # Центр = 16
+                        [0, -1, -2, -1, 0],
+                        [0, 0, -1, 0, 0],
+                    ],
+                    dtype=torch.float32,
+                    device=self.device,
+                )
+                / 8.0
+            ).view(1, 1, 5, 5)
 
         # 3. Применяем лапласиан
-        laplacian = F.conv2d(gray, laplacian_kernel, padding=1)
+        laplacian = F.conv2d(gray, laplacian_kernel, padding=padding_val)
 
         # 4. Zero-crossing detection
         # Знак лапласиана
         sign = torch.sign(laplacian)
 
-        # Пересечение нуля: соседние пиксели имеют разные знаки
-        zero_crossing = torch.zeros_like(laplacian, dtype=torch.bool)
+        zc_0 = (sign > 0) & (torch.roll(sign, shifts=1, dims=2) < 0) | (sign < 0) & (
+            torch.roll(sign, shifts=1, dims=2) > 0
+        )
+        zc_1 = (sign > 0) & (torch.roll(sign, shifts=1, dims=3) < 0) | (sign < 0) & (
+            torch.roll(sign, shifts=1, dims=3) > 0
+        )
 
-        # Проверяем горизонтальные и вертикальные соседи
-        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-            shifted = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
-            zero_crossing = torch.logical_or(zero_crossing, (sign * shifted < 0))
+        zero_crossing = zc_0 | zc_1
 
-        # Магнитуда лапласиана для порога
+        # === МАГНИТУДА ДЛЯ ПОРОГА ===
         magnitude = torch.abs(laplacian)
-        if magnitude.max() > 0:
-            magnitude = magnitude / magnitude.max()
+        thresh_t = torch.tensor(threshold, dtype=torch.float32, device=self.device)
+        mask = (zero_crossing & (magnitude > thresh_t)).float()
 
-        # Финальная маска: пересечение нуля + достаточная магнитуда
-        mask = (zero_crossing & (magnitude > threshold)).float()
+        if mask.dim() == 2:
+            mask = mask.unsqueeze(0).unsqueeze(0)
+        elif mask.dim() == 3:
+            mask = mask.unsqueeze(0)
 
         exec_time = time.time() - start_time
         info = self._log_info(
@@ -2798,53 +2831,66 @@ class TorchSegmenter(BaseSegmenter):
         Аппроксимация LoG через разность двух гауссовых размытий.
         """
         gray = self._to_grayscale(tensor)
-
-        if gray.dim() == 2:
-            gray = gray.unsqueeze(0).unsqueeze(0)
-        elif gray.dim() == 3:
-            if gray.shape[0] == 1:
-                gray = gray.unsqueeze(0)
-
         start_time = time.time()
 
         sigma1 = self.params.get("sigma1", 1.0)
         sigma2 = self.params.get("sigma2", 2.0)
         threshold = self.params.get("threshold", 0.1)
 
-        # Убеждаемся, что ядра нечётные
-        kernel_size1 = int(2 * round(3 * sigma1) + 1)
-        kernel_size2 = int(2 * round(3 * sigma2) + 1)
-        if kernel_size1 % 2 == 0:
-            kernel_size1 += 1
-        if kernel_size2 % 2 == 0:
-            kernel_size2 += 1
-
         # Два гауссовых размытия
+        def _gaussian_kernel_1d(size: int, sigma: float, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
+            coords = torch.arange(size, dtype=dtype, device=device) - size // 2
+            kernel = torch.exp(-0.5 * (coords / sigma) ** 2)
+            return kernel / kernel.sum()
+
+        # Ядро 1 для σ₁
+        # Убеждаемся, что ядра нечётные
+        ks1 = int(2 * round(3 * sigma1) + 1)
+        ks1 = ks1 if ks1 % 2 == 1 else ks1 + 1
         try:
-            blurred1 = tv_gaussian_blur(gray, kernel_size=[kernel_size1, kernel_size1], sigma=[sigma1, sigma1])
-            blurred2 = tv_gaussian_blur(gray, kernel_size=[kernel_size2, kernel_size2], sigma=[sigma2, sigma2])
+            k1_1d = _gaussian_kernel_1d(ks1, sigma1, gray.dtype, self.device)
+            k1_2d = (k1_1d.unsqueeze(1) @ k1_1d.unsqueeze(0)).unsqueeze(0).unsqueeze(0)
+            blurred1 = F.conv2d(gray, k1_2d, padding=ks1 // 2)
         except (AttributeError, NotImplementedError, RuntimeError) as e:
             print(f"⚠️ DoG gaussian blur failed: {e}. Skipping blur step.")
             blurred1 = gray
+
+        # Ядро 2 для σ₂
+        ks2 = int(2 * round(3 * sigma2) + 1)
+        ks2 = ks2 if ks2 % 2 == 1 else ks2 + 1
+        try:
+            k2_1d = _gaussian_kernel_1d(ks2, sigma2, gray.dtype, self.device)
+            k2_2d = (k2_1d.unsqueeze(1) @ k2_1d.unsqueeze(0)).unsqueeze(0).unsqueeze(0)
+            blurred2 = F.conv2d(gray, k2_2d, padding=ks2 // 2)
+        except (AttributeError, NotImplementedError, RuntimeError) as e:
+            print(f"⚠️ DoG gaussian blur failed: {e}. Skipping blur step.")
             blurred2 = gray
 
+        # === РАЗНОСТЬ И ZERO-CROSSING ===
         # Разность
         dog = blurred1 - blurred2
 
         # Zero-crossing detection
         sign = torch.sign(dog)
-        zero_crossing = torch.zeros_like(dog, dtype=torch.bool)
+        zc_0 = (sign > 0) & (torch.roll(sign, shifts=1, dims=2) < 0) | (sign < 0) & (
+            torch.roll(sign, shifts=1, dims=2) > 0
+        )
+        zc_1 = (sign > 0) & (torch.roll(sign, shifts=1, dims=3) < 0) | (sign < 0) & (
+            torch.roll(sign, shifts=1, dims=3) > 0
+        )
 
-        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-            shifted = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
-            zero_crossing = torch.logical_or(zero_crossing, (sign * shifted < 0))
+        zero_crossing = zc_0 | zc_1
 
-        # Магнитуда для порога
+        # === МАГНИТУДА ДЛЯ ПОРОГА ===
         magnitude = torch.abs(dog)
-        if magnitude.max() > 0:
-            magnitude = magnitude / magnitude.max()
+        thresh_t = torch.tensor(threshold, dtype=torch.float32, device=self.device)
 
-        mask = (zero_crossing & (magnitude > threshold)).float()
+        mask = (zero_crossing & (magnitude > thresh_t)).float()
+
+        if mask.dim() == 2:
+            mask = mask.unsqueeze(0).unsqueeze(0)
+        elif mask.dim() == 3:
+            mask = mask.unsqueeze(0)
 
         exec_time = time.time() - start_time
         info = self._log_info(
@@ -2863,90 +2909,36 @@ class TorchSegmenter(BaseSegmenter):
         return cast(torch.Tensor, mask)
 
     # ──────────────────────────────────────────────────────────────────────
-    def _marr_hildreth_edge(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
+    def _marr_hildreth_edge(
+        self,
+        tensor: torch.Tensor,
+        kernel_size: int = 5,
+        sigma: Optional[float] = 1.5,
+        threshold: Optional[float] = None,
+        precision: Optional[str] = None,
+        **kwargs: Any,
+    ) -> torch.Tensor:
         """Детектор границ Марра-Хилдрета (LoG с нулевым пересечением).
 
         Улучшенная версия LoG с подавлением немаксимумов.
         """
-        gray = self._to_grayscale(tensor)
-
-        if gray.dim() == 2:
-            gray = gray.unsqueeze(0).unsqueeze(0)
-        elif gray.dim() == 3:
-            if gray.shape[0] == 1:
-                gray = gray.unsqueeze(0)
-
-        start_time = time.time()
-
-        sigma = self.params.get("sigma", 1.5)
-        threshold = self.params.get("threshold", 0.1)
-
-        # Gaussian blur
-        if sigma > 0:
-            kernel_size = int(2 * round(3 * sigma) + 1)
-            if kernel_size % 2 == 0:
-                kernel_size += 1
-            try:
-                gray = tv_gaussian_blur(
-                    gray,
-                    kernel_size=[kernel_size, kernel_size],
-                    sigma=[sigma, sigma],
-                )
-            except (AttributeError, NotImplementedError, RuntimeError) as e:
-                print(f"⚠️ Marr-Hildreth gaussian blur failed: {e}. Skipping blur step.")
-
-        # Laplacian kernel (5x5 для лучшей аппроксимации)
-        laplacian_kernel = (
-            torch.tensor(
-                [
-                    [0, 0, -1, 0, 0],
-                    [0, -1, -2, -1, 0],
-                    [-1, -2, 16, -2, -1],
-                    [0, -1, -2, -1, 0],
-                    [0, 0, -1, 0, 0],
-                ],
-                dtype=torch.float32,
-                device=self.device,
-            ).view(1, 1, 5, 5)
-            / 8.0
+        return self._log_edge(
+            tensor,
+            sigma=sigma,
+            threshold=threshold,
+            precision=precision,
+            kernel_size=kernel_size,
         )
-
-        laplacian = F.conv2d(gray, laplacian_kernel, padding=2)
-
-        # Zero-crossing с направлением
-        sign = torch.sign(laplacian)
-        magnitude = torch.abs(laplacian)
-
-        # Нормализация магнитуды
-        if magnitude.max() > 0:
-            magnitude = magnitude / magnitude.max()
-
-        # Zero-crossing detection с проверкой магнитуды
-        zero_crossing = torch.zeros_like(laplacian, dtype=torch.bool)
-
-        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-            shifted_sign = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
-            shifted_mag = torch.roll(magnitude, shifts=(dy, dx), dims=(2, 3))
-
-            # Пересечение нуля с достаточной магнитудой
-            crossing = (sign * shifted_sign < 0) & ((magnitude > threshold) | (shifted_mag > threshold))
-            zero_crossing = torch.logical_or(zero_crossing, crossing)
-
-        mask = zero_crossing.float()
-
-        exec_time = time.time() - start_time
-        info = self._log_info(
-            "marr_hildreth_torch",
-            exec_time,
-            {"sigma": sigma, "threshold": threshold, **kwargs},
-        )
-        if self._debug_mode:
-            logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
-
-        return mask
 
     # ──────────────────────────────────────────────────────────────────────
-    def _gradient_magnitude_direction(self, tensor: torch.Tensor, angle_range: Optional[Tuple[float, float]] = None, normalize: bool = True, use_nms: bool = False, **kwargs: Any) -> torch.Tensor:
+    def _gradient_magnitude_direction(
+        self,
+        tensor: torch.Tensor,
+        angle_range: Optional[Tuple[float, float]] = None,
+        normalize: bool = True,
+        use_nms: bool = False,
+        **kwargs: Any,
+    ) -> torch.Tensor:
         """Вычисление градиента с магнитудой и направлением.
 
         Возвращает маску границ на основе магнитуды градиента.
@@ -2988,8 +2980,9 @@ class TorchSegmenter(BaseSegmenter):
             magnitude = self._suppress_non_max(magnitude, direction_rad)
 
         if angle_rng is not None:
-            angle_mask = ((direction_deg >= angle_rng[0]) & (direction_deg <= angle_rng[1])) | \
-                                    ((direction_deg + 180.0 >= angle_rng[0]) & (direction_deg + 180.0 <= angle_rng[1]))
+            angle_mask = ((direction_deg >= angle_rng[0]) & (direction_deg <= angle_rng[1])) | (
+                (direction_deg + 180.0 >= angle_rng[0]) & (direction_deg + 180.0 <= angle_rng[1])
+            )
             magnitude = magnitude * angle_mask.to(magnitude.dtype)
 
         # Пороговая обработка

@@ -102,6 +102,7 @@ from sklearn.tree import DecisionTreeClassifier
 
 from scipy import ndimage, signal
 from scipy.ndimage import gaussian_filter
+from scipy.ndimage import convolve
 from skimage.util import img_as_float
 
 # Импорт scikit-image компонентов
@@ -2268,59 +2269,80 @@ class SklearnSegmenter(BaseSegmenter):
         """
         # Конвертация в grayscale при необходимости
         if len(img.shape) == 3:
+            # RGB → Grayscale
             if SKIMAGE_AVAILABLE:
                 gray: NormalizedArray = color.rgb2gray(img).astype(np.float32)
             else:
-                gray = np.mean(img, axis=2).astype(np.float32) / 255.0
+                gray = np.mean(img, axis=2).astype(np.float32)
         else:
+            # Уже grayscale
             gray = img.astype(np.float32)
             if gray.max() > 1.0:
                 gray = gray / 255.0
 
+        print(
+            f"[DEBUG Sklearn] After grayscale: dtype={gray.dtype}, range=[{gray.min():.6f}, {gray.max():.6f}], mean={gray.mean():.6f}]"
+        )
+
         start_time: float = time.time()
 
         # Получение параметров с типизацией и значениями по умолчанию
-        sigma: float = float(self.params.get("sigma", 0.0))
+        sigma: float = float(self.params.get("sigma", 1.0))
         threshold: float = float(self.params.get("threshold", 0.1))
         use_zero_crossing: bool = bool(self.params.get("use_zero_crossing", False))
 
         # Опциональное Гауссово сглаживание для подавления шума
         if sigma > 0 and SKIMAGE_AVAILABLE:
             gray = filters.gaussian(gray, sigma=sigma, preserve_range=True, channel_axis=None)
+            print(f"[DEBUG Sklearn] After gaussian: range=[{gray.min():.6f}, {gray.max():.6f}]")
 
         # Применение Лапласиана через scikit-image
         laplacian: npt.NDArray[np.float64] = filters.laplace(gray)
+        print(
+            f"[DEBUG Sklearn] After laplace: dtype={laplacian.dtype}, range=[{laplacian.min():.6f}, {laplacian.max():.6f}], mean={laplacian.mean():.6f}]"
+        )
+        print(f"[DEBUG Sklearn] Laplacian kernel:\n{laplacian}")
 
         if use_zero_crossing:
             # Zero-crossing detection: поиск смены знака
             sign: npt.NDArray[np.float64] = np.sign(laplacian)
 
-            # Векторизованная проверка соседей (горизонталь + вертикаль)
-            zc_h: npt.NDArray[np.bool_] = sign[:, :-1] * sign[:, 1:] < 0
-            zc_v: npt.NDArray[np.bool_] = sign[:-1, :] * sign[1:, :] < 0
+            zc_0 = (sign > 0) & (np.roll(sign, 1, axis=0) < 0) | (sign < 0) & (np.roll(sign, 1, axis=0) > 0)
+            zc_1 = (sign > 0) & (np.roll(sign, 1, axis=1) < 0) | (sign < 0) & (np.roll(sign, 1, axis=1) > 0)
+            zero_crossing_bool = zc_0 | zc_1
 
-            zero_crossing_bool: npt.NDArray[np.bool_] = np.zeros_like(laplacian, dtype=bool)
-            zero_crossing_bool[:, :-1] |= zc_h
-            zero_crossing_bool[:-1, :] |= zc_v
-
-            # Фильтрация слабых пересечений по амплитуде
+            # 🔧 FIX: Нормализация магнитуды перед порогом (как в Torch/OpenCV)
             magnitude: npt.NDArray[np.float64] = np.abs(laplacian)
-            mask_bool: npt.NDArray[np.bool_] = zero_crossing_bool & (magnitude > threshold)
+            if magnitude.max() > magnitude.min():
+                magnitude_norm = (magnitude - magnitude.min()) / (magnitude.max() - magnitude.min() + 1e-8)
+            else:
+                magnitude_norm = np.zeros_like(magnitude)
+            print(f"[DEBUG Sklearn] After norm use zc: range=[{magnitude_norm.min():.6f}, {magnitude_norm.max():.6f}]")
+
+            mask_bool: npt.NDArray[np.bool_] = zero_crossing_bool & (magnitude_norm > threshold)
+            print(
+                f"[DEBUG Sklearn] After threshold use zc: mask density={np.mean(mask_bool):.4f}, unique={np.unique(mask_bool)}"
+            )
         else:
             # Пороговая обработка по абсолютной величине лапласиана
             magnitude = np.abs(laplacian)
             # Нормализация к [0, 1] для удобства подбора порога
             if magnitude.max() > magnitude.min():
-                magnitude_norm: FloatArray = (
-                    (magnitude - magnitude.min()) / (magnitude.max() - magnitude.min() + 1e-8)
-                ).astype(np.float32)
+                magnitude_norm: FloatArray = (magnitude - magnitude.min()) / (magnitude.max() - magnitude.min() + 1e-8)
             else:
-                magnitude_norm = np.zeros_like(magnitude, dtype=np.float32)
+                magnitude_norm = np.zeros_like(magnitude)
+            print(
+                f"[DEBUG Sklearn] After norm not use zc: range=[{magnitude_norm.min():.6f}, {magnitude_norm.max():.6f}]"
+            )
 
             mask_bool = magnitude_norm > threshold
+            print(
+                f"[DEBUG Sklearn] After threshold not use zc: mask density={np.mean(mask_bool):.4f}, unique={np.unique(mask_bool)}"
+            )
 
         # Конвертация в uint8 {0, 255}
         mask: MaskArray = (mask_bool * 255).astype(np.uint8)
+        print(f"[DEBUG Sklearn] Final mask: {mask}")
 
         exec_time: float = time.time() - start_time
 
@@ -2350,6 +2372,8 @@ class SklearnSegmenter(BaseSegmenter):
     def _sklearn_log_edge(
         self,
         img: ImageArray,
+        size: int = 3,
+        sigma: Optional[float] = 1.0,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Обнаружение границ Лапласианом Гауссиана (LoG).
@@ -2384,22 +2408,40 @@ class SklearnSegmenter(BaseSegmenter):
         else:
             gray = img.astype(np.float32)
         start_time: float = time.time()
-        sigma: float = float(self.params.get("sigma", 1.0))
+        sigma: float = sigma if sigma is not None else float(self.params.get("sigma", 1.0))
         threshold: float = float(self.params.get("threshold", 0.01))
         # Гауссово размытие
         img_blurred = gaussian_filter(gray, sigma=sigma)
 
         # Лапласиан
-        laplacian: npt.NDArray[np.float64] = laplace(img_blurred)
+        # laplacian: npt.NDArray[np.float64] = laplace(img_blurred, ksize=size)
+        if size == 3:
+            laplacian_kernel = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=np.float64)
+            # laplacian: npt.NDArray[np.float64] = laplace(img_blurred, ksize=size)
+            laplacian: npt.NDArray[np.float64] = convolve(img_blurred, laplacian_kernel, mode="reflect")
+        else:  # size == 5
+            laplacian_kernel = (
+                np.array(
+                    [
+                        [0, 0, -1, 0, 0],
+                        [0, -1, -2, -1, 0],
+                        [-1, -2, 16, -2, -1],  # Центр = 16
+                        [0, -1, -2, -1, 0],
+                        [0, 0, -1, 0, 0],
+                    ],
+                    dtype=np.float64,
+                )
+                / 8.0
+            )  # 🔧 Нормализация как в Torch/OpenCV
+            laplacian: npt.NDArray[np.float64] = convolve(img_blurred, laplacian_kernel, mode="reflect")
 
         # Векторизованный поиск zero-crossing
-        zc = (
-            (laplacian > 0) & (np.roll(laplacian, 1, axis=0) < 0)
-            | (laplacian < 0) & (np.roll(laplacian, 1, axis=0) > 0)
-            | (laplacian > 0) & (np.roll(laplacian, 1, axis=1) < 0)
-            | (laplacian < 0) & (np.roll(laplacian, 1, axis=1) > 0)
-        )
-        mask: MaskArray = ((zc & (np.abs(laplacian) > threshold)) * 255).astype(np.uint8)
+        sign = np.sign(laplacian)
+        zc_0 = (sign > 0) & (np.roll(sign, 1, axis=0) < 0) | (sign < 0) & (np.roll(sign, 1, axis=0) > 0)
+        zc_1 = (sign > 0) & (np.roll(sign, 1, axis=1) < 0) | (sign < 0) & (np.roll(sign, 1, axis=1) > 0)
+        zero_crossing = zc_0 | zc_1
+        magnitude = np.abs(laplacian)
+        mask: MaskArray = ((zero_crossing & (magnitude > threshold)) * 255).astype(np.uint8)
         exec_time: float = time.time() - start_time
         info: SegmentationInfo = self._log_info(
             "log_edge_sklearn",
@@ -2477,6 +2519,8 @@ class SklearnSegmenter(BaseSegmenter):
     def _sklearn_marr_hildreth_edge(
         self,
         img: ImageArray,
+        size: int = 5,
+        sigma: Optional[float] = 1.5,
         **kwargs: Any,
     ) -> Tuple[MaskArray, SegmentationInfo]:
         """Обнаружение границ методом Марра-Хилдрета.
@@ -2491,7 +2535,7 @@ class SklearnSegmenter(BaseSegmenter):
             edges, _ = segmenter.segment(image)
             ```
         """
-        return self._sklearn_log_edge(img, **kwargs)
+        return self._sklearn_log_edge(img, size, sigma, **kwargs)
 
     # ──────────────────────────────────────────────────────────────────────
     def _sklearn_gradient_magnitude_direction(

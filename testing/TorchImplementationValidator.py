@@ -199,7 +199,7 @@ class TorchImplementationValidator:
         ]
 
         self.edge_methods: List[MethodConfig] = [
-            # ("sobel_edge", {"threshold": 0.1}),
+            ("sobel_edge", {"threshold": 0.1}),
             ("canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
             # ("prewitt_edge", {"threshold": 0.1}),
             # ("scharr_edge", {"threshold": 0.1}),

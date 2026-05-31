@@ -176,7 +176,7 @@ TARGET_METHODS_FOR_RESEARCH: List[str] = [
     # "threshold_triangle",
     # "threshold_multi_otsu",
     # "threshold_local_contrast",
-    # "sobel_edge",
+    "sobel_edge",
     "canny_edge",
     # "prewitt_edge",
     # "scharr_edge",
@@ -355,9 +355,9 @@ def get_compile_config(method_name: str, device: torch.device) -> Dict[str, Any]
         "otsu_thresholding",
         "adaptive_thresholding",
         "sobel_edge",
-        "prewitt_edge",
-        "scharr_edge",
-        "laplacian_edge",
+        # "prewitt_edge",
+        # "scharr_edge",
+        # "laplacian_edge",
     }
 
     if method_name in well_compiled and device.type == "cuda":
@@ -1212,7 +1212,7 @@ def _create_cv2_methods() -> SegmenterDict:
         #     "threshold_local_contrast", window_size=15, contrast_factor=0.1
         # ),
         # # --- Граничные методы (Edge) ---
-        # "sobel_edge_CV2": OpenCVSegmenter("sobel_edge", threshold=0.1),
+        "sobel_edge_CV2": OpenCVSegmenter("sobel_edge", threshold=0.1),
         "canny_edge_CV2": OpenCVSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
         # "prewitt_edge_CV2": OpenCVSegmenter("prewitt_edge", threshold=0.1),
         # "scharr_edge_CV2": OpenCVSegmenter("scharr_edge", threshold=0.1),
@@ -1288,7 +1288,7 @@ def _create_sklearn_methods() -> SegmenterDict:
         #     "threshold_local_contrast", window_size=15, contrast_factor=0.1, postprocess=False
         # ),
         # # --- Граничные методы (Edge) ---
-        # "sobel_edge_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1, postprocess=False),
+        "sobel_edge_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1, postprocess=False),
         "canny_edge_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0, postprocess=False),
         # "prewitt_edge_Sklearn": SklearnSegmenter("prewitt_edge", threshold=0.1, postprocess=False),
         # "scharr_edge_Sklearn": SklearnSegmenter("scharr_edge", threshold=0.1, postprocess=False),
@@ -1440,7 +1440,7 @@ def _create_torch_methods_factory(
     ]
 
     edge_methods: List[Tuple[str, str, Dict[str, Any]]] = [
-        # ("sobel_edge_Torch", "sobel_edge", {"threshold": 0.1}),
+        ("sobel_edge_Torch", "sobel_edge", {"threshold": 0.1}),
         ("canny_edge_Torch", "canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
         # ("prewitt_edge_Torch", "prewitt_edge", {"threshold": 0.1}),
         # ("scharr_edge_Torch", "scharr_edge", {"threshold": 0.1}),
@@ -1525,7 +1525,7 @@ def _create_torch_methods() -> SegmenterDict:
         # "Percentile_Threshold_Torch": TorchSegmenter("threshold_percentile", percentile=90),
         # "Local_Contrast_Torch": TorchSegmenter("threshold_local_contrast", window_size=15, contrast_factor=0.1),
         # # # --- Граничные методы (Edge) ---
-        # "Sobel_Torch": TorchSegmenter("sobel_edge", threshold=0.1),
+        "Sobel_Torch": TorchSegmenter("sobel_edge", threshold=0.1),
         "Canny_Torch": TorchSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
         # "Prewitt_Torch": TorchSegmenter("prewitt_edge", threshold=0.1),
         # "Scharr_Torch": TorchSegmenter("scharr_edge", threshold=0.1),

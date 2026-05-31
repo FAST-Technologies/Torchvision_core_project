@@ -856,7 +856,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "mode": "reduce-overhead",
             },
             "laplacian_edge": {
-                "fullgraph": True,
+                "fullgraph": False,
                 "dynamic": True,
                 "mode": "reduce-overhead",
             },
@@ -4334,16 +4334,16 @@ class TorchSegmenter2(BaseSegmenter):
         #     return mask.to(torch.float32).reshape(1, 1, H, W)
         if export_mode:
             gray_np = gray.detach().cpu().numpy()  # ⚠️ Может упасть при трассировке
-    
+
             # 2. Вычисление порога через numpy (выполняется СРАЗУ, не в графе!)
             threshold_val = float(np.percentile(gray_np, p, method="linear"))
-            
+
             # 3. Создание константного тензора
             threshold = torch.tensor(threshold_val, dtype=torch.float32, device=gray.device)
-            
+
             # 4. Бинаризация
             mask = (gray > threshold.to(dtype)).to(dtype)
-            
+
             H, W = gray.shape[-2], gray.shape[-1]
             return mask.to(torch.float32).reshape(1, 1, H, W)
 
@@ -5343,7 +5343,7 @@ class TorchSegmenter2(BaseSegmenter):
                 mag_min = float(magnitude.min().item())
                 mag_max = float(magnitude.max().item())
                 mask_area = int((mask > 0).sum().item())
-                
+
                 logger.info(
                     f"SOBEL Torch: threshold={thresh_val:.4f}, "
                     f"magnitude_raw=[{mag_min:.4f}, {mag_max:.4f}], "
@@ -5916,141 +5916,6 @@ class TorchSegmenter2(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
-    def _laplacian_edge(
-        self,
-        tensor: torch.Tensor,
-        *,
-        threshold: Optional[float] = None,
-        sigma: Optional[float] = None,
-        normalize: bool = True,
-        precision: Optional[str] = None,
-        export_mode: bool = False,
-    ) -> torch.Tensor:
-        """Обнаружение границ через лапласиан изображения.
-
-        Применяет оператор Лапласа ∇² = ∂²/∂x² + ∂²/∂y² для выделения областей
-        быстрого изменения интенсивности (нулевых пересечений второй производной).
-        Чувствителен к шуму — рекомендуется предварительное гауссово сглаживание.
-
-        Алгоритм:
-        1. Конвертация в градации серого.
-        2. Опциональное гауссово сглаживание (параметр `sigma`).
-        3. Свёртка с ядром Лапласа [[0,1,0],[1,-4,1],[0,1,0]].
-        4. Взятие абсолютного значения и нормализация.
-        5. Бинаризация по порогу.
-
-        Метод особенно эффективен для:
-        - Выделения тонких линий и изолированных точек
-        - Задач, где важна чувствительность к быстрым изменениям яркости
-        - Предварительной обработки перед zero-crossing детекторами
-
-        Args:
-            tensor: Входное изображение (B, C, H, W) или (C, H, W).
-            threshold: Порог для бинаризации в диапазоне [0, 1] (по умолчанию: 0.1).
-            sigma: Sigma для предварительного Gaussian blur (по умолчанию: 1.0).
-            normalize: Если True, нормализовать магнитуду к [0, 1] перед порогом.
-            precision: Точность вычислений: 'fp32', 'fp16', 'bf16'.
-
-        Returns:
-            torch.Tensor: Бинарная маска границ (1, 1, H, W), dtype=float32.
-
-        Note:
-            - Ядро Лапласа кэшируется по (device, dtype) через `@lru_cache`.
-            - Для `fp16` рекомендуется `sigma ≥ 0.8` для подавления шума.
-            - Метод безопасен для `torch.compile(fullgraph=True)`.
-
-        Example:
-            ```python
-            segmenter = TorchSegmenter("laplacian_edge", sigma=1.2, threshold=0.15)
-            edges = segmenter.segment(image)
-            ```
-        """
-        # === ПРЕДПОДГОТОВКА ===
-        gray = self._to_grayscale(tensor)
-        dtype = self.precision_manager.get_dtype(precision)
-        gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
-
-        if not torch.compiler.is_compiling():
-            start_time: float = time.time()
-        else:
-            start_time = None  # type: ignore[assignment]
-
-        # === ПАРАМЕТРЫ ===
-        thresh = threshold if threshold is not None else self.params.get("threshold", 0.1)
-        sig = sigma if sigma is not None else self.params.get("sigma", 1.0)
-        precision_val = precision if precision is not None else "fp32"
-
-        if export_mode:
-            # === ПРЕДВАРИТЕЛЬНОЕ СГЛАЖИВАНИЕ ===
-            if sig > 0:
-                ks = int(2 * round(3 * sig) + 1)
-                ks = ks if ks % 2 == 1 else ks + 1
-                gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
-
-            # Ядро Лапласа (4-связность)
-            # laplacian_kernel = self._get_laplacian_kernel_cached(self.device, dtype)
-            laplacian_kernel = cast(
-                torch.Tensor,
-                self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=3),
-            )
-
-            # === ЛАПЛАСИАН И БИНАРИЗАЦИЯ ===
-            with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
-                laplacian_kernel = cast(torch.Tensor, self._prepare_kernel_for_conv(laplacian_kernel, gray.dtype))
-                laplacian = self._safe_conv2d(gray, laplacian_kernel, padding=1)
-                magnitude = torch.abs(laplacian)
-
-                if normalize:
-                    mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
-                    magnitude = magnitude / (mag_max + 1e-8)
-
-                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
-                mask = (magnitude > thresh_t).to(dtype)
-            return mask.to(torch.float32)
-
-        # === ПРЕДВАРИТЕЛЬНОЕ СГЛАЖИВАНИЕ ===
-        if sig > 0:
-            ks = int(2 * round(3 * sig) + 1)
-            ks = ks if ks % 2 == 1 else ks + 1
-            gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
-
-        # Ядро Лапласа (4-связность)
-        # laplacian_kernel = self._get_laplacian_kernel_cached(self.device, dtype)
-        laplacian_kernel = cast(
-            torch.Tensor, self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=3)
-        )
-
-        # === ЛАПЛАСИАН И БИНАРИЗАЦИЯ ===
-        with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
-            laplacian_kernel = cast(torch.Tensor, self._prepare_kernel_for_conv(laplacian_kernel, gray.dtype))
-            laplacian = self._safe_conv2d(gray, laplacian_kernel, padding=1)
-            magnitude = torch.abs(laplacian)
-
-            if normalize:
-                mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
-                magnitude = magnitude / (mag_max + 1e-8)
-
-            thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
-            mask = (magnitude > thresh_t).to(dtype)
-
-        if not torch.compiler.is_compiling() and start_time is not None:
-            exec_time: float = time.time() - start_time
-            info = self._log_info(
-                "laplacian_edge_torch",
-                exec_time,
-                {
-                    "threshold": thresh,
-                    "sigma": sig,
-                },
-                precision_val=precision_val,
-            )
-            self.params["execution_info"] = info
-            if self._debug_mode:
-                logger.info(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
-        return mask.to(torch.float32)
-
-    # ──────────────────────────────────────────────────────────────────────
-    @torch.no_grad()
     def _roberts_edge(
         self,
         tensor: torch.Tensor,
@@ -6183,11 +6048,256 @@ class TorchSegmenter2(BaseSegmenter):
 
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
+    def _laplacian_edge(
+        self,
+        tensor: torch.Tensor,
+        *,
+        threshold: Optional[float] = None,
+        sigma: Optional[float] = None,
+        # normalize: bool = True,
+        precision: Optional[str] = None,
+        export_mode: bool = False,
+    ) -> torch.Tensor:
+        """Обнаружение границ через лапласиан изображения.
+
+        Применяет оператор Лапласа ∇² = ∂²/∂x² + ∂²/∂y² для выделения областей
+        быстрого изменения интенсивности (нулевых пересечений второй производной).
+        Чувствителен к шуму — рекомендуется предварительное гауссово сглаживание.
+
+        Алгоритм:
+        1. Конвертация в градации серого.
+        2. Опциональное гауссово сглаживание (параметр `sigma`).
+        3. Свёртка с ядром Лапласа [[0,1,0],[1,-4,1],[0,1,0]].
+        4. Взятие абсолютного значения и нормализация.
+        5. Бинаризация по порогу.
+
+        Метод особенно эффективен для:
+        - Выделения тонких линий и изолированных точек
+        - Задач, где важна чувствительность к быстрым изменениям яркости
+        - Предварительной обработки перед zero-crossing детекторами
+
+        Args:
+            tensor: Входное изображение (B, C, H, W) или (C, H, W).
+            threshold: Порог для бинаризации в диапазоне [0, 1] (по умолчанию: 0.1).
+            sigma: Sigma для предварительного Gaussian blur (по умолчанию: 1.0).
+            normalize: Если True, нормализовать магнитуду к [0, 1] перед порогом.
+            precision: Точность вычислений: 'fp32', 'fp16', 'bf16'.
+
+        Returns:
+            torch.Tensor: Бинарная маска границ (1, 1, H, W), dtype=float32.
+
+        Note:
+            - Ядро Лапласа кэшируется по (device, dtype) через `@lru_cache`.
+            - Для `fp16` рекомендуется `sigma ≥ 0.8` для подавления шума.
+            - Метод безопасен для `torch.compile(fullgraph=True)`.
+
+        Example:
+            ```python
+            segmenter = TorchSegmenter("laplacian_edge", sigma=1.2, threshold=0.15)
+            edges = segmenter.segment(image)
+            ```
+        """
+        # === ПРЕДПОДГОТОВКА ===
+        gray = self._to_grayscale(tensor)
+        if not torch.compiler.is_compiling():
+            print(f"[DEBUG] After _to_grayscale: dtype={gray.dtype}, range=[{gray.min():.3f}, {gray.max():.3f}]")
+        dtype = self.precision_manager.get_dtype(precision)
+        if export_mode and dtype == torch.bfloat16:
+            compute_dtype = torch.float16  # Используем fp16 для вычислений при экспорте
+            dtype_for_conv = torch.float16  # Ядро и свёртка в fp16
+        else:
+            compute_dtype = (
+                dtype if export_mode else (torch.float32 if dtype in (torch.bfloat16, torch.float16) else dtype)
+            )
+            dtype_for_conv = dtype
+        gray = gray.to(compute_dtype) if gray.dtype != compute_dtype else gray
+        if not torch.compiler.is_compiling():
+            print(f"[DEBUG] After norm: dtype={gray.dtype}, range=[{gray.min():.6f}, {gray.max():.6f}]")
+
+        if not torch.compiler.is_compiling():
+            start_time: float = time.time()
+        else:
+            start_time = None  # type: ignore[assignment]
+
+        # === ПАРАМЕТРЫ ===
+        thresh = threshold if threshold is not None else self.params.get("threshold", 0.1)
+        sig = sigma if sigma is not None else self.params.get("sigma", 1.0)
+        use_zero_crossing: bool = bool(self.params.get("use_zero_crossing", False))
+        precision_val = precision if precision is not None else "fp32"
+
+        if export_mode:
+            if dtype == torch.bfloat16:
+                thresh_factor = 1.15
+            elif dtype == torch.float16:
+                thresh_factor = 1.05
+            else:
+                thresh_factor = 1.0
+            thresh_adjusted = thresh * thresh_factor
+            # === ПРЕДВАРИТЕЛЬНОЕ СГЛАЖИВАНИЕ ===
+            if sig > 0:
+                ks = int(2 * round(3 * sig) + 1)
+                ks = ks if ks % 2 == 1 else ks + 1
+                gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
+
+            # Ядро Лапласа (4-связность)
+            # laplacian_kernel = self._get_laplacian_kernel_cached(self.device, dtype)
+            kernel_dtype = dtype_for_conv if dtype_for_conv is not None else compute_dtype
+            laplacian_kernel = cast(
+                torch.Tensor,
+                self._get_conv_kernel("laplacian", return_pair=False, dtype=kernel_dtype, device=self.device, size=3),
+            )
+
+            # === ЛАПЛАСИАН И БИНАРИЗАЦИЯ ===
+            with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
+                laplacian_kernel = cast(torch.Tensor, self._prepare_kernel_for_conv(laplacian_kernel, gray.dtype))
+                gray_padded = F.pad(gray, pad=(1, 1, 1, 1), mode="reflect")  # (left, right, top, bottom)
+                laplacian = self._safe_conv2d(gray_padded, laplacian_kernel, padding=0)
+                if use_zero_crossing:
+                    # Zero-crossing detection
+                    sign = torch.sign(laplacian)
+                    zc_0 = (sign > 0) & (torch.roll(sign, shifts=1, dims=2) < 0) | (sign < 0) & (
+                        torch.roll(sign, shifts=1, dims=2) > 0
+                    )
+                    zc_1 = (sign > 0) & (torch.roll(sign, shifts=1, dims=3) < 0) | (sign < 0) & (
+                        torch.roll(sign, shifts=1, dims=3) > 0
+                    )
+                    zero_crossing = zc_0 | zc_1
+
+                    magnitude = torch.abs(laplacian)
+                    mag_min = magnitude.amin(dim=(2, 3), keepdim=True)
+                    mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
+                    range_val = mag_max - mag_min
+                    magnitude_norm = torch.where(
+                        range_val > 1e-6, (magnitude - mag_min) / (range_val + 1e-8), torch.zeros_like(magnitude)
+                    )
+
+                    thresh_t = torch.tensor(thresh_adjusted, dtype=compute_dtype, device=self.device)
+                    mask = (zero_crossing & (magnitude_norm > thresh_t)).to(compute_dtype)
+                else:
+                    magnitude = torch.abs(laplacian)
+                    mag_min = magnitude.amin(dim=(2, 3), keepdim=True)
+                    mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
+                    range_val = mag_max - mag_min
+                    magnitude_norm = torch.where(
+                        range_val > 1e-6, (magnitude - mag_min) / (range_val + 1e-8), torch.zeros_like(magnitude)
+                    )
+
+                    thresh_t = torch.tensor(thresh_adjusted, dtype=compute_dtype, device=self.device)
+                    mask = (magnitude_norm > thresh_t).to(compute_dtype)
+                if mask.dim() == 2:
+                    mask = mask.unsqueeze(0).unsqueeze(0)
+                elif mask.dim() == 3:
+                    mask = mask.unsqueeze(0)
+            return mask.to(torch.float32)
+
+        # === ПРЕДВАРИТЕЛЬНОЕ СГЛАЖИВАНИЕ ===
+        if sig > 0:
+            ks = int(2 * round(3 * sig) + 1)
+            ks = ks if ks % 2 == 1 else ks + 1
+            gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
+            if not torch.compiler.is_compiling():
+                print(f"[DEBUG Torch] After gaussian_blur: range=[{gray.min():.6f}, {gray.max():.6f}]")
+
+        # Ядро Лапласа (4-связность)
+        laplacian_kernel = cast(
+            torch.Tensor, self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=3)
+        )
+        if not torch.compiler.is_compiling():
+            print(f"[DEBUG Torch] Laplacian kernel:\n{laplacian_kernel}")
+
+        # === ЛАПЛАСИАН И БИНАРИЗАЦИЯ ===
+        with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
+            laplacian_kernel = cast(torch.Tensor, self._prepare_kernel_for_conv(laplacian_kernel, gray.dtype))
+            gray_padded = F.pad(gray, pad=(1, 1, 1, 1), mode="reflect")  # (left, right, top, bottom)
+            laplacian = self._safe_conv2d(gray_padded, laplacian_kernel, padding=0)
+            if not torch.compiler.is_compiling():
+                print(
+                    f"[DEBUG Torch] After conv2d: dtype={laplacian.dtype}, range=[{laplacian.min():.6f}, {laplacian.max():.6f}], mean={laplacian.mean():.6f}]"
+                )
+
+            if use_zero_crossing:
+                # 🔧 FIX: Zero-crossing detection (как в Sklearn/OpenCV)
+                sign = torch.sign(laplacian)
+                zc_0 = (sign > 0) & (torch.roll(sign, shifts=1, dims=2) < 0) | (sign < 0) & (
+                    torch.roll(sign, shifts=1, dims=2) > 0
+                )
+                zc_1 = (sign > 0) & (torch.roll(sign, shifts=1, dims=3) < 0) | (sign < 0) & (
+                    torch.roll(sign, shifts=1, dims=3) > 0
+                )
+                zero_crossing = zc_0 | zc_1
+
+                magnitude = torch.abs(laplacian)
+                mag_min = magnitude.amin(dim=(2, 3), keepdim=True)
+                mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
+
+                range_val = mag_max - mag_min
+                magnitude_norm = torch.where(
+                    range_val > 1e-6, (magnitude - mag_min) / (range_val + 1e-8), torch.zeros_like(magnitude)
+                )
+                if not torch.compiler.is_compiling():
+                    print(
+                        f"[DEBUG Torch] After norm (use zc): range=[{magnitude_norm.min():.6f}, {magnitude_norm.max():.6f}]"
+                    )
+
+                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
+                mask = (zero_crossing & (magnitude_norm > thresh_t)).to(dtype)
+                if not torch.compiler.is_compiling():
+                    print(
+                        f"[DEBUG Torch] After threshold zc: mask density={mask.float().mean():.4f}, unique={mask.unique()}"
+                    )
+            else:
+                magnitude = torch.abs(laplacian)
+                mag_min = magnitude.amin(dim=(2, 3), keepdim=True)
+                mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
+                range_val = mag_max - mag_min
+                magnitude_norm = torch.where(
+                    range_val > 1e-6, (magnitude - mag_min) / (range_val + 1e-8), torch.zeros_like(magnitude)
+                )
+                if not torch.compiler.is_compiling():
+                    print(
+                        f"[DEBUG Torch] After norm (not use zc): range=[{magnitude_norm.min():.6f}, {magnitude_norm.max():.6f}]"
+                    )
+
+                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
+                mask = (magnitude_norm > thresh_t).to(dtype)
+                if not torch.compiler.is_compiling():
+                    print(
+                        f"[DEBUG Torch] After threshold not zc: mask density={mask.float().mean():.4f}, unique={mask.unique()}"
+                    )
+
+        if mask.dim() == 2:
+            mask = mask.unsqueeze(0).unsqueeze(0)
+        elif mask.dim() == 3:
+            mask = mask.unsqueeze(0)
+
+        if not torch.compiler.is_compiling():
+            print(f"[DEBUG Torch] After unsqueeze: mask density={mask.float().mean():.4f}, unique={mask.unique()}")
+            print(f"[DEBUG Torch] Final mask: {mask}")
+
+        if not torch.compiler.is_compiling() and start_time is not None:
+            exec_time: float = time.time() - start_time
+            info = self._log_info(
+                "laplacian_edge_torch",
+                exec_time,
+                {
+                    "threshold": thresh,
+                    "sigma": sig,
+                },
+                precision_val=precision_val,
+            )
+            self.params["execution_info"] = info
+            if self._debug_mode:
+                logger.info(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+        return mask.to(torch.float32)
+
+    # ──────────────────────────────────────────────────────────────────────
+    @torch.no_grad()
     def _log_edge(
         self,
         tensor: torch.Tensor,
         *,
-        sigma: Optional[float] = None,
+        kernel_size: int = 3,
+        sigma: Optional[float] = 1.0,
         threshold: Optional[float] = None,
         precision: Optional[str] = None,
         export_mode: bool = False,
@@ -6214,6 +6324,7 @@ class TorchSegmenter2(BaseSegmenter):
             tensor: Входное изображение (B, C, H, W) или (C, H, W).
             sigma: Sigma для гауссова размытия (по умолчанию: 1.0).
             threshold: Порог для магнитуды в диапазоне [0, 1] (по умолчанию: 0.1).
+            kernel_size: Размер ядра Лапласа: 3 для LoG, 5 для Marr-Hildreth (по умолчанию: 3).
             precision: Точность вычислений: 'fp32', 'fp16', 'bf16'.
 
         Returns:
@@ -6233,6 +6344,7 @@ class TorchSegmenter2(BaseSegmenter):
         # === ПРЕДПОДГОТОВКА ===
         gray = self._to_grayscale(tensor)
         dtype = self.precision_manager.get_dtype(precision)
+        compute_dtype = dtype if export_mode else (torch.float32 if dtype in (torch.bfloat16, torch.float16) else dtype)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
         if not torch.compiler.is_compiling():
@@ -6243,9 +6355,18 @@ class TorchSegmenter2(BaseSegmenter):
         # === ПАРАМЕТРЫ ===
         sig = sigma if sigma is not None else self.params.get("sigma", 1.0)
         thresh = threshold if threshold is not None else self.params.get("threshold", 0.01)
+        kernel_size = kernel_size if kernel_size is not None else self.params.get("kernel_size", 3)
         precision_val = precision if precision is not None else "fp32"
+        padding_val: int = 2 if kernel_size == 5 else 1
 
         if export_mode:
+            if dtype == torch.bfloat16:
+                thresh_factor = 1.15
+            elif dtype == torch.float16:
+                thresh_factor = 1.05
+            else:
+                thresh_factor = 1.0
+            thresh_adjusted = thresh * thresh_factor
             # === ГАУССОВО СГЛАЖИВАНИЕ ===
             if sig > 0:
                 ks = int(2 * round(3 * sig) + 1)
@@ -6253,35 +6374,38 @@ class TorchSegmenter2(BaseSegmenter):
                 gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
 
             # === ЛАПЛАСИАН ===
-            # laplacian_kernel = self._get_laplacian_kernel_cached(self.device, dtype)
             laplacian_kernel = cast(
                 torch.Tensor,
-                self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=3),
+                self._get_conv_kernel(
+                    "laplacian", return_pair=False, dtype=compute_dtype, device=self.device, size=kernel_size
+                ),
             )
 
-            with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
-                # Применяем лапласиан
-                laplacian_kernel = cast(torch.Tensor, self._prepare_kernel_for_conv(laplacian_kernel, gray.dtype))
-                laplacian = self._safe_conv2d(gray, laplacian_kernel, padding=1)
+            # Применяем лапласиан
+            laplacian_kernel = cast(torch.Tensor, self._prepare_kernel_for_conv(laplacian_kernel, gray.dtype))
+            laplacian = self._safe_conv2d(gray, laplacian_kernel, padding=padding_val)
 
-                # === ZERO-CROSSING DETECTION (векторизованный) ===
-                sign = torch.sign(laplacian)
+            # === ZERO-CROSSING DETECTION ===
+            sign = torch.sign(laplacian)
 
-                # Пересечение нуля: соседние пиксели имеют разные знаки
-                zero_crossing = torch.zeros_like(laplacian, dtype=torch.bool)
+            # === ZERO-CROSSING DETECTION (векторизованный) ===
+            zc_0 = (sign > 0) & (torch.roll(sign, shifts=1, dims=2) < 0) | (sign < 0) & (
+                torch.roll(sign, shifts=1, dims=2) > 0
+            )
+            zc_1 = (sign > 0) & (torch.roll(sign, shifts=1, dims=3) < 0) | (sign < 0) & (
+                torch.roll(sign, shifts=1, dims=3) > 0
+            )
 
-                # Проверяем 4-связных соседей через сдвиг
-                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-                    shifted = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
-                    zero_crossing = torch.logical_or(zero_crossing, (sign * shifted < 0))
+            zero_crossing = zc_0 | zc_1
 
-                # === МАГНИТУДА ДЛЯ ПОРОГА ===
-                magnitude = torch.abs(laplacian)
-                mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
-                magnitude = magnitude / (mag_max + 1e-8)
-
-                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
-                mask = (zero_crossing & (magnitude > thresh_t)).to(dtype)
+            # === МАГНИТУДА ДЛЯ ПОРОГА ===
+            magnitude = torch.abs(laplacian)
+            thresh_t = torch.tensor(thresh_adjusted, dtype=compute_dtype, device=self.device)
+            mask = (zero_crossing & (magnitude > thresh_t)).to(compute_dtype)
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
             return mask.to(torch.float32)
 
         # === ГАУССОВО СГЛАЖИВАНИЕ ===
@@ -6292,41 +6416,47 @@ class TorchSegmenter2(BaseSegmenter):
 
         # === ЛАПЛАСИАН ===
         laplacian_kernel = cast(
-            torch.Tensor, self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=3)
+            torch.Tensor,
+            self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=kernel_size),
         )
 
         with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
             laplacian_kernel = cast(torch.Tensor, self._prepare_kernel_for_conv(laplacian_kernel, gray.dtype))
-            laplacian = self._safe_conv2d(gray, laplacian_kernel, padding=1)
+            laplacian = self._safe_conv2d(gray, laplacian_kernel, padding=padding_val)
 
             # === ZERO-CROSSING DETECTION (векторизованный) ===
             sign = torch.sign(laplacian)
 
-            zero_crossing = torch.zeros_like(laplacian, dtype=torch.bool)
+            zc_0 = (sign > 0) & (torch.roll(sign, shifts=1, dims=2) < 0) | (sign < 0) & (
+                torch.roll(sign, shifts=1, dims=2) > 0
+            )
+            zc_1 = (sign > 0) & (torch.roll(sign, shifts=1, dims=3) < 0) | (sign < 0) & (
+                torch.roll(sign, shifts=1, dims=3) > 0
+            )
 
-            # Проверяем 4-связных соседей через сдвиг
-            for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-                shifted = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
-                zero_crossing = torch.logical_or(zero_crossing, (sign * shifted < 0))
+            zero_crossing = zc_0 | zc_1
 
             # === МАГНИТУДА ДЛЯ ПОРОГА ===
             magnitude = torch.abs(laplacian)
-            mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
-            magnitude = magnitude / (mag_max + 1e-8)
-
             thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
             mask = (zero_crossing & (magnitude > thresh_t)).to(dtype)
 
+        if mask.dim() == 2:
+            mask = mask.unsqueeze(0).unsqueeze(0)
+        elif mask.dim() == 3:
+            mask = mask.unsqueeze(0)
+
+        method_name: str = "marr_hildreth_torch" if kernel_size == 5 else "log_edge_torch"
         if not torch.compiler.is_compiling() and start_time is not None:
             exec_time: float = time.time() - start_time
             info = self._log_info(
-                "log_edge_torch",
+                method_name,
                 exec_time,
                 {
                     "sigma": sigma,
                     "threshold": threshold,
                     "precision": precision,
-                    "precision_val": precision_val,
+                    "compute_dtype": str(compute_dtype),
                 },
                 precision_val=precision_val,
             )
@@ -6390,6 +6520,7 @@ class TorchSegmenter2(BaseSegmenter):
         # === ПРЕДПОДГОТОВКА ===
         gray = self._to_grayscale(tensor)
         dtype = self.precision_manager.get_dtype(precision)
+        compute_dtype = dtype if export_mode else (torch.float32 if dtype in (torch.bfloat16, torch.float16) else dtype)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
         if not torch.compiler.is_compiling():
@@ -6405,45 +6536,65 @@ class TorchSegmenter2(BaseSegmenter):
         precision_val = precision if precision is not None else "fp32"
 
         if export_mode:
+            if dtype == torch.bfloat16:
+                thresh_factor = 1.15
+            elif dtype == torch.float16:
+                thresh_factor = 1.05
+            else:
+                thresh_factor = 1.0
+            thresh_adjusted = thresh * thresh_factor
             with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
                 # === ГАУССОВЫ РАЗМЫТИЯ ===
-                def _gaussian_kernel_1d(
-                    size: int, sigma: float, dtype: torch.dtype, device: torch.device
-                ) -> torch.Tensor:
-                    coords = torch.arange(size, dtype=dtype, device=device) - size // 2
-                    kernel = torch.exp(-0.5 * (coords / sigma) ** 2)
-                    return kernel / kernel.sum()
+                def _gaussian_blur_torch(img: torch.Tensor, sigma: float, dtype: torch.dtype) -> torch.Tensor:
+                    """Сепарабельное гауссово размытие на чистом PyTorch."""
+                    if sigma <= 0:
+                        return img
+                    ks = int(2 * round(3 * sigma) + 1)
+                    ks = ks if ks % 2 == 1 else ks + 1
+                    # 1D ядро
+                    coords = torch.arange(ks, dtype=dtype, device=img.device) - ks // 2
+                    kernel_1d = torch.exp(-0.5 * (coords / sigma) ** 2)
+                    kernel_1d = kernel_1d / kernel_1d.sum()
+                    # 2D ядро через outer product
+                    kernel_2d = (kernel_1d.unsqueeze(1) @ kernel_1d.unsqueeze(0)).view(1, 1, ks, ks)
+                    # Сепарабельная свёртка (быстрее)
+                    if img.dim() == 2:
+                        img = img.unsqueeze(0).unsqueeze(0)
+                    elif img.dim() == 3 and img.shape[0] == 1:
+                        img = img.unsqueeze(0)
+                    # По горизонтали
+                    tmp = F.conv2d(img, kernel_2d, padding=ks // 2)
+                    return tmp
 
                 # Ядро 1 для σ₁
-                ks1 = int(2 * round(3 * s1) + 1)
-                ks1 = ks1 if ks1 % 2 == 1 else ks1 + 1
-                k1_1d = _gaussian_kernel_1d(ks1, s1, gray.dtype, self.device)
-                k1_2d = (k1_1d.unsqueeze(1) @ k1_1d.unsqueeze(0)).unsqueeze(0).unsqueeze(0)
-                blurred1 = F.conv2d(gray, k1_2d, padding=ks1 // 2)
+                blurred1 = _gaussian_blur_torch(gray, s1, compute_dtype)
 
                 # Ядро 2 для σ₂
-                ks2 = int(2 * round(3 * s2) + 1)
-                ks2 = ks2 if ks2 % 2 == 1 else ks2 + 1
-                k2_1d = _gaussian_kernel_1d(ks2, s2, gray.dtype, self.device)
-                k2_2d = (k2_1d.unsqueeze(1) @ k2_1d.unsqueeze(0)).unsqueeze(0).unsqueeze(0)
-                blurred2 = F.conv2d(gray, k2_2d, padding=ks2 // 2)
+                blurred2 = _gaussian_blur_torch(gray, s2, compute_dtype)
 
-                # === РАЗНОСТЬ И ZERO-CROSSING ===
+                # === РАЗНОСТЬ ===
                 dog = blurred1 - blurred2
+
+                # === ZERO-CROSSING (индексация вместо torch.roll для ONNX/TRT) ===
                 sign = torch.sign(dog)
-                zero_crossing = torch.zeros_like(dog, dtype=torch.bool)
 
-                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-                    shifted = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
-                    zero_crossing = torch.logical_or(zero_crossing, (sign * shifted < 0))
+                zc_0 = (sign > 0) & (torch.roll(sign, shifts=1, dims=2) < 0) | (sign < 0) & (
+                    torch.roll(sign, shifts=1, dims=2) > 0
+                )
+                zc_1 = (sign > 0) & (torch.roll(sign, shifts=1, dims=3) < 0) | (sign < 0) & (
+                    torch.roll(sign, shifts=1, dims=3) > 0
+                )
 
-                # === МАГНИТУДА И БИНАРИЗАЦИЯ ===
+                zero_crossing = zc_0 | zc_1
+
+                # === МАГНИТУДА ДЛЯ ПОРОГА ===
                 magnitude = torch.abs(dog)
-                mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
-                magnitude = magnitude / (mag_max + 1e-8)
-
-                thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
-                mask = (zero_crossing & (magnitude > thresh_t)).to(dtype)
+                thresh_t = torch.tensor(thresh_adjusted, dtype=compute_dtype, device=self.device)
+                mask = (zero_crossing & (magnitude > thresh_t)).to(compute_dtype)
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
             return mask.to(torch.float32)
 
         with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
@@ -6470,19 +6621,25 @@ class TorchSegmenter2(BaseSegmenter):
             # === РАЗНОСТЬ И ZERO-CROSSING ===
             dog = blurred1 - blurred2
             sign = torch.sign(dog)
-            zero_crossing = torch.zeros_like(dog, dtype=torch.bool)
 
-            for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-                shifted = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
-                zero_crossing = torch.logical_or(zero_crossing, (sign * shifted < 0))
+            zc_0 = (sign > 0) & (torch.roll(sign, shifts=1, dims=2) < 0) | (sign < 0) & (
+                torch.roll(sign, shifts=1, dims=2) > 0
+            )
+            zc_1 = (sign > 0) & (torch.roll(sign, shifts=1, dims=3) < 0) | (sign < 0) & (
+                torch.roll(sign, shifts=1, dims=3) > 0
+            )
 
-            # === МАГНИТУДА И БИНАРИЗАЦИЯ ===
+            zero_crossing = zc_0 | zc_1
+
+            # === МАГНИТУДА ДЛЯ ПОРОГА ===
             magnitude = torch.abs(dog)
-            mag_max = magnitude.amax(dim=(2, 3), keepdim=True)
-            magnitude = magnitude / (mag_max + 1e-8)
-
             thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
             mask = (zero_crossing & (magnitude > thresh_t)).to(dtype)
+
+        if mask.dim() == 2:
+            mask = mask.unsqueeze(0).unsqueeze(0)
+        elif mask.dim() == 3:
+            mask = mask.unsqueeze(0)
 
         if not torch.compiler.is_compiling() and start_time is not None:
             exec_time: float = time.time() - start_time
@@ -6502,13 +6659,177 @@ class TorchSegmenter2(BaseSegmenter):
                 logger.info(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
         return mask.to(torch.float32)
 
+    # @torch.no_grad()
+    # def _dog_edge(
+    #     self,
+    #     tensor: torch.Tensor,
+    #     *,
+    #     sigma1: Optional[float] = None,
+    #     sigma2: Optional[float] = None,
+    #     threshold: Optional[float] = None,
+    #     precision: Optional[str] = None,
+    #     export_mode: bool = False,
+    # ) -> torch.Tensor:
+    #     # === ПРЕДПОДГОТОВКА ===
+    #     gray = self._to_grayscale(tensor)
+    #     dtype = self.precision_manager.get_dtype(precision)
+
+    #     # 🔧 FIX: ONNX fallback для bf16
+    #     if export_mode and dtype == torch.bfloat16:
+    #         compute_dtype = torch.float16
+    #         dtype_for_conv = torch.float16
+    #     else:
+    #         compute_dtype = dtype if export_mode else (
+    #             torch.float32 if dtype in (torch.bfloat16, torch.float16) else dtype
+    #         )
+    #         dtype_for_conv = dtype
+
+    #     gray = gray.to(compute_dtype) if gray.dtype != compute_dtype else gray
+
+    #     if not torch.compiler.is_compiling():
+    #         start_time: float = time.time()
+    #     else:
+    #         start_time = None  # type: ignore[assignment]
+
+    #     # === ПАРАМЕТРЫ ===
+    #     s1 = sigma1 if sigma1 is not None else self.params.get("sigma1", 1.0)
+    #     s2 = sigma2 if sigma2 is not None else self.params.get("sigma2", 2.0)
+    #     thresh = threshold if threshold is not None else self.params.get("threshold", 0.1)
+    #     precision_val = precision if precision is not None else "fp32"
+
+    #     # === ПРЕДВАРИТЕЛЬНОЕ СОЗДАНИЕ ЯДЕР (вне export_mode блока!) ===
+    #     # 🔧 FIX: Создаём ядра заранее, чтобы они были статическими для ONNX
+    #     ks1 = int(2 * round(3 * s1) + 1)
+    #     ks1 = ks1 if ks1 % 2 == 1 else ks1 + 1
+    #     ks2 = int(2 * round(3 * s2) + 1)
+    #     ks2 = ks2 if ks2 % 2 == 1 else ks2 + 1
+
+    #     # Создаём 1D ядра
+    #     coords1 = torch.arange(ks1, dtype=compute_dtype, device=self.device) - ks1 // 2
+    #     kernel1_1d = torch.exp(-0.5 * (coords1 / s1) ** 2)
+    #     kernel1_1d = kernel1_1d / kernel1_1d.sum()
+
+    #     coords2 = torch.arange(ks2, dtype=compute_dtype, device=self.device) - ks2 // 2
+    #     kernel2_1d = torch.exp(-0.5 * (coords2 / s2) ** 2)
+    #     kernel2_1d = kernel2_1d / kernel2_1d.sum()
+
+    #     # 2D ядра через outer product
+    #     kernel1_2d = (kernel1_1d.unsqueeze(1) @ kernel1_1d.unsqueeze(0)).view(1, 1, ks1, ks1)
+    #     kernel2_2d = (kernel2_1d.unsqueeze(1) @ kernel2_1d.unsqueeze(0)).view(1, 1, ks2, ks2)
+
+    #     if export_mode:
+    #         # Коррекция порога
+    #         if dtype == torch.bfloat16:
+    #             thresh_factor = 1.15
+    #         elif dtype == torch.float16:
+    #             thresh_factor = 1.05
+    #         else:
+    #             thresh_factor = 1.0
+    #         thresh_adjusted = thresh * thresh_factor
+
+    #         with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
+    #             # === ГАУССОВЫ РАЗМЫТИЯ (с предсозданными ядрами) ===
+    #             # 🔧 FIX: Используем заранее созданные ядра — статические для ONNX
+    #             if gray.dim() == 2:
+    #                 gray_4d = gray.unsqueeze(0).unsqueeze(0)
+    #             elif gray.dim() == 3 and gray.shape[0] == 1:
+    #                 gray_4d = gray.unsqueeze(0)
+    #             else:
+    #                 gray_4d = gray
+
+    #             blurred1 = F.conv2d(gray_4d, kernel1_2d.to(gray_4d.dtype), padding=ks1 // 2)
+    #             blurred2 = F.conv2d(gray_4d, kernel2_2d.to(gray_4d.dtype), padding=ks2 // 2)
+
+    #             # === РАЗНОСТЬ ===
+    #             dog = blurred1 - blurred2
+
+    #             # === ZERO-CROSSING ===
+    #             sign = torch.sign(dog)
+    #             zc_0 = (sign > 0) & (torch.roll(sign, shifts=1, dims=2) < 0) | \
+    #                 (sign < 0) & (torch.roll(sign, shifts=1, dims=2) > 0)
+    #             zc_1 = (sign > 0) & (torch.roll(sign, shifts=1, dims=3) < 0) | \
+    #                 (sign < 0) & (torch.roll(sign, shifts=1, dims=3) > 0)
+    #             zero_crossing = zc_0 | zc_1
+
+    #             # === ПОРОГ ===
+    #             magnitude = torch.abs(dog)
+    #             thresh_t = torch.tensor(thresh_adjusted, dtype=compute_dtype, device=self.device)
+    #             mask = (zero_crossing & (magnitude > thresh_t)).to(compute_dtype)
+
+    #             if mask.dim() == 2:
+    #                 mask = mask.unsqueeze(0).unsqueeze(0)
+    #             elif mask.dim() == 3:
+    #                 mask = mask.unsqueeze(0)
+    #             return mask.to(torch.float32)
+
+    #     with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
+    #         # === ГАУССОВЫ РАЗМЫТИЯ ===
+    #         def _gaussian_kernel_1d(size: int, sigma: float, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
+    #             coords = torch.arange(size, dtype=dtype, device=device) - size // 2
+    #             kernel = torch.exp(-0.5 * (coords / sigma) ** 2)
+    #             return kernel / kernel.sum()
+
+    #         # Ядро 1 для σ₁
+    #         ks1 = int(2 * round(3 * s1) + 1)
+    #         ks1 = ks1 if ks1 % 2 == 1 else ks1 + 1
+    #         k1_1d = _gaussian_kernel_1d(ks1, s1, gray.dtype, self.device)
+    #         k1_2d = (k1_1d.unsqueeze(1) @ k1_1d.unsqueeze(0)).unsqueeze(0).unsqueeze(0)
+    #         blurred1 = F.conv2d(gray, k1_2d, padding=ks1 // 2)
+
+    #         # Ядро 2 для σ₂
+    #         ks2 = int(2 * round(3 * s2) + 1)
+    #         ks2 = ks2 if ks2 % 2 == 1 else ks2 + 1
+    #         k2_1d = _gaussian_kernel_1d(ks2, s2, gray.dtype, self.device)
+    #         k2_2d = (k2_1d.unsqueeze(1) @ k2_1d.unsqueeze(0)).unsqueeze(0).unsqueeze(0)
+    #         blurred2 = F.conv2d(gray, k2_2d, padding=ks2 // 2)
+
+    #         # === РАЗНОСТЬ И ZERO-CROSSING ===
+    #         dog = blurred1 - blurred2
+    #         sign = torch.sign(dog)
+
+    #         zc_0 = (sign > 0) & (torch.roll(sign, shifts=1, dims=2) < 0) | \
+    #             (sign < 0) & (torch.roll(sign, shifts=1, dims=2) > 0)
+    #         zc_1 = (sign > 0) & (torch.roll(sign, shifts=1, dims=3) < 0) | \
+    #             (sign < 0) & (torch.roll(sign, shifts=1, dims=3) > 0)
+
+    #         zero_crossing = zc_0 | zc_1
+
+    #         # === МАГНИТУДА ДЛЯ ПОРОГА ===
+    #         magnitude = torch.abs(dog)
+    #         thresh_t = torch.tensor(thresh, dtype=dtype, device=self.device)
+    #         mask = (zero_crossing & (magnitude > thresh_t)).to(dtype)
+
+    #     if mask.dim() == 2:
+    #         mask = mask.unsqueeze(0).unsqueeze(0)
+    #     elif mask.dim() == 3:
+    #         mask = mask.unsqueeze(0)
+
+    #     if not torch.compiler.is_compiling() and start_time is not None:
+    #         exec_time: float = time.time() - start_time
+    #         info = self._log_info(
+    #             "dog_edge_torch",
+    #             exec_time,
+    #             {
+    #                 "sigma1": sigma1,
+    #                 "sigma2": sigma2,
+    #                 "threshold": threshold,
+    #                 "precision": precision,
+    #             },
+    #             precision_val=precision_val,
+    #         )
+    #         self.params["execution_info"] = info
+    #         if self._debug_mode:
+    #             logger.info(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
+    #     return mask.to(torch.float32)
+
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
     def _marr_hildreth_edge(
         self,
         tensor: torch.Tensor,
         *,
-        sigma: Optional[float] = None,
+        kernel_size: int = 5,
+        sigma: Optional[float] = 1.5,
         threshold: Optional[float] = None,
         precision: Optional[str] = None,
         export_mode: bool = False,
@@ -6550,117 +6871,14 @@ class TorchSegmenter2(BaseSegmenter):
             edges = segmenter.segment(image)
             ```
         """
-        # === ПРЕДПОДГОТОВКА ===
-        gray = self._to_grayscale(tensor)
-        dtype = self.precision_manager.get_dtype(precision)
-        gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
-
-        if not torch.compiler.is_compiling():
-            start_time: float = time.time()
-        else:
-            start_time = None  # type: ignore[assignment]
-
-        # === ПАРАМЕТРЫ ===
-        sig = sigma if sigma is not None else self.params.get("sigma", 1.0)
-        thresh = threshold if threshold is not None else self.params.get("threshold", 0.01)
-        precision_val = precision if precision is not None else "fp32"
-
-        if export_mode:
-            # === ГАУССОВО СГЛАЖИВАНИЕ ===
-            if sig > 0:
-                ks = int(2 * round(3 * sig) + 1)
-                ks = ks if ks % 2 == 1 else ks + 1
-                gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
-
-            # === ЛАПЛАСИАН 5×5 (кэшированный) ===
-            # laplacian_5x5 = self._get_laplacian_5x5_cached(self.device, dtype)
-            laplacian_5x5 = cast(
-                torch.Tensor,
-                self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=5),
-            )
-
-            precision_val = precision if precision is not None else "fp32"
-            with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
-                laplacian_5x5 = cast(torch.Tensor, self._prepare_kernel_for_conv(laplacian_5x5, gray.dtype))
-                laplacian = self._safe_conv2d(gray, laplacian_5x5, padding=2)
-
-                # === ZERO-CROSSING С ПРОВЕРКОЙ МАГНИТУДЫ ===
-                sign = torch.sign(laplacian)
-                magnitude = torch.abs(laplacian)
-                mag_max = magnitude.max(dim=3, keepdim=True)[0].max(dim=2, keepdim=True)[0]
-                magnitude = magnitude / (mag_max + 1e-8)
-
-                zero_crossing = torch.zeros_like(laplacian, dtype=torch.bool)
-                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-                    shifted_sign = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
-                    shifted_mag = torch.roll(magnitude, shifts=(dy, dx), dims=(2, 3))
-                    crossing = (sign * shifted_sign < 0) & ((magnitude > thresh) | (shifted_mag > thresh))
-                    zero_crossing = torch.logical_or(zero_crossing, crossing)
-
-                mask = zero_crossing.to(dtype)
-
-            return mask.to(torch.float32)
-
-        # === ГАУССОВО СГЛАЖИВАНИЕ ===
-        if sig > 0:
-            ks = int(2 * round(3 * sig) + 1)
-            ks = ks if ks % 2 == 1 else ks + 1
-            gray = tv_gaussian_blur(gray, kernel_size=[ks, ks], sigma=[sig, sig])
-
-        # === ЛАПЛАСИАН 5×5 (кэшированный) ===
-        # laplacian_5x5 = self._get_laplacian_5x5_cached(self.device, dtype)
-        laplacian_3x3 = cast(
-            torch.Tensor, self._get_conv_kernel("laplacian", return_pair=False, dtype=dtype, device=self.device, size=3)
+        return self._log_edge(
+            tensor,
+            sigma=sigma,
+            threshold=threshold,
+            precision=precision,
+            export_mode=export_mode,
+            kernel_size=kernel_size,
         )
-
-        precision_val = precision if precision is not None else "fp32"
-        with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
-            laplacian_3x3 = cast(torch.Tensor, self._prepare_kernel_for_conv(laplacian_3x3, gray.dtype))
-            laplacian = self._safe_conv2d(gray, laplacian_3x3, padding=1)
-
-            # === ZERO-CROSSING С ПРОВЕРКОЙ МАГНИТУДЫ ===
-            sign = torch.sign(laplacian)
-            magnitude = torch.abs(laplacian)
-            # mag_max = magnitude.max(dim=3, keepdim=True)[0].max(dim=2, keepdim=True)[0]
-            # magnitude = magnitude / (mag_max + 1e-8)
-
-            # zero_crossing = torch.zeros_like(laplacian, dtype=torch.bool)
-            # for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-            #     shifted_sign = torch.roll(sign, shifts=(dy, dx), dims=(2, 3))
-            #     shifted_mag = torch.roll(magnitude, shifts=(dy, dx), dims=(2, 3))
-            #     crossing = (sign * shifted_sign < 0) & ((magnitude > thresh) | (shifted_mag > thresh))
-            #     zero_crossing = torch.logical_or(zero_crossing, crossing)
-
-            # mask = zero_crossing.to(dtype)
-            zero_crossing = torch.zeros_like(laplacian, dtype=torch.bool)
-            
-            # Горизонтальные пересечения
-            zc_h = (sign[..., :, :-1] * sign[..., :, 1:] < 0)
-            zero_crossing[..., :, :-1] |= zc_h
-            
-            # Вертикальные пересечения
-            zc_v = (sign[..., :-1, :] * sign[..., 1:, :] < 0)
-            zero_crossing[..., :-1, :] |= zc_v
-            
-            # 🔧 FIX: Фильтрация по магнитуде (порог в [0, 1] для нормализованного входа)
-            mask = (zero_crossing & (magnitude > thresh)).to(dtype)
-
-        if not torch.compiler.is_compiling() and start_time is not None:
-            exec_time: float = time.time() - start_time
-            info = self._log_info(
-                "marr_hildreth_torch",
-                exec_time,
-                {
-                    "sigma": sigma,
-                    "threshold": threshold,
-                    "precision": precision,
-                },
-                precision_val=precision_val,
-            )
-            self.params["execution_info"] = info
-            if self._debug_mode:
-                logger.info(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
-        return mask.to(torch.float32)
 
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
@@ -6758,8 +6976,9 @@ class TorchSegmenter2(BaseSegmenter):
 
                 if angle_rng is not None:
                     # Учитываем симметрию: θ ≡ θ+180°
-                    angle_mask = ((direction_deg >= angle_rng[0]) & (direction_deg <= angle_rng[1])) | \
-                                ((direction_deg + 180.0 >= angle_rng[0]) & (direction_deg + 180.0 <= angle_rng[1]))
+                    angle_mask = ((direction_deg >= angle_rng[0]) & (direction_deg <= angle_rng[1])) | (
+                        (direction_deg + 180.0 >= angle_rng[0]) & (direction_deg + 180.0 <= angle_rng[1])
+                    )
                     magnitude = magnitude * angle_mask.to(magnitude.dtype)
 
                 # === БИНАРИЗАЦИЯ ===
@@ -6797,8 +7016,9 @@ class TorchSegmenter2(BaseSegmenter):
 
             if angle_rng is not None:
                 # Учитываем симметрию: θ ≡ θ+180°
-                angle_mask = ((direction_deg >= angle_rng[0]) & (direction_deg <= angle_rng[1])) | \
-                            ((direction_deg + 180.0 >= angle_rng[0]) & (direction_deg + 180.0 <= angle_rng[1]))
+                angle_mask = ((direction_deg >= angle_rng[0]) & (direction_deg <= angle_rng[1])) | (
+                    (direction_deg + 180.0 >= angle_rng[0]) & (direction_deg + 180.0 <= angle_rng[1])
+                )
                 magnitude = magnitude * angle_mask.to(magnitude.dtype)
 
             # 🔧 FIX: Бинаризация по magnitude (а не suppressed!)
