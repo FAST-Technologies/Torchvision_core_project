@@ -1235,7 +1235,7 @@ class SklearnSegmenter(BaseSegmenter):
         else:
             gray = img.astype(np.float32)
 
-        # print(f"Gray after Sklearn_thresholding_niblack: {gray}")
+        logger.info(f"[DEBUG Sklearn] current gray: {gray}")
 
         start_time: float = time.time()
         window_size: int = int(self.params.get("window_size", 15))
@@ -1245,6 +1245,8 @@ class SklearnSegmenter(BaseSegmenter):
         # func_kwargs = {key: val for key, val in kwargs.items() if key not in ['window_size', 'k']}
         thresh: npt.NDArray[np.float64] = threshold_niblack(gray, window_size=window_size, k=k)
         mask: MaskArray = ((gray > thresh) * 255).astype(np.uint8)
+
+        logger.info(f"[DEBUG Sklearn] current threshold {thresh}, mask {mask}")
         exec_time: float = time.time() - start_time
 
         info: SegmentationInfo = self._log_info(
@@ -1300,7 +1302,7 @@ class SklearnSegmenter(BaseSegmenter):
         window_size: int = int(self.params.get("window_size", 15))
         if window_size % 2 == 0:
             window_size += 1
-        k: float = float(self.params.get("k", 0.2))
+        k: float = float(self.params.get("k", 0.5))
         r: float = float(self.params.get("r", 128.0))
 
         # Порог Сауволы из scikit-image
@@ -1356,7 +1358,7 @@ class SklearnSegmenter(BaseSegmenter):
         window_size: int = int(self.params.get("window_size", 15))
         if window_size % 2 == 0:
             window_size += 1
-        contrast_threshold: float = float(self.params.get("contrast_threshold", 0.1))
+        contrast_threshold: float = float(self.params.get("contrast_threshold", 0.15))
 
         img_range = img.max() - img.min()
         is_normalized = img_range <= 1.0
@@ -1763,9 +1765,8 @@ class SklearnSegmenter(BaseSegmenter):
             ```
         """
         start_time: float = time.time()
-        n_classes: int = int(self.params.get("n_thresholds", 2)) + 1
+        n_classes: int = int(self.params.get("n_thresholds", 1)) + 1
 
-        # Используем нативную реализацию skimage (быстрее и стабильнее кастомной рекурсии)
         from skimage.filters import threshold_multiotsu as threshold_multi_otsu
 
         thresholds: npt.NDArray[np.float64] = threshold_multi_otsu(img, classes=n_classes)
@@ -1862,7 +1863,7 @@ class SklearnSegmenter(BaseSegmenter):
         """
         start_time: float = time.time()
         window_size: int = int(self.params.get("window_size", 15))
-        contrast_factor: float = float(self.params.get("contrast_factor", 0.1))
+        contrast_factor: float = float(self.params.get("contrast_factor", 0.2))
 
         from scipy.ndimage import uniform_filter
 

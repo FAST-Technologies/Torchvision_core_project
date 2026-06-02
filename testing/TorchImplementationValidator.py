@@ -177,7 +177,7 @@ class TorchImplementationValidator:
             # ("adaptive_thresholding", {"block_size": 11, "C": 2}),
             # ("threshold_niblack", {"window_size": 15, "k": -0.2}),
             # ("threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128}),
-            # ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
+            ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
             # (
             #     "threshold_phansalkar",
             #     {
@@ -190,17 +190,17 @@ class TorchImplementationValidator:
             # ("threshold_kittler_illingworth", {"num_bins": 256}),
             # ("threshold_entropy_kapur", {"num_bins": 256}),
             # ("threshold_triangle", {"num_bins": 256}),
-            # ("threshold_multi_otsu", {"n_thresholds": 2}),
+            # ("threshold_multi_otsu", {"n_thresholds": 1}),
             # ("threshold_percentile", {"percentile": 90}),
             # (
             #     "threshold_local_contrast",
-            #     {"window_size": 15, "contrast_factor": 0.1},
+            #     {"window_size": 15, "contrast_factor": 0.2, "quantile": 0.8416},
             # ),
         ]
 
         self.edge_methods: List[MethodConfig] = [
-            ("sobel_edge", {"threshold": 0.1}),
-            ("canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
+            # ("sobel_edge", {"threshold": 0.1}),
+            # ("canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
             # ("prewitt_edge", {"threshold": 0.1}),
             # ("scharr_edge", {"threshold": 0.1}),
             # ("roberts_cross_edge", {"threshold": 0.1}),

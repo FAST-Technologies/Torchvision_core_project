@@ -1326,6 +1326,7 @@ class TorchSegmenter2(BaseSegmenter):
         window_size: int,
         dtype: Optional[torch.dtype] = None,
         export_mode: bool = False,
+        quantize_to_uint8: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Вычисляет локальное среднее и стандартное отклонение через свёртку на GPU.
 
@@ -1344,7 +1345,7 @@ class TorchSegmenter2(BaseSegmenter):
             "ones",
             size=window_size,
             sigma=None,
-            dtype=dtype,
+            dtype=torch.float32,
             device=device,
             return_pair=False,
         )
@@ -1359,24 +1360,22 @@ class TorchSegmenter2(BaseSegmenter):
 
         # Создаём ядро усреднения (с учётом dtype и device)
         pad = window_size // 2
-
-        kernel = kernel.to(dtype=gray_4d.dtype)
+        gray_padded = F.pad(gray_4d, (pad, pad, pad, pad), mode="reflect")
 
         # Локальное среднее: E[X]
-        local_mean_4d = F.conv2d(gray_4d, kernel, padding=pad, stride=1)
+        local_mean_4d = F.conv2d(gray_padded, kernel, padding=0, stride=1)
 
         # Локальное среднее квадратов: E[X²]
-        local_mean_sq_4d = F.conv2d(gray_4d**2, kernel, padding=pad, stride=1)
+        local_mean_sq_4d = F.conv2d(gray_padded**2, kernel, padding=0, stride=1)
+
+        # if quantize_to_uint8:
+        #     local_mean_4d = torch.clamp(local_mean_4d, 0, 255).round().to(torch.uint8).float()
+        #     local_mean_sq_4d = torch.clamp(local_mean_sq_4d, 0, 255).round().to(torch.uint8).float()
 
         # Дисперсия: Var[X] = E[X²] - E[X]², с защитой от отрицательных значений из-за численной нестабильности
         diff = local_mean_sq_4d - local_mean_4d**2
-        if export_mode:
-            # local_var_4d = torch.where(diff > 0, diff, torch.zeros_like(diff)) + 1e-8
-            #  local_var_4d = torch.relu(diff) + 1e-8
-            local_var_4d = torch.maximum(diff, torch.zeros_like(diff)) + 1e-8
-        else:
-            local_var_4d = torch.clamp(diff, min=1e-8)
-        local_std_4d = torch.sqrt(local_var_4d)
+        local_var_4d = torch.clamp(diff, min=0)
+        local_std_4d = torch.sqrt(local_var_4d + 1e-8)
 
         if gray.dim() == 2:
             H, W = gray.shape[-2], gray.shape[-1]
@@ -3568,8 +3567,7 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
         # === ПАРАМЕТРЫ ===
-        bins = num_bins if num_bins is not None else self.params.get("num_bins", 256)
-        bins = max(2, bins)
+        bins = max(2, num_bins if num_bins is not None else self.params.get("num_bins", 256))
         mean_levels = torch.arange(bins, dtype=dtype, device=self.device) / (bins - 1)
 
         precision_val = precision if precision is not None else "fp32"
@@ -3587,21 +3585,19 @@ class TorchSegmenter2(BaseSegmenter):
 
             w0 = cumsum
             w1 = total - w0
-            m0 = mu_cum / (w0 + 1e-8)
-            m1 = (mu_cum[-1] - mu_cum) / (w1 + 1e-8)
+            m0 = torch.where(w0 > 1e-8, mu_cum / w0, torch.zeros_like(mu_cum))
+            m1 = torch.where(w1 > 1e-8, (mu_cum[-1] - mu_cum) / w1, torch.zeros_like(mu_cum))
 
             var_between = w0 * w1 * (m0 - m1) ** 2
-            # best_threshold_idx = var_between.argmax()
+            var_between = torch.where(
+                torch.isnan(var_between) | torch.isinf(var_between),
+                torch.tensor(-float("inf"), device=var_between.device, dtype=var_between.dtype),
+                var_between,
+            )
             var_between_2d = var_between.unsqueeze(0)  # [1, 256]
             best_idx_rel = var_between_2d.argmax(dim=1)  # скаляр [0]
 
-            # Конвертируем в float и нормализуем к [0, 1]
-            # best_threshold = best_threshold_idx.float() / 255.0
-
-            # bin_levels = torch.arange(bins, dtype=torch.float32, device=self.device) / (bins - 1)
-            # best_threshold = torch.gather(bin_levels, 0, best_threshold_idx)
-            best_idx = best_idx_rel.squeeze(0)
-            best_threshold = best_idx.float() / max(bins - 1, 1)
+            best_threshold = best_idx_rel.float() / max(bins - 1, 1)
 
             # === БИНАРИЗАЦИЯ ===
             with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
@@ -3708,29 +3704,38 @@ class TorchSegmenter2(BaseSegmenter):
             ```
         """
         # === ПРЕДПОДГОТОВКА ===
+        gray = self._to_grayscale(tensor)  # (B, 1, H, W) или (1, H, W)
         if export_mode:
-            gray = self._to_grayscale(tensor)  # (H, W)
-            if export_mode:
-                if gray.dim() == 4 and gray.shape[1] == 1:
-                    gray = gray.view(-1, gray.shape[-2], gray.shape[-1])  # (B, H, W)
-                elif gray.dim() == 3 and gray.shape[0] == 1:
-                    gray = gray.view(gray.shape[-2], gray.shape[-1])  # (H, W)
-            else:
-                gray = gray.squeeze(0)
+            if gray.dim() == 4 and gray.shape[1] == 1:
+                gray = gray.view(-1, gray.shape[-2], gray.shape[-1])  # (B, H, W)
+            elif gray.dim() == 3 and gray.shape[0] == 1:
+                gray = gray.view(gray.shape[-2], gray.shape[-1])  # (H, W)
         else:
-            gray = self._to_grayscale(tensor).squeeze(0)  # (H, W)
+            gray = gray.squeeze(0)
+        if not export_mode:
+            if gray.max() <= 1.0:
+                gray = gray * 255.0
+        else:
+            # В export_mode: использовать torch.where для статического графа
+            max_val = gray.amax(dim=(-2, -1), keepdim=False)
+            gray = torch.where(max_val <= 1.0, gray * 255.0, gray)
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
-        # Масштабируем к [0, 255] для стабильности при low precision
         if not torch.compiler.is_compiling():
-            max_val = gray.amax(dim=(-2, -1), keepdim=False) if export_mode else gray.amax()
-            if max_val <= 1.0:
-                gray = gray * 255.0
-        else:
-            # В режиме компиляции: torch.where + .clone() для избежания алиасинга
-            max_val = gray.amax(dim=(-2, -1), keepdim=False)
-            gray = torch.where(max_val <= 1.0, gray * 255.0, gray)
+            print(f"[DEBUG Torch] {self.method}: current gray: {gray}")
+
+        # # Масштабируем к [0, 255] для стабильности при low precision
+        # if not torch.compiler.is_compiling():
+        #     max_val = gray.amax(dim=(-2, -1), keepdim=False) if export_mode else gray.amax()
+        #     if max_val <= 1.0:
+        #         gray = gray * 255.0
+        # else:
+        #     # В режиме компиляции: torch.where + .clone() для избежания алиасинга
+        #     max_val = gray.amax(dim=(-2, -1), keepdim=False)
+        #     gray = torch.where(max_val <= 1.0, gray * 255.0, gray)
+        # if not torch.compiler.is_compiling():
+        #     print(f"[DEBUG Torch] {self.method}: current gray after compile mode: {gray}")
 
         if not torch.compiler.is_compiling():
             start_time: float = time.time()
@@ -3741,12 +3746,13 @@ class TorchSegmenter2(BaseSegmenter):
         ws = window_size if window_size is not None else self.params.get("window_size", 15)
         ws = ws if ws % 2 == 1 else ws + 1  # ensure odd
         k_val = k if k is not None else self.params.get("k", -0.2)
-
         precision_val = precision if precision is not None else "fp32"
 
         if export_mode:
             gray_4d = gray.unsqueeze(0).unsqueeze(0) if gray.dim() == 2 else gray.unsqueeze(0)
-            local_mean, local_std = self._local_stats_torch(gray_4d, ws, export_mode=True)
+            local_mean, local_std = self._local_stats_torch(
+                gray_4d.float(), ws, export_mode=True, quantize_to_uint8=False
+            )
 
             if local_mean.dim() == 4:
                 local_mean = local_mean.squeeze(0).squeeze(0)
@@ -3759,13 +3765,18 @@ class TorchSegmenter2(BaseSegmenter):
                 mask = (gray > threshold).to(dtype)
             return mask.to(torch.float32).view(1, 1, gray.shape[-2], gray.shape[-1])
 
-        local_mean, local_std = self._local_stats_torch(gray, ws)
+        local_mean, local_std = self._local_stats_torch(gray.float(), ws, quantize_to_uint8=False)
+        if not torch.compiler.is_compiling():
+            print(f"[DEBUG Torch] {self.method}: current stats: local_mean {local_mean}, local_std {local_std}")
 
         # === ЛОКАЛЬНАЯ СТАТИСТИКА (полностью на GPU) ===
         with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
             # Формула Ниблака: T = μ + k·σ
             threshold = local_mean + k_val * local_std
             mask = (gray > threshold).to(dtype)
+
+        if not torch.compiler.is_compiling():
+            print(f"[DEBUG Torch] {self.method}: current threshold {threshold}, mask {mask}")
 
         if not torch.compiler.is_compiling() and start_time is not None:
             exec_time: float = time.time() - start_time
@@ -3782,8 +3793,15 @@ class TorchSegmenter2(BaseSegmenter):
             )
             self.params["execution_info"] = info
             if self._debug_mode:
-                logger.info(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
-        return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
+                logger.info(f"[DEBUG Torch] {self.method}: precision_val={precision_val}, dtype={dtype}")
+        if mask.dim() == 2:
+            mask = mask.unsqueeze(0).unsqueeze(0)
+        elif mask.dim() == 3:
+            mask = mask.unsqueeze(0)
+        mask = mask.to(torch.float32)
+        if not torch.compiler.is_compiling():
+            print(f"[DEBUG Torch] {self.method}: mask final: {mask}")
+        return mask
 
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
@@ -3870,7 +3888,7 @@ class TorchSegmenter2(BaseSegmenter):
         # === ПАРАМЕТРЫ ===
         ws = window_size if window_size is not None else self.params.get("window_size", 15)
         ws = ws if ws % 2 == 1 else ws + 1
-        k_val = k if k is not None else self.params.get("k", 0.2)
+        k_val = k if k is not None else self.params.get("k", 0.5)
         r_val = r if r is not None else self.params.get("r", 128.0)
         precision_val = precision if precision is not None else "fp32"
 
@@ -3956,7 +3974,7 @@ class TorchSegmenter2(BaseSegmenter):
         # === ПАРАМЕТРЫ ===
         ws = window_size if window_size is not None else self.params.get("window_size", 15)
         ws = ws if ws % 2 == 1 else ws + 1
-        c_thresh = contrast_threshold if contrast_threshold is not None else self.params.get("contrast_threshold", 0.1)
+        c_thresh = contrast_threshold if contrast_threshold is not None else self.params.get("contrast_threshold", 0.15)
         use_global = use_global_mean if use_global_mean is not None else self.params.get("use_global_mean", False)
 
         precision_val = precision if precision is not None else "fp32"
@@ -3973,22 +3991,18 @@ class TorchSegmenter2(BaseSegmenter):
             # Используем reflect padding с явными размерами
             pad = ws // 2
             # Явное указание размеров вместо динамического вычисления
-            gray_padded = F.pad(gray_4d, (pad, pad, pad, pad), mode="constant", value=0)
+            gray_padded = F.pad(gray_4d, (pad, pad, pad, pad), mode="reflect")
 
             # === ЛОКАЛЬНЫЙ MIN/MAX ЧЕРЕЗ POOLING ===
             with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
-                local_max = F.max_pool2d(
-                    gray_padded, kernel_size=ws, stride=1, padding=0, return_indices=False
-                )  # (1, 1, H, W)
-                local_min = -F.max_pool2d(
-                    -gray_padded, kernel_size=ws, stride=1, padding=0, return_indices=False
-                )  # (1, 1, H, W)
+                local_max = F.max_pool2d(gray_padded, kernel_size=ws, stride=1, padding=0)  # (1, 1, H, W)
+                local_min = -F.max_pool2d(-gray_padded, kernel_size=ws, stride=1, padding=0)  # (1, 1, H, W)
 
                 contrast = local_max - local_min  # (1, 1, H, W)
                 threshold_local = (local_max + local_min) / 2.0  # (1, 1, H, W)
 
                 # Применяем локальный порог там, где контраст достаточный
-                high_contrast = contrast > c_thresh
+                high_contrast = contrast >= c_thresh
                 mask = torch.zeros_like(gray_4d, dtype=dtype)
 
                 # 🔹 Векторизованное применение — все тензоры 4D
@@ -4032,7 +4046,7 @@ class TorchSegmenter2(BaseSegmenter):
             threshold_local = (local_max + local_min) / 2.0
 
             # Применяем локальный порог там, где контраст достаточный
-            high_contrast = contrast > c_thresh
+            high_contrast = contrast >= c_thresh
             mask_2d = torch.zeros_like(gray_2d, dtype=dtype)
 
             # Векторизованное применение — все тензоры 2D
@@ -4213,6 +4227,7 @@ class TorchSegmenter2(BaseSegmenter):
         precision: Optional[str] = None,
         export_mode: bool = False,
         shift: Optional[float] = None,
+        REF_NUMEL: Optional[int] = None,
     ) -> torch.Tensor:
         """Процентильная пороговая обработка.
 
@@ -4252,12 +4267,9 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._to_grayscale(tensor)
 
         # === ПАРАМЕТРЫ ===
-        bins = 256
         p = percentile if percentile is not None else self.params.get("percentile", 90.0)
         precision_val = precision if precision is not None else "fp32"
-        shift_val: float = shift if shift is not None else 0.0
 
-        # 🔧 FIX: Безопасное приведение к 2D без цикла
         if export_mode:
             if gray.dim() == 4:
                 gray = gray.view(-1, gray.shape[-2], gray.shape[-1])
@@ -4265,7 +4277,6 @@ class TorchSegmenter2(BaseSegmenter):
                 gray = gray.view(gray.shape[-2], gray.shape[-1])
         else:
             gray = self._to_grayscale(tensor).squeeze()  # (H, W)
-        # Теперь gray гарантированно (H, W)
 
         dtype = self.precision_manager.get_dtype(precision)
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
@@ -4275,81 +4286,33 @@ class TorchSegmenter2(BaseSegmenter):
         else:
             start_time = None
 
-        # if export_mode:
-        #     # 🔧 MAXIMAL SIMPLIFICATION + внешняя коррекция (вычисляется ДО вызова модели)
-        #     device = gray.device
-        #     gray_flat = gray.flatten()
-
-        #     t_sorted = torch.sort(gray_flat)[0]
-        #     # n = t_sorted.numel()
-        #     # REF_NUMEL = 512 * 512
-
-        #     # p_norm_tensor = torch.tensor(p / 100.0, dtype=torch.float32, device=device)
-
-        #     # # pos будет 0-D тензором (скалярным тензором)
-        #     # pos = p_norm_tensor * (REF_NUMEL - 1)
-        #     # j = torch.floor(pos).to(torch.int64)
-        #     # g = pos - j.to(torch.float32)
-
-        #     # max_idx = max(0, REF_NUMEL - 2)
-        #     # j = torch.clamp(j, min=0, max=max_idx)
-        #     # j_plus_1 = j + 1
-        #     # # Интерполяция: (1-g) * y[j] + g * y[j+1]
-        #     # val_low = t_sorted[j]
-        #     # val_high = t_sorted[j_plus_1]
-        #     # threshold = (1.0 - g) * val_low + g * val_high
-        #     REF_NUMEL = 670 * 670  # ~262k элементов
-
-        #     # 3. Вычисляем позицию квантиля ОТНОСИТЕЛЬНО референсного размера
-        #     p_norm = p / 100.0
-        #     # pos — float, но вычисляется из констант → экспортёр видит константу
-        #     pos_val: float = p_norm * (REF_NUMEL - 1)
-
-        #     # 4. Индексы — вычисляем на уровне Python (не в графе!)
-        #     j_int = int(pos_val)  # Python int
-        #     g_float = pos_val - j_int  # Python float
-
-        #     # Clamp к допустимому диапазону (на уровне Python)
-        #     # Важно: используем МИНИМУМ из реального размера и референсного
-        #     actual_n = t_sorted.numel()
-        #     max_safe_idx = min(REF_NUMEL - 2, actual_n - 2) if actual_n > 1 else 0
-        #     j_int = max(0, min(j_int, max_safe_idx))
-        #     jp1_int = j_int + 1
-
-        #     # 5. Создаём 1D тензор индексов для index_select (ONNX-friendly)
-        #     indices = torch.tensor([j_int, jp1_int], dtype=torch.int64, device=device)  # [2]
-
-        #     # 6. Извлекаем значения через index_select (Gather в ONNX)
-        #     values = torch.index_select(t_sorted, dim=0, index=indices)  # [2]
-
-        #     # 7. 🔧 ЛИНЕЙНАЯ ИНТЕРПОЛЯЦИЯ (всё в тензорах, но индексы — константы)
-        #     g = torch.tensor(g_float, dtype=torch.float32, device=device)  # 0-D const
-        #     threshold = (1.0 - g) * values[0] + g * values[1]  # scalar
-
-        #     # 5. Бинаризация
-        #     threshold = threshold.to(dtype)
-        #     mask = (gray > threshold).to(dtype)
-
-        #     H, W = gray.shape[-2], gray.shape[-1]
-        #     return mask.to(torch.float32).reshape(1, 1, H, W)
         if export_mode:
-            gray_np = gray.detach().cpu().numpy()  # ⚠️ Может упасть при трассировке
+            gray_flat = gray.flatten()
 
-            # 2. Вычисление порога через numpy (выполняется СРАЗУ, не в графе!)
-            threshold_val = float(np.percentile(gray_np, p, method="linear"))
+            t_sorted = torch.sort(gray_flat)[0]
+            n = t_sorted.numel()
 
-            # 3. Создание константного тензора
-            threshold = torch.tensor(threshold_val, dtype=torch.float32, device=gray.device)
+            # Вычисляем позицию квантиля относительно референсного размера
+            p_norm = p / 100.0
+            pos_val: float = p_norm * (n - 1)
 
-            # 4. Бинаризация
-            mask = (gray > threshold.to(dtype)).to(dtype)
+            idx_tensor = torch.tensor(pos_val, device=t_sorted.device, dtype=torch.float32)
+            idx_low = torch.floor(idx_tensor).to(torch.int64)
+            idx_high = torch.clamp(idx_low + 1, max=n - 1)
+            frac = pos_val - idx_low.float()
+
+            # Линейная интерполяция
+            val_low = torch.index_select(t_sorted, dim=0, index=idx_low.unsqueeze(0)).squeeze(0)
+            val_high = torch.index_select(t_sorted, dim=0, index=idx_high.unsqueeze(0)).squeeze(0)
+            threshold = val_low * (1.0 - frac) + val_high * frac
+
+            mask = (gray > threshold.unsqueeze(-1).unsqueeze(-1)).to(dtype)
 
             H, W = gray.shape[-2], gray.shape[-1]
             return mask.to(torch.float32).reshape(1, 1, H, W)
 
         else:
             p_norm = p / 100.0  # нормализация к [0, 1]
-            # Стандартный точный квантиль для обычного режима
             with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
                 threshold = torch.quantile(gray, p_norm)
                 mask = (gray > threshold).to(dtype)
@@ -4976,7 +4939,7 @@ class TorchSegmenter2(BaseSegmenter):
 
         # === ПАРАМЕТРЫ ===
         n_thresh = n_thresholds if n_thresholds is not None else self.params.get("n_thresholds", 2)
-        bins = num_bins if num_bins is not None else self.params.get("num_bins", 256)
+        bins = max(2, num_bins if num_bins is not None else self.params.get("num_bins", 256))
         precision_val = precision if precision is not None else "fp32"
 
         if export_mode:
@@ -4985,96 +4948,289 @@ class TorchSegmenter2(BaseSegmenter):
             hist = torch.histc(gray_for_hist, bins=bins, min=0.0, max=1.0)
             total = hist.sum()
 
-            pdf = hist / (total + 1e-8)
             bin_levels = torch.arange(bins, dtype=dtype, device=self.device) / max(bins - 1, 1)
 
             with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
-                # 🔧 Вариант 1: Найти один порог (для n_thresh=1)
-                if n_thresh == 1:
+                # === ПОИСК ПОРОГОВ ===
+                if n_thresh == 2:
+                    best_t1, best_t2 = bins // 4, 3 * bins // 4
 
-                    # w0, mu0 для левой части
-                    w0 = torch.cumsum(pdf, dim=0)[1:-1]  # сумма до t
-                    mu0_num = torch.cumsum(pdf * bin_levels, dim=0)[1:-1]
-                    mu0 = mu0_num / (w0 + 1e-8)
+                    cum_sum = torch.cumsum(hist, dim=0)
+                    cum_mean = torch.cumsum(hist * bin_levels, dim=0)
+                    total_val = cum_sum[-1]
+                    total_mean = torch.where(
+                        total_val > 1e-8,
+                        cum_mean[-1] / total_val,
+                        torch.tensor(0.0, device=self.device, dtype=torch.float32),
+                    )
 
-                    # w1, mu1 для правой части
-                    w1 = 1.0 - w0
-                    mu1_num = torch.cumsum(pdf * bin_levels, dim=0)[-1] - mu0_num
-                    mu1 = mu1_num / (w1 + 1e-8)
+                    # === ВЕКТОРИЗОВАННЫЙ ПЕРЕБОР ===
+                    # Создаём сетку индексов: t1 ∈ [1, bins-3], t2 ∈ [t1+1, bins-2]
+                    t1_range = torch.arange(1, bins - 2, device=self.device)
+                    t2_range = torch.arange(2, bins - 1, device=self.device)
 
-                    # Межклассовая дисперсия
-                    var_between = w0 * w1 * (mu0 - mu1) ** 2
+                    # Создаём маску допустимых пар: t2 > t1
+                    t1_grid, t2_grid = torch.meshgrid(t1_range, t2_range, indexing="ij")
+                    valid_mask = t2_grid > t1_grid
+
+                    # Класс 0: [0, t1)
+                    w0_all = torch.where(
+                        total_val > 1e-8, cum_sum[t1_grid] / total_val, torch.zeros_like(cum_sum[t1_grid])
+                    )
+                    m0_all = torch.where(
+                        cum_sum[t1_grid] > 1e-8,
+                        cum_mean[t1_grid] / cum_sum[t1_grid],
+                        torch.zeros_like(cum_mean[t1_grid]),
+                    )
+
+                    # Класс 1: [t1, t2)
+                    cum_sum_t1 = cum_sum[t1_grid]
+                    cum_sum_t2 = cum_sum[t2_grid]
+                    cum_mean_t1 = cum_mean[t1_grid]
+                    cum_mean_t2 = cum_mean[t2_grid]
+
+                    w1_all = torch.where(
+                        total_val > 1e-8,
+                        (cum_sum_t2 - cum_sum_t1) / total_val,
+                        torch.zeros_like(cum_sum_t2 - cum_sum_t1),
+                    )
+                    denom1 = cum_sum_t2 - cum_sum_t1
+                    m1_all = torch.where(
+                        denom1 > 1e-8, (cum_mean_t2 - cum_mean_t1) / denom1, torch.zeros_like(cum_mean_t2 - cum_mean_t1)
+                    )
+
+                    # Класс 2: [t2, bins)
+                    w2_all = torch.where(
+                        total_val > 1e-8, (total_val - cum_sum_t2) / total_val, torch.zeros_like(total_val - cum_sum_t2)
+                    )
+                    denom2 = total_val - cum_sum_t2
+                    m2_all = torch.where(
+                        denom2 > 1e-8,
+                        (total_mean * total_val - cum_mean_t2) / denom2,
+                        torch.zeros_like(total_mean * total_val - cum_mean_t2),
+                    )
+
+                    # Межклассовая дисперсия для всех пар
+                    var_between_all = (
+                        w0_all * (m0_all - total_mean) ** 2
+                        + w1_all * (m1_all - total_mean) ** 2
+                        + w2_all * (m2_all - total_mean) ** 2
+                    )
+
+                    var_between_masked = torch.where(
+                        valid_mask, var_between_all, torch.tensor(-float("inf"), device=self.device)
+                    )
+                    flat = var_between_masked.view(-1)
+
+                    flat_2d = flat.unsqueeze(0)
+                    best_idx_rel = flat_2d.argmax(dim=1)
+                    best_idx = best_idx_rel.squeeze(0)
+
+                    n_t2 = len(t2_range)
+                    best_i = best_idx // n_t2
+                    best_j = best_idx % n_t2
+                    best_t1 = torch.gather(t1_range, dim=0, index=best_i)
+                    best_t2 = torch.gather(t2_range, dim=0, index=best_j)
+
+                    final_threshold = torch.gather(bin_levels, dim=0, index=best_t2)
+                    if final_threshold.dim() == 1:
+                        final_threshold = final_threshold.squeeze(0)
+
+                elif n_thresh == 1:
+                    # Формула: σ² = w0 * w1 * (m0 - m1)², где w0 + w1 = 1
+                    cumsum = torch.cumsum(hist, dim=0)
+                    mu_cum = torch.cumsum(hist * bin_levels, dim=0)
+
+                    w0 = cumsum
+                    w1 = total - w0
+                    m0 = torch.where(w0 > 1e-8, mu_cum / w0, torch.zeros_like(mu_cum))
+                    m1 = torch.where(w1 > 1e-8, (mu_cum[-1] - mu_cum) / w1, torch.zeros_like(mu_cum))
+
+                    var_between = w0 * w1 * (m0 - m1) ** 2
+                    var_between = torch.where(
+                        torch.isnan(var_between) | torch.isinf(var_between),
+                        torch.tensor(-float("inf"), device=var_between.device, dtype=var_between.dtype),
+                        var_between,
+                    )
                     var_between_2d = var_between.unsqueeze(0)
+                    best_idx_rel = var_between_2d.argmax(dim=1)
 
-                    # Найти лучший порог
-                    best_idx_rel = var_between_2d.argmax(dim=1)  # индекс относительно t_range
-                    best_idx = best_idx_rel + 1  # сдвиг к исходным бинам
+                    final_threshold = best_idx_rel.float() / max(bins - 1, 1)
 
-                    # 🔧 ЗАМЕНА: вместо bin_levels[best_idx] используем torch.gather
-                    final_threshold = torch.gather(bin_levels, 0, best_idx)
-
-                # 🔧 Вариант 2: Для n_thresh > 1 — использовать фиксированные квантили
-                # (приближённый, но export-friendly подход)
                 else:
-                    # Найти пороги через равномерное разбиение кумулятивной гистограммы
+                    # Fallback для n_thresh > 2
+                    pdf = hist / (total + 1e-8)
                     cdf = torch.cumsum(pdf, dim=0)
-                    quantiles = torch.linspace(0, 1, n_thresh + 2, device=self.device, dtype=dtype)[1:-1]
-
-                    # 🔧 FIX: матричное сравнение [n_thresh, bins]
-                    cdf_exp = cdf.unsqueeze(0)  # [1, bins]
-                    q_exp = quantiles.unsqueeze(1)  # [n_thresh, 1]
-                    thresholds_idx = (cdf_exp >= q_exp).int().argmax(dim=1)  # [n_thresh]
-                    # 🔧 FIX: последний порог через gather (без .item()!)
-                    last_idx = thresholds_idx[-1]  # scalar tensor
-                    final_threshold = torch.gather(bin_levels, 0, last_idx.unsqueeze(0))
-                mask = (gray > final_threshold).to(dtype)
+                    quantiles = torch.linspace(0, 1, n_thresh + 2, device=self.device, dtype=torch.float32)[1:-1]
+                    cdf_exp = cdf.unsqueeze(0)
+                    q_exp = quantiles.unsqueeze(1)
+                    thresholds_idx = (cdf_exp >= q_exp).int().argmax(dim=1)
+                    last_idx = thresholds_idx[-1]
+                    final_threshold = torch.gather(bin_levels, dim=0, index=last_idx)
+                    if final_threshold.dim() == 1:
+                        final_threshold = final_threshold.squeeze(0)
+                mask = (gray >= final_threshold).to(dtype)
+                mask = torch.where(total < 1e-8, torch.zeros_like(mask), mask)
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                mask = mask.unsqueeze(0)
             return mask.to(torch.float32).view(1, 1, gray.shape[-2], gray.shape[-1])
 
         # === ГИСТОГРАММА ===
         gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
         hist = torch.histc(gray_for_hist, bins=bins, min=0.0, max=1.0)
         total = hist.sum()
+
         if total < 1e-8:
             return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
 
         pdf = hist / total
-        bin_levels = torch.arange(bins, dtype=dtype, device=self.device) / (bins - 1)
+        bin_levels = torch.arange(bins, dtype=dtype, device=self.device) / max(bins - 1, 1)
 
-        # === РЕКУРСИВНЫЙ ПОИСК ПОРОГОВ ===
-        def find_thresholds(start: int, end: int, n: int) -> List[int]:
-            if n <= 1 or end - start < 2:
-                return []
-            best_t = start + (end - start) // 2
-            best_var = torch.tensor(-float("inf"), device=gray.device)
+        if n_thresh == 2:
+            best_t1, best_t2 = bins // 4, 3 * bins // 4
 
-            for t in range(start + 1, end):
-                w0 = pdf[start : t + 1].sum()
+            cum_sum = torch.cumsum(hist, dim=0)
+            cum_mean = torch.cumsum(hist * bin_levels, dim=0)
+            total_val = cum_sum[-1]
+            total_mean = torch.where(
+                total_val > 1e-8, cum_mean[-1] / total_val, torch.tensor(0.0, device=self.device, dtype=torch.float32)
+            )
 
-                eps = 1e-8
-                mu0 = torch.sum(pdf[start : t + 1] * bin_levels[start : t + 1]) / (w0 + eps)
+            # === ВЕКТОРИЗОВАННЫЙ ПЕРЕБОР ===
+            # Создаём сетку индексов: t1 ∈ [1, bins-3], t2 ∈ [t1+1, bins-2]
+            t1_range = torch.arange(1, bins - 2, device=self.device)
+            t2_range = torch.arange(2, bins - 1, device=self.device)
 
-                w1 = pdf[t + 1 : end + 1].sum()
-                mu1 = torch.sum(pdf[t + 1 : end + 1] * bin_levels[t + 1 : end + 1]) / (w1 + eps)
+            # Создаём маску допустимых пар: t2 > t1
+            t1_grid, t2_grid = torch.meshgrid(t1_range, t2_range, indexing="ij")
+            valid_mask = t2_grid > t1_grid
 
-                var_between = w0 * w1 * (mu0 - mu1) ** 2
-                if var_between > best_var:
-                    best_var = var_between
-                    best_t = t
+            # Класс 0: [0, t1)
+            w0_all = torch.where(total_val > 1e-8, cum_sum[t1_grid] / total_val, torch.zeros_like(cum_sum[t1_grid]))
+            m0_all = torch.where(
+                cum_sum[t1_grid] > 1e-8, cum_mean[t1_grid] / cum_sum[t1_grid], torch.zeros_like(cum_mean[t1_grid])
+            )
 
-            thresholds = [best_t]
-            if n > 2:
-                left = find_thresholds(start, best_t, (n + 1) // 2)
-                right = find_thresholds(best_t, end, n // 2)
-                thresholds = left + thresholds + right
-            return thresholds
+            # Класс 1: [t1, t2)
+            cum_sum_t1 = cum_sum[t1_grid]
+            cum_sum_t2 = cum_sum[t2_grid]
+            cum_mean_t1 = cum_mean[t1_grid]
+            cum_mean_t2 = cum_mean[t2_grid]
 
-        # === БИНАРИЗАЦИЯ ===
-        with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
+            w1_all = torch.where(
+                total_val > 1e-8, (cum_sum_t2 - cum_sum_t1) / total_val, torch.zeros_like(cum_sum_t2 - cum_sum_t1)
+            )
+            denom1 = cum_sum_t2 - cum_sum_t1
+            m1_all = torch.where(
+                denom1 > 1e-8, (cum_mean_t2 - cum_mean_t1) / denom1, torch.zeros_like(cum_mean_t2 - cum_mean_t1)
+            )
+
+            # Класс 2: [t2, bins)
+            w2_all = torch.where(
+                total_val > 1e-8, (total_val - cum_sum_t2) / total_val, torch.zeros_like(total_val - cum_sum_t2)
+            )
+            denom2 = total_val - cum_sum_t2
+            m2_all = torch.where(
+                denom2 > 1e-8,
+                (total_mean * total_val - cum_mean_t2) / denom2,
+                torch.zeros_like(total_mean * total_val - cum_mean_t2),
+            )
+
+            # Межклассовая дисперсия для всех пар
+            var_between_all = (
+                w0_all * (m0_all - total_mean) ** 2
+                + w1_all * (m1_all - total_mean) ** 2
+                + w2_all * (m2_all - total_mean) ** 2
+            )
+
+            # Применяем маску допустимых пар и находим максимум
+            var_between_masked = torch.where(
+                valid_mask, var_between_all, torch.tensor(-float("inf"), device=self.device)
+            )
+
+            flat = var_between_masked.view(-1)
+            flat_2d = flat.unsqueeze(0)
+            best_idx_rel = flat_2d.argmax(dim=1)
+
+            best_idx = best_idx_rel.squeeze(0)
+            n_t2 = len(t2_range)
+            best_i = best_idx // n_t2
+            best_j = best_idx % n_t2
+            best_t1 = torch.gather(t1_range, dim=0, index=best_i)
+            best_t2 = torch.gather(t2_range, dim=0, index=best_j)
+
+            final_threshold = torch.gather(bin_levels, dim=0, index=best_t2)
+            if final_threshold.dim() == 1:
+                final_threshold = final_threshold.squeeze(0)
+
+        elif n_thresh == 1:
+            # Классический Оцу для ВЕРОЯТНОСТЕЙ (pdf), а не счётчиков (hist)
+            # Формула: σ² = w0 * w1 * (m0 - m1)², где w0 + w1 = 1
+
+            cum_prob = torch.cumsum(pdf, dim=0)  # кумулятивная вероятность [0, 1]
+            cum_mean = torch.cumsum(pdf * bin_levels, dim=0)  # кумулятивное среднее
+            total_mean = cum_mean[-1]  # общее среднее (уже нормализовано)
+
+            # Веса классов (вероятности)
+            w0 = cum_prob  # P(class 0)
+            w1 = 1.0 - w0  # P(class 1)
+
+            # Средние классов
+            m0 = torch.where(w0 > 1e-8, cum_mean / w0, torch.zeros_like(cum_mean))
+            m1 = torch.where(w1 > 1e-8, (total_mean - cum_mean) / w1, torch.zeros_like(cum_mean))
+
+            # Межклассовая дисперсия для вероятностей
+            var_between = w0 * w1 * (m0 - m1) ** 2
+
+            # Защита от NaN/inf
+            var_between = torch.where(
+                torch.isnan(var_between) | torch.isinf(var_between),
+                torch.tensor(-float("inf"), device=var_between.device, dtype=torch.float32),
+                var_between,
+            )
+
+            # Лучший порог
+            best_idx = var_between.argmax()
+            final_threshold = bin_levels[best_idx]
+
+        else:
+            # === РЕКУРСИВНЫЙ ПОИСК ПОРОГОВ (только для n_thresh != 2) ===
+            def find_thresholds(start: int, end: int, n: int) -> List[int]:
+                if n <= 1 or end - start < 2:
+                    return []
+                best_t = start + (end - start) // 2
+                best_var = torch.tensor(-float("inf"), device=gray.device)
+
+                for t in range(start + 1, end):
+                    w0 = pdf[start : t + 1].sum()
+                    eps = 1e-8
+                    mu0 = torch.sum(pdf[start : t + 1] * bin_levels[start : t + 1]) / (w0 + eps)
+                    w1 = pdf[t + 1 : end + 1].sum()
+                    mu1 = torch.sum(pdf[t + 1 : end + 1] * bin_levels[t + 1 : end + 1]) / (w1 + eps)
+                    var_between = w0 * w1 * (mu0 - mu1) ** 2
+                    if var_between > best_var:
+                        best_var = var_between
+                        best_t = t
+
+                thresholds = [best_t]
+                if n > 2:
+                    left = find_thresholds(start, best_t, (n + 1) // 2)
+                    right = find_thresholds(best_t, end, n // 2)
+                    thresholds = left + thresholds + right
+                return thresholds
+
             thresholds = find_thresholds(0, bins - 1, n_thresh)
             final_threshold = (
                 bin_levels[thresholds[-1]] if thresholds else torch.tensor(0.5, dtype=dtype, device=self.device)
             )
-            mask = (gray > final_threshold).to(dtype)
+
+        # === БИНАРИЗАЦИЯ ===
+        with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
+            mask = (gray >= final_threshold).to(dtype)
+            mask = torch.where(total < 1e-8, torch.zeros_like(mask), mask)
+            mask = mask.to(torch.float32)
 
         if not torch.compiler.is_compiling() and start_time is not None:
             exec_time: float = time.time() - start_time
@@ -5091,7 +5247,11 @@ class TorchSegmenter2(BaseSegmenter):
             self.params["execution_info"] = info
             if self._debug_mode:
                 logger.info(f"[DEBUG] {self.method}: precision_val={precision_val}, dtype={dtype}")
-        return mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
+        if mask.dim() == 2:
+            mask = mask.unsqueeze(0).unsqueeze(0)
+        elif mask.dim() == 3:
+            mask = mask.unsqueeze(0)
+        return mask
 
     # ──────────────────────────────────────────────────────────────────────
     @torch.no_grad()
@@ -5103,6 +5263,7 @@ class TorchSegmenter2(BaseSegmenter):
         contrast_factor: Optional[float] = None,
         precision: Optional[str] = None,
         export_mode: bool = False,
+        quantile: Optional[float] = None,
     ) -> torch.Tensor:
         """Локальный контрастный порог.
 
@@ -5166,6 +5327,7 @@ class TorchSegmenter2(BaseSegmenter):
         ws = window_size if window_size is not None else self.params.get("window_size", 15)
         ws = ws if ws % 2 == 1 else ws + 1
         cf = contrast_factor if contrast_factor is not None else self.params.get("contrast_factor", 0.1)
+        quantile_val = quantile if quantile is not None else self.params.get("quantile", 0.8416)
         precision_val = precision if precision is not None else "fp32"
 
         if export_mode:
@@ -5181,19 +5343,20 @@ class TorchSegmenter2(BaseSegmenter):
                     device=gray_4d.device,
                     dtype=gray_4d.dtype,
                 ) / (ws * ws)
-                local_mean = F.conv2d(gray_4d, kernel, padding=ws // 2)
+                pad = ws // 2
+                gray_padded = F.pad(gray_4d, (pad, pad, pad, pad), mode="reflect")
+                local_mean = F.conv2d(gray_padded, kernel, padding=0)
                 if local_mean.dim() == 4 and local_mean.shape[:2] == (1, 1):
                     local_mean = local_mean.view(local_mean.shape[2], local_mean.shape[3])
                 else:
                     local_mean = local_mean.squeeze(0).squeeze(0)
                 local_contrast = torch.abs(gray - local_mean)
 
-                # Глобальный порог через квантиль
                 contrast_mean = local_contrast.mean(dim=(-2, -1), keepdim=False)
                 contrast_std = local_contrast.std(dim=(-2, -1), unbiased=False, keepdim=False)
                 k_factor = torch.tensor(
-                    1.28, device=contrast_mean.device, dtype=contrast_mean.dtype
-                )  # ≈ 90-й перцентиль нормального распределения
+                    quantile_val, device=contrast_mean.device, dtype=contrast_mean.dtype
+                )  # перцентиль нормального распределения
                 threshold = contrast_mean + k_factor * contrast_std
                 mask = (local_contrast > threshold.unsqueeze(-1).unsqueeze(-1)).to(dtype)
             return mask.to(torch.float32).view(1, 1, mask.shape[-2], mask.shape[-1])
@@ -5208,13 +5371,16 @@ class TorchSegmenter2(BaseSegmenter):
                 ws,
                 ws,
                 device=gray_4d.device,
-                dtype=gray_4d.dtype,
+                dtype=torch.float32,
             ) / (ws * ws)
-            local_mean = F.conv2d(gray_4d, kernel, padding=ws // 2).squeeze()
+            pad = ws // 2
+            gray_padded = F.pad(gray_4d, (pad, pad, pad, pad), mode="reflect")
+            local_mean = F.conv2d(gray_padded, kernel, padding=0)
+            local_mean = local_mean.squeeze(0).squeeze(0)  # (1, 1, H, W) → (H, W)
             local_contrast = torch.abs(gray - local_mean)
 
             # Глобальный порог через квантиль
-            threshold = torch.quantile(local_contrast, 1.0 - cf)
+            threshold = torch.quantile(local_contrast.flatten(), 1.0 - cf)
             mask = (local_contrast > threshold).to(dtype)
 
         if not torch.compiler.is_compiling() and start_time is not None:

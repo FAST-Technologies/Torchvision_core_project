@@ -121,7 +121,7 @@ import time
 from collections import deque
 import heapq
 import traceback
-from typing import List, Union, Tuple, Dict, Any, Optional, Callable, Deque, cast
+from typing import List, Union, Tuple, Dict, Any, Optional, Callable, Deque, cast, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -134,6 +134,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 
 from torchvision.transforms import functional as TF
 
+from functools import lru_cache
 import cv2
 from sklearn.cluster import DBSCAN, MeanShift as SkMeanShift
 from torchvision.transforms.functional import gaussian_blur as tv_gaussian_blur
@@ -1437,8 +1438,33 @@ class TorchSegmenter(BaseSegmenter):
             logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
         return cast(torch.Tensor, mask)
 
+    @staticmethod
+    @lru_cache(maxsize=64)
+    def _get_gaussian_kernel_1d(
+        size: int,
+        sigma: float,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """Кэшируемое 1D гауссово ядро для сепарабельной свёртки.
+
+        Args:
+            size: Нечётный размер ядра.
+            sigma: Стандартное отклонение гауссианы.
+            dtype: Тип данных тензора.
+            device: Устройство размещения.
+
+        Returns:
+            torch.Tensor: 1D ядро формы (size,), нормированное к сумме 1.
+        """
+        coords = torch.arange(size, dtype=dtype, device=device) - size // 2
+        kernel = torch.exp(-0.5 * (coords / sigma) ** 2)
+        return kernel / kernel.sum()
+
     # ──────────────────────────────────────────────────────────────────────
-    def _adaptive_thresholding(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
+    def _adaptive_thresholding(
+        self, tensor: torch.Tensor, method: Literal["mean", "gaussian"] = "gaussian", **kwargs: Any
+    ) -> torch.Tensor:
         """Адаптивная пороговая сегментация (Gaussian).
 
         Вычисляет локальный порог для каждой области изображения.
@@ -1454,20 +1480,30 @@ class TorchSegmenter(BaseSegmenter):
         # print(f"Gray after Torch_thresholding_adaptive: {gray}")
 
         start_time = time.time()
-        block_size = self.params.get("block_size", 11)
-        C = self.params.get("C", 2)
 
-        if block_size % 2 == 0:
-            block_size += 1
+        bs = self.params.get("block_size", 11)
+        bs = bs if bs % 2 == 1 else bs + 1  # ensure odd
+        c_val: float = self.params.get("C", 2)
+        c_norm = c_val / 255.0
 
-        kernel = torch.ones(1, 1, block_size, block_size).to(self.device) / (block_size * block_size)
-        local_mean = F.conv2d(gray, kernel, padding=block_size // 2)
-        mask = (gray > (local_mean - C / 255.0)).float()
+        if method == "gaussian":
+            kernel_1d = self._get_gaussian_kernel_1d(bs, sigma=bs / 6, dtype=torch.float32, device=self.device)
+            kernel_2d = kernel_1d.unsqueeze(1) @ kernel_1d.unsqueeze(0)  # outer product
+            kernel_2d = kernel_2d.unsqueeze(0).unsqueeze(0)  # (1, 1, k, k)
+        else:  # mean
+            kernel_2d = torch.ones(1, 1, bs, bs, dtype=torch.float32, device=self.device) / (bs * bs)
+
+        kernel_2d = kernel_2d.to(dtype=gray.dtype)
+        local_stat = F.conv2d(gray, kernel_2d, padding=bs // 2, stride=1)
+
+        threshold_map = local_stat - c_norm
+        mask = (gray > threshold_map).to(torch.float32)
+
         exec_time = time.time() - start_time
         info = self._log_info(
             "adaptive_thresholding_torch",
             exec_time,
-            {"block_size": block_size, "C": C, **kwargs},
+            {"block_size": bs, "C": c_val, "method": method, **kwargs},
         )
         if self._debug_mode:
             logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
@@ -1611,7 +1647,7 @@ class TorchSegmenter(BaseSegmenter):
             start_time = time.time()
 
             window_size = self.params.get("window_size", 15)
-            k = self.params.get("k", 0.2)
+            k = self.params.get("k", 0.5)
             r = self.params.get("r", 128)
 
             # Вычисляем локальное среднее и СКО на numpy
@@ -1657,7 +1693,7 @@ class TorchSegmenter(BaseSegmenter):
 
         start_time = time.time()
         window_size = self.params.get("window_size", 15)
-        contrast_threshold = self.params.get("contrast_threshold", 0.1)
+        contrast_threshold = self.params.get("contrast_threshold", 0.15)
         use_global_mean = self.params.get("use_global_mean", False)
 
         if window_size % 2 == 0:
@@ -1867,45 +1903,6 @@ class TorchSegmenter(BaseSegmenter):
         cum_pdf = torch.cumsum(pdf, dim=0)
         cum_mean = torch.cumsum(pdf * bins, dim=0)
 
-        # best_threshold = 128
-        # min_criterion = torch.tensor(float("inf"), device=gray.device)
-
-        # for t in range(1, 255):
-        #     if cum_pdf[t] < 1e-6 or (1 - cum_pdf[t]) < 1e-6:
-        #         continue
-
-        #     # Статистики класса 0 (фон)
-        #     w0 = cum_pdf[t]
-        #     mu0 = cum_mean[t] / w0
-        #     var0 = (torch.cumsum(pdf * bins**2, dim=0)[t] / w0) - mu0**2
-        #     var0 = torch.clamp(var0, min=1e-6)
-
-        #     # Статистики класса 1 (объект)
-        #     w1 = 1 - cum_pdf[t]
-        #     mu1 = (cum_mean[-1] - cum_mean[t]) / w1
-        #     var1 = (
-        #         (
-        #             torch.cumsum(pdf * bins**2, dim=0)[-1]
-        #             - torch.cumsum(pdf * bins**2, dim=0)[t]
-        #         )
-        #         / w1
-        #     ) - mu1**2
-        #     var1 = torch.clamp(var1, min=1e-6)
-
-        #     # Критерий Киттлера-Иллингворта
-        #     criterion = (
-        #         1
-        #         + 2
-        #         * (w0 * torch.log(torch.sqrt(var0)) + w1 * torch.log(torch.sqrt(var1)))
-        #         - 2 * (w0 * torch.log(w0) + w1 * torch.log(w1))
-        #     )
-
-        #     if criterion < min_criterion:
-        #         min_criterion = criterion
-        #         best_threshold = t
-
-        # threshold = best_threshold / 255.0
-
         # Векторизованный критерий Киттлера-Иллингворта (без Python-цикла)
         cum_sq = torch.cumsum(pdf * bins**2, dim=0)
         total_sq = cum_sq[-1]
@@ -1960,33 +1957,6 @@ class TorchSegmenter(BaseSegmenter):
             return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
 
         pdf = hist / total
-
-        # best_threshold = 128
-        # max_entropy = torch.tensor(-float("inf"), device=gray.device)
-
-        # for t in range(1, 255):
-        #     # Класс 0: [0, t]
-        #     w0 = pdf[: t + 1].sum()
-        #     if w0 < 1e-6:
-        #         continue
-        #     p0 = pdf[: t + 1] / w0
-        #     entropy0 = -torch.sum(p0 * torch.log(p0 + 1e-10))
-
-        #     # Класс 1: [t+1, 255]
-        #     w1 = pdf[t + 1 :].sum()
-        #     if w1 < 1e-6:
-        #         continue
-        #     p1 = pdf[t + 1 :] / w1
-        #     entropy1 = -torch.sum(p1 * torch.log(p1 + 1e-10))
-
-        #     # Общая энтропия
-        #     total_entropy = entropy0 + entropy1
-
-        #     if total_entropy > max_entropy:
-        #         max_entropy = total_entropy
-        #         best_threshold = t
-
-        # threshold = best_threshold / 255.0
 
         # Векторизованный критерий Капура — без Python-цикла
         eps = 1e-10
@@ -2058,20 +2028,6 @@ class TorchSegmenter(BaseSegmenter):
         peak_val = hist_norm[peak_idx]
         end_val = hist_norm[end_idx]
 
-        # best_threshold: int = peak_idx
-        # max_distance: float = -1.0
-
-        # for t in range(start_idx, end_idx + 1):
-        #     # Расстояние от точки до линии
-        #     line_val = peak_val + (end_val - peak_val) * (t - peak_idx) / (
-        #         end_idx - peak_idx + 1e-10
-        #     )
-        #     distance: float = float(torch.abs(hist_norm[t] - line_val).item())
-
-        #     if distance > max_distance:
-        #         max_distance = distance
-        #         best_threshold = t
-
         # Векторизованный треугольный метод — без Python-цикла
         t_range = torch.arange(start_idx, end_idx + 1, device=self.device, dtype=torch.float32)
         line_vals = peak_val + (end_val - peak_val) * (t_range - peak_idx) / (end_idx - peak_idx + 1e-10)
@@ -2101,78 +2057,179 @@ class TorchSegmenter(BaseSegmenter):
 
         start_time = time.time()
 
-        n_thresholds = self.params.get("n_thresholds", 2)
-        num_bins: int = self.params.get("num_bins", 256)
+        n_thresh = self.params.get("n_thresholds", 2)
+        bins = self.params.get("num_bins", 256)
 
         # Гистограмма
-        hist = torch.histc(gray, bins=num_bins, min=0, max=1)
+        hist = torch.histc(gray, bins=bins, min=0.0, max=1.0)
         total = hist.sum()
-        if total == 0:
+
+        if total < 1e-8:
             return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
 
         pdf = hist / total
-        bins = torch.arange(num_bins, dtype=torch.float32, device=self.device) / 255.0
+        bin_levels = torch.arange(bins, dtype=torch.float32, device=self.device) / max(bins - 1, 1)
 
-        # Рекурсивный поиск порогов
-        def find_thresholds(start: int, end: int, n: int) -> List[int]:
-            if n <= 1 or end - start < 2:
-                return []
+        if n_thresh == 2:
+            best_t1, best_t2 = bins // 4, 3 * bins // 4
 
-            best_t = start + (end - start) // 2
-            best_var = torch.tensor(-float("inf"), device=gray.device)
+            cum_sum = torch.cumsum(hist, dim=0)
+            cum_mean = torch.cumsum(hist * bin_levels, dim=0)
+            total_val = cum_sum[-1]
+            total_mean = torch.where(
+                total_val > 1e-8, cum_mean[-1] / total_val, torch.tensor(0.0, device=self.device, dtype=torch.float32)
+            )
 
-            for t in range(start + 1, end):
-                # Класс 0: [start, t]
-                w0 = pdf[start : t + 1].sum()
-                if w0 < 1e-6:
-                    continue
-                mu0 = torch.sum(pdf[start : t + 1] * bins[start : t + 1]) / w0
+            # t1 ∈ [1, bins-3], t2 ∈ [t1+1, bins-2]
+            t1_range = torch.arange(1, bins - 2, device=self.device)
+            t2_range = torch.arange(2, bins - 1, device=self.device)
 
-                # Класс 1: [t+1, end]
-                w1 = pdf[t + 1 : end + 1].sum()
-                if w1 < 1e-6:
-                    continue
-                mu1 = torch.sum(pdf[t + 1 : end + 1] * bins[t + 1 : end + 1]) / w1
+            # Создаём маску допустимых пар: t2 > t1
+            t1_grid, t2_grid = torch.meshgrid(t1_range, t2_range, indexing="ij")
+            valid_mask = t2_grid > t1_grid
 
-                # Межклассовая дисперсия
-                var_between = w0 * w1 * (mu0 - mu1) ** 2
+            # Класс 0: [0, t1)
+            w0_all = torch.where(total_val > 1e-8, cum_sum[t1_grid] / total_val, torch.zeros_like(cum_sum[t1_grid]))
+            m0_all = torch.where(
+                cum_sum[t1_grid] > 1e-8, cum_mean[t1_grid] / cum_sum[t1_grid], torch.zeros_like(cum_mean[t1_grid])
+            )
 
-                if var_between > best_var:
-                    best_var = var_between
-                    best_t = t
+            # Класс 1: [t1, t2)
+            cum_sum_t1 = cum_sum[t1_grid]
+            cum_sum_t2 = cum_sum[t2_grid]
+            cum_mean_t1 = cum_mean[t1_grid]
+            cum_mean_t2 = cum_mean[t2_grid]
 
-            # Рекурсивный поиск для оставшихся порогов
-            thresholds = [best_t]
-            if n > 2:
-                left = find_thresholds(start, best_t, (n + 1) // 2)
-                right = find_thresholds(best_t, end, n // 2)
-                thresholds = left + thresholds + right
+            w1_all = torch.where(
+                total_val > 1e-8, (cum_sum_t2 - cum_sum_t1) / total_val, torch.zeros_like(cum_sum_t2 - cum_sum_t1)
+            )
+            denom1 = cum_sum_t2 - cum_sum_t1
+            m1_all = torch.where(
+                denom1 > 1e-8, (cum_mean_t2 - cum_mean_t1) / denom1, torch.zeros_like(cum_mean_t2 - cum_mean_t1)
+            )
 
-            return thresholds
+            # Класс 2: [t2, bins)
+            w2_all = torch.where(
+                total_val > 1e-8, (total_val - cum_sum_t2) / total_val, torch.zeros_like(total_val - cum_sum_t2)
+            )
+            denom2 = total_val - cum_sum_t2
+            m2_all = torch.where(
+                denom2 > 1e-8,
+                (total_mean * total_val - cum_mean_t2) / denom2,
+                torch.zeros_like(total_mean * total_val - cum_mean_t2),
+            )
 
-        thresholds = find_thresholds(0, 255, n_thresholds)
+            # Межклассовая дисперсия для всех пар
+            var_between_all = (
+                w0_all * (m0_all - total_mean) ** 2
+                + w1_all * (m1_all - total_mean) ** 2
+                + w2_all * (m2_all - total_mean) ** 2
+            )
 
-        # Создаём маску: объект = всё кроме самого большого класса
-        if thresholds:
-            final_threshold = thresholds[-1] / 255.0
-            mask = (gray > final_threshold).float()
+            var_between_masked = torch.where(
+                valid_mask, var_between_all, torch.tensor(-float("inf"), device=self.device)
+            )
+
+            flat = var_between_masked.view(-1)
+            flat_2d = flat.unsqueeze(0)
+            best_idx_rel = flat_2d.argmax(dim=1)
+            best_idx = best_idx_rel.squeeze(0)
+
+            # Декодируем индексы
+            n_t2 = len(t2_range)
+            best_i = best_idx // n_t2
+            best_j = best_idx % n_t2
+            best_t1 = torch.gather(t1_range, dim=0, index=best_i)
+            best_t2 = torch.gather(t2_range, dim=0, index=best_j)
+
+            final_threshold = torch.gather(bin_levels, dim=0, index=best_t2)
+            if final_threshold.dim() == 1:
+                final_threshold = final_threshold.squeeze(0)
+
+        elif n_thresh == 1:
+            # 🔧 FIX: Классический Оцу для ВЕРОЯТНОСТЕЙ (pdf), а не счётчиков (hist)
+            # Формула: σ² = w0 * w1 * (m0 - m1)², где w0 + w1 = 1
+
+            cum_prob = torch.cumsum(pdf, dim=0)  # кумулятивная вероятность [0, 1]
+            cum_mean = torch.cumsum(pdf * bin_levels, dim=0)  # кумулятивное среднее
+            total_mean = cum_mean[-1]  # общее среднее (уже нормализовано)
+
+            # Веса классов (вероятности)
+            w0 = cum_prob  # P(class 0)
+            w1 = 1.0 - w0  # P(class 1)
+
+            # Средние классов
+            m0 = torch.where(w0 > 1e-8, cum_mean / w0, torch.zeros_like(cum_mean))
+            m1 = torch.where(w1 > 1e-8, (total_mean - cum_mean) / w1, torch.zeros_like(cum_mean))
+
+            # Межклассовая дисперсия для вероятностей
+            var_between = w0 * w1 * (m0 - m1) ** 2
+
+            # Защита от NaN/inf
+            var_between = torch.where(
+                torch.isnan(var_between) | torch.isinf(var_between),
+                torch.tensor(-float("inf"), device=var_between.device, dtype=torch.float32),
+                var_between,
+            )
+
+            # Лучший порог
+            best_idx = var_between.argmax()
+            final_threshold = bin_levels[best_idx]
+
         else:
-            mask = (gray > 0.5).float()
+            # === РЕКУРСИВНЫЙ ПОИСК ПОРОГОВ (только для n_thresh != 2) ===
+            def find_thresholds(start: int, end: int, n: int) -> List[int]:
+                if n <= 1 or end - start < 2:
+                    return []
+                best_t = start + (end - start) // 2
+                best_var = torch.tensor(-float("inf"), device=gray.device)
+
+                for t in range(start + 1, end):
+                    w0 = pdf[start : t + 1].sum()
+                    eps = 1e-8
+                    mu0 = torch.sum(pdf[start : t + 1] * bin_levels[start : t + 1]) / (w0 + eps)
+                    w1 = pdf[t + 1 : end + 1].sum()
+                    mu1 = torch.sum(pdf[t + 1 : end + 1] * bin_levels[t + 1 : end + 1]) / (w1 + eps)
+                    var_between = w0 * w1 * (mu0 - mu1) ** 2
+                    if var_between > best_var:
+                        best_var = var_between
+                        best_t = t
+
+                thresholds = [best_t]
+                if n > 2:
+                    left = find_thresholds(start, best_t, (n + 1) // 2)
+                    right = find_thresholds(best_t, end, n // 2)
+                    thresholds = left + thresholds + right
+                return thresholds
+
+            thresholds = find_thresholds(0, bins - 1, n_thresh)
+            final_threshold = (
+                bin_levels[thresholds[-1]] if thresholds else torch.tensor(0.5, dtype=torch.float32, device=self.device)
+            )
+
+        # === БИНАРИЗАЦИЯ ===
+        mask = (gray >= final_threshold).float()
+        mask = torch.where(total < 1e-8, torch.zeros_like(mask), mask)
+        mask = mask.to(torch.float32)
 
         exec_time = time.time() - start_time
         info = self._log_info(
             "multi_otsu_torch",
             exec_time,
             {
-                "n_thresholds": n_thresholds,
-                "thresholds": thresholds,
+                "n_thresholds": n_thresh,
+                "num_bins": bins,
                 **kwargs,
             },
         )
         if self._debug_mode:
             logger.debug(f"{info['method']}: t={info['execution_time']:.4f}s")
 
-        return mask.unsqueeze(0).unsqueeze(0)
+        if mask.dim() == 2:
+            mask = mask.unsqueeze(0).unsqueeze(0)
+        elif mask.dim() == 3:
+            mask = mask.unsqueeze(0)
+        return mask
 
     # ──────────────────────────────────────────────────────────────────────
     def _threshold_local_contrast(self, tensor: torch.Tensor, **kwargs: Any) -> torch.Tensor:
@@ -2186,45 +2243,29 @@ class TorchSegmenter(BaseSegmenter):
         start_time = time.time()
 
         window_size = self.params.get("window_size", 15)
-        contrast_factor = self.params.get("contrast_factor", 0.1)
+        contrast_factor = self.params.get("contrast_factor", 0.2)
 
         if window_size % 2 == 0:
             window_size += 1
         pad = window_size // 2
 
-        # Паддинг для сохранения размера
-        gray_padded = F.pad(gray.unsqueeze(0).unsqueeze(0), (pad, pad, pad, pad), mode="reflect").squeeze(0).squeeze(0)
-        print(gray_padded)
-
-        # Локальное среднее через свёртку
-        kernel = torch.ones(1, 1, window_size, window_size, device=self.device) / (window_size**2)
-        local_mean = F.conv2d(gray.unsqueeze(0).unsqueeze(0), kernel, padding=pad).squeeze(0).squeeze(0)
-
-        # # Локальная дисперсия: E[X^2] - E[X]^2
-        # local_mean_sq = (
-        #     F.conv2d((gray**2).unsqueeze(0).unsqueeze(0), kernel, padding=pad)
-        #     .squeeze(0)
-        #     .squeeze(0)
-        # )
-        # local_var = torch.clamp(local_mean_sq - local_mean**2, min=1e-8)
-        # local_std = torch.sqrt(local_var)
-
-        # # Минимальный локальный контраст (10-й перцентиль)
-        # sigma_min = torch.quantile(local_std, 0.1)
-
-        # # Порог
-        # threshold = local_mean + contrast_factor * (local_std - sigma_min)
-
-        # # Бинаризация
-        # mask = (gray > threshold).float()
-        # Локальный контраст (как в OpenCV/Sklearn)
+        gray_4d = gray.unsqueeze(0).unsqueeze(0) if gray.dim() == 2 else gray.unsqueeze(0)
+        kernel = torch.ones(
+            1,
+            1,
+            window_size,
+            window_size,
+            device=gray_4d.device,
+            dtype=torch.float32,
+        ) / (window_size * window_size)
+        gray_padded = F.pad(gray_4d, (pad, pad, pad, pad), mode="reflect")
+        local_mean = F.conv2d(gray_padded, kernel, padding=0)
+        local_mean = local_mean.squeeze(0).squeeze(0)  # (1, 1, H, W) → (H, W)
         local_contrast = torch.abs(gray - local_mean)
 
-        # 🔥 Глобальный порог через квантиль (как в других реализациях)
-        global_contrast_threshold = torch.quantile(local_contrast, 1.0 - contrast_factor)
-
-        # Бинаризация
-        mask = (local_contrast > global_contrast_threshold).float()
+        # Глобальный порог через квантиль
+        threshold = torch.quantile(local_contrast.flatten(), 1.0 - contrast_factor)
+        mask = (local_contrast > threshold).float()
 
         exec_time = time.time() - start_time
         info = self._log_info(

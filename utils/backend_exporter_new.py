@@ -54,7 +54,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, Literal, TypeAlias
 
 import onnxruntime as ort
-import tensorrt  # noqa: F401
 
 import torch
 import torch.nn as nn
