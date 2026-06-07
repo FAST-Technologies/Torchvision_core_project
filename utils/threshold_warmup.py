@@ -228,7 +228,12 @@ class ThresholdWarmUp:
         print("\n🔥 WARM-UP ПОРОГОВЫХ МЕТОДОВ")
         print("=" * 60)
 
+        SKIP_BACKENDS = ["_TRT", "_TRT_", "TensorRT", "_ONNX_TRT_EP"] 
+
         for name, segmenter in segmenters_dict.items():
+            if any(suffix in name for suffix in SKIP_BACKENDS):
+                print(f"   ⏭  Пропущен бэкенд: {name}")
+                continue
             name_lower = name.lower()
             is_threshold: bool = any(kw in name_lower for kw in threshold_keywords)
             # exclude_keywords = ["kmeans", "dbscan", "meanshift", "neural", "segformer"]
@@ -354,10 +359,15 @@ class ThresholdWarmUp:
         ]
         results: Dict[str, PatternResults] = {}
 
+        SKIP_BACKENDS = ["_TRT", "_TRT_", "TensorRT", "_ONNX_TRT_EP"] 
+
         print("\n🔥 WARM-UP ГРАНИЧНЫХ МЕТОДОВ")
         print("=" * 60)
 
         for name, segmenter in segmenters_dict.items():
+            if any(suffix in name for suffix in SKIP_BACKENDS):
+                print(f"   ⏭  Пропущен бэкенд: {name}")
+                continue
             name_lower = name.lower()
             is_edge: bool = any(em in name_lower for em in edge_keywords)
             # exclude_keywords = ["kmeans", "dbscan", "meanshift", "neural", "segformer"]

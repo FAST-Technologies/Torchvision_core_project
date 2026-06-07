@@ -177,7 +177,7 @@ class TorchImplementationValidator:
             # ("adaptive_thresholding", {"block_size": 11, "C": 2}),
             # ("threshold_niblack", {"window_size": 15, "k": -0.2}),
             # ("threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128}),
-            ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
+            # ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
             # (
             #     "threshold_phansalkar",
             #     {
@@ -190,7 +190,7 @@ class TorchImplementationValidator:
             # ("threshold_kittler_illingworth", {"num_bins": 256}),
             # ("threshold_entropy_kapur", {"num_bins": 256}),
             # ("threshold_triangle", {"num_bins": 256}),
-            # ("threshold_multi_otsu", {"n_thresholds": 1}),
+            ("threshold_multi_otsu", {"n_thresholds": 2}),
             # ("threshold_percentile", {"percentile": 90}),
             # (
             #     "threshold_local_contrast",

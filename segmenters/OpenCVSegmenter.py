@@ -302,7 +302,7 @@ class OpenCVSegmenter(BaseSegmenter):
             "log_edge",
             "dog_edge",
             "marr_hildreth_edge",
-            "threshold_bernsen",
+            # "threshold_bernsen",
             # "phase_congruency_edge"
         ]
 
@@ -742,7 +742,6 @@ class OpenCVSegmenter(BaseSegmenter):
             gray: GrayImage = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.uint8)  # type: ignore[assignment]
         else:
             gray = img
-        logger.info(f"[DEBUG OpenCV] current gray: {gray}")
 
         start_time: float = time.time()
 
@@ -754,19 +753,13 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Вычисление локальных статистик
         # E[X] — локальное среднее
-        mean_raw = cv2.boxFilter(gray.astype(np.float32), cv2.CV_32F, (window_size, window_size))
-        mean: FloatArray = mean_raw.astype(np.uint8)
+        mean: FloatArray = cv2.boxFilter(gray.astype(np.float32), cv2.CV_32F, (window_size, window_size))
         # E[X²] — среднее квадратов
-        mean_sq_raw = cv2.boxFilter((gray.astype(np.float32) ** 2), cv2.CV_32F, (window_size, window_size))
-        mean_sq: FloatArray = mean_sq_raw.astype(np.uint8)
+        mean_sq: FloatArray = cv2.boxFilter((gray.astype(np.float32) ** 2), cv2.CV_32F, (window_size, window_size))
 
         # σ = sqrt(E[X²] - (E[X])²), с защитой от отрицательных значений из-за численных ошибок
         variance: FloatArray = np.maximum(mean_sq - mean**2, 0)
         std: FloatArray = np.sqrt(variance)
-
-        logger.info(f"[DEBUG OpenCV] current stats: mean_raw {mean_raw}, mean {mean}")
-        logger.info(f"[DEBUG OpenCV] current stats: mean_sq_raw {mean_sq_raw}, mean_sq {mean_sq}")
-        logger.info(f"[DEBUG OpenCV] current stats: variance {variance}, std {std}")
 
         # Или
         # mean = cv2.blur(gray, (window_size, window_size))
@@ -777,7 +770,6 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Бинаризация
         mask: MaskArray = (gray.astype(np.float32) > threshold).astype(np.uint8) * 255
-        logger.info(f"[DEBUG OpenCV] {self.method}: current threshold {threshold}, mask {mask}")
 
         exec_time: float = time.time() - start_time
 
@@ -885,11 +877,11 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Вычисление локальных статистик
         # E[X] — локальное среднее интенсивности
-        mean_raw = cv2.boxFilter(gray.astype(np.float32), cv2.CV_32F, (window_size, window_size))
-        mean: FloatArray = mean_raw.astype(np.uint8)
+        mean: FloatArray = cv2.boxFilter(gray.astype(np.float32), cv2.CV_32F, (window_size, window_size))
+
         # E[X²] — среднее квадратов интенсивности
-        mean_sq_raw = cv2.boxFilter((gray.astype(np.float32) ** 2), cv2.CV_32F, (window_size, window_size))
-        mean_sq: FloatArray = mean_sq_raw.astype(np.uint8)
+        mean_sq: FloatArray = cv2.boxFilter((gray.astype(np.float32) ** 2), cv2.CV_32F, (window_size, window_size))
+
         # σ = sqrt(E[X²] - (E[X])²), с защитой от отрицательных значений из-за численных ошибок
         variance: FloatArray = np.maximum(mean_sq - mean**2, 0)
         std: FloatArray = np.sqrt(variance)
@@ -1004,12 +996,19 @@ class OpenCVSegmenter(BaseSegmenter):
 
         # Получение параметров с типизацией
         window_size: int = int(self.params.get("window_size", 15))
-        contrast_threshold: float = float(self.params.get("contrast_threshold", 0.15))
+        contrast_threshold_raw: float = float(self.params.get("contrast_threshold", 0.15))
 
         # Коррекция чётного window_size
         if window_size % 2 == 0:
             window_size += 1
         pad: int = window_size // 2
+
+        img_range: float = float(gray.max() - gray.min())
+        is_normalized: bool = img_range <= 1.0
+        if not is_normalized and contrast_threshold_raw <= 1.0:
+            contrast_threshold: float = contrast_threshold_raw * 255.0
+        else:
+            contrast_threshold = contrast_threshold_raw
 
         # Паддинг изображения для корректной обработки границ
         gray_padded: GrayImage = cv2.copyMakeBorder(
@@ -1049,7 +1048,7 @@ class OpenCVSegmenter(BaseSegmenter):
         mask: MaskArray = np.zeros_like(gray, dtype=np.uint8)
 
         # Бинаризация только для пикселей с достаточным контрастом
-        high_contrast: npt.NDArray[np.bool_] = contrast >= contrast_threshold
+        high_contrast: npt.NDArray[np.bool_] = contrast > contrast_threshold
         mask[high_contrast] = (gray[high_contrast].astype(np.float32) > threshold[high_contrast]).astype(np.uint8) * 255
 
         exec_time: float = time.time() - start_time
@@ -1169,14 +1168,12 @@ class OpenCVSegmenter(BaseSegmenter):
             window_size += 1
 
         # Вычисление локальных статистик
-        mean_raw: FloatArray = cv2.boxFilter(gray.astype(np.float32), cv2.CV_32F, (window_size, window_size)).astype(
+        mean: FloatArray = cv2.boxFilter(gray.astype(np.float32), cv2.CV_32F, (window_size, window_size)).astype(
             np.float32
         )
-        mean: FloatArray = mean_raw.astype(np.float32)
-        mean_sq_raw = cv2.boxFilter((gray.astype(np.float32) ** 2), cv2.CV_32F, (window_size, window_size)).astype(
+        mean_sq: FloatArray = cv2.boxFilter((gray.astype(np.float32) ** 2), cv2.CV_32F, (window_size, window_size)).astype(
             np.float32
         )
-        mean_sq: FloatArray = mean_sq_raw.astype(np.float32)
         variance: FloatArray = np.maximum(mean_sq - mean**2, 0)
         std: FloatArray = np.sqrt(variance)
 
@@ -1654,7 +1651,7 @@ class OpenCVSegmenter(BaseSegmenter):
         start_time: float = time.time()
 
         # Получение параметров
-        n_thresholds: int = int(self.params.get("n_thresholds", 1))
+        n_thresholds: int = int(self.params.get("n_thresholds", 2))
         num_bins: int = int(self.params.get("num_bins", 256))
 
         # Построение гистограммы

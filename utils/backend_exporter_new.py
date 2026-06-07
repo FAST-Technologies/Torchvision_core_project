@@ -584,9 +584,9 @@ def export_onnx_to_trt_via_api(
             # 🔥 Для статического входа: min=opt=max=onnx_shape
             profile.set_shape(
                 input_name,
-                min=onnx_input_shape,
+                min=(1, 3, 128, 128),
                 opt=onnx_input_shape,
-                max=onnx_input_shape,
+                max=(1, 3, 1920, 1280),
             )
             logger.info(f"✅ Static input: profile locked to {onnx_input_shape}")
         else:

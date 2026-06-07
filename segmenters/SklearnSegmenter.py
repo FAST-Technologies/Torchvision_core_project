@@ -1235,8 +1235,6 @@ class SklearnSegmenter(BaseSegmenter):
         else:
             gray = img.astype(np.float32)
 
-        logger.info(f"[DEBUG Sklearn] current gray: {gray}")
-
         start_time: float = time.time()
         window_size: int = int(self.params.get("window_size", 15))
         if window_size % 2 == 0:
@@ -1246,7 +1244,6 @@ class SklearnSegmenter(BaseSegmenter):
         thresh: npt.NDArray[np.float64] = threshold_niblack(gray, window_size=window_size, k=k)
         mask: MaskArray = ((gray > thresh) * 255).astype(np.uint8)
 
-        logger.info(f"[DEBUG Sklearn] current threshold {thresh}, mask {mask}")
         exec_time: float = time.time() - start_time
 
         info: SegmentationInfo = self._log_info(
@@ -1765,7 +1762,7 @@ class SklearnSegmenter(BaseSegmenter):
             ```
         """
         start_time: float = time.time()
-        n_classes: int = int(self.params.get("n_thresholds", 1)) + 1
+        n_classes: int = int(self.params.get("n_thresholds", 2)) + 1
 
         from skimage.filters import threshold_multiotsu as threshold_multi_otsu
 

@@ -264,6 +264,8 @@ class BatchClassicTester:
             ("torch", "opencv"),
             ("torch", "sklearn"),
             ("opencv", "sklearn"),
+            ("torch_v2", "sklearn"),
+            ("torch_v2", "opencv"),
             ("torch", "torch_v2"),
         ]
 
@@ -273,32 +275,33 @@ class BatchClassicTester:
         # ПОЛНЫЙ СПИСОК МЕТОДОВ
         # ──────────────────────────────────────────────────────────────
         self.all_threshold_methods: List[MethodConfig] = [
-            ("global_thresholding", {"threshold": 0.5}),
-            ("adaptive_thresholding", {"block_size": 11, "C": 2}),
-            ("otsu_thresholding", {}),
-            ("threshold_niblack", {"window_size": 15, "k": -0.2}),
-            ("threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128.0}),
-            ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
-            (
-                "threshold_phansalkar",
-                {"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
-            ),
-            ("threshold_kittler_illingworth", {"num_bins": 256}),
-            ("threshold_entropy_kapur", {"num_bins": 256}),
-            ("threshold_triangle", {"num_bins": 256}),
-            ("threshold_multi_otsu", {"n_thresholds": 2}),
-            ("threshold_percentile", {"percentile": 90}),
-            ("threshold_local_contrast", {"window_size": 15, "contrast_factor": 0.1}),
+            # ("global_thresholding", {"threshold": 0.5}),
+            # ("adaptive_thresholding", {"block_size": 11, "C": 2}),
+            # ("otsu_thresholding", {}),
+            # ("threshold_niblack", {"window_size": 15, "k": -0.2}),
+            # ("threshold_sauvola", {"window_size": 15, "k": 0.5, "r": 128.0}),
+            # ("threshold_bernsen", {"window_size": 15, "contrast_threshold": 0.15}),
+            # (
+            #     "threshold_phansalkar",
+            #     {"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
+            # ),
+            # ("threshold_kittler_illingworth", {"num_bins": 256}),
+            # ("threshold_entropy_kapur", {"num_bins": 256}),
+            # ("threshold_triangle", {"num_bins": 256}),
+            # ("threshold_multi_otsu", {"n_thresholds": 2}),
+            # ("threshold_percentile", {"percentile": 90}),
+            # ("threshold_local_contrast", {"window_size": 15, "contrast_factor": 0.1}),
         ]
 
         self.all_edge_methods: List[MethodConfig] = [
-            # ("sobel_edge", {"threshold": 0.1}),
+            ("sobel_edge", {"threshold": 0.1}),
             # ("canny_edge", {"low": 0.1, "high": 0.3, "sigma": 1.0}),
             # ("prewitt_edge", {"threshold": 0.1}),
             # ("scharr_edge", {"threshold": 0.1}),
             # ("roberts_cross_edge", {"threshold": 0.1}),
             # ("log_edge", {"sigma": 1.0, "threshold": 0.01}),
             # ("dog_edge", {"sigma1": 1.0, "sigma2": 2.0, "threshold": 0.01}),
+            # ("laplacian_edge", {"sigma": 1.0, "threshold": 0.1, "use_zero_crossing": False}),
             # ("marr_hildreth_edge", {"sigma": 1.5, "threshold": 0.01}),
             # ("gradient_magnitude_direction", {"threshold": 0.1}),
             # (
@@ -370,10 +373,10 @@ class BatchClassicTester:
         if self.include_backends:
             self.library_pairs.extend(
                 [
-                    ("torch", "onnx"),
-                    ("torch", "trt"),
-                    ("opencv", "onnx"),
-                    ("sklearn", "onnx"),
+                    ("torch_v2", "onnx"),
+                    ("torch_v2", "trt"),
+                    # ("opencv", "onnx"),
+                    # ("sklearn", "onnx"),
                 ]
             )
 

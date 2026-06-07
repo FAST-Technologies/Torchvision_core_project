@@ -803,7 +803,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "mode": "reduce-overhead",
             },
             "otsu_thresholding": {
-                "fullgraph": False,
+                "fullgraph": True,
                 "dynamic": True,
                 "mode": "reduce-overhead",
             },
@@ -846,7 +846,7 @@ class TorchSegmenter2(BaseSegmenter):
                 "mode": "reduce-overhead",
             },
             "prewitt_edge": {
-                "fullgraph": True,
+                "fullgraph": False,
                 "dynamic": True,
                 "mode": "reduce-overhead",
             },
@@ -3723,21 +3723,6 @@ class TorchSegmenter2(BaseSegmenter):
         gray = self._cast_to_dtype(gray) if gray.dtype != dtype else gray
 
         if not torch.compiler.is_compiling():
-            print(f"[DEBUG Torch] {self.method}: current gray: {gray}")
-
-        # # Масштабируем к [0, 255] для стабильности при low precision
-        # if not torch.compiler.is_compiling():
-        #     max_val = gray.amax(dim=(-2, -1), keepdim=False) if export_mode else gray.amax()
-        #     if max_val <= 1.0:
-        #         gray = gray * 255.0
-        # else:
-        #     # В режиме компиляции: torch.where + .clone() для избежания алиасинга
-        #     max_val = gray.amax(dim=(-2, -1), keepdim=False)
-        #     gray = torch.where(max_val <= 1.0, gray * 255.0, gray)
-        # if not torch.compiler.is_compiling():
-        #     print(f"[DEBUG Torch] {self.method}: current gray after compile mode: {gray}")
-
-        if not torch.compiler.is_compiling():
             start_time: float = time.time()
         else:
             start_time = None  # type: ignore[assignment]
@@ -3766,17 +3751,12 @@ class TorchSegmenter2(BaseSegmenter):
             return mask.to(torch.float32).view(1, 1, gray.shape[-2], gray.shape[-1])
 
         local_mean, local_std = self._local_stats_torch(gray.float(), ws, quantize_to_uint8=False)
-        if not torch.compiler.is_compiling():
-            print(f"[DEBUG Torch] {self.method}: current stats: local_mean {local_mean}, local_std {local_std}")
 
         # === ЛОКАЛЬНАЯ СТАТИСТИКА (полностью на GPU) ===
         with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
             # Формула Ниблака: T = μ + k·σ
             threshold = local_mean + k_val * local_std
             mask = (gray > threshold).to(dtype)
-
-        if not torch.compiler.is_compiling():
-            print(f"[DEBUG Torch] {self.method}: current threshold {threshold}, mask {mask}")
 
         if not torch.compiler.is_compiling() and start_time is not None:
             exec_time: float = time.time() - start_time
@@ -3799,8 +3779,6 @@ class TorchSegmenter2(BaseSegmenter):
         elif mask.dim() == 3:
             mask = mask.unsqueeze(0)
         mask = mask.to(torch.float32)
-        if not torch.compiler.is_compiling():
-            print(f"[DEBUG Torch] {self.method}: mask final: {mask}")
         return mask
 
     # ──────────────────────────────────────────────────────────────────────
@@ -3995,14 +3973,14 @@ class TorchSegmenter2(BaseSegmenter):
 
             # === ЛОКАЛЬНЫЙ MIN/MAX ЧЕРЕЗ POOLING ===
             with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
-                local_max = F.max_pool2d(gray_padded, kernel_size=ws, stride=1, padding=0)  # (1, 1, H, W)
-                local_min = -F.max_pool2d(-gray_padded, kernel_size=ws, stride=1, padding=0)  # (1, 1, H, W)
+                local_max = F.max_pool2d(gray_padded, kernel_size=ws, stride=1, padding=0, return_indices=False)  # (1, 1, H, W)
+                local_min = -F.max_pool2d(-gray_padded, kernel_size=ws, stride=1, padding=0, return_indices=False)  # (1, 1, H, W)
 
                 contrast = local_max - local_min  # (1, 1, H, W)
                 threshold_local = (local_max + local_min) / 2.0  # (1, 1, H, W)
 
                 # Применяем локальный порог там, где контраст достаточный
-                high_contrast = contrast >= c_thresh
+                high_contrast = contrast > c_thresh
                 mask = torch.zeros_like(gray_4d, dtype=dtype)
 
                 # 🔹 Векторизованное применение — все тензоры 4D
@@ -4039,14 +4017,14 @@ class TorchSegmenter2(BaseSegmenter):
 
         # === ЛОКАЛЬНЫЙ MIN/MAX ЧЕРЕЗ POOLING ===
         with self.precision_manager.autocast(precision_val, enabled=(dtype != torch.float32)):
-            local_max = F.max_pool2d(gray_padded, kernel_size=ws, stride=1, padding=0).squeeze()  # (H, W)
-            local_min = -F.max_pool2d(-gray_padded, kernel_size=ws, stride=1, padding=0).squeeze()  # (H, W)
+            local_max = F.max_pool2d(gray_padded, kernel_size=ws, stride=1, padding=0, return_indices=False).squeeze()  # (H, W)
+            local_min = -F.max_pool2d(-gray_padded, kernel_size=ws, stride=1, padding=0, return_indices=False).squeeze()  # (H, W)
 
             contrast = local_max - local_min
             threshold_local = (local_max + local_min) / 2.0
 
             # Применяем локальный порог там, где контраст достаточный
-            high_contrast = contrast >= c_thresh
+            high_contrast = contrast > c_thresh
             mask_2d = torch.zeros_like(gray_2d, dtype=dtype)
 
             # Векторизованное применение — все тензоры 2D
@@ -4457,8 +4435,6 @@ class TorchSegmenter2(BaseSegmenter):
         gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
         hist = torch.histc(gray_for_hist, bins=256, min=0.0, max=1.0)
         total = hist.sum()
-        if total < 1e-8:
-            return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
         pdf = hist / total
         bin_levels = torch.arange(bins, dtype=dtype, device=self.device) / (bins - 1)
 
@@ -4488,9 +4464,16 @@ class TorchSegmenter2(BaseSegmenter):
             )
 
             best_idx = criterion.argmin() + 1
-            threshold = bin_levels[best_idx]
 
-            mask = (gray > threshold).to(dtype)
+            threshold_fp32 = bin_levels.gather(0, best_idx)
+            threshold = threshold_fp32.to(dtype)
+
+            mask_raw = (gray > threshold).to(dtype)
+            mask = torch.where(
+                total >= 1e-8,
+                mask_raw,
+                torch.zeros_like(gray, dtype=dtype)
+            )
 
         if not torch.compiler.is_compiling() and start_time is not None:
             exec_time: float = time.time() - start_time
@@ -4632,9 +4615,6 @@ class TorchSegmenter2(BaseSegmenter):
         gray_for_hist = gray.float() if gray.dtype in (torch.float16, torch.bfloat16) else gray
         hist = torch.histc(gray_for_hist, bins=256, min=0.0, max=1.0)
         total = hist.sum()
-        if total < 1e-8:
-            return torch.zeros_like(gray).unsqueeze(0).unsqueeze(0)
-
         pdf = hist / total
 
         # === ВЕКТОРИЗОВАННАЯ ЭНТРОПИЯ КАПУРА ===
@@ -4658,9 +4638,15 @@ class TorchSegmenter2(BaseSegmenter):
 
             best_t = total_entropy.argmax() + 1
             bin_levels = torch.arange(bins, dtype=dtype, device=self.device) / (bins - 1)
-            threshold = bin_levels[best_t]
+            threshold_fp32 = bin_levels.gather(0, best_t)
+            threshold = threshold_fp32.to(dtype)
 
-            mask = (gray > threshold).to(dtype)
+            mask_raw = (gray > threshold).to(dtype)
+            mask = torch.where(
+                total >= 1e-8,
+                mask_raw,
+                torch.zeros_like(gray, dtype=dtype)
+            )
 
         if not torch.compiler.is_compiling() and start_time is not None:
             exec_time: float = time.time() - start_time
@@ -7127,7 +7113,7 @@ class TorchSegmenter2(BaseSegmenter):
                 sobel_x, sobel_y = self._prepare_kernel_for_conv((sobel_x, sobel_y), gray.dtype)
                 gx = self._safe_conv2d(gray, sobel_x, padding=1)
                 gy = self._safe_conv2d(gray, sobel_y, padding=1)
-                magnitude = torch.sqrt(gx.square() + gy.square())
+                magnitude = torch.sqrt(gx.square() + gy.square() + 1e-8)
                 direction_rad = torch.atan2(gy, gx)  # Радианы для внутренних вычислений
                 direction_deg = direction_rad * 180.0 / torch.pi  # Градусы для фильтрации по углу
 

@@ -71,8 +71,6 @@ from matplotlib import colormaps
 from tqdm import tqdm
 from datetime import datetime
 
-# import re
-
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -163,19 +161,19 @@ DEFAULT_IMAGE_SIZE: Tuple[int, int] = (512, 512)
 """Размер по умолчанию для ресайза изображений, dtype=Tuple[int, int]."""
 
 TARGET_METHODS_FOR_RESEARCH: List[str] = [
-    # "global_thresholding",
-    # "adaptive_thresholding",
-    # "otsu_thresholding",
-    # "threshold_niblack",
-    # "threshold_sauvola",
+    "global_thresholding",
+    "adaptive_thresholding",
+    "otsu_thresholding",
+    "threshold_niblack",
+    "threshold_sauvola",
     "threshold_bernsen",
-    # "threshold_phansalkar",
-    # "threshold_percentile",
-    # "threshold_kittler_illingworth",
-    # "threshold_entropy_kapur",
-    # "threshold_triangle",
+    "threshold_phansalkar",
+    "threshold_percentile",
+    "threshold_kittler_illingworth",
+    "threshold_entropy_kapur",
+    "threshold_triangle",
     # "threshold_multi_otsu",
-    # "threshold_local_contrast",
+    "threshold_local_contrast",
     # "sobel_edge",
     # "canny_edge",
     # "prewitt_edge",
@@ -198,8 +196,6 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 torch.backends.cudnn.benchmark = True
 warnings.filterwarnings("ignore")
-
-num_classes: int = 150
 
 DEFAULT_BENCHMARK_CONFIG: Dict[str, Any] = {
     "enable_trt_ep_benchmark": True,
@@ -354,7 +350,8 @@ def get_compile_config(method_name: str, device: torch.device) -> Dict[str, Any]
         "global_thresholding",
         "otsu_thresholding",
         "adaptive_thresholding",
-        "sobel_edge",
+        # "threshold_bernsen",
+        # "sobel_edge",
         # "prewitt_edge",
         # "scharr_edge",
         # "laplacian_edge",
@@ -448,7 +445,7 @@ def main(use_optimizations: bool = True) -> Tuple[
     # 1. КОНФИГУРАЦИЯ И ИНИЦИАЛИЗАЦИЯ
     # ──────────────────────────────────────────────────────────────
     config: Dict[str, Any] = _load_config()
-    test_neural_logic: bool = False
+    test_neural_logic: bool = True
     # test_classic_logic: bool = config["test_settings"]["test_classic_logic"]
     test_classic_logic: bool = True
     use_torch_v1: bool = True
@@ -526,13 +523,13 @@ def main(use_optimizations: bool = True) -> Tuple[
     # 4. ОПЦИОНАЛЬНЫЕ БЛОКИ (вынесены в функции)
     # ──────────────────────────────────────────────────────────────
 
-    if test_classic_logic:
-        print("🔬 ИССЛЕДОВАНИЕ: Мульти-бэкенд бенчмарк (PyTorch / ONNX / TensorRT)")
-        precision_benchmark_result: Optional[BenchmarkResult] = _run_multi_backend_precision_benchmark(
-            tester, first_img_pil
-        )
-        if precision_benchmark_result is not None:
-            print(precision_benchmark_result)
+    # if test_classic_logic:
+    #     print("🔬 ИССЛЕДОВАНИЕ: Мульти-бэкенд бенчмарк (PyTorch / ONNX / TensorRT)")
+    #     precision_benchmark_result: Optional[BenchmarkResult] = _run_multi_backend_precision_benchmark(
+    #         tester, first_img_pil
+    #     )
+    #     if precision_benchmark_result is not None:
+    #         print(precision_benchmark_result)
 
     # print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
     # print("   (нажмите Ctrl+C для отмены, если нужно)")
@@ -547,8 +544,24 @@ def main(use_optimizations: bool = True) -> Tuple[
     #     _run_profiling_demo(tester, test_images, device)
 
     # # 4.2 Бенчмарк точностей (опционально, медленно)
+    # print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    # print("   (нажмите Ctrl+C для отмены, если нужно)")
+    # try:
+    #     time.sleep(15)
+    # except KeyboardInterrupt:
+    #     logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+    #     return tester, None, None
+
     # if enable_benchmark_precision and test_classic_logic and use_torch_v2:
     #     _run_precision_benchmark_demo(tester, test_images)
+
+    #     print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    #     print("   (нажмите Ctrl+C для отмены, если нужно)")
+    #     try:
+    #         time.sleep(15)
+    #     except KeyboardInterrupt:
+    #         logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+    #         return tester, None, None
 
     #     print("\n" + "=" * 60)
     #     print("⚡ БЕНЧМАРК ТОЧНОСТЕЙ: fp32 / fp16 / bf16")
@@ -571,6 +584,14 @@ def main(use_optimizations: bool = True) -> Tuple[
     #     print(f"🧪 Выбрано методов для бенчмарка: {len(target_methods)}")
     #     print(f"📋 Список методов: {target_methods}")
 
+    #     print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    #     print("   (нажмите Ctrl+C для отмены, если нужно)")
+    #     try:
+    #         time.sleep(15)
+    #     except KeyboardInterrupt:
+    #         logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+    #         return tester, None, None
+
     #     if target_methods:
     #         try:
     #             os.makedirs("./data/reports/precision", exist_ok=True)
@@ -589,7 +610,15 @@ def main(use_optimizations: bool = True) -> Tuple[
     #     else:
     #         logger.warning("⚠️ Методы Torch v2 не найдены. Пропускаем бенчмарк точностей.")
 
-    # 4.3 Бенчмарк производительности (cold/hot)
+    print("\n⏳ Пауза 15 секунд перед запуском бенчмарка...")
+    print("   (нажмите Ctrl+C для отмены, если нужно)")
+    try:
+        time.sleep(15)
+    except KeyboardInterrupt:
+        logger.warning("\n⚠️  Бенчмарк пропущен по запросу пользователя")
+        return tester, None, None
+
+    # # 4.3 Бенчмарк производительности (cold/hot)
     # if test_classic_logic:
     #     perf_results: Optional[pd.DataFrame] = run_performance_benchmark(
     #         tester=tester,
@@ -599,11 +628,11 @@ def main(use_optimizations: bool = True) -> Tuple[
     #     )
     #     print(perf_results)
 
-    # 4.4 Запускает тестирование нейросетевых методов сегментации.
+    # # 4.4 Запускает тестирование нейросетевых методов сегментации.
     # if test_neural_logic:
     #     _run_neural_segmentation_tests(tester, device)
 
-    # # 4.5 Нейросетевой бенчмарк
+    # # # 4.5 Нейросетевой бенчмарк
     # if test_neural_logic:
     #     neural_results: Optional[Dict[str, Any]] = run_neural_segmentation_benchmark(
     #         device=device,
@@ -611,22 +640,22 @@ def main(use_optimizations: bool = True) -> Tuple[
     #     )
     #     print(neural_results)
 
-    #  4.6 Валидация реализаций
-    if test_classic_logic:
-        print("\n🔬 ИССЛЕДОВАНИЕ: Валидация с поддержкой бэкендов")
-        validation_results: Optional[Dict[str, Any]] = run_implementation_validation(
-            test_images=test_images,
-            output_dir="./data/validation_with_backends",
-            image_name="countryside",
-            include_backends=True,  # Включаем ONNX/TRT
-            onnx_dir="./exported_models/onnx",
-            trt_dir="./exported_models/tensorrt",
-            input_shape=(1, 3, 512, 512),
-            torch2_precisions=["bf16", "fp16", "fp32"],
-        )
-        if validation_results:
-            print(f"✅ Валидация завершена: {len(validation_results['all_results'])} конфигураций")
-            print(validation_results)
+    # #  4.6 Валидация реализаций
+    # if test_classic_logic:
+    #     print("\n🔬 ИССЛЕДОВАНИЕ: Валидация с поддержкой бэкендов")
+    #     validation_results: Optional[Dict[str, Any]] = run_implementation_validation(
+    #         test_images=test_images,
+    #         output_dir="./data/validation_with_backends",
+    #         image_name="nature",
+    #         include_backends=True,  # Включаем ONNX/TRT
+    #         onnx_dir="./exported_models/onnx",
+    #         trt_dir="./exported_models/tensorrt",
+    #         input_shape=(1, 3, 512, 512),
+    #         torch2_precisions=["bf16", "fp16", "fp32"],
+    #     )
+    #     if validation_results:
+    #         print(f"✅ Валидация завершена: {len(validation_results['all_results'])} конфигураций")
+    #         print(validation_results)
 
     # 4.7 Матричное сравнение
     # if test_classic_logic:
@@ -635,7 +664,7 @@ def main(use_optimizations: bool = True) -> Tuple[
     #         cv2_methods=cv2_methods,
     #         sklearn_methods=sklearn_methods,
     #         torch_methods=torch_methods,
-    #         reference_method="global_thresholding_CV2",
+    #         reference_method="threshold_multi_otsu_CV2",
     #         include_backends=True,
     #         tester=tester
     #     )
@@ -719,7 +748,7 @@ def main(use_optimizations: bool = True) -> Tuple[
     print(f"✓ Изображений обработано: {len(test_images)}")
     print("✓ Результаты в: ./data/")
 
-    return tester, results_df, None
+    return tester, None, None
 
 
 def _extract_base_method(
@@ -1196,21 +1225,21 @@ def _create_cv2_methods() -> SegmenterDict:
     """
     return {
         # --- Пороговые методы (Threshold) ---
-        # "global_thresholding_CV2": OpenCVSegmenter("global_thresholding", threshold=0.5),
-        # "otsu_thresholding_CV2": OpenCVSegmenter("otsu_thresholding"),
-        # "adaptive_thresholding_CV2": OpenCVSegmenter("adaptive_thresholding", block_size=11, C=2),
-        # "threshold_niblack_CV2": OpenCVSegmenter("threshold_niblack", window_size=15, k=-0.2),
-        # "threshold_sauvola_CV2": OpenCVSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
+        "global_thresholding_CV2": OpenCVSegmenter("global_thresholding", threshold=0.5),
+        "otsu_thresholding_CV2": OpenCVSegmenter("otsu_thresholding"),
+        "adaptive_thresholding_CV2": OpenCVSegmenter("adaptive_thresholding", block_size=11, C=2),
+        "threshold_niblack_CV2": OpenCVSegmenter("threshold_niblack", window_size=15, k=-0.2),
+        "threshold_sauvola_CV2": OpenCVSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
         "threshold_bernsen_CV2": OpenCVSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
-        # "threshold_phansalkar_CV2": OpenCVSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
-        # "threshold_kittler_illingworth_CV2": OpenCVSegmenter("threshold_kittler_illingworth", num_bins=256),
-        # "threshold_entropy_kapur_CV2": OpenCVSegmenter("threshold_entropy_kapur", num_bins=256),
-        # "threshold_triangle_CV2": OpenCVSegmenter("threshold_triangle", num_bins=256),
-        # "threshold_multi_otsu_CV2": OpenCVSegmenter("threshold_multi_otsu", n_thresholds=1),
-        # "threshold_percentile_CV2": OpenCVSegmenter("threshold_percentile", percentile=90),
-        # "threshold_local_contrast_CV2": OpenCVSegmenter(
-        #     "threshold_local_contrast", window_size=15, contrast_factor=0.2
-        # ),
+        "threshold_phansalkar_CV2": OpenCVSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
+        "threshold_kittler_illingworth_CV2": OpenCVSegmenter("threshold_kittler_illingworth", num_bins=256),
+        "threshold_entropy_kapur_CV2": OpenCVSegmenter("threshold_entropy_kapur", num_bins=256),
+        "threshold_triangle_CV2": OpenCVSegmenter("threshold_triangle", num_bins=256),
+        # "threshold_multi_otsu_CV2": OpenCVSegmenter("threshold_multi_otsu", n_thresholds=2),
+        "threshold_percentile_CV2": OpenCVSegmenter("threshold_percentile", percentile=90),
+        "threshold_local_contrast_CV2": OpenCVSegmenter(
+            "threshold_local_contrast", window_size=15, contrast_factor=0.2
+        ),
         # # --- Граничные методы (Edge) ---
         # "sobel_edge_CV2": OpenCVSegmenter("sobel_edge", threshold=0.1),
         # "canny_edge_CV2": OpenCVSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
@@ -1262,31 +1291,31 @@ def _create_sklearn_methods() -> SegmenterDict:
     """
     return {
         # --- Пороговые методы (Threshold) ---
-        # "global_thresholding_Sklearn": SklearnSegmenter("global_thresholding", threshold=0.5, postprocess=False),
-        # "otsu_thresholding_Sklearn": SklearnSegmenter("otsu_thresholding", postprocess=False),
-        # "adaptive_thresholding_Sklearn": SklearnSegmenter(
-        #     "adaptive_thresholding", block_size=11, C=2, postprocess=False
-        # ),
-        # "threshold_niblack_Sklearn": SklearnSegmenter("threshold_niblack", window_size=15, k=-0.2, postprocess=False),
-        # "threshold_sauvola_Sklearn": SklearnSegmenter(
-        #     "threshold_sauvola", window_size=15, k=0.5, r=128, postprocess=False
-        # ),
+        "global_thresholding_Sklearn": SklearnSegmenter("global_thresholding", threshold=0.5, postprocess=False),
+        "otsu_thresholding_Sklearn": SklearnSegmenter("otsu_thresholding", postprocess=False),
+        "adaptive_thresholding_Sklearn": SklearnSegmenter(
+            "adaptive_thresholding", block_size=11, C=2, postprocess=False
+        ),
+        "threshold_niblack_Sklearn": SklearnSegmenter("threshold_niblack", window_size=15, k=-0.2, postprocess=False),
+        "threshold_sauvola_Sklearn": SklearnSegmenter(
+            "threshold_sauvola", window_size=15, k=0.5, r=128, postprocess=False
+        ),
         "threshold_bernsen_Sklearn": SklearnSegmenter(
             "threshold_bernsen", window_size=15, contrast_threshold=0.15, postprocess=False
         ),
-        # "threshold_phansalkar_Sklearn": SklearnSegmenter(
-        #     "threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5, postprocess=False
-        # ),
-        # "threshold_kittler_illingworth_Sklearn": SklearnSegmenter(
-        #     "threshold_kittler_illingworth", num_bins=256, postprocess=False
-        # ),
-        # "threshold_entropy_kapur_Sklearn": SklearnSegmenter("threshold_entropy_kapur", num_bins=256, postprocess=False),
-        # "threshold_triangle_Sklearn": SklearnSegmenter("threshold_triangle", num_bins=256, postprocess=False),
-        # "threshold_multi_otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=1, postprocess=False),
-        # "threshold_percentile_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90, postprocess=False),
-        # "threshold_local_contrast_Sklearn": SklearnSegmenter(
-        #     "threshold_local_contrast", window_size=15, contrast_factor=0.2, postprocess=False
-        # ),
+        "threshold_phansalkar_Sklearn": SklearnSegmenter(
+            "threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5, postprocess=False
+        ),
+        "threshold_kittler_illingworth_Sklearn": SklearnSegmenter(
+            "threshold_kittler_illingworth", num_bins=256, postprocess=False
+        ),
+        "threshold_entropy_kapur_Sklearn": SklearnSegmenter("threshold_entropy_kapur", num_bins=256, postprocess=False),
+        "threshold_triangle_Sklearn": SklearnSegmenter("threshold_triangle", num_bins=256, postprocess=False),
+        # "threshold_multi_otsu_Sklearn": SklearnSegmenter("threshold_multi_otsu", n_thresholds=2, postprocess=False),
+        "threshold_percentile_Sklearn": SklearnSegmenter("threshold_percentile", percentile=90, postprocess=False),
+        "threshold_local_contrast_Sklearn": SklearnSegmenter(
+            "threshold_local_contrast", window_size=15, contrast_factor=0.2, postprocess=False
+        ),
         # # # --- Граничные методы (Edge) ---
         # "sobel_edge_Sklearn": SklearnSegmenter("sobel_edge", threshold=0.1, postprocess=False),
         # "canny_edge_Sklearn": SklearnSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0, postprocess=False),
@@ -1396,47 +1425,47 @@ def _create_torch_methods_factory(
 
     # Базовые списки методов
     threshold_methods: List[Tuple[str, str, Dict[str, Any]]] = [
-        # ("global_thresholding_Torch", "global_thresholding", {"threshold": 0.5}),
-        # ("otsu_thresholding_Torch", "otsu_thresholding", {}),
-        # (
-        #     "adaptive_thresholding_Torch",
-        #     "adaptive_thresholding",
-        #     {"block_size": 11, "C": 2},
-        # ),
-        # (
-        #     "threshold_niblack_Torch",
-        #     "threshold_niblack",
-        #     {"window_size": 15, "k": -0.2},
-        # ),
-        # (
-        #     "threshold_sauvola_Torch",
-        #     "threshold_sauvola",
-        #     {"window_size": 15, "k": 0.5, "r": 128},
-        # ),
+        ("global_thresholding_Torch", "global_thresholding", {"threshold": 0.5}),
+        ("otsu_thresholding_Torch", "otsu_thresholding", {}),
+        (
+            "adaptive_thresholding_Torch",
+            "adaptive_thresholding",
+            {"block_size": 11, "C": 2},
+        ),
+        (
+            "threshold_niblack_Torch",
+            "threshold_niblack",
+            {"window_size": 15, "k": -0.2},
+        ),
+        (
+            "threshold_sauvola_Torch",
+            "threshold_sauvola",
+            {"window_size": 15, "k": 0.5, "r": 128},
+        ),
         (
             "threshold_bernsen_Torch",
             "threshold_bernsen",
             {"window_size": 15, "contrast_threshold": 0.15},
         ),
-        # (
-        #     "threshold_phansalkar_Torch",
-        #     "threshold_phansalkar",
-        #     {"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
-        # ),
-        # (
-        #     "threshold_kittler_illingworth_Torch",
-        #     "threshold_kittler_illingworth",
-        #     {"num_bins": 256},
-        # ),
-        # ("threshold_entropy_kapur_Torch", "threshold_entropy_kapur", {"num_bins": 256}),
-        # ("threshold_triangle_Torch", "threshold_triangle", {"num_bins": 256}),
-        # ("threshold_multi_otsu_Torch", "threshold_multi_otsu", {"n_thresholds": 1}),
-        # ("threshold_percentile_Torch", "threshold_percentile", {"percentile": 90}),
-        # (
-        #     "threshold_local_contrast_Torch",
-        #     "threshold_local_contrast",
-        #     {"window_size": 15, "contrast_factor": 0.2, "quantile": 0.8416},
-        # ),
+        (
+            "threshold_phansalkar_Torch",
+            "threshold_phansalkar",
+            {"window_size": 15, "k": 0.25, "r": 128.0, "m": 0.5},
+        ),
+        (
+            "threshold_kittler_illingworth_Torch",
+            "threshold_kittler_illingworth",
+            {"num_bins": 256},
+        ),
+        ("threshold_entropy_kapur_Torch", "threshold_entropy_kapur", {"num_bins": 256}),
+        ("threshold_triangle_Torch", "threshold_triangle", {"num_bins": 256}),
+        # ("threshold_multi_otsu_Torch", "threshold_multi_otsu", {"n_thresholds": 2}),
+        ("threshold_percentile_Torch", "threshold_percentile", {"percentile": 90}),
+        (
+            "threshold_local_contrast_Torch",
+            "threshold_local_contrast",
+            {"window_size": 15, "contrast_factor": 0.2, "quantile": 0.8416},
+        ),
     ]
 
     edge_methods: List[Tuple[str, str, Dict[str, Any]]] = [
@@ -1511,20 +1540,20 @@ def _create_torch_methods() -> SegmenterDict:
     """
     return {
         # --- Пороговые методы (Threshold) ---
-        # "Global_Threshold_Torch": TorchSegmenter("global_thresholding", threshold=0.5),
-        # "Otsu_Thresholding_Torch": TorchSegmenter("otsu_thresholding"),
-        # "Adaptive_Threshold_Torch": TorchSegmenter("adaptive_thresholding", block_size=11, C=2),
-        # "Niblack_Thresholding_Torch": TorchSegmenter("threshold_niblack", window_size=15, k=-0.2),
-        # "Sauvola_Thresholding_Torch": TorchSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
+        "Global_Threshold_Torch": TorchSegmenter("global_thresholding", threshold=0.5),
+        "Otsu_Thresholding_Torch": TorchSegmenter("otsu_thresholding"),
+        "Adaptive_Threshold_Torch": TorchSegmenter("adaptive_thresholding", block_size=11, C=2),
+        "Niblack_Thresholding_Torch": TorchSegmenter("threshold_niblack", window_size=15, k=-0.2),
+        "Sauvola_Thresholding_Torch": TorchSegmenter("threshold_sauvola", window_size=15, k=0.5, r=128),
         "Bernsen_Thresholding_Torch": TorchSegmenter("threshold_bernsen", window_size=15, contrast_threshold=0.15),
-        # "Phansalkar_Thresholding_Torch": TorchSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
-        # "Kittler_Illingworth_Torch": TorchSegmenter("threshold_kittler_illingworth", num_bins=256),
-        # "Kapur_Entropy_Torch": TorchSegmenter("threshold_entropy_kapur", num_bins=256),
-        # "Triangle_Threshold_Torch": TorchSegmenter("threshold_triangle", num_bins=256),
-        # "Multi_Otsu_Torch": TorchSegmenter("threshold_multi_otsu", n_thresholds=1),
-        # "Percentile_Threshold_Torch": TorchSegmenter("threshold_percentile", percentile=90),
-        # "Local_Contrast_Torch": TorchSegmenter("threshold_local_contrast", window_size=15, contrast_factor=0.2, quantile=0.8416),
-        # # # --- Граничные методы (Edge) ---
+        "Phansalkar_Thresholding_Torch": TorchSegmenter("threshold_phansalkar", window_size=15, k=0.25, r=128.0, m=0.5),
+        "Kittler_Illingworth_Torch": TorchSegmenter("threshold_kittler_illingworth", num_bins=256),
+        "Kapur_Entropy_Torch": TorchSegmenter("threshold_entropy_kapur", num_bins=256),
+        "Triangle_Threshold_Torch": TorchSegmenter("threshold_triangle", num_bins=256),
+        # "Multi_Otsu_Torch": TorchSegmenter("threshold_multi_otsu", n_thresholds=2),
+        "Percentile_Threshold_Torch": TorchSegmenter("threshold_percentile", percentile=90),
+        "Local_Contrast_Torch": TorchSegmenter("threshold_local_contrast", window_size=15, contrast_factor=0.2, quantile=0.8416),
+        # # --- Граничные методы (Edge) ---
         # "Sobel_Torch": TorchSegmenter("sobel_edge", threshold=0.1),
         # "Canny_Torch": TorchSegmenter("canny_edge", low=0.1, high=0.3, sigma=1.0),
         # "Prewitt_Torch": TorchSegmenter("prewitt_edge", threshold=0.1),
@@ -2327,15 +2356,16 @@ def run_performance_benchmark(
         print(f"   💾 Отчёт: {report_path}")
 
         # Синхронизация CUDA
-        if torch.cuda.is_available():
-            _safe_cuda_synchronize()
+        # if torch.cuda.is_available():
+        #     _safe_cuda_synchronize()
 
     if torch.cuda.is_available():
         print("\n🔄 Сброс состояния CUDA после warmup...")
         try:
             torch.cuda.empty_cache()
             torch.cuda.reset_peak_memory_stats()
-            _safe_cuda_synchronize()
+            torch.cuda.synchronize()
+            # _safe_cuda_synchronize()
             print("   ✅ CUDA состояние сброшено")
         except Exception as e:
             logger.warning(f"⚠️  Не удалось полностью сбросить CUDA: {e}")
@@ -2364,7 +2394,8 @@ def run_performance_benchmark(
             # 🔧 Попытка восстановления
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-                _safe_cuda_synchronize()
+                torch.cuda.synchronize()
+                # _safe_cuda_synchronize()
             continue
 
         df_cold_loaded: Optional[pd.DataFrame] = cold_dfs.get(img_name)
@@ -5339,9 +5370,9 @@ def _load_images_without_ground_truth(test_images: TestImagesDict) -> None:
     """
     logger.warning("⚠️ Не удалось загрузить реальные GT. Используем только изображения.")
     image_sources: Dict[str, str] = {
-        "countryside": "https://i.pinimg.com/736x/17/e7/fc/17e7fc299466b2afd989e709fe7c9815.jpg",
+        # "countryside": "https://i.pinimg.com/736x/17/e7/fc/17e7fc299466b2afd989e709fe7c9815.jpg",
         # "nature": "https://i.pinimg.com/736x/f7/5a/f2/f75af26820b50c24600f50f3998eb02f.jpg",
-        # "architecture": "https://i.pinimg.com/736x/86/f6/07/86f60748d5d9ae4cb9092018d1321648.jpg",
+        "architecture": "https://i.pinimg.com/736x/86/f6/07/86f60748d5d9ae4cb9092018d1321648.jpg",
         # "trucks": "https://www.shutterstock.com/shutterstock/videos/1106252821/thumb/1.jpg?ip=x480",
         # "traffic": "https://images.pond5.com/pov-car-and-truck-traffic-footage-190002081_iconl.jpeg",
         # "mountain": "https://i.pinimg.com/736x/17/66/c4/1766c4f667af39f91172ef8eb21ab18a.jpg",

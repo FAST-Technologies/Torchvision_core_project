@@ -1409,7 +1409,6 @@ SOFTWARE.
 - [HuggingFace Transformers](https://huggingface.co/transformers/) — pretrained models
 - [Segmentation Models PyTorch](https://github.com/qubvel/segmentation_models.pytorch) — segmentation architectures
 - [Ultralytics](https://github.com/ultralytics) — SAM implementations
-- [ADE20K Dataset](http://sceneparsing.csail.mit.edu/) — training dataset
 - [OpenCV](https://opencv.org/), [Scikit-learn](https://scikit-learn.org/) — classical algorithms
 - [Numba](https://numba.pydata.org/) — JIT compilation for CPU optimizations
 

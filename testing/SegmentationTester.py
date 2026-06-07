@@ -1456,12 +1456,12 @@ class SegmentationTester:
                 input_arg_for_method = image_array
 
             for run in range(n_runs):
-                if str(self.device) == "cuda":
-                    torch.cuda.synchronize()
-                start_time: float = time.perf_counter()
-                result: np.ndarray
-                mask: np.ndarray
                 try:
+                    if str(self.device) == "cuda":
+                        torch.cuda.synchronize()
+                    start_time: float = time.perf_counter()
+                    result: np.ndarray
+                    mask: np.ndarray
                     result_opt: BinaryMask
                     mask_opt: Optional[ProbabilityMask]
                     is_trt_backend = method_name.endswith("_TRT") or "_TRT_" in method_name
@@ -1508,6 +1508,23 @@ class SegmentationTester:
                         h, w = image_array.shape[:2]
                         masks_list.append(np.zeros((h, w), dtype=np.uint8))
                         results_list.append(np.zeros((h, w), dtype=np.uint8))
+                except torch.AcceleratorError as e:
+                    if "illegal memory access" in str(e).lower():
+                        logger.error(f"❌ {method_name}: CUDA illegal memory access — пропускаем метод")
+                        # Критически важно: очистить контекст
+                        if torch.cuda.is_available():
+                            try:
+                                torch.cuda.empty_cache()
+                                torch.cuda.reset_peak_memory_stats()
+                                torch.cuda.synchronize()
+                            except:
+                                pass
+                        # Пропускаем все оставшиеся запуски этого метода
+                        times = [float('inf')] * n_runs
+                        break
+                    else:
+                        logger.warning(f"⚠️ {method_name}: {e}")
+                        continue
 
             mask_area: int = 0
             total_pixels: int = 1
@@ -1716,10 +1733,46 @@ class SegmentationTester:
         os.makedirs(comp_dir, exist_ok=True)
 
         # График 1: Время выполнения
-        plt.figure(figsize=(12, 6))
-        bars: plt.BarContainer = plt.barh(df["Method"], df["Mean_Time_s"])
-        plt.xlabel("Время выполнения (секунды)")
-        plt.title("Бенчмарк методов сегментации: Время выполнения")
+        # plt.figure(figsize=(12, 6))
+        # bars: plt.BarContainer = plt.barh(df["Method"], df["Mean_Time_s"])
+        # plt.xlabel("Время выполнения (секунды)")
+        # plt.title("Бенчмарк методов сегментации: Время выполнения")
+
+        # if "Std_Time_s" in df.columns:
+        #     plt.errorbar(
+        #         df["Mean_Time_s"],
+        #         df["Method"],
+        #         xerr=df["Std_Time_s"],
+        #         fmt="none",
+        #         ecolor="black",
+        #         capsize=5,
+        #     )
+
+        # max_time: float = df["Mean_Time_s"].max() if not df.empty else 0
+        # for bar, time_val in zip(bars, df["Mean_Time_s"]):
+        #     plt.text(
+        #         time_val + max_time * 0.01,
+        #         bar.get_y() + bar.get_height() / 2,
+        #         f"{time_val:.3f}s",
+        #         va="center",
+        #         fontsize=9,
+        #     )
+
+        # plt.tight_layout()
+        # bench_plot_path: str = os.path.join(comp_dir, "benchmark_time.png")
+        # plt.savefig(bench_plot_path, dpi=150, bbox_inches="tight")
+        # plt.close()
+
+        # График 1: Время выполнения
+        n_methods = len(df)
+        # 🔧 Динамическая высота: минимум 6 дюймов, +0.35 дюйма на каждый метод
+        fig_height = max(6, n_methods * 0.25)
+        plt.figure(figsize=(12, fig_height))
+
+        # 🔧 height=0.6 оставляет воздушные зазоры между барами
+        bars = plt.barh(df["Method"], df["Mean_Time_s"], height=0.6, color="steelblue", edgecolor="black", linewidth=0.5)
+        plt.xlabel("Время выполнения (секунды)", fontsize=11)
+        plt.title("Бенчмарк методов сегментации: Время выполнения", fontsize=13, pad=15)
 
         if "Std_Time_s" in df.columns:
             plt.errorbar(
@@ -1728,21 +1781,32 @@ class SegmentationTester:
                 xerr=df["Std_Time_s"],
                 fmt="none",
                 ecolor="black",
-                capsize=5,
+                capsize=3,          # 🔧 Уменьшили длину "усиков"
+                elinewidth=0.5,     # 🔧 Сделали линии тоньше
+                zorder=3
             )
 
-        max_time: float = df["Mean_Time_s"].max() if not df.empty else 0
+        max_time = df["Mean_Time_s"].max() if not df.empty else 0
         for bar, time_val in zip(bars, df["Mean_Time_s"]):
             plt.text(
-                time_val + max_time * 0.01,
+                time_val + max_time * 0.015,  # 🔧 Чуть больше отступ
                 bar.get_y() + bar.get_height() / 2,
                 f"{time_val:.3f}s",
                 va="center",
-                fontsize=9,
+                fontsize=8,
+                fontweight="bold"
             )
 
-        plt.tight_layout()
-        bench_plot_path: str = os.path.join(comp_dir, "benchmark_time.png")
+        # 🔧 Адаптивный размер шрифта подписей по оси Y
+        y_fontsize = 10 if n_methods < 30 else 8 if n_methods < 70 else 7
+        plt.yticks(fontsize=y_fontsize)
+
+        # 🔧 Включаем легкую сетку для удобства чтения
+        plt.grid(axis="x", alpha=0.3, linestyle="--")
+        plt.gca().invert_yaxis()  # 🔧 Самый быстрый метод будет сверху (опционально)
+
+        plt.tight_layout(pad=1.0, h_pad=0.5, w_pad=1.0)
+        bench_plot_path = os.path.join(comp_dir, "benchmark_time.png")
         plt.savefig(bench_plot_path, dpi=150, bbox_inches="tight")
         plt.close()
 
@@ -1757,17 +1821,17 @@ class SegmentationTester:
                 c=range(len(df)),
                 cmap="viridis",
             )
-            for i, (x, y, method) in enumerate(zip(df["Mean_Time_s"], df["Mask_Percentage"], df["Method"])):
-                plt.annotate(
-                    method,
-                    (x, y),
-                    textcoords="offset points",
-                    xytext=(10, 0),
-                    ha="left",
-                    va="center",
-                    fontsize=9,
-                    rotation=-90,
-                )
+            # for i, (x, y, method) in enumerate(zip(df["Mean_Time_s"], df["Mask_Percentage"], df["Method"])):
+            #     plt.annotate(
+            #         method,
+            #         (x, y),
+            #         textcoords="offset points",
+            #         xytext=(10, 0),
+            #         ha="left",
+            #         va="center",
+            #         fontsize=9,
+            #         rotation=-90,
+            #     )
 
             plt.xlabel("Время выполнения (секунды)")
             plt.ylabel("Площадь маски (%)")
@@ -1917,8 +1981,8 @@ class SegmentationTester:
             output_dir: Базовая директория.
             comp_dir: Директория для сохранения превью.
         """
-        images_dir: str = os.path.join(output_dir, "images")
-        result_files: List[str] = [f for f in os.listdir(images_dir) if f.endswith("_result.jpg")]
+        images_dir: str = os.path.join(output_dir, "masks")
+        result_files: List[str] = [f for f in os.listdir(images_dir) if f.endswith("_mask.png")]
 
         if not result_files:
             return
@@ -1927,7 +1991,7 @@ class SegmentationTester:
         images: List[Image.Image] = []
         titles: List[str] = []
         for method in sorted_methods:
-            result_file: str = f"{method}_result.jpg"
+            result_file: str = f"{method}_mask.png"
             if result_file in result_files:
                 img_path: str = os.path.join(images_dir, result_file)
                 img: Image.Image = Image.open(img_path)

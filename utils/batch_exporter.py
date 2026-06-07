@@ -160,19 +160,19 @@ PrecisionType: TypeAlias = Literal["fp32", "fp16", "bf16"]
 # ──────────────────────────────────────────────────────────────────────────────
 # Списки методов для экспорта
 THRESHOLD_METHODS: List[str] = [
-    # "global_thresholding",
-    # "otsu_thresholding",
-    # "adaptive_thresholding",
-    # "threshold_niblack",
-    # "threshold_sauvola",
+    "global_thresholding",
+    "otsu_thresholding",
+    "adaptive_thresholding",
+    "threshold_niblack",
+    "threshold_sauvola",
     "threshold_bernsen",
-    # "threshold_phansalkar",
-    # "threshold_percentile",
-    # "threshold_kittler_illingworth",
-    # "threshold_entropy_kapur",
-    # "threshold_triangle",
+    "threshold_phansalkar",
+    "threshold_percentile",
+    "threshold_kittler_illingworth",
+    "threshold_entropy_kapur",
+    "threshold_triangle",
     # "threshold_multi_otsu",
-    # "threshold_local_contrast",
+    "threshold_local_contrast",
 ]
 """Список пороговых методов сегментации, dtype=List[str]."""
 
